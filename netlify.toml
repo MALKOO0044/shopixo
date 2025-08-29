@@ -1,0 +1,11 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  # Update after deploy if you attach a custom domain
+  NEXT_PUBLIC_SITE_URL = "https://shopixo.vercel.app"
+
+# Enable Next.js SSR on Netlify
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
