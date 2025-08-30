@@ -1,14 +1,24 @@
 import Image from "next/image";
 import { notFound } from "next/navigation";
-import { getProductBySlug } from "@/lib/products";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
 import { formatCurrency } from "@/lib/utils";
+import type { Product } from "@/lib/types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import AddToCart from "@/components/add-to-cart";
 import Ratings from "@/components/ratings";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
 export async function generateMetadata({ params }: { params: { slug: string } }) {
-  const product = getProductBySlug(params.slug);
+  const supabase = createServerComponentClient({ cookies });
+  const { data: product } = await supabase.from("products").select("*").eq("slug", params.slug).single();
   if (!product) return { title: "Product not found" };
   const url = `${siteUrl}/product/${product.slug}`;
   const image = product.images?.[0] ? `${siteUrl}${product.images[0]}` : undefined;
@@ -32,10 +42,11 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   };
 }
 
-export default function ProductPage({ params }: { params: { slug: string } }) {
-  const product = getProductBySlug(params.slug);
+export default async function ProductPage({ params }: { params: { slug: string } }) {
+  const supabase = createServerComponentClient({ cookies });
+  const { data: product } = await supabase.from("products").select<"*", Product>("*").eq("slug", params.slug).single();
   if (!product) return notFound();
-  const imagesFull = product.images.map((src) => `${siteUrl}${src}`);
+  const imagesFull = product.images.map((src: string) => `${siteUrl}${src}`);
   const productUrl = `${siteUrl}/product/${product.slug}`;
   return (
     <div className="container py-10">
@@ -96,19 +107,24 @@ export default function ProductPage({ params }: { params: { slug: string } }) {
           <p className="mt-4 text-slate-700">{product.description}</p>
           {product.variants?.length ? (
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              {product.variants.map((v) => (
-                <label key={v.name} className="block text-sm">
-                  <div className="mb-1 font-medium">{v.name}</div>
-                  <select className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30">
-                    {v.options.map((opt) => (
-                      <option key={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </label>
+              {product.variants.map((v: { name: string; options: string[] }) => (
+                <div key={v.name}>
+                  <label className="mb-2 block text-sm font-medium">{v.name}</label>
+                  <Select>
+                    <SelectTrigger>
+                      <SelectValue placeholder={`Select ${v.name.toLowerCase()}`} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {v.options.map((opt: string) => (
+                        <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               ))}
             </div>
           ) : null}
-          <AddToCart id={product.slug} title={product.title} price={product.price} image={product.images[0]} />
+          <AddToCart productId={product.id} />
           <div className="mt-8 text-sm text-slate-600">
             <p>• Free shipping on orders over $100</p>
             <p>• 30-day money-back guarantee</p>

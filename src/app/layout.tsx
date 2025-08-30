@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Header from "@/components/header";
 import Footer from "@/components/footer";
-import { CartProvider } from "@/components/cart-provider";
 import CookieConsent from "@/components/cookie-consent";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -35,12 +34,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.className} min-h-screen flex flex-col`}>
-        <CartProvider>
-          <Header />
+        <Header />
           <main className="flex-1">{children}</main>
           <Footer />
           <CookieConsent />
-        </CartProvider>
       </body>
     </html>
   );

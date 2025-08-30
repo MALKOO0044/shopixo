@@ -1,13 +1,24 @@
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+
 export const metadata = { title: "Account" };
 
-export default function AccountPage() {
+export default async function AccountPage() {
+  const supabase = createServerComponentClient({ cookies });
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (!session) {
+    redirect("/login");
+  }
+
   return (
     <div className="container max-w-2xl py-10">
       <h1 className="text-3xl font-bold">Your Account</h1>
-      <p className="mt-2 text-slate-600">Sign in, manage addresses, and view orders (NextAuth integration coming soon).</p>
+      <p className="mt-2 text-slate-600">Manage your account settings.</p>
       <div className="mt-6 rounded-xl border bg-white p-6 shadow-sm">
-        <button className="btn-primary" disabled>Sign in (disabled)</button>
-        <p className="mt-2 text-xs text-slate-500">Guest checkout is supported at checkout.</p>
+        <h3 className="text-lg font-semibold">Email Address</h3>
+        <p className="mt-1 text-slate-700">{session.user.email}</p>
       </div>
     </div>
   );

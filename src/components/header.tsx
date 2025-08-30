@@ -1,10 +1,18 @@
-"use client";
 import Link from "next/link";
-import { useState } from "react";
 import Logo from "@/components/logo";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
+import { getCart } from "@/lib/cart-actions";
+import { ShoppingCart } from "lucide-react";
+import MobileNav from "./mobile-nav";
 
-export default function Header() {
-  const [open, setOpen] = useState(false);
+export default async function Header() {
+  const supabase = createServerComponentClient({ cookies });
+  const { data: { session } } = await supabase.auth.getSession();
+  const cart = await getCart();
+  const totalQuantity = cart.reduce((acc, item) => acc + item.quantity, 0);
+
+  // Note: Mobile menu state will be handled separately
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-white/80 backdrop-blur">
       <div className="container flex h-16 items-center justify-between">
@@ -28,24 +36,37 @@ export default function Header() {
               className="w-56 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
             />
           </form>
-          <Link href="/cart" className="rounded-md px-3 py-2 text-sm font-medium hover:text-brand">Cart</Link>
-          <Link href="/account" className="rounded-md px-3 py-2 text-sm font-medium hover:text-brand">Account</Link>
-          <button className="md:hidden rounded-md px-3 py-2 text-sm font-medium" onClick={() => setOpen(!open)}>
-            Menu
-          </button>
+          <Link
+            href="/cart"
+            className="relative rounded-md px-3 py-2 text-sm font-medium hover:text-brand"
+          >
+            <ShoppingCart className="h-5 w-5" />
+            {totalQuantity > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-brand text-xs text-white">
+                {totalQuantity}
+              </span>
+            )}
+            <span className="sr-only">Cart, {totalQuantity} items</span>
+          </Link>
+          {session ? (
+            <>
+              <Link href={'/admin' as any} className="rounded-md px-3 py-2 text-sm font-medium hover:text-brand">
+                Admin
+              </Link>
+              <form action="/auth/signout" method="post">
+                <button type="submit" className="rounded-md px-3 py-2 text-sm font-medium hover:text-brand">
+                  Sign Out
+                </button>
+              </form>
+            </>
+          ) : (
+            <Link href={'/login' as any} className="rounded-md px-3 py-2 text-sm font-medium hover:text-brand">
+              Log In
+            </Link>
+          )}
+          <MobileNav />
         </div>
       </div>
-      {open && (
-        <div className="border-t bg-white md:hidden">
-          <nav className="container flex flex-col py-2 text-sm">
-            <Link href="/" className="px-3 py-2">Home</Link>
-            <Link href="/shop" className="px-3 py-2">Shop</Link>
-            <Link href="/about" className="px-3 py-2">About</Link>
-            <Link href="/contact" className="px-3 py-2">Contact</Link>
-            <Link href="/faq" className="px-3 py-2">FAQ</Link>
-          </nav>
-        </div>
-      )}
-    </header>
+          </header>
   );
 }

@@ -1,8 +1,10 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import TrustBadges from "@/components/trust-badges";
-import ProductCard from "@/components/product-card";
-import { products } from "@/lib/products";
+import ProductCard from "@/components/ProductCard";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
+import type { Product } from "@/lib/types";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
@@ -24,7 +26,9 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
-export default function HomePage() {
+export default async function HomePage() {
+  const supabase = createServerComponentClient({ cookies });
+  const { data: products } = await supabase.from("products").select("*").limit(4);
   return (
     <>
       <script
@@ -91,8 +95,8 @@ export default function HomePage() {
         <h2 className="text-2xl font-bold">Featured products</h2>
         <p className="mt-2 text-slate-600">Handpicked items loved by our customers.</p>
         <div className="mt-6 grid grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-4">
-          {products.slice(0, 4).map((p) => (
-            <ProductCard key={p.slug} product={p} />
+          {products?.map((p) => (
+            <ProductCard key={p.id} product={p as Product} />
           ))}
         </div>
       </section>
