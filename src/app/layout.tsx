@@ -2,6 +2,7 @@ import "@/app/globals.css";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Header from "@/components/header";
+import NavigationBar from "@/components/navigation-bar";
 import Footer from "@/components/footer";
 import CookieConsent from "@/components/cookie-consent";
 
@@ -35,6 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.className} min-h-screen flex flex-col`}>
         <Header />
+        <NavigationBar />
           <main className="flex-1">{children}</main>
           <Footer />
           <CookieConsent />

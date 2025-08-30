@@ -3,70 +3,55 @@ import Logo from "@/components/logo";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { getCart } from "@/lib/cart-actions";
-import { ShoppingCart } from "lucide-react";
-import MobileNav from "./mobile-nav";
+import { ShoppingCart, User, Search } from "lucide-react";
 
 export default async function Header() {
   const supabase = createServerComponentClient({ cookies });
   const { data: { session } } = await supabase.auth.getSession();
   const cart = await getCart();
-  const totalQuantity = cart.reduce((acc, item) => acc + item.quantity, 0);
+  const totalQuantity = cart?.reduce((acc, item) => acc + item.quantity, 0) ?? 0;
 
-  // Note: Mobile menu state will be handled separately
   return (
-    <header className="sticky top-0 z-40 w-full border-b bg-white/80 backdrop-blur">
-      <div className="container flex h-16 items-center justify-between">
-        <div className="flex items-center gap-6">
-          <Link href="/" aria-label="Shopixo home" className="flex items-center gap-2">
+    <header className="sticky top-0 z-40 w-full border-b bg-background">
+      <div className="container flex h-16 items-center">
+        {/* Left: Logo */}
+        <div className="flex items-center">
+          <Link href="/" aria-label="Shopixo home">
             <Logo />
           </Link>
-          <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
-            <Link href="/" className="hover:text-brand">Home</Link>
-            <Link href="/shop" className="hover:text-brand">Shop</Link>
-            <Link href="/about" className="hover:text-brand">About</Link>
-            <Link href="/contact" className="hover:text-brand">Contact</Link>
-            <Link href="/faq" className="hover:text-brand">FAQ</Link>
-          </nav>
         </div>
-        <div className="flex items-center gap-3">
-          <form action="/search" className="hidden sm:block">
+
+        {/* Center: Search Bar */}
+        <div className="flex-1 px-4 sm:px-8 lg:px-16">
+          <form action="/search" className="relative w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <input
               name="q"
-              placeholder="Search products..."
-              className="w-56 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+              placeholder="Search for products..."
+              className="w-full rounded-full border bg-muted/50 py-2 pl-10 pr-4 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </form>
+        </div>
+
+        {/* Right: Icons */}
+        <div className="flex items-center gap-4">
+          <Link href={session ? '/admin' : '/login'} className="flex items-center gap-2 text-sm font-medium hover:text-primary">
+            <User className="h-6 w-6" />
+          </Link>
           <Link
             href="/cart"
-            className="relative rounded-md px-3 py-2 text-sm font-medium hover:text-brand"
+            className="relative flex items-center gap-2 text-sm font-medium hover:text-primary"
           >
-            <ShoppingCart className="h-5 w-5" />
+            <ShoppingCart className="h-6 w-6" />
             {totalQuantity > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-brand text-xs text-white">
+              <span className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
                 {totalQuantity}
               </span>
             )}
             <span className="sr-only">Cart, {totalQuantity} items</span>
           </Link>
-          {session ? (
-            <>
-              <Link href={'/admin' as any} className="rounded-md px-3 py-2 text-sm font-medium hover:text-brand">
-                Admin
-              </Link>
-              <form action="/auth/signout" method="post">
-                <button type="submit" className="rounded-md px-3 py-2 text-sm font-medium hover:text-brand">
-                  Sign Out
-                </button>
-              </form>
-            </>
-          ) : (
-            <Link href={'/login' as any} className="rounded-md px-3 py-2 text-sm font-medium hover:text-brand">
-              Log In
-            </Link>
-          )}
-          <MobileNav />
         </div>
       </div>
-          </header>
+    </header>
   );
 }

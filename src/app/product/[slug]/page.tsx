@@ -1,131 +1,123 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import { notFound } from "next/navigation";
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
-import { formatCurrency } from "@/lib/utils";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { formatCurrency, cn } from "@/lib/utils";
 import type { Product } from "@/lib/types";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import AddToCart from "@/components/add-to-cart";
-import Ratings from "@/components/ratings";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+// --- Component for Product Gallery ---
+function ProductGallery({ images, title }: { images: string[]; title: string }) {
+  const [selectedImage, setSelectedImage] = useState(images[0]);
 
-export async function generateMetadata({ params }: { params: { slug: string } }) {
-  const supabase = createServerComponentClient({ cookies });
-  const { data: product } = await supabase.from("products").select("*").eq("slug", params.slug).single();
-  if (!product) return { title: "Product not found" };
-  const url = `${siteUrl}/product/${product.slug}`;
-  const image = product.images?.[0] ? `${siteUrl}${product.images[0]}` : undefined;
-  return {
-    title: product.title,
-    description: product.description,
-    alternates: { canonical: `/product/${product.slug}` },
-    openGraph: {
-      type: "product",
-      url,
-      title: product.title,
-      description: product.description,
-      images: image ? [{ url: image, alt: product.title }] : undefined,
-    },
-    twitter: {
-      card: "summary_large_image",
-      title: product.title,
-      description: product.description,
-      images: image ? [image] : undefined,
-    },
-  };
+  return (
+    <div>
+      <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100">
+        <Image src={selectedImage} alt={`Main image for ${title}`} fill className="object-cover" />
+      </div>
+      <div className="mt-4 grid grid-cols-5 gap-4">
+        {images.map((image, index) => (
+          <button
+            key={index}
+            onClick={() => setSelectedImage(image)}
+            className={cn(
+              "relative aspect-square w-full overflow-hidden rounded-md transition-all",
+              "ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+              selectedImage === image ? "ring-2 ring-primary" : "hover:opacity-80"
+            )}
+          >
+            <Image src={image} alt={`Thumbnail ${index + 1} for ${title}`} fill className="object-cover" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-export default async function ProductPage({ params }: { params: { slug: string } }) {
-  const supabase = createServerComponentClient({ cookies });
-  const { data: product } = await supabase.from("products").select<"*", Product>("*").eq("slug", params.slug).single();
-  if (!product) return notFound();
-  const imagesFull = product.images.map((src: string) => `${siteUrl}${src}`);
-  const productUrl = `${siteUrl}/product/${product.slug}`;
+// --- Component for Product Options ---
+function ProductOptions({ variants, onOptionChange }: { variants: any[]; onOptionChange: (name: string, value: string) => void }) {
+  return (
+    <div className="mt-6 space-y-6">
+      {variants.map((variant) => (
+        <div key={variant.name}>
+          <Label className="text-sm font-medium text-foreground">{variant.name}</Label>
+          <RadioGroup
+            defaultValue={variant.options[0]}
+            className="mt-2 flex flex-wrap gap-2"
+            onValueChange={(value: string) => onOptionChange(variant.name, value)}
+            name={variant.name}
+          >
+            {variant.options.map((option: string) => (
+              <div key={option}>
+                <RadioGroupItem value={option} id={`${variant.name}-${option}`} className="sr-only" />
+                <Label
+                  htmlFor={`${variant.name}-${option}`}
+                  className="cursor-pointer rounded-md border bg-card px-4 py-2 text-sm transition-colors hover:bg-accent data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
+                >
+                  {option}
+                </Label>
+              </div>
+            ))}
+          </RadioGroup>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// --- Main Product Page Component ---
+export default function ProductPage({ params }: { params: { slug: string } }) {
+  const [product, setProduct] = useState<Product | null>(null);
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
+  const supabase = createClientComponentClient();
+
+  useEffect(() => {
+    const fetchProduct = async () => {
+      const { data } = await supabase.from("products").select<"*", Product>("*").eq("slug", params.slug).single();
+      if (data) {
+        setProduct(data);
+        // Set initial options
+        const initialOptions: Record<string, string> = {};
+        data.variants?.forEach((v) => {
+          initialOptions[v.name] = v.options[0];
+        });
+        setSelectedOptions(initialOptions);
+      }
+    };
+    fetchProduct();
+  }, [params.slug, supabase]);
+
+  const handleOptionChange = (name: string, value: string) => {
+    setSelectedOptions(prev => ({ ...prev, [name]: value }));
+  };
+
+  if (!product) {
+    // You can return a loading skeleton here
+    return <div className="container py-10">Loading...</div>;
+  }
+
   return (
     <div className="container py-10">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
-            "@context": "https://schema.org",
-            "@type": "BreadcrumbList",
-            itemListElement: [
-              { "@type": "ListItem", position: 1, name: "Home", item: siteUrl },
-              { "@type": "ListItem", position: 2, name: "Shop", item: `${siteUrl}/shop` },
-              { "@type": "ListItem", position: 3, name: product.title, item: productUrl },
-            ],
-          }),
-        }}
-      />
-      <nav aria-label="Breadcrumb" className="mb-4 text-sm text-slate-600">
-        <a href="/" className="hover:underline">Home</a>
-        <span className="mx-2">/</span>
-        <a href="/shop" className="hover:underline">Shop</a>
-        <span className="mx-2">/</span>
-        <span className="text-slate-900">{product.title}</span>
-      </nav>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
-            "@context": "https://schema.org",
-            "@type": "Product",
-            name: product.title,
-            image: imagesFull,
-            description: product.description,
-            category: product.category,
-            brand: { "@type": "Brand", name: "Shopixo" },
-            offers: {
-              "@type": "Offer",
-              priceCurrency: "USD",
-              price: product.price,
-              availability: "https://schema.org/InStock",
-              url: productUrl,
-            },
-          }),
-        }}
-      />
       <div className="grid gap-10 lg:grid-cols-2">
+        <ProductGallery images={product.images} title={product.title} />
         <div>
-          <div className="relative aspect-square w-full overflow-hidden rounded-2xl bg-slate-100">
-            <Image src={product.images[0]} alt={product.title} fill className="object-cover" />
+          <h1 className="text-3xl font-bold text-foreground">{product.title}</h1>
+          <div className="mt-2">
+            <span className="text-2xl font-semibold text-primary">{formatCurrency(product.price)}</span>
           </div>
-        </div>
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900">{product.title}</h1>
-          <div className="mt-2 flex items-center gap-4">
-            <div className="text-2xl font-semibold">{formatCurrency(product.price)}</div>
-            <Ratings value={product.rating} />
-          </div>
-          <p className="mt-4 text-slate-700">{product.description}</p>
+          <p className="mt-4 text-muted-foreground">{product.description}</p>
+          
           {product.variants?.length ? (
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              {product.variants.map((v: { name: string; options: string[] }) => (
-                <div key={v.name}>
-                  <label className="mb-2 block text-sm font-medium">{v.name}</label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder={`Select ${v.name.toLowerCase()}`} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {v.options.map((opt: string) => (
-                        <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
-            </div>
+            <ProductOptions variants={product.variants} onOptionChange={handleOptionChange} />
           ) : null}
-          <AddToCart productId={product.id} />
-          <div className="mt-8 text-sm text-slate-600">
+
+          <AddToCart productId={product.id} selectedOptions={selectedOptions} />
+
+          <div className="mt-8 text-sm text-muted-foreground">
             <p>• Free shipping on orders over $100</p>
             <p>• 30-day money-back guarantee</p>
             <p>• Secure checkout via Stripe & PayPal</p>

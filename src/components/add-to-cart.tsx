@@ -16,12 +16,21 @@ function SubmitButton() {
   );
 }
 
-export default function AddToCart({ productId }: { productId: number }) {
+export default function AddToCart({ 
+  productId, 
+  selectedOptions 
+}: { 
+  productId: number, 
+  selectedOptions: Record<string, string> 
+}) {
   const [state, formAction] = useFormState(addItem, null);
 
   return (
     <form action={formAction} className="mt-6 flex items-stretch gap-4">
       <input type="hidden" name="productId" value={productId} />
+      {Object.entries(selectedOptions).map(([name, value]) => (
+        <input key={name} type="hidden" name={name} value={value} />
+      ))}
       <Input
         type="number"
         name="quantity"
