@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import Ratings from "@/components/ratings";
 import { formatCurrency } from "@/lib/utils";
-import type { Product } from "@/lib/products";
+import type { Product } from "@/lib/types";
 
 export default function ProductCard({ product }: { product: Product }) {
   return (

@@ -15,7 +15,7 @@ export default function ProductCard({ product }: ProductCardProps) {
         <CardHeader className="p-0">
           <div className="aspect-square relative">
             <Image
-              src={product.image || '/placeholder.svg'}
+              src={product.images?.[0] || '/placeholder.svg'}
               alt={product.title}
               fill
               className="object-cover"

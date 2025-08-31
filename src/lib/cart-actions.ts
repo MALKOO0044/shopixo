@@ -27,7 +27,7 @@ async function getOrCreateCart() {
     if (cart) {
       // Set cookie and return existing cart ID
       cookies().set("cart_id", cart.id, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-      return cart.id;
+      return { id: cart.id };
     }
   }
 
@@ -44,7 +44,7 @@ async function getOrCreateCart() {
         if (user && !cart.user_id) {
           await supabase.from('cart_sessions').update({ user_id: user.id }).eq('id', cart.id);
         }
-        return cart.id;
+        return { id: cart.id };
     }
   }
 
@@ -200,6 +200,26 @@ export async function addItem(prevState: any, formData: FormData) {
     revalidatePath("/");
 
     return { success: "Item added to cart." };
+  } catch (e) {
+    console.error(e);
+    return { error: "An unexpected error occurred." };
+  }
+}
+
+export async function clearCart() {
+  const supabase = createServerComponentClient({ cookies });
+  const cartId = cookies().get("cart_id")?.value;
+
+  if (!cartId) return { success: true };
+
+  try {
+    const { error } = await supabase
+      .from("cart_items")
+      .delete()
+      .eq("session_id", cartId);
+    if (error) throw error;
+    revalidatePath("/cart");
+    return { success: true };
   } catch (e) {
     console.error(e);
     return { error: "An unexpected error occurred." };

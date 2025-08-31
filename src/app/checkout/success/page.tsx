@@ -4,8 +4,9 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { clearCart } from "@/lib/cart-actions";
 import Link from "next/link";
 
-export default async function CheckoutSuccessPage({ searchParams }) {
-  const sessionId = searchParams.session_id;
+export default async function CheckoutSuccessPage({ searchParams }: { searchParams: { [key: string]: string | string[] | undefined } }) {
+  const sessionIdParam = searchParams?.session_id;
+  const sessionId = Array.isArray(sessionIdParam) ? sessionIdParam[0] : sessionIdParam;
 
   if (!sessionId) {
     return (

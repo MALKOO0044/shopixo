@@ -5,6 +5,7 @@ import Header from "@/components/header";
 import NavigationBar from "@/components/navigation-bar";
 import Footer from "@/components/footer";
 import CookieConsent from "@/components/cookie-consent";
+import { ThemeProvider } from "@/components/theme-provider";
 
 const inter = Inter({ subsets: ["latin"] });
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -35,11 +36,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.className} min-h-screen flex flex-col`}>
-        <Header />
-        <NavigationBar />
+        <ThemeProvider>
+          <Header />
+          <NavigationBar />
           <main className="flex-1">{children}</main>
           <Footer />
           <CookieConsent />
+        </ThemeProvider>
       </body>
     </html>
   );

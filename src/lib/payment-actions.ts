@@ -6,11 +6,7 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import Stripe from "stripe";
 
 import { getCart } from "./cart-actions";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-04-10", // Use a recent, valid API version
-  typescript: true,
-});
+import { stripe } from "@/lib/stripe";
 
 export async function createCheckoutSession() {
   const cartId = cookies().get("cart_id")?.value;
@@ -48,7 +44,7 @@ export async function createCheckoutSession() {
           currency: "usd",
           product_data: {
             name: item.product!.title,
-            images: [item.product!.image!],
+            images: item.product!.images?.length ? [item.product!.images[0]] : [],
           },
           unit_amount: item.product!.price * 100, // Price in cents
         },

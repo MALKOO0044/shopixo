@@ -49,7 +49,7 @@ export default async function AdminPage() {
               <tr key={product.id} className="border-b">
                 <td className="p-3">
                   <div className="relative h-12 w-12 overflow-hidden rounded-md bg-slate-100">
-                    <Image src={product.image || ""} alt={product.title} fill className="object-cover" />
+                    <Image src={product.images?.[0] || "/placeholder.svg"} alt={product.title} fill className="object-cover" />
                   </div>
                 </td>
                 <td className="p-3 font-medium">{product.title}</td>
