@@ -7,6 +7,7 @@ import SearchBar from "./search-bar";
 import CartBadge from "./cart-badge";
 import { ThemeToggle } from "./theme-toggle";
 
+// Trigger new deployment
 export default function Header() {
 
   return (
