@@ -148,6 +148,17 @@ export async function addItem(prevState: any, formData: FormData) {
   const { productId, quantity } = validatedFields.data;
 
   try {
+    // 1. Fetch product stock
+    const { data: product } = await supabase
+      .from("products")
+      .select("stock, title")
+      .eq("id", productId)
+      .single();
+
+    if (!product) {
+      return { error: "Product not found." };
+    }
+
     const cart = await getOrCreateCart();
 
     // Check if item already exists in cart
@@ -161,12 +172,23 @@ export async function addItem(prevState: any, formData: FormData) {
     if (existingItem) {
       // Update quantity
       const newQuantity = existingItem.quantity + quantity;
+
+      // 2a. Check stock before updating
+      if (newQuantity > product.stock) {
+        return { error: `Not enough stock for ${product.title}. Only ${product.stock} left.` };
+      }
+
       const { error } = await supabase
         .from("cart_items")
         .update({ quantity: newQuantity })
         .eq("id", existingItem.id);
       if (error) throw error;
     } else {
+      // 2b. Check stock before inserting
+      if (quantity > product.stock) {
+        return { error: `Not enough stock for ${product.title}. Only ${product.stock} left.` };
+      }
+
       // Insert new item
       const { error } = await supabase
         .from("cart_items")

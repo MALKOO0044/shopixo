@@ -1,21 +1,18 @@
-"use client";
 import Image from "next/image";
-import { useState } from "react";
+import Link from "next/link";
 
 export default function Logo() {
-  const [src, setSrc] = useState("/logo.png");
   return (
-    <div className="flex items-center gap-2 select-none">
+    <Link href="/" className="flex items-center gap-2 select-none">
       <Image
-        src={src}
-        alt="Shopixo"
+        src="/logo.png" // Simplified src, error handling can be added back if needed
+        alt="Shopixo Logo"
         width={28}
         height={28}
         priority
         className="rounded-md"
-        onError={() => setSrc("/favicon.svg")}
       />
-      <span className="sr-only">Shopixo</span>
-    </div>
+      <span className="text-lg font-semibold tracking-tight">Shopixo</span>
+    </Link>
   );
 }

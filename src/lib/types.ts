@@ -7,6 +7,7 @@ export type Product = {
   images: string[];
   category: string;
   rating: number;
+  stock: number;
   variants: { name: string; options: string[] }[];
 };
 

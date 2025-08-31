@@ -1,9 +1,9 @@
-import { createCheckoutSession } from "@/lib/payment-actions";
 import { getCart } from "@/lib/cart-actions";
 import { formatCurrency } from "@/lib/utils";
 import Image from "next/image";
 import Link from "next/link";
 import CartItem from "@/app/cart/cart-item";
+import CheckoutButton from "./checkout-button";
 
 export const metadata = {
   title: "Your Cart",
@@ -47,9 +47,9 @@ export default async function CartPage() {
             <p className="mt-2 text-xs text-slate-500">
               Taxes and shipping calculated at checkout.
             </p>
-            <form action={createCheckoutSession}>
-              <button type="submit" className="btn-primary mt-4 w-full">Proceed to Checkout</button>
-            </form>
+            <div className="mt-4">
+              <CheckoutButton />
+            </div>
             <div className="mt-4 text-xs text-slate-500">
               Have a coupon? Apply at checkout.
             </div>

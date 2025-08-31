@@ -1,11 +1,13 @@
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
 import ProductCard from "@/components/product-card";
-import { products } from "@/lib/products";
+import type { Product } from "@/lib/types";
 
 export const metadata = { title: "Search" };
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
-export default function SearchPage({
+export default async function SearchPage({
   searchParams,
 }: {
   searchParams: Record<string, string | string[] | undefined>;
@@ -30,33 +32,41 @@ export default function SearchPage({
     ? parseFloat(minRatingRaw)
     : undefined;
 
-  const categories = Array.from(new Set(products.map((p) => p.category))).sort();
+  const supabase = createServerComponentClient({ cookies });
 
-  let filtered = products.filter((p) => {
-    const matchesQuery = q
-      ? [p.title, p.description, p.category]
-          .filter(Boolean)
-          .some((s) => s!.toLowerCase().includes(q))
-      : true;
-    const matchesCategory = category
-      ? p.category.toLowerCase() === category.toLowerCase()
-      : true;
-    const matchesMinPrice = typeof minPrice === "number" ? p.price >= minPrice : true;
-    const matchesMaxPrice = typeof maxPrice === "number" ? p.price <= maxPrice : true;
-    const matchesMinRating = typeof minRating === "number" ? p.rating >= minRating : true;
-    return (
-      matchesQuery &&
-      matchesCategory &&
-      matchesMinPrice &&
-      matchesMaxPrice &&
-      matchesMinRating
-    );
-  });
+  // Fetch categories for the filter dropdown
+  const { data: categoriesData } = await supabase.from("products").select("category");
+  const categories = Array.from(new Set(categoriesData?.map((p) => p.category))).sort();
 
-  if (sort === "price-asc") filtered = filtered.sort((a, b) => a.price - b.price);
-  else if (sort === "price-desc") filtered = filtered.sort((a, b) => b.price - a.price);
-  else if (sort === "rating-desc") filtered = filtered.sort((a, b) => b.rating - a.rating);
-  else if (sort === "rating-asc") filtered = filtered.sort((a, b) => a.rating - b.rating);
+  let query = supabase.from("products").select<"*", Product>("*");
+
+  if (q) {
+    query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%`);
+  }
+  if (category) {
+    query = query.eq("category", category);
+  }
+  if (minPrice) {
+    query = query.gte("price", minPrice);
+  }
+  if (maxPrice) {
+    query = query.lte("price", maxPrice);
+  }
+  if (minRating) {
+    query = query.gte("rating", minRating);
+  }
+
+  if (sort) {
+    const [field, order] = sort.split("-");
+    query = query.order(field, { ascending: order === "asc" });
+  }
+
+  const { data: filtered, error } = await query;
+
+  if (error) {
+    console.error("Error fetching products:", error);
+    // Handle error appropriately
+  }
 
   return (
     <div className="container py-10">
@@ -145,13 +155,13 @@ export default function SearchPage({
         </div>
       </form>
 
-      <div className="mt-6 text-sm text-slate-600">{filtered.length} results</div>
+      <div className="mt-6 text-sm text-slate-600">{filtered?.length || 0} results</div>
 
       <div className="mt-6 grid grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-4">
-        {filtered.map((p) => (
+        {filtered?.map((p) => (
           <ProductCard key={p.slug} product={p} />
         ))}
-        {filtered.length === 0 && (
+        {(!filtered || filtered.length === 0) && (
           <div className="text-slate-600">No products found{q ? ` for "${q}"` : ""}</div>
         )}
       </div>
