@@ -4,6 +4,8 @@ import { headers } from "next/headers";
 import { createOrder } from "@/lib/order-actions";
 import { stripe } from "@/lib/stripe";
 
+export const dynamic = 'force-dynamic'; // force dynamic to prevent build errors
+
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 
 export async function POST(req: Request) {
