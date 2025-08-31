@@ -1,7 +1,7 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import ProductCard from "@/components/ProductCard";
+import ProductCard from "@/components/product-card";
 import type { Product } from "@/lib/types";
 
 // Helper function to format slug back to title
@@ -9,14 +9,20 @@ function slugToTitle(slug: string) {
   return slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function CategoryPage({ params }: { params: { slug: string } }) {
   const supabase = createServerComponentClient({ cookies });
   const categoryTitle = slugToTitle(params.slug);
 
-  const { data: products } = await supabase
+  const { data: products, error } = await supabase
     .from("products")
     .select<"*", Product>("*")
     .eq("category", categoryTitle);
+  if (error) {
+    console.error("Error fetching category products:", error);
+  }
 
   if (!products || products.length === 0) {
     // Even if no products, we can show the category page with a message
