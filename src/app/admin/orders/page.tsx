@@ -32,7 +32,7 @@ async function getOrders(): Promise<Order[]> {
   return data as Order[];
 }
 
-export default async function OrdersPage() {
+const OrdersTable = async () => {
   const orders = await getOrders();
 
   return (

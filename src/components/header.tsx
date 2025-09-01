@@ -3,6 +3,7 @@ import Logo from "@/components/logo";
 import UserNav from "./user-nav";
 import SearchBar from "./search-bar";
 import CartBadge from "./cart-badge";
+import { Suspense } from "react";
 import { ThemeToggle } from "./theme-toggle";
 
 // Trigger new deployment
@@ -20,7 +21,9 @@ export default function Header() {
 
         {/* Center: Search Bar */}
         <div className="flex flex-1 justify-center px-4 sm:px-8 lg:px-16">
-          <SearchBar />
+                    <Suspense>
+            <SearchBar />
+          </Suspense>
         </div>
 
         {/* Right: Icons */}
