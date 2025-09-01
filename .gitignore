@@ -26,6 +26,12 @@ Thumbs.db
 /.turbo
 /.eslintcache
 
+# Local build logs
+build.log
+build-latest.log
+build-full.log
+build-after-admin-orders-dynamic.log
+
 # Playwright
 node_modules/
 /test-results/

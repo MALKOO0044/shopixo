@@ -7,20 +7,23 @@ export const metadata = { title: "Search" };
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function SearchPage({
   searchParams,
 }: {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const getFirst = (v: string | string[] | undefined) =>
     (Array.isArray(v) ? v[0] : v) ?? "";
 
-  const q = getFirst(searchParams.q).toLowerCase();
-  const category = getFirst(searchParams.category);
-  const minPriceRaw = getFirst(searchParams.minPrice);
-  const maxPriceRaw = getFirst(searchParams.maxPrice);
-  const minRatingRaw = getFirst(searchParams.minRating);
-  const sort = getFirst(searchParams.sort);
+  const q = getFirst(searchParams?.q).toLowerCase();
+  const category = getFirst(searchParams?.category);
+  const minPriceRaw = getFirst(searchParams?.minPrice);
+  const maxPriceRaw = getFirst(searchParams?.maxPrice);
+  const minRatingRaw = getFirst(searchParams?.minRating);
+  const sort = getFirst(searchParams?.sort);
 
   const minPrice = Number.isFinite(parseFloat(minPriceRaw))
     ? parseFloat(minPriceRaw)
@@ -95,7 +98,7 @@ export default async function SearchPage({
           <input
             name="q"
             placeholder="Search products..."
-            defaultValue={getFirst(searchParams.q)}
+            defaultValue={getFirst(searchParams?.q)}
             className="w-full rounded-md border px-4 py-2"
           />
         </div>

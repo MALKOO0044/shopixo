@@ -4,7 +4,11 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { clearCart } from "@/lib/cart-actions";
 import Link from "next/link";
 
-export default async function CheckoutSuccessPage({ searchParams }: { searchParams: { [key: string]: string | string[] | undefined } }) {
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+export default async function CheckoutSuccessPage({ searchParams }: { searchParams?: { [key: string]: string | string[] | undefined } }) {
   const sessionIdParam = searchParams?.session_id;
   const sessionId = Array.isArray(sessionIdParam) ? sessionIdParam[0] : sessionIdParam;
 
