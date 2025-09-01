@@ -19,6 +19,9 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 async function getOrders(): Promise<Order[]> {
   const { data, error } = await supabaseAdmin
     .from("orders")
@@ -32,7 +35,7 @@ async function getOrders(): Promise<Order[]> {
   return data as Order[];
 }
 
-const OrdersTable = async () => {
+export default async function OrdersPage() {
   const orders = await getOrders();
 
   return (

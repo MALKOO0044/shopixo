@@ -3,6 +3,9 @@ import { headers } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 // Admin client to bypass RLS
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

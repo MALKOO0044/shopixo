@@ -10,6 +10,9 @@ export const metadata = {
   title: "Admin Dashboard",
 };
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function AdminPage() {
   const supabase = createServerComponentClient({ cookies });
   const { data: { session } } = await supabase.auth.getSession();
@@ -30,7 +33,7 @@ export default async function AdminPage() {
     <div className="container py-10">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Products</h1>
-        <Link href={'/admin/products/new' as any} className="btn-primary">
+        <Link href="/admin/products/new" className="btn-primary">
           Add Product
         </Link>
       </div>
@@ -55,7 +58,10 @@ export default async function AdminPage() {
                 <td className="p-3 font-medium">{product.title}</td>
                 <td className="p-3">{formatCurrency(product.price)}</td>
                 <td className="p-3">
-                  <Link href={`/admin/products/${product.id}/edit` as any} className="text-sm font-medium text-blue-600 hover:underline">
+                  <Link
+                    href={{ pathname: "/admin/products/[id]/edit", query: { id: String(product.id) } }}
+                    className="text-sm font-medium text-blue-600 hover:underline"
+                  >
                     Edit
                   </Link>
                   <span className="mx-2 text-slate-300">|</span>
