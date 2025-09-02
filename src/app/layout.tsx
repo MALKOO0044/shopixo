@@ -9,7 +9,17 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Suspense } from "react";
 
 const inter = Inter({ subsets: ["latin"] });
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+const rawSiteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+const siteUrl = (() => {
+  try {
+    // Ensure an absolute, valid URL string (includes protocol)
+    return new URL(rawSiteUrl).toString();
+  } catch {
+    return "http://localhost:3000";
+  }
+})();
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -34,6 +44,7 @@ export const metadata: Metadata = {
 };
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -58,4 +69,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-
