@@ -13,17 +13,25 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 
-// Admin client to bypass RLS
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Admin client to bypass RLS (lazy init to avoid build-time env requirements)
+let supabaseAdmin: any = null;
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  if (!supabaseAdmin) {
+    supabaseAdmin = createClient(url, key);
+  }
+  return supabaseAdmin as ReturnType<typeof createClient> | null;
+}
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 async function getOrders(): Promise<Order[]> {
-  const { data, error } = await supabaseAdmin
+  const client = getSupabaseAdmin();
+  if (!client) return [];
+  const { data, error } = await client
     .from("orders")
     .select(`id, created_at, total_amount, status, user_id`)
     .order("created_at", { ascending: false });

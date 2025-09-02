@@ -7,6 +7,9 @@ export const metadata = {
   title: "Add New Product",
 };
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function NewProductPage() {
   const supabase = createServerComponentClient({ cookies });
   const { data: { session } } = await supabase.auth.getSession();

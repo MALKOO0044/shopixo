@@ -21,7 +21,7 @@ export default function Header() {
 
         {/* Center: Search Bar */}
         <div className="flex flex-1 justify-center px-4 sm:px-8 lg:px-16">
-                    <Suspense>
+          <Suspense fallback={null}>
             <SearchBar />
           </Suspense>
         </div>

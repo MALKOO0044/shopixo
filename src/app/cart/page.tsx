@@ -9,6 +9,9 @@ export const metadata = {
   title: "Your Cart",
 };
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function CartPage() {
   const cartItems = await getCart();
 

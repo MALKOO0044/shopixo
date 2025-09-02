@@ -1,10 +1,16 @@
 import Stripe from "stripe";
+let stripeInstance: Stripe | null = null;
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('STRIPE_SECRET_KEY is not set in the environment variables');
+export function getStripe(): Stripe {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) {
+    throw new Error("STRIPE_SECRET_KEY is not set in the environment variables");
+  }
+  if (!stripeInstance) {
+    stripeInstance = new Stripe(key, {
+      apiVersion: "2024-06-20" as any,
+      typescript: true,
+    });
+  }
+  return stripeInstance;
 }
-
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2024-06-20" as any,
-  typescript: true,
-});

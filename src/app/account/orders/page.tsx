@@ -5,6 +5,9 @@ import { format } from "date-fns";
 import { formatCurrency } from "@/lib/utils";
 import type { Order } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 async function getUserOrders(userId: string): Promise<Order[]> {
   const supabase = createServerComponentClient({ cookies });
   const { data, error } = await supabase

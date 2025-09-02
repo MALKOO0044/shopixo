@@ -4,6 +4,9 @@ import { redirect } from "next/navigation";
 
 export const metadata = { title: "Account" };
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function AccountPage() {
   const supabase = createServerComponentClient({ cookies });
   const { data: { session } } = await supabase.auth.getSession();

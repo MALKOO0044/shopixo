@@ -1,20 +1,17 @@
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import SignInForm from "./sign-in-form";
 
-export default async function SignInPage() {
-  const supabase = createServerComponentClient({ cookies });
-  const { data } = await supabase.auth.getSession();
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-  if (data?.session) {
-    redirect("/");
+export default function SignInPage({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(searchParams || {})) {
+    if (Array.isArray(v)) v.forEach((val) => params.append(k, val));
+    else if (v != null) params.set(k, v);
   }
-
-  return (
-    <main className="container max-w-lg py-12">
-      <h1 className="mb-6 text-center text-2xl font-bold">Sign In</h1>
-      <SignInForm />
-    </main>
-  );
+  redirect(`/login${params.toString() ? `?${params.toString()}` : ""}`);
 }

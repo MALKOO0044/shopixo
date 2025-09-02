@@ -3,10 +3,10 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import Stripe from "stripe";
 
 import { getCart } from "./cart-actions";
-import { stripe } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
+import { getSiteUrl } from "@/lib/site";
 
 export async function createCheckoutSession() {
   const cartId = cookies().get("cart_id")?.value;
@@ -35,7 +35,8 @@ export async function createCheckoutSession() {
   }
 
   try {
-    const session = await stripe.checkout.sessions.create({
+    const siteUrl = getSiteUrl();
+    const session = await getStripe().checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
       customer_email: user.email, // User is guaranteed to exist here
@@ -50,8 +51,8 @@ export async function createCheckoutSession() {
         },
         quantity: item.quantity,
       })),
-      success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/cart`,
+      success_url: `${siteUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${siteUrl}/cart`,
       metadata: {
         cartSessionId: cartId, // Use the cartId from cookies
         userId: user.id,

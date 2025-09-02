@@ -5,7 +5,10 @@ import type { Product } from "@/lib/types";
 import ProductDetailsClient from "@/components/product-details-client";
 import PriceComparison from "@/components/price-comparison";
 import type { Metadata } from 'next'
- 
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 // --- Generate Metadata for SEO ---
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const supabase = createServerComponentClient({ cookies });

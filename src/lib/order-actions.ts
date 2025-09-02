@@ -3,13 +3,18 @@
 import { createClient } from "@supabase/supabase-js";
 import { getCartItemsBySessionId, CartItem } from "./cart-actions";
 
-// IMPORTANT: Create a new Supabase client with the service role key
-// This is necessary because this action will be called from a webhook
-// where there is no user session.
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// IMPORTANT: Use a lazily initialized Supabase admin client to avoid
+// build-time env access. This is called in server actions/webhooks only.
+let supabaseAdmin: ReturnType<typeof createClient> | null = null;
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  if (!supabaseAdmin) {
+    supabaseAdmin = createClient(url, key);
+  }
+  return supabaseAdmin;
+}
 
 /**
  * Creates an order in the database from a cart session.
@@ -18,6 +23,11 @@ const supabaseAdmin = createClient(
  * @param stripeSessionId The ID of the Stripe Checkout session.
  */
 export async function createOrder(cartSessionId: string, userId: string, stripeSessionId: string) {
+  const admin = getSupabaseAdmin();
+  if (!admin) {
+    throw new Error("Server misconfiguration: Supabase env vars missing");
+  }
+  const client = admin as any;
   const { items, error: cartError } = await getCartItemsBySessionId(cartSessionId);
 
   if (cartError || !items || items.length === 0) {
@@ -30,7 +40,7 @@ export async function createOrder(cartSessionId: string, userId: string, stripeS
   }, 0);
 
   // 1. Create the order
-  const { data: order, error: orderError } = await supabaseAdmin
+  const { data: order, error: orderError } = await client
     .from("orders")
     .insert({
       user_id: userId,
@@ -59,7 +69,7 @@ export async function createOrder(cartSessionId: string, userId: string, stripeS
     throw new Error("No valid items to add to the order.");
   }
 
-  const { error: itemsError } = await supabaseAdmin.from("order_items").insert(orderItems);
+  const { error: itemsError } = await client.from("order_items").insert(orderItems);
 
   if (itemsError) {
     console.error("Error creating order items:", itemsError);
@@ -69,7 +79,7 @@ export async function createOrder(cartSessionId: string, userId: string, stripeS
   }
 
   // 3. Clear the cart
-  const { error: deleteError } = await supabaseAdmin.from("cart_items").delete().eq("cart_session_id", cartSessionId);
+  const { error: deleteError } = await client.from("cart_items").delete().eq("cart_session_id", cartSessionId);
   if (deleteError) {
     console.error("Failed to clear cart items after order creation:", deleteError);
     // This is not a critical failure, so we just log it.

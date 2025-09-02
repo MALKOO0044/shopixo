@@ -1,4 +1,4 @@
-import { stripe } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 import { cookies } from "next/headers";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { clearCart } from "@/lib/cart-actions";
@@ -22,7 +22,7 @@ export default async function CheckoutSuccessPage({ searchParams }: { searchPara
   }
 
   try {
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const session = await getStripe().checkout.sessions.retrieve(sessionId);
     const supabase = createServerComponentClient({ cookies });
     const { data: { user } } = await supabase.auth.getUser();
 

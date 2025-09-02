@@ -3,6 +3,9 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import SignUpForm from "./sign-up-form";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function SignUpPage() {
   const supabase = createServerComponentClient({ cookies });
   const { data } = await supabase.auth.getSession();

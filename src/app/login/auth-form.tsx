@@ -6,6 +6,9 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
 export default function AuthForm() {
   const supabase = createClientComponentClient()
+  const redirectTo = typeof window !== 'undefined'
+    ? `${window.location.origin}/auth/callback`
+    : (process.env.NEXT_PUBLIC_SITE_URL ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback` : '/auth/callback')
 
   return (
     <Auth
@@ -15,7 +18,7 @@ export default function AuthForm() {
       theme="light"
       showLinks={true}
       providers={['github']}
-      redirectTo={`${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`}
+      redirectTo={redirectTo}
     />
   )
 }

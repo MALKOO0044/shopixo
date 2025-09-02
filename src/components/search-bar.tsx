@@ -1,12 +1,11 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Input } from "./ui/input";
 import { SearchIcon } from "lucide-react";
 
 export default function SearchBar() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   function handleSearch(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -25,10 +24,10 @@ export default function SearchBar() {
       <Input
         type="search"
         name="q"
-        defaultValue={searchParams.get("q") || ""}
         placeholder="Search for products..."
         className="w-full rounded-md bg-background pl-9 pr-4 py-2 text-sm"
       />
     </form>
   );
 }
+
