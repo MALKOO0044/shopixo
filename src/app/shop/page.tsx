@@ -18,17 +18,20 @@ export default async function ShopPage() {
     <div className="container py-10">
       <h1 className="text-3xl font-bold">Shop</h1>
       <p className="mt-2 text-slate-600">Explore our curated selection of trending products.</p>
-      {(!products || products.length === 0) ? (
-        <div className="mt-8 rounded-md border p-6 text-slate-600">
-          No products yet. Visit <a href="/admin/products/new" className="text-indigo-600 hover:underline">Admin → Add Product</a> to create your first product.
-        </div>
-      ) : (
-        <div className="mt-8 grid grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-4">
-          {products.map((p) => (
-            <ProductCard key={p.id} product={p as Product} />
-          ))}
-        </div>
-      )}
+      <div className="mt-8">
+        {products && products.length > 0 ? (
+          <div className="grid grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-4">
+            {products.map((p) => (
+              <ProductCard key={p.id} product={p as Product} />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-md border p-6 text-center text-slate-500">
+            <p>No products found at the moment.</p>
+            <p className="mt-2 text-sm">Please check back later or visit the admin panel to add new products.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
