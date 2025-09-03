@@ -30,10 +30,22 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function HomePage() {
-  const supabase = createServerComponentClient({ cookies });
-  const { data: products, error } = await supabase.from("products").select("*");
-  if (error) {
-    console.error("Error fetching products:", error);
+  const hasSupabaseEnv = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  let products: any[] | null = null;
+
+  if (hasSupabaseEnv) {
+    try {
+      const supabase = createServerComponentClient({ cookies });
+      const { data, error } = await supabase.from("products").select("*");
+      if (error) {
+        console.error("Error fetching products:", error);
+      }
+      products = (data as any[] | null) ?? null;
+    } catch (e) {
+      console.error("Failed to initialize Supabase client:", e);
+    }
+  } else {
+    console.warn("Supabase env vars missing; rendering without products list.");
   }
 
   return (

@@ -69,12 +69,20 @@ async function getOrCreateCart() {
 }
 
 export async function getCart() {
-  const supabase = createServerComponentClient({ cookies });
+  const hasSupabaseEnv = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const cartId = cookies().get("cart_id")?.value;
 
   if (!cartId) {
     return [];
   }
+
+  if (!hasSupabaseEnv) {
+    // Supabase not configured; return empty cart gracefully to avoid SSR crashes
+    console.warn("getCart: Supabase env vars missing; returning empty cart.");
+    return [];
+  }
+
+  const supabase = createServerComponentClient({ cookies });
 
   const { data: items, error } = await supabase
     .from("cart_items")
@@ -105,6 +113,12 @@ export async function getCart() {
 }
 
 export async function getCartItemsBySessionId(cartSessionId: string) {
+  const hasSupabaseEnv = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!hasSupabaseEnv) {
+    console.warn("getCartItemsBySessionId: Supabase env vars missing; returning empty list.");
+    return { items: [], error: null };
+  }
+
   const supabase = createServerComponentClient({ cookies });
 
   const { data: items, error } = await supabase
