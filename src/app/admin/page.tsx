@@ -48,27 +48,35 @@ export default async function AdminPage() {
             </tr>
           </thead>
           <tbody>
-            {products?.map((product) => (
-              <tr key={product.id} className="border-b">
-                <td className="p-3">
-                  <div className="relative h-12 w-12 overflow-hidden rounded-md bg-slate-100">
-                    <Image src={product.images?.[0] || "/placeholder.svg"} alt={product.title} fill className="object-cover" />
-                  </div>
-                </td>
-                <td className="p-3 font-medium">{product.title}</td>
-                <td className="p-3">{formatCurrency(product.price)}</td>
-                <td className="p-3">
-                  <Link
-                    href={{ pathname: "/admin/products/[id]/edit", query: { id: String(product.id) } }}
-                    className="text-sm font-medium text-blue-600 hover:underline"
-                  >
-                    Edit
-                  </Link>
-                  <span className="mx-2 text-slate-300">|</span>
-                  <DeleteProductButton productId={product.id} />
+            {products && products.length > 0 ? (
+              products.map((product) => (
+                <tr key={product.id} className="border-b">
+                  <td className="p-3">
+                    <div className="relative h-12 w-12 overflow-hidden rounded-md bg-slate-100">
+                      <Image src={product.images?.[0] || "/placeholder.svg"} alt={product.title} fill className="object-cover" />
+                    </div>
+                  </td>
+                  <td className="p-3 font-medium">{product.title}</td>
+                  <td className="p-3">{formatCurrency(product.price)}</td>
+                  <td className="p-3">
+                    <Link
+                      href={{ pathname: `/admin/products/${product.id}/edit` }}
+                      className="text-sm font-medium text-blue-600 hover:underline"
+                    >
+                      Edit
+                    </Link>
+                    <span className="mx-2 text-slate-300">|</span>
+                    <DeleteProductButton productId={product.id} />
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={4} className="p-6 text-center text-slate-500">
+                  No products found. Add your first product to get started.
                 </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
