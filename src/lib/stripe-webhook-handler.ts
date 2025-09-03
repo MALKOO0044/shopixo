@@ -1,4 +1,3 @@
-import { headers } from "next/headers";
 import { getStripe } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
@@ -6,8 +5,8 @@ import type Stripe from "stripe";
 export async function handleStripeWebhook(req: Request): Promise<Response> {
   const textBody = await req.text();
   const signature =
-    (headers().get("stripe-signature") as string | null) ||
-    (headers().get("Stripe-Signature") as string | null);
+    (req.headers.get("stripe-signature") as string | null) ||
+    (req.headers.get("Stripe-Signature") as string | null);
 
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -34,7 +33,7 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
     console.error(`Webhook signature verification failed: ${err.message}`);
     return new Response(`Webhook Error: ${err.message}`, { status: 400 });
   }
-
+  console.log("stripe_webhook_event", { id: event.id, type: event.type });
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
   try {

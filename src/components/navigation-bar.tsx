@@ -4,12 +4,11 @@ import Link from "next/link";
 import { type Route } from "next";
 
 export default async function NavigationBar() {
-  // const supabase = createServerComponentClient({ cookies });
-  // const { data: products }: { data: { category: string }[] | null } = await supabase.from("products").select("category");
+  const supabase = createServerComponentClient({ cookies });
+  const { data: products }: { data: { category: string }[] | null } = await supabase.from("products").select("category");
 
   // Get unique categories
-  // const categories = [...new Set(products?.map((p) => p.category) || [])];
-  const categories: string[] = []; // Temporarily set to empty array
+  const categories = [...new Set(products?.map((p) => p.category) || [])];
 
   return (
     <nav className="border-b bg-background shadow-sm">

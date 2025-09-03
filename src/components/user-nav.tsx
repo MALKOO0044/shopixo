@@ -66,16 +66,14 @@ export default async function UserNav() {
     console.error("UserNav: failed to init Supabase or fetch session", e);
   }
 
-  if (true) {
-    return (
-      <div className="flex items-center gap-2">
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/login">Sign In</Link>
-        </Button>
-        <Button asChild size="sm">
-          <Link href="/sign-up">Sign Up</Link>
-        </Button>
-      </div>
-    );
-  }
+  return (
+    <div className="flex items-center gap-2">
+      <Button asChild variant="ghost" size="sm">
+        <Link href="/login">Sign In</Link>
+      </Button>
+      <Button asChild size="sm">
+        <Link href="/sign-up">Sign Up</Link>
+      </Button>
+    </div>
+  );
 }
