@@ -26,7 +26,14 @@ export default async function AdminPage() {
   const { data: products, error } = await supabase.from("products").select("*").order("created_at", { ascending: false });
 
   if (error) {
-    console.error("Error fetching products:", error);
+    console.error("Error fetching products:", error.message);
+    return (
+      <div className="container py-10 text-center">
+        <h2 className="text-xl font-semibold text-red-600">Failed to load products</h2>
+        <p className="mt-2 text-slate-500">There was an issue connecting to the database. Please try again later.</p>
+        <p className="mt-4 text-xs text-slate-400">Error: {error.message}</p>
+      </div>
+    );
   }
 
   return (
