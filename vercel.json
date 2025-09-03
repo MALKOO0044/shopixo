@@ -3,12 +3,6 @@
   "name": "shopixo",
   "framework": "nextjs",
   "buildCommand": "npm run build",
-  "build": {
-    "env": {
-      "NEXT_PUBLIC_SITE_URL": "https://shopixo.vercel.app"
-    }
-  },
-  "env": {
-    "NEXT_PUBLIC_SITE_URL": "https://shopixo.vercel.app"
-  }
+  "build": {},
+  "env": {}
 }
