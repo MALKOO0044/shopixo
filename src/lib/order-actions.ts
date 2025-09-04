@@ -79,7 +79,10 @@ export async function createOrder(cartSessionId: string, userId: string, stripeS
   }
 
   // 3. Clear the cart
-  const { error: deleteError } = await client.from("cart_items").delete().eq("cart_session_id", cartSessionId);
+  const { error: deleteError } = await client
+    .from("cart_items")
+    .delete()
+    .eq("session_id", cartSessionId);
   if (deleteError) {
     console.error("Failed to clear cart items after order creation:", deleteError);
     // This is not a critical failure, so we just log it.

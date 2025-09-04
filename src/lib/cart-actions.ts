@@ -1,11 +1,19 @@
 "use server";
 
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import type { CartItem, Product } from "./types";
 export type { CartItem };
+
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
 
 const addItemSchema = z.object({
   productId: z.number(),
@@ -13,12 +21,16 @@ const addItemSchema = z.object({
 });
 
 async function getOrCreateCart() {
-  const supabase = createServerComponentClient({ cookies });
-  const { data: { user } } = await supabase.auth.getUser();
+  const supabaseAuth = createServerComponentClient({ cookies });
+  const { data: { user } } = await supabaseAuth.auth.getUser();
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    throw new Error("Could not create a cart.");
+  }
 
   // If user is logged in, try to find their existing cart
   if (user) {
-    const { data: cart, error } = await supabase
+    const { data: cart, error } = await supabaseAdmin
       .from('cart_sessions')
       .select('id')
       .eq('user_id', user.id)
@@ -34,7 +46,7 @@ async function getOrCreateCart() {
   const cartId = cookies().get("cart_id")?.value;
 
   if (cartId) {
-    const { data: cart } = await supabase
+    const { data: cart } = await supabaseAdmin
       .from("cart_sessions")
       .select("id, user_id")
       .eq("id", cartId)
@@ -42,14 +54,14 @@ async function getOrCreateCart() {
     if (cart) {
         // If user is now logged in, associate the cart with them
         if (user && !cart.user_id) {
-          await supabase.from('cart_sessions').update({ user_id: user.id }).eq('id', cart.id);
+          await supabaseAdmin.from('cart_sessions').update({ user_id: user.id }).eq('id', cart.id);
         }
         return { id: cart.id };
     }
   }
 
   // If no cart_id cookie or cart not found, create a new one
-  const { data: newCart, error } = await supabase
+  const { data: newCart, error } = await supabaseAdmin
     .from("cart_sessions")
     .insert({ user_id: user?.id })
     .select("id")
@@ -63,28 +75,25 @@ async function getOrCreateCart() {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
+    secure: process.env.NODE_ENV === "production",
   });
 
   return newCart;
 }
 
 export async function getCart() {
-  const hasSupabaseEnv = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const cartId = cookies().get("cart_id")?.value;
 
   if (!cartId) {
     return [];
   }
-
-  if (!hasSupabaseEnv) {
-    // Supabase not configured; return empty cart gracefully to avoid SSR crashes
-    console.warn("getCart: Supabase env vars missing; returning empty cart.");
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    console.warn("getCart: Supabase service role env vars missing; returning empty cart.");
     return [];
   }
 
-  const supabase = createServerComponentClient({ cookies });
-
-  const { data: items, error } = await supabase
+  const { data: items, error } = await supabaseAdmin
     .from("cart_items")
     .select(`
       id,
@@ -113,15 +122,13 @@ export async function getCart() {
 }
 
 export async function getCartItemsBySessionId(cartSessionId: string) {
-  const hasSupabaseEnv = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!hasSupabaseEnv) {
-    console.warn("getCartItemsBySessionId: Supabase env vars missing; returning empty list.");
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    console.warn("getCartItemsBySessionId: Supabase service role env vars missing; returning empty list.");
     return { items: [], error: null };
   }
 
-  const supabase = createServerComponentClient({ cookies });
-
-  const { data: items, error } = await supabase
+  const { data: items, error } = await supabaseAdmin
     .from("cart_items")
     .select(`
       id,
@@ -149,7 +156,10 @@ export async function getCartItemsBySessionId(cartSessionId: string) {
 }
 
 export async function addItem(prevState: any, formData: FormData) {
-  const supabase = createServerComponentClient({ cookies });
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return { error: "Server misconfiguration." };
+  }
   const validatedFields = addItemSchema.safeParse({
     productId: Number(formData.get("productId")),
     quantity: Number(formData.get("quantity")),
@@ -163,7 +173,7 @@ export async function addItem(prevState: any, formData: FormData) {
 
   try {
     // 1. Fetch product stock
-    const { data: product } = await supabase
+    const { data: product } = await supabaseAdmin
       .from("products")
       .select("stock, title")
       .eq("id", productId)
@@ -176,7 +186,7 @@ export async function addItem(prevState: any, formData: FormData) {
     const cart = await getOrCreateCart();
 
     // Check if item already exists in cart
-    const { data: existingItem } = await supabase
+    const { data: existingItem } = await supabaseAdmin
       .from("cart_items")
       .select("id, quantity")
       .eq("session_id", cart.id)
@@ -192,7 +202,7 @@ export async function addItem(prevState: any, formData: FormData) {
         return { error: `Not enough stock for ${product.title}. Only ${product.stock} left.` };
       }
 
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from("cart_items")
         .update({ quantity: newQuantity })
         .eq("id", existingItem.id);
@@ -204,7 +214,7 @@ export async function addItem(prevState: any, formData: FormData) {
       }
 
       // Insert new item
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from("cart_items")
         .insert({ session_id: cart.id, product_id: productId, quantity });
       if (error) throw error;
@@ -221,13 +231,16 @@ export async function addItem(prevState: any, formData: FormData) {
 }
 
 export async function clearCart() {
-  const supabase = createServerComponentClient({ cookies });
   const cartId = cookies().get("cart_id")?.value;
 
   if (!cartId) return { success: true };
 
   try {
-    const { error } = await supabase
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) {
+      return { success: false };
+    }
+    const { error } = await supabaseAdmin
       .from("cart_items")
       .delete()
       .eq("session_id", cartId);
@@ -246,7 +259,10 @@ const updateItemSchema = z.object({
 });
 
 export async function updateItemQuantity(prevState: any, formData: FormData) {
-  const supabase = createServerComponentClient({ cookies });
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return { error: "Server misconfiguration." };
+  }
   const validatedFields = updateItemSchema.safeParse({
     itemId: Number(formData.get("itemId")),
     quantity: Number(formData.get("quantity")),
@@ -264,15 +280,38 @@ export async function updateItemQuantity(prevState: any, formData: FormData) {
   try {
     if (quantity === 0) {
       // Remove item if quantity is 0
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from("cart_items")
         .delete()
         .eq("id", itemId)
         .eq("session_id", cartId);
       if (error) throw error;
     } else {
+      // Validate stock before updating quantity
+      const { data: itemRow, error: itemErr } = await supabaseAdmin
+        .from("cart_items")
+        .select("id, product_id")
+        .eq("id", itemId)
+        .eq("session_id", cartId)
+        .single();
+      if (itemErr || !itemRow) {
+        return { error: "Cart item not found." };
+      }
+
+      const { data: product, error: prodErr } = await supabaseAdmin
+        .from("products")
+        .select("stock, title")
+        .eq("id", itemRow.product_id)
+        .single();
+      if (prodErr || !product) {
+        return { error: "Product not found." };
+      }
+      if (quantity > product.stock) {
+        return { error: `Not enough stock for ${product.title}. Only ${product.stock} left.` };
+      }
+
       // Update quantity
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from("cart_items")
         .update({ quantity })
         .eq("id", itemId)
@@ -293,7 +332,10 @@ const removeItemSchema = z.object({
 });
 
 export async function removeItem(prevState: any, formData: FormData) {
-  const supabase = createServerComponentClient({ cookies });
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return { error: "Server misconfiguration." };
+  }
   const validatedFields = removeItemSchema.safeParse({
     itemId: Number(formData.get("itemId")),
   });
@@ -308,7 +350,7 @@ export async function removeItem(prevState: any, formData: FormData) {
   if (!cartId) return { error: "Cart not found." };
 
   try {
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("cart_items")
       .delete()
       .eq("id", itemId)

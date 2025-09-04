@@ -33,7 +33,7 @@ export async function createCheckoutSession() {
             productId: item.product!.id,
           },
         },
-        unit_amount: item.product!.price * 100, // Price in cents
+        unit_amount: Math.round(item.product!.price * 100), // Price in cents (rounded to avoid float issues)
       },
       quantity: item.quantity,
     }));
@@ -48,7 +48,10 @@ export async function createCheckoutSession() {
     customer_email: session.user.email,
     metadata: {
       userId: session.user.id,
-      cart: JSON.stringify(cart.map(item => ({ productId: item.product!.id, quantity: item.quantity, price: item.product!.price }))),
+      cart: JSON.stringify(
+        cart.map(item => ({ productId: item.product!.id, quantity: item.quantity, price: item.product!.price }))
+      ),
+      cartSessionId: cookies().get("cart_id")?.value || "",
     },
   });
 

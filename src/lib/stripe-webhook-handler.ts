@@ -51,26 +51,41 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
             break;
           }
 
-          const parsedCart: Array<{ productId: string; quantity: number; price: number }>
+          const parsedCart: Array<{ productId: number | string; quantity: number; price: number }>
             = JSON.parse(metadata.cart as string);
 
           const totalAmount = parsedCart.reduce((acc, i) => acc + i.price * i.quantity, 0);
 
-          // 1) Create order
+          // 1) Create or update order (idempotent on stripe_session_id)
           const { data: order, error: orderError } = await supabaseAdmin
             .from("orders")
-            .insert({ user_id: userId, total_amount: totalAmount, status: "paid" })
+            .upsert(
+              { user_id: userId, total_amount: totalAmount, status: "paid", stripe_session_id: session.id },
+              { onConflict: "stripe_session_id" }
+            )
             .select()
             .single();
           if (orderError || !order) {
-            console.error("Error creating order:", orderError);
+            console.error("Error upserting order:", orderError);
             return new Response("Error creating order", { status: 500 });
+          }
+
+          // If order already has items, we've processed this event; exit early (idempotency)
+          const { count: existingItemsCount, error: countError } = await supabaseAdmin
+            .from("order_items")
+            .select("id", { count: "exact", head: true })
+            .eq("order_id", order.id);
+          if (countError) {
+            console.warn("Failed to check existing order items:", countError);
+          }
+          if ((existingItemsCount ?? 0) > 0) {
+            break;
           }
 
           // 2) Create order items
           const orderItems = parsedCart.map((item) => ({
             order_id: order.id,
-            product_id: item.productId,
+            product_id: typeof item.productId === 'string' ? Number(item.productId) : item.productId,
             quantity: item.quantity,
             price: item.price,
           }));
@@ -86,11 +101,23 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
           await Promise.all(
             parsedCart.map((item) =>
               supabaseAdmin.rpc("decrement_stock", {
-                product_id_in: item.productId,
+                product_id_in: typeof item.productId === 'string' ? Number(item.productId) : item.productId,
                 quantity_in: item.quantity,
               })
             )
           );
+
+          // 4) Best-effort: clear cart items by session ID (if provided)
+          const cartSessionId = (metadata.cartSessionId as string | undefined) || undefined;
+          if (cartSessionId) {
+            const { error: clearErr } = await supabaseAdmin
+              .from("cart_items")
+              .delete()
+              .eq("session_id", cartSessionId);
+            if (clearErr) {
+              console.warn("Failed to clear cart items for session after payment:", clearErr);
+            }
+          }
         } else if (metadata.cartSessionId) {
           // Legacy path: metadata had cartSessionId/userId; keep 200 so Stripe doesn't retry.
           console.warn("Received legacy webhook format without cart JSON; ignoring.");

@@ -16,6 +16,20 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     redirect("/login?redirect=/admin");
   }
 
+  // Optional: enforce role-based access via ADMIN_EMAILS (comma-separated)
+  // If ADMIN_EMAILS is defined, only those emails can access /admin
+  const adminEmails = (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (adminEmails.length > 0) {
+    const email = (user.email || "").toLowerCase();
+    if (!email || !adminEmails.includes(email)) {
+      // Not authorized for admin panel
+      redirect("/");
+    }
+  }
+
   return (
     <div className="flex min-h-screen">
       <aside className="w-64 bg-gray-800 text-white p-4">
