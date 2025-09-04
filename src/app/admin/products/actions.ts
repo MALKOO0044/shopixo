@@ -13,6 +13,11 @@ const productSchema = z.object({
   description: z.string().optional(),
   price: z.coerce.number().min(0, "Price must be a positive number"),
   stock: z.coerce.number().int().min(0, "Stock must be a non-negative integer"),
+  // Category is required in DB; default to 'General' if not provided
+  category: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : "General")),
   // Accept a comma-separated string from the form and transform it into a string[]
   images: z
     .string()

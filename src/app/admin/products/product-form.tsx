@@ -1,14 +1,14 @@
 "use client";
 
-"use client";
-
 import { useFormState, useFormStatus } from "react-dom";
+import { useRef, useState } from "react";
 import { addProduct, updateProduct } from "@/app/admin/products/actions";
 import type { Product } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { UploadCloud, Loader2 } from "lucide-react";
 
 function SubmitButton({ isEditing }: { isEditing: boolean }) {
   const { pending } = useFormStatus();
@@ -16,6 +16,83 @@ function SubmitButton({ isEditing }: { isEditing: boolean }) {
     <Button type="submit" disabled={pending} className="w-full">
       {pending ? (isEditing ? "Updating..." : "Adding...") : (isEditing ? "Update Product" : "Add Product")}
     </Button>
+  );
+}
+
+function UploadImagesControl({
+  onAppendUrls,
+  onLocalPreview,
+}: {
+  onAppendUrls: (urls: string[]) => void;
+  onLocalPreview?: (urls: string[]) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+  const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+
+  const onClick = () => fileInputRef.current?.click();
+
+  async function handleFiles(files: FileList) {
+    if (!files || files.length === 0) return;
+    const hasCloudinary = !!cloudName && !!uploadPreset;
+    setUploading(true);
+    try {
+      if (!hasCloudinary) {
+        // Fallback: just preview locally without modifying the images field
+        const objectUrls = Array.from(files).map((f) => URL.createObjectURL(f));
+        onLocalPreview?.(objectUrls);
+        alert(
+          "Image upload is not configured. Paste direct image URLs, or configure Cloudinary env vars to enable uploads."
+        );
+        return;
+      }
+
+      const uploadedUrls: string[] = [];
+      for (const file of Array.from(files)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("upload_preset", uploadPreset as string);
+        const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+          method: "POST",
+          body: fd,
+        });
+        if (!res.ok) throw new Error("Upload failed");
+        const json = await res.json();
+        if (json.secure_url) uploadedUrls.push(json.secure_url as string);
+      }
+      if (uploadedUrls.length > 0) onAppendUrls(uploadedUrls);
+    } catch (e) {
+      console.error("Image upload failed", e);
+      alert("Image upload failed. You can paste direct image URLs or configure Cloudinary env vars.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button type="button" variant="secondary" onClick={onClick} disabled={uploading} aria-live="polite">
+        {uploading ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Uploading...
+          </>
+        ) : (
+          <>
+            <UploadCloud className="mr-2 h-4 w-4" /> Upload Images
+          </>
+        )}
+      </Button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => e.target.files && handleFiles(e.target.files)}
+      />
+    </div>
   );
 }
 
@@ -29,6 +106,22 @@ const initialState: FormState = { message: null, fieldErrors: null };
 export default function ProductForm({ product }: { product?: Product }) {
   const action = product ? updateProduct : addProduct;
   const [state, formAction] = useFormState(action, initialState);
+  const imagesInputRef = useRef<HTMLInputElement>(null);
+  const [previews, setPreviews] = useState<string[]>(product?.images || []);
+
+  const appendUrls = (urls: string[]) => {
+    const current = imagesInputRef.current?.value?.trim();
+    const arr = current ? current.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    const newArr = Array.from(new Set([...arr, ...urls]));
+    if (imagesInputRef.current) {
+      imagesInputRef.current.value = newArr.join(", ");
+    }
+    setPreviews((prev) => Array.from(new Set([...(prev || []), ...urls])));
+  };
+
+  const onLocalPreview = (urls: string[]) => {
+    setPreviews((prev) => Array.from(new Set([...(prev || []), ...urls])));
+  };
 
   return (
     <form action={formAction}>
@@ -60,8 +153,25 @@ export default function ProductForm({ product }: { product?: Product }) {
           {state.fieldErrors?.stock && <p className="text-xs text-destructive">{state.fieldErrors.stock.join(', ')}</p>}
         </div>
         <div className="grid gap-2">
+          <Label htmlFor="category">Category</Label>
+          <Input id="category" name="category" defaultValue={product?.category || "General"} />
+          {state.fieldErrors?.category && (
+            <p className="text-xs text-destructive">{state.fieldErrors.category.join(', ')}</p>
+          )}
+        </div>
+        <div className="grid gap-2">
           <Label htmlFor="images">Image URLs (comma-separated)</Label>
-          <Input id="images" name="images" defaultValue={product?.images?.join(', ') || ""} />
+          <Input ref={imagesInputRef} id="images" name="images" defaultValue={product?.images?.join(', ') || ""} />
+          <div className="flex items-center gap-3">
+            <UploadImagesControl onAppendUrls={appendUrls} onLocalPreview={onLocalPreview} />
+          </div>
+          {previews && previews.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {previews.map((src, i) => (
+                <img key={`${src}-${i}`} src={src} alt="preview" className="h-16 w-16 rounded border object-cover" />
+              ))}
+            </div>
+          )}
           {state.fieldErrors?.images && <p className="text-xs text-destructive">{state.fieldErrors.images.join(', ')}</p>}
         </div>
       </div>
