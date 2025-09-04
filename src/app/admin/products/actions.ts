@@ -72,7 +72,13 @@ export async function addProduct(prevState: any, formData: FormData) {
   const { error } = await supabaseAdmin.from("products").insert(validatedFields.data);
 
   if (error) {
-    return { message: "Database error: Could not add product.", fieldErrors: null };
+    // Provide a clearer, admin-friendly message (e.g., unique violation on slug)
+    console.error("Add product failed:", error);
+    const friendlyMessage =
+      error.code === "23505"
+        ? "Slug already exists. Please use a unique slug."
+        : error.message || "Database error: Could not add product.";
+    return { message: friendlyMessage, fieldErrors: null };
   }
 
   revalidatePath("/admin");
@@ -106,7 +112,12 @@ export async function updateProduct(prevState: any, formData: FormData) {
   const { error } = await supabaseAdmin.from("products").update(productData).eq("id", id);
 
   if (error) {
-    return { message: "Database error: Could not update product.", fieldErrors: null };
+    console.error("Update product failed:", error);
+    const friendlyMessage =
+      error.code === "23505"
+        ? "Slug already exists. Please use a unique slug."
+        : error.message || "Database error: Could not update product.";
+    return { message: friendlyMessage, fieldErrors: null };
   }
 
   revalidatePath("/admin");
