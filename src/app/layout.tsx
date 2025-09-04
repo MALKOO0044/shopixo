@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     template: "%s — Shopixo",
   },
   description: "Shopixo is a modern, professional online store.",
-  icons: { icon: "/favicon.svg", shortcut: "/favicon.png", apple: "/favicon.png" },
+  icons: { icon: "/favicon.svg", apple: "/favicon.svg" },
   openGraph: {
     type: "website",
     url: siteUrl,

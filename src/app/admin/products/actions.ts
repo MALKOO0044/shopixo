@@ -1,6 +1,7 @@
 "use server";
 
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -11,11 +12,54 @@ const productSchema = z.object({
   slug: z.string().min(1, "Slug is required"),
   description: z.string().optional(),
   price: z.coerce.number().min(0, "Price must be a positive number"),
-  image: z.string().url("Must be a valid URL").optional().or(z.literal('')), 
+  stock: z.coerce.number().int().min(0, "Stock must be a non-negative integer"),
+  // Accept a comma-separated string from the form and transform it into a string[]
+  images: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (!val) return [] as string[];
+      return val
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+    }),
 });
 
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+
+async function requireAdmin() {
+  const supabaseAuth = createServerComponentClient({ cookies });
+  const { data: { user } } = await supabaseAuth.auth.getUser();
+  if (!user) {
+    return { allowed: false as const };
+  }
+  const adminEmails = (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (adminEmails.length === 0) {
+    // No admin list configured: treat any authenticated user as allowed (dev fallback)
+    return { allowed: true as const };
+  }
+  const email = (user.email || "").toLowerCase();
+  return { allowed: !!email && adminEmails.includes(email) } as const;
+}
+
 export async function addProduct(prevState: any, formData: FormData) {
-  const supabase = createServerComponentClient({ cookies });
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.allowed) {
+    return { message: "Not authorized", fieldErrors: null };
+  }
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return { message: "Server misconfiguration: missing Supabase service role envs", fieldErrors: null };
+  }
   const validatedFields = productSchema.safeParse(Object.fromEntries(formData.entries()));
 
   if (!validatedFields.success) {
@@ -25,7 +69,7 @@ export async function addProduct(prevState: any, formData: FormData) {
     };
   }
 
-  const { error } = await supabase.from("products").insert(validatedFields.data);
+  const { error } = await supabaseAdmin.from("products").insert(validatedFields.data);
 
   if (error) {
     return { message: "Database error: Could not add product.", fieldErrors: null };
@@ -40,7 +84,14 @@ const productUpdateSchema = productSchema.extend({
 });
 
 export async function updateProduct(prevState: any, formData: FormData) {
-  const supabase = createServerComponentClient({ cookies });
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.allowed) {
+    return { message: "Not authorized", fieldErrors: null };
+  }
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return { message: "Server misconfiguration: missing Supabase service role envs", fieldErrors: null };
+  }
   const validatedFields = productUpdateSchema.safeParse(Object.fromEntries(formData.entries()));
 
   if (!validatedFields.success) {
@@ -52,7 +103,7 @@ export async function updateProduct(prevState: any, formData: FormData) {
 
   const { id, ...productData } = validatedFields.data;
 
-  const { error } = await supabase.from("products").update(productData).eq("id", id);
+  const { error } = await supabaseAdmin.from("products").update(productData).eq("id", id);
 
   if (error) {
     return { message: "Database error: Could not update product.", fieldErrors: null };
@@ -68,7 +119,14 @@ const deleteProductSchema = z.object({
 });
 
 export async function deleteProduct(prevState: any, formData: FormData) {
-  const supabase = createServerComponentClient({ cookies });
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.allowed) {
+    return { error: "Not authorized" };
+  }
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return { error: "Server misconfiguration: missing Supabase service role envs" };
+  }
   const validatedFields = deleteProductSchema.safeParse(Object.fromEntries(formData.entries()));
 
   if (!validatedFields.success) {
@@ -77,7 +135,7 @@ export async function deleteProduct(prevState: any, formData: FormData) {
 
   const { id } = validatedFields.data;
 
-  const { error } = await supabase.from("products").delete().eq("id", id);
+  const { error } = await supabaseAdmin.from("products").delete().eq("id", id);
 
   if (error) {
     return { error: "Database error: Could not delete product." };

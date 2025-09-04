@@ -55,6 +55,11 @@ export default function ProductForm({ product }: { product?: Product }) {
           {state.fieldErrors?.price && <p className="text-xs text-destructive">{state.fieldErrors.price.join(', ')}</p>}
         </div>
         <div className="grid gap-2">
+          <Label htmlFor="stock">Stock</Label>
+          <Input id="stock" name="stock" type="number" step="1" min="0" defaultValue={product?.stock ?? 0} required />
+          {state.fieldErrors?.stock && <p className="text-xs text-destructive">{state.fieldErrors.stock.join(', ')}</p>}
+        </div>
+        <div className="grid gap-2">
           <Label htmlFor="images">Image URLs (comma-separated)</Label>
           <Input id="images" name="images" defaultValue={product?.images?.join(', ') || ""} />
           {state.fieldErrors?.images && <p className="text-xs text-destructive">{state.fieldErrors.images.join(', ')}</p>}
