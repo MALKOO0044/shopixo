@@ -29,39 +29,66 @@ function UploadImagesControl({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-  const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
-
   const onClick = () => fileInputRef.current?.click();
 
   async function handleFiles(files: FileList) {
     if (!files || files.length === 0) return;
-    const hasCloudinary = !!cloudName && !!uploadPreset;
     setUploading(true);
     try {
-      if (!hasCloudinary) {
-        // Fallback: just preview locally without modifying the images field
-        const objectUrls = Array.from(files).map((f) => URL.createObjectURL(f));
-        onLocalPreview?.(objectUrls);
-        alert(
-          "Image upload is not configured. Paste direct image URLs, or configure Cloudinary env vars to enable uploads."
-        );
-        return;
-      }
+      // Prefer signed uploads via our server API for better security
+      let signData: any = null;
+      try {
+        const signRes = await fetch("/api/cloudinary/sign");
+        if (signRes.ok) signData = await signRes.json();
+      } catch {}
+
+      const canSigned = !!(signData && signData.ok && signData.cloudName && signData.apiKey && signData.signature && signData.timestamp && signData.uploadPreset);
 
       const uploadedUrls: string[] = [];
-      for (const file of Array.from(files)) {
-        const fd = new FormData();
-        fd.append("file", file);
-        fd.append("upload_preset", uploadPreset as string);
-        const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
-          method: "POST",
-          body: fd,
-        });
-        if (!res.ok) throw new Error("Upload failed");
-        const json = await res.json();
-        if (json.secure_url) uploadedUrls.push(json.secure_url as string);
+      if (canSigned) {
+        for (const file of Array.from(files)) {
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("api_key", String(signData.apiKey));
+          fd.append("timestamp", String(signData.timestamp));
+          fd.append("upload_preset", String(signData.uploadPreset));
+          fd.append("signature", String(signData.signature));
+          const res = await fetch(`https://api.cloudinary.com/v1_1/${signData.cloudName}/image/upload`, {
+            method: "POST",
+            body: fd,
+          });
+          if (!res.ok) throw new Error("Upload failed");
+          const json = await res.json();
+          if (json.secure_url) uploadedUrls.push(json.secure_url as string);
+        }
+      } else {
+        // Fallback to unsigned preset if public envs exist
+        const cloudNamePublic = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+        const uploadPresetPublic = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+        const hasUnsigned = !!cloudNamePublic && !!uploadPresetPublic;
+        if (hasUnsigned) {
+          for (const file of Array.from(files)) {
+            const fd = new FormData();
+            fd.append("file", file);
+            fd.append("upload_preset", uploadPresetPublic as string);
+            const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudNamePublic}/image/upload`, {
+              method: "POST",
+              body: fd,
+            });
+            if (!res.ok) throw new Error("Upload failed");
+            const json = await res.json();
+            if (json.secure_url) uploadedUrls.push(json.secure_url as string);
+          }
+        } else {
+          // Final fallback: just preview locally
+          const objectUrls = Array.from(files).map((f) => URL.createObjectURL(f));
+          onLocalPreview?.(objectUrls);
+          alert(
+            "Image upload is not configured. Paste direct image URLs, or configure Cloudinary env vars to enable uploads."
+          );
+        }
       }
+
       if (uploadedUrls.length > 0) onAppendUrls(uploadedUrls);
     } catch (e) {
       console.error("Image upload failed", e);
