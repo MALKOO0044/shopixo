@@ -37,10 +37,15 @@ export default async function HomePage() {
     try {
       const supabase = createServerComponentClient({ cookies });
       const { data, error } = await supabase.from("products").select("*").eq("is_active", true);
-      if (error) {
-        console.error("Error fetching products:", error);
+      if (error && (String((error as any).message || "").includes("is_active") || (error as any).code === "42703")) {
+        // Column not found yet (migration not applied) → fallback to unfiltered query
+        const fb = await supabase.from("products").select("*");
+        if (fb.error) console.error("Error fetching products (fallback):", fb.error);
+        products = (fb.data as any[] | null) ?? null;
+      } else {
+        if (error) console.error("Error fetching products:", error);
+        products = (data as any[] | null) ?? null;
       }
-      products = (data as any[] | null) ?? null;
     } catch (e) {
       console.error("Failed to initialize Supabase client:", e);
     }

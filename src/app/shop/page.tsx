@@ -9,7 +9,20 @@ export const revalidate = 0;
 
 export default async function ShopPage() {
   const supabase = createServerComponentClient({ cookies });
-  const { data: products, error } = await supabase.from("products").select("*").eq("is_active", true);
+  // Try to filter active products; if the column is missing (migration not applied), fallback to unfiltered query
+  let products: any[] | null = null;
+  let error: any = null;
+  {
+    const { data, error: err } = await supabase.from("products").select("*").eq("is_active", true);
+    if (err && (String(err.message || "").includes("is_active") || err.code === "42703")) {
+      const fallback = await supabase.from("products").select("*");
+      products = fallback.data as any[] | null;
+      error = fallback.error;
+    } else {
+      products = data as any[] | null;
+      error = err;
+    }
+  }
 
   if (error) {
     console.error("Error fetching products:", error.message);
