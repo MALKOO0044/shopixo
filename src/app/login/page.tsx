@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import AuthForm from "./auth-form";
 
 export const metadata = {
-  title: "Log In",
+  title: "تسجيل الدخول",
 };
 
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ export default async function LoginPage() {
   return (
     <div className="container flex h-full w-full flex-col items-center justify-center py-10">
       <div className="w-full max-w-md rounded-xl border bg-white p-8 shadow-sm">
-        <h1 className="mb-4 text-center text-2xl font-bold">Log In to Shopixo</h1>
+        <h1 className="mb-4 text-center text-2xl font-bold">تسجيل الدخول إلى شوبكسو</h1>
         <AuthForm />
       </div>
     </div>

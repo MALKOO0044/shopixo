@@ -10,27 +10,27 @@ export default function Error({
   reset: () => void;
 }) {
   return (
-    <div className="container py-20 text-center">
-      <h1 className="text-4xl font-bold text-slate-900">Something went wrong</h1>
+    <div dir="rtl" className="container py-20 text-center">
+      <h1 className="text-3xl sm:text-4xl font-bold text-slate-900">حدث خطأ غير متوقع</h1>
       <p className="mt-4 text-slate-600">
-        An unexpected error occurred. Please try again or return to the homepage.
+        عذرًا، حدث خطأ. يرجى المحاولة مرة أخرى أو العودة إلى الصفحة الرئيسية.
       </p>
       {error?.digest && (
-        <p className="mt-2 text-xs text-slate-400">Error ID: {error.digest}</p>
+        <p className="mt-2 text-xs text-slate-400">معرّف الخطأ: {error.digest}</p>
       )}
       <div className="mt-8 flex items-center justify-center gap-4">
         <button
           onClick={reset}
-          className="btn-primary"
-          aria-label="Try again"
+          className="inline-flex items-center rounded bg-black text-white px-4 py-2 text-sm hover:bg-gray-800"
+          aria-label="حاول مرة أخرى"
         >
-          Try again
+          حاول مرة أخرى
         </button>
         <Link
           href="/"
           className="inline-flex items-center font-medium text-slate-900 underline decoration-2 underline-offset-4"
         >
-          Go home
+          العودة إلى الرئيسية
         </Link>
       </div>
     </div>

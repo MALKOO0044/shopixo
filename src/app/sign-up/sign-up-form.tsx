@@ -21,7 +21,7 @@ export default function SignUpForm() {
     setError(null);
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+      setError("كلمتا المرور غير متطابقتين.");
       return;
     }
 
@@ -43,9 +43,9 @@ export default function SignUpForm() {
   if (success) {
     return (
       <div className="rounded-md bg-primary/10 p-6 text-center">
-        <h2 className="text-lg font-semibold">Check your email</h2>
+        <h2 className="text-lg font-semibold">تحقق من بريدك الإلكتروني</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          We've sent a confirmation link to your email address. Please click the link to complete your registration.
+          قمنا بإرسال رابط تأكيد إلى بريدك الإلكتروني. يرجى النقر على الرابط لإتمام عملية التسجيل.
         </p>
       </div>
     );
@@ -55,36 +55,39 @@ export default function SignUpForm() {
     <form onSubmit={handleSignUp} className="space-y-4">
       {error && <p className="rounded-md bg-destructive/10 p-3 text-center text-sm text-destructive">{error}</p>}
       <div className="space-y-1">
-        <Label htmlFor="email">Email</Label>
+        <Label htmlFor="email">البريد الإلكتروني</Label>
         <Input
           id="email"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          dir="ltr"
           required
         />
       </div>
       <div className="space-y-1">
-        <Label htmlFor="password">Password</Label>
+        <Label htmlFor="password">كلمة المرور</Label>
         <Input
           id="password"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          dir="ltr"
           required
         />
       </div>
       <div className="space-y-1">
-        <Label htmlFor="confirmPassword">Confirm Password</Label>
+        <Label htmlFor="confirmPassword">تأكيد كلمة المرور</Label>
         <Input
           id="confirmPassword"
           type="password"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
+          dir="ltr"
           required
         />
       </div>
-      <Button type="submit" className="w-full">Sign Up</Button>
+      <Button type="submit" className="w-full">إنشاء حساب</Button>
     </form>
   );
 }

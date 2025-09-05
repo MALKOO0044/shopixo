@@ -14,5 +14,5 @@ export default function SignOutButton() {
     router.refresh();
   };
 
-  return <DropdownMenuItem onClick={handleSignOut}>Sign Out</DropdownMenuItem>;
+  return <DropdownMenuItem onClick={handleSignOut}>تسجيل الخروج</DropdownMenuItem>;
 }

@@ -21,18 +21,18 @@ export function ThemeToggle() {
         <Button variant="ghost" size="icon" className="h-9 w-9 relative rounded-full">
           <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
           <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-          <span className="sr-only">Toggle theme</span>
+          <span className="sr-only">تبديل السمة</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => setTheme("light")}>
-          Light
+          الوضع الفاتح
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => setTheme("dark")}>
-          Dark
+          الوضع الداكن
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => setTheme("system")}>
-          System
+          نظام الجهاز
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

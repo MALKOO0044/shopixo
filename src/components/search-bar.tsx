@@ -20,12 +20,12 @@ export default function SearchBar() {
 
   return (
     <form onSubmit={handleSearch} className="relative w-full max-w-md">
-      <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <SearchIcon className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
       <Input
         type="search"
         name="q"
-        placeholder="Search for products..."
-        className="w-full rounded-md bg-background pl-9 pr-4 py-2 text-sm"
+        placeholder="ابحث عن منتجات..."
+        className="w-full rounded-md bg-background pr-9 pl-4 py-2 text-sm"
       />
     </form>
   );

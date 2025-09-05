@@ -19,10 +19,10 @@ export default async function UserNav() {
     return (
       <div className="flex items-center gap-2">
         <Button asChild variant="ghost" size="sm">
-          <Link href="/login">Sign In</Link>
+          <Link href="/login">تسجيل الدخول</Link>
         </Button>
         <Button asChild size="sm">
-          <Link href="/sign-up">Sign Up</Link>
+          <Link href="/sign-up">إنشاء حساب</Link>
         </Button>
       </div>
     );
@@ -33,6 +33,12 @@ export default async function UserNav() {
     const { data: { session } } = await supabase.auth.getSession();
 
     if (session) {
+      const email = (session.user?.email || "").toLowerCase();
+      const adminEmails = (process.env.ADMIN_EMAILS || "")
+        .split(",")
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean);
+      const isAdmin = adminEmails.length > 0 && email && adminEmails.includes(email);
       return (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -43,7 +49,7 @@ export default async function UserNav() {
           <DropdownMenuContent className="w-56" align="end" forceMount>
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">My Account</p>
+                <p className="text-sm font-medium leading-none">حسابي</p>
                 <p className="text-xs leading-none text-muted-foreground">
                   {session.user?.email}
                 </p>
@@ -51,11 +57,34 @@ export default async function UserNav() {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link href="/account">Profile</Link>
+              <Link href="/account">نظرة عامة</Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
-              <Link href="/account/orders">Orders</Link>
+              <Link href="/account/orders">الطلبات</Link>
             </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/account/addresses">العناوين</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/account/coupons">القسائم</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/account/reviews">المراجعات</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/account/security">الأمان</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/account/notifications">الإشعارات</Link>
+            </DropdownMenuItem>
+            {isAdmin && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/admin">لوحة التحكم</Link>
+                </DropdownMenuItem>
+              </>
+            )}
             <DropdownMenuSeparator />
             <SignOutButton />
           </DropdownMenuContent>
@@ -69,10 +98,10 @@ export default async function UserNav() {
   return (
     <div className="flex items-center gap-2">
       <Button asChild variant="ghost" size="sm">
-        <Link href="/login">Sign In</Link>
+        <Link href="/login">تسجيل الدخول</Link>
       </Button>
       <Button asChild size="sm">
-        <Link href="/sign-up">Sign Up</Link>
+        <Link href="/sign-up">إنشاء حساب</Link>
       </Button>
     </div>
   );

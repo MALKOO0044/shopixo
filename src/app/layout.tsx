@@ -7,6 +7,7 @@ import Footer from "@/components/footer";
 import CookieConsent from "@/components/cookie-consent";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Suspense } from "react";
+import { ToastProvider } from "@/components/ui/toast-provider";
 
 const inter = Inter({ subsets: ["latin"] });
 const rawSiteUrl =
@@ -48,22 +49,24 @@ export const runtime = "nodejs";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="ar" dir="rtl" suppressHydrationWarning>
       <body className={`${inter.className} min-h-screen flex flex-col`}>
         <ThemeProvider>
-          <Suspense fallback={null}>
-            <Header />
-          </Suspense>
-          <Suspense fallback={null}>
-            <NavigationBar />
-          </Suspense>
-          <Suspense fallback={null}>
-            <main className="flex-1">{children}</main>
-          </Suspense>
-          <Suspense fallback={null}>
-            <Footer />
-          </Suspense>
-          <CookieConsent />
+          <ToastProvider>
+            <Suspense fallback={null}>
+              <Header />
+            </Suspense>
+            <Suspense fallback={null}>
+              <NavigationBar />
+            </Suspense>
+            <Suspense fallback={null}>
+              <main className="flex-1">{children}</main>
+            </Suspense>
+            <Suspense fallback={null}>
+              <Footer />
+            </Suspense>
+            <CookieConsent />
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>

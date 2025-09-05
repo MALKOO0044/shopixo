@@ -40,11 +40,13 @@ export async function createCheckoutSession() {
 
   const siteUrl = getSiteUrl();
   const checkoutSession = await getStripe().checkout.sessions.create({
+    payment_method_types: ["card"],
     line_items: lineItems,
     mode: "payment",
     success_url: `${siteUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${siteUrl}/cart`,
     customer_email: session.user.email,
+    allow_promotion_codes: true,
     metadata: {
       userId: session.user.id,
       cart: JSON.stringify(

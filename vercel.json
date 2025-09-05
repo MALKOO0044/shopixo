@@ -1,6 +1,5 @@
 {
   "version": 2,
-  "name": "shopixo",
   "framework": "nextjs",
   "buildCommand": "npm run build",
   "build": {},

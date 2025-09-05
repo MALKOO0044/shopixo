@@ -17,7 +17,7 @@ export default async function CartBadge() {
           {totalQuantity}
         </span>
       )}
-      <span className="sr-only">Cart, {totalQuantity} items</span>
+      <span className="sr-only">عربة التسوق، {totalQuantity} عناصر</span>
     </Link>
   );
 }

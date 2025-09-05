@@ -34,3 +34,28 @@ export type CartItem = {
   quantity: number;
   product: Product | null;
 };
+
+export type Address = {
+  id: number;
+  user_id: string;
+  full_name: string;
+  phone: string | null;
+  line1: string;
+  line2: string | null;
+  city: string;
+  state: string | null;
+  postal_code: string | null;
+  country: string;
+  is_default: boolean;
+  created_at?: string;
+};
+
+export type Review = {
+  id: number;
+  user_id: string;
+  product_id: number;
+  rating: number; // 1..5
+  title: string | null;
+  body: string | null;
+  created_at?: string;
+};
