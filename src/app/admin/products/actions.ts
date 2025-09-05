@@ -151,9 +151,21 @@ export async function deleteProduct(prevState: any, formData: FormData) {
 
   const { id } = validatedFields.data;
 
+  // First, remove any cart_items referencing this product to avoid FK restrict
+  const cartDel = await supabaseAdmin.from("cart_items").delete().eq("product_id", id);
+  if (cartDel.error) {
+    console.error("Failed to delete cart_items for product", id, cartDel.error);
+  }
+
+  // Attempt to delete the product
   const { error } = await supabaseAdmin.from("products").delete().eq("id", id);
 
   if (error) {
+    console.error("Delete product failed:", error);
+    // 23503 is foreign_key_violation in Postgres
+    if ((error as any).code === "23503") {
+      return { error: "Cannot delete: product is referenced by existing orders. Consider setting stock to 0 instead." };
+    }
     return { error: "Database error: Could not delete product." };
   }
 
