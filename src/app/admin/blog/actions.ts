@@ -8,7 +8,7 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { createClient } from "@supabase/supabase-js";
 
 type BlogFormState = {
-  message: string | null;
+  message: string;
   fieldErrors: Record<string, string[] | undefined> | null;
 };
 
