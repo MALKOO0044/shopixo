@@ -12,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import OrderStatusForm from "@/app/admin/orders/status-form";
 
 // Admin client to bypass RLS (lazy init to avoid build-time env requirements)
 let supabaseAdmin: any = null;
@@ -73,9 +74,12 @@ export default async function OrdersPage() {
                   {formatCurrency(order.total_amount)}
                 </TableCell>
                 <TableCell className="text-center">
-                  <Badge variant={order.status === 'paid' ? 'default' : 'secondary'}>
-                    {order.status}
-                  </Badge>
+                  <div className="flex items-center justify-center gap-2">
+                    <Badge variant={order.status === 'paid' ? 'default' : 'secondary'}>
+                      {order.status}
+                    </Badge>
+                    <OrderStatusForm orderId={order.id} current={order.status} />
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
