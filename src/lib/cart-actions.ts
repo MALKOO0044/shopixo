@@ -175,12 +175,15 @@ export async function addItem(prevState: any, formData: FormData) {
     // 1. Fetch product stock
     const { data: product } = await supabaseAdmin
       .from("products")
-      .select("stock, title")
+      .select("stock, title, is_active")
       .eq("id", productId)
       .single();
 
     if (!product) {
       return { error: "Product not found." };
+    }
+    if (product.is_active === false) {
+      return { error: `This product is no longer available.` };
     }
 
     const cart = await getOrCreateCart();
@@ -300,11 +303,14 @@ export async function updateItemQuantity(prevState: any, formData: FormData) {
 
       const { data: product, error: prodErr } = await supabaseAdmin
         .from("products")
-        .select("stock, title")
+        .select("stock, title, is_active")
         .eq("id", itemRow.product_id)
         .single();
       if (prodErr || !product) {
         return { error: "Product not found." };
+      }
+      if (product.is_active === false) {
+        return { error: `This product is no longer available.` };
       }
       if (quantity > product.stock) {
         return { error: `Not enough stock for ${product.title}. Only ${product.stock} left.` };

@@ -38,6 +38,46 @@ function getSupabaseAdmin() {
   return createClient(url, key);
 }
 
+const setActiveSchema = z.object({
+  id: z.coerce.number(),
+  is_active: z
+    .union([z.literal("true"), z.literal("false"), z.boolean()])
+    .transform((v) => (v === "true" || v === true ? true : false)),
+});
+
+export async function setProductActive(prevState: any, formData: FormData) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.allowed) {
+    return { error: "Not authorized" };
+  }
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return { error: "Server misconfiguration: missing Supabase service role envs" };
+  }
+
+  const validated = setActiveSchema.safeParse({
+    id: formData.get("id"),
+    is_active: formData.get("is_active"),
+  });
+  if (!validated.success) {
+    return { error: "Invalid input." };
+  }
+
+  const { id, is_active } = validated.data;
+
+  const { error } = await supabaseAdmin.from("products").update({ is_active }).eq("id", id);
+  if (error) {
+    console.error("setProductActive failed:", error);
+    return { error: "Database error: Could not update product status." };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/");
+  revalidatePath("/shop");
+  revalidatePath("/search");
+  return { success: true };
+}
+
 async function requireAdmin() {
   const supabaseAuth = createServerComponentClient({ cookies });
   const { data: { user } } = await supabaseAuth.auth.getUser();

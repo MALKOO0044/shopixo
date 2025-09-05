@@ -9,7 +9,7 @@ export const revalidate = 0;
 
 export default async function ShopPage() {
   const supabase = createServerComponentClient({ cookies });
-  const { data: products, error } = await supabase.from("products").select("*");
+  const { data: products, error } = await supabase.from("products").select("*").eq("is_active", true);
 
   if (error) {
     console.error("Error fetching products:", error.message);

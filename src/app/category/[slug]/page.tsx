@@ -19,7 +19,8 @@ export default async function CategoryPage({ params }: { params: { slug: string 
   const { data: products, error } = await supabase
     .from("products")
     .select<"*", Product>("*")
-    .eq("category", categoryTitle);
+    .eq("category", categoryTitle)
+    .eq("is_active", true);
   if (error) {
     console.error("Error fetching category products:", error);
   }

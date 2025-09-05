@@ -5,6 +5,7 @@ import { formatCurrency } from "@/lib/utils";
 import Image from "next/image";
 import Link from "next/link";
 import DeleteProductButton from "./products/delete-button";
+import ArchiveProductButton from "./products/archive-button";
 
 export const metadata = {
   title: "Admin Dashboard",
@@ -63,17 +64,24 @@ export default async function AdminPage() {
                       <Image src={product.images?.[0] || "/placeholder.svg"} alt={product.title} fill className="object-cover" />
                     </div>
                   </td>
-                  <td className="p-3 font-medium">{product.title}</td>
+                  <td className="p-3 font-medium">
+                    {product.title}
+                    {product.is_active === false && (
+                      <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">Archived</span>
+                    )}
+                  </td>
                   <td className="p-3">{formatCurrency(product.price)}</td>
                   <td className="p-3">
                     <Link
-                      href={{ pathname: `/admin/products/${product.id}/edit` }}
+                      href={{ pathname: "/admin/products/[id]/edit", query: { id: String(product.id) } }}
                       className="text-sm font-medium text-blue-600 hover:underline"
                     >
                       Edit
                     </Link>
                     <span className="mx-2 text-slate-300">|</span>
                     <DeleteProductButton productId={product.id} />
+                    <span className="mx-2 text-slate-300">|</span>
+                    <ArchiveProductButton productId={product.id} isActive={product.is_active ?? true} />
                   </td>
                 </tr>
               ))

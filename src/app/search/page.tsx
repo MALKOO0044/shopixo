@@ -38,10 +38,10 @@ export default async function SearchPage({
   const supabase = createServerComponentClient({ cookies });
 
   // Fetch categories for the filter dropdown
-  const { data: categoriesData } = await supabase.from("products").select("category");
+  const { data: categoriesData } = await supabase.from("products").select("category").eq("is_active", true);
   const categories = Array.from(new Set(categoriesData?.map((p) => p.category))).sort();
 
-  let query = supabase.from("products").select<"*", Product>("*");
+  let query = supabase.from("products").select<"*", Product>("*").eq("is_active", true);
 
   if (q) {
     query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%`);

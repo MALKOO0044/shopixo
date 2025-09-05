@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
-import type { Product } from "@/lib/types";
+import ArchiveProductButton from "@/app/admin/products/archive-button";
 
 export const dynamic = "force-dynamic";
 
@@ -65,13 +65,22 @@ export default async function AdminProductsPage() {
                     width="64"
                   />
                 </TableCell>
-                <TableCell className="font-medium">{product.title}</TableCell>
+                <TableCell className="font-medium">
+                  {product.title}
+                  {product.is_active === false && (
+                    <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">Archived</span>
+                  )}
+                </TableCell>
                 <TableCell>{formatCurrency(product.price)}</TableCell>
                 <TableCell className="hidden md:table-cell">
                   {new Date(product.created_at).toLocaleDateString()}
                 </TableCell>
-                <TableCell className="text-right">
-                  {/* Add Edit/Delete buttons here in the future */}
+                <TableCell className="text-right space-x-2 rtl:space-x-reverse">
+                  <Link href={{ pathname: "/admin/products/[id]/edit", query: { id: String(product.id) } }} className="text-sm font-medium text-blue-600 hover:underline">
+                    Edit
+                  </Link>
+                  <span className="mx-2 text-slate-300">|</span>
+                  <ArchiveProductButton productId={product.id} isActive={product.is_active ?? true} />
                 </TableCell>
               </TableRow>
             ))}

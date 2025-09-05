@@ -70,6 +70,37 @@ Notes:
 - Admin writes (add/edit/delete) are executed server-side using the Supabase Service Role key, which bypasses RLS. No additional write policies are required.
 - The public site (`/blog`) reads only `published = true` posts thanks to the RLS policy above.
 
+### Products Soft Delete (Archive/Restore)
+To allow archiving products instead of hard-deleting them (useful when products are referenced by orders), run the following SQL in Supabase → SQL Editor:
+
+```sql
+alter table if exists public.products
+  add column if not exists is_active boolean not null default true;
+
+create index if not exists idx_products_active_created
+  on public.products (is_active, created_at desc);
+```
+
+After running this, the Admin panel will show an "Archive/Restore" action. Archived products will be hidden from:
+- Home `/`
+- Shop `/shop`
+- Category pages `/category/[slug]`
+- Search `/search`
+- Product details `/product/[slug]`
+- Sitemap `/sitemap.xml`
+
+Also, cart operations will prevent adding or updating quantities for inactive products.
+
+### Branding (Footer)
+Configure these environment variables to brand your store footer without code changes:
+
+- `NEXT_PUBLIC_STORE_NAME` — your public store name (e.g., `هيا`).
+- Optional social links (icons render only if set):
+  - `NEXT_PUBLIC_SOCIAL_FACEBOOK`
+  - `NEXT_PUBLIC_SOCIAL_INSTAGRAM`
+  - `NEXT_PUBLIC_SOCIAL_TWITTER`
+  - `NEXT_PUBLIC_SOCIAL_YOUTUBE`
+
 ---
 
 ## Step 2 — Stripe Setup

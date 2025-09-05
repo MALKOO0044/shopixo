@@ -9,6 +9,7 @@ export type Product = {
   rating: number;
   stock: number;
   variants: { name: string; options: string[] }[];
+  is_active?: boolean; // soft delete flag (optional to avoid breaking existing code)
 };
 
 export type OrderItem = {

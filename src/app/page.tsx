@@ -36,7 +36,7 @@ export default async function HomePage() {
   if (hasSupabaseEnv) {
     try {
       const supabase = createServerComponentClient({ cookies });
-      const { data, error } = await supabase.from("products").select("*");
+      const { data, error } = await supabase.from("products").select("*").eq("is_active", true);
       if (error) {
         console.error("Error fetching products:", error);
       }

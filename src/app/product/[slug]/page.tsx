@@ -16,6 +16,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
     .from("products")
     .select("title, description, images")
     .eq("slug", params.slug)
+    .eq("is_active", true)
     .single();
  
   if (!product) {
@@ -42,7 +43,10 @@ export default async function ProductPage({ params }: { params: { slug: string }
 
   const { data: product } = await supabase
     .from("products")
-    .select<"*", Product>("*").eq("slug", params.slug).single();
+    .select<"*", Product>("*")
+    .eq("slug", params.slug)
+    .eq("is_active", true)
+    .single();
 
   if (!product) {
     notFound();
