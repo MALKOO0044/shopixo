@@ -1,7 +1,7 @@
-export const metadata = { title: "Order Tracking" };
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+export const metadata = { title: "Order Tracking" };
 
 export default async function OrderTrackingPage({
   searchParams,
