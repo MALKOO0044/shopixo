@@ -8,11 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 type FormState = {
-  message: string | null;
+  message: string; // keep string to satisfy inferred union from server action
   fieldErrors: Record<string, string[] | undefined> | null;
 };
 
-const initialState: FormState = { message: null, fieldErrors: null };
+const initialState: FormState = { message: "", fieldErrors: null };
 
 function SubmitButton({ isEditing }: { isEditing: boolean }) {
   const { pending } = useFormStatus();
@@ -31,7 +31,7 @@ export default function BlogForm({
   mode: "create" | "edit";
 }) {
   const action = mode === "edit" ? updateBlogPost : addBlogPost;
-  const [state, formAction] = useFormState(action, initialState);
+  const [state, formAction] = useFormState<FormState, FormData>(action, initialState);
 
   return (
     <form action={formAction} className="max-w-xl space-y-4">
@@ -68,7 +68,7 @@ export default function BlogForm({
 
       <div className="pt-2">
         <SubmitButton isEditing={mode === "edit"} />
-        {state.message && !state.fieldErrors && (
+        {Boolean(state.message) && !state.fieldErrors && (
           <p className="mt-2 text-sm text-destructive">{state.message}</p>
         )}
       </div>

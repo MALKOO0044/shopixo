@@ -7,6 +7,13 @@ import { z } from "zod";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { createClient } from "@supabase/supabase-js";
 
+type BlogFormState = {
+  message: string | null;
+  fieldErrors: Record<string, string[] | undefined> | null;
+};
+
+type DeleteState = { error?: string | null; success?: boolean };
+
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -44,7 +51,7 @@ const blogSchema = z.object({
 
 const blogUpdateSchema = blogSchema.extend({ id: z.coerce.number() });
 
-export async function addBlogPost(prevState: any, formData: FormData) {
+export async function addBlogPost(prevState: BlogFormState, formData: FormData): Promise<BlogFormState> {
   const adminCheck = await requireAdmin();
   if (!adminCheck.allowed) return { message: "Not authorized", fieldErrors: null };
   const supabaseAdmin = getSupabaseAdmin();
@@ -75,7 +82,7 @@ export async function addBlogPost(prevState: any, formData: FormData) {
   redirect("/admin/blog");
 }
 
-export async function updateBlogPost(prevState: any, formData: FormData) {
+export async function updateBlogPost(prevState: BlogFormState, formData: FormData): Promise<BlogFormState> {
   const adminCheck = await requireAdmin();
   if (!adminCheck.allowed) return { message: "Not authorized", fieldErrors: null };
   const supabaseAdmin = getSupabaseAdmin();
@@ -107,7 +114,7 @@ export async function updateBlogPost(prevState: any, formData: FormData) {
   redirect("/admin/blog");
 }
 
-export async function deleteBlogPost(prevState: any, formData: FormData) {
+export async function deleteBlogPost(prevState: DeleteState, formData: FormData): Promise<DeleteState> {
   const adminCheck = await requireAdmin();
   if (!adminCheck.allowed) return { error: "Not authorized" };
   const supabaseAdmin = getSupabaseAdmin();
