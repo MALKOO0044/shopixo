@@ -46,6 +46,11 @@ export default async function AdminLayout({ children }: { children: ReactNode })
                 Products
               </Link>
             </li>
+            <li className="mb-4">
+              <Link href="/admin/blog" className="hover:text-gray-300">
+                Blog
+              </Link>
+            </li>
             <li>
               <Link href="/admin/orders" className="hover:text-gray-300">
                 Orders

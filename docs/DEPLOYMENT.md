@@ -33,6 +33,43 @@ Important: Never share your secrets (e.g., SUPABASE_SERVICE_ROLE_KEY, STRIPE_SEC
    - `orders`, `order_items` (service_role can manage for webhooks/admin; users can read their own orders)
    - RPC `decrement_stock` exists and is Security Definer.
 
+### Optional: Blog Posts Table (for Admin Blog CRUD)
+If you want to publish real blog posts from the Admin panel (`/admin/blog`), create a `blog_posts` table and policies.
+
+Run this SQL in Supabase → SQL Editor:
+
+```sql
+-- Table: blog_posts
+create table if not exists public.blog_posts (
+  id bigserial primary key,
+  created_at timestamptz not null default now(),
+  title text not null,
+  slug text not null unique,
+  excerpt text,
+  content text,
+  published boolean not null default true
+);
+
+-- RLS: Allow the public (anon) to read only published posts
+alter table public.blog_posts enable row level security;
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname = 'public' and tablename = 'blog_posts' and policyname = 'Public read published'
+  ) then
+    create policy "Public read published" on public.blog_posts
+      for select using (published = true);
+  end if;
+end $$;
+
+-- Helpful indexes
+create index if not exists blog_posts_created_at_idx on public.blog_posts (created_at desc);
+create index if not exists blog_posts_published_idx on public.blog_posts (published);
+```
+
+Notes:
+- Admin writes (add/edit/delete) are executed server-side using the Supabase Service Role key, which bypasses RLS. No additional write policies are required.
+- The public site (`/blog`) reads only `published = true` posts thanks to the RLS policy above.
+
 ---
 
 ## Step 2 — Stripe Setup
