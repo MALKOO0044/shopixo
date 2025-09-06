@@ -4,6 +4,33 @@ import Ratings from "@/components/ratings";
 import { formatCurrency } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 
+function pickPrimaryImage(images: any): string | null {
+  try {
+    if (!images) return null;
+    if (Array.isArray(images)) {
+      const v = images.find((s) => typeof s === 'string' && s.trim().length > 0) as string | undefined;
+      return v || null;
+    }
+    if (typeof images === 'string') {
+      const s = images.trim();
+      if (!s) return null;
+      if (s.startsWith('[') && s.endsWith(']')) {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) {
+          const v = parsed.find((x) => typeof x === 'string' && x.trim().length > 0);
+          return (v as string) || null;
+        }
+      }
+      if (s.includes(',')) {
+        const v = s.split(',').map((x) => x.trim()).find((x) => x.length > 0);
+        return v || null;
+      }
+      return s; // single URL string
+    }
+  } catch {}
+  return null;
+}
+
 function transformCardImage(url: string): string {
   try {
     if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/upload/')) {
@@ -28,7 +55,7 @@ export default function ProductCard({ product }: { product: Product }) {
     >
       <div className="relative mb-3 aspect-[4/3] w-full overflow-hidden rounded-image bg-slate-100">
         <Image
-          src={transformCardImage(product.images?.[0] || "/placeholder.svg")}
+          src={transformCardImage(pickPrimaryImage((product as any).images) || "/placeholder.svg")}
           alt={`صورة المنتج ${product.title}`}
           fill
           sizes="(min-width:1280px) 20vw, (min-width:1024px) 25vw, (min-width:768px) 33vw, (min-width:640px) 50vw, 100vw"

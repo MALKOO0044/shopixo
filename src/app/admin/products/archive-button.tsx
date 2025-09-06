@@ -7,12 +7,12 @@ type ToggleState = { error?: string | null; success?: boolean };
 
 const initialState: ToggleState = { error: null, success: false };
 
-export default function ArchiveProductButton({ productId, isActive }: { productId: number; isActive: boolean }) {
+export default function ArchiveProductButton({ productId, isActive, formId }: { productId: number; isActive: boolean; formId?: string }) {
   const [state, formAction] = useFormState(setProductActive, initialState);
   const label = isActive ? "Archive" : "Restore";
 
   return (
-    <form action={formAction} className="inline-block">
+    <form id={formId} action={formAction} className="inline-block">
       <input type="hidden" name="id" value={productId} />
       <input type="hidden" name="is_active" value={(!isActive).toString()} />
       <button

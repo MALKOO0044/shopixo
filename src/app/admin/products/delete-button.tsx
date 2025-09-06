@@ -7,7 +7,7 @@ type DeleteState = { error?: string | null; success?: boolean };
 
 const initialState: DeleteState = { error: null, success: false };
 
-export default function DeleteProductButton({ productId, doubleConfirm = false }: { productId: number; doubleConfirm?: boolean }) {
+export default function DeleteProductButton({ productId, doubleConfirm = false, formId }: { productId: number; doubleConfirm?: boolean; formId?: string }) {
   const [state, formAction] = useFormState(deleteProduct, initialState);
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -26,7 +26,7 @@ export default function DeleteProductButton({ productId, doubleConfirm = false }
   }
 
   return (
-    <form action={formAction} onSubmit={handleSubmit} className="inline-block">
+    <form id={formId} action={formAction} onSubmit={handleSubmit} className="inline-block">
       <input type="hidden" name="id" value={productId} />
       <button type="submit" className="text-sm font-medium text-red-600 hover:underline">
         حذف

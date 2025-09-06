@@ -37,6 +37,33 @@ export default async function AdminProductsPage() {
     return <p className="text-red-500">Failed to load products.</p>;
   }
 
+  function pickPrimaryImage(images: any): string | null {
+    try {
+      if (!images) return null;
+      if (Array.isArray(images)) {
+        const v = images.find((s: any) => typeof s === 'string' && s.trim().length > 0) as string | undefined;
+        return v || null;
+      }
+      if (typeof images === 'string') {
+        const s = images.trim();
+        if (!s) return null;
+        if (s.startsWith('[') && s.endsWith(']')) {
+          const parsed = JSON.parse(s);
+          if (Array.isArray(parsed)) {
+            const v = parsed.find((x: any) => typeof x === 'string' && x.trim().length > 0);
+            return (v as string) || null;
+          }
+        }
+        if (s.includes(',')) {
+          const v = s.split(',').map((x) => x.trim()).find((x) => x.length > 0);
+          return v || null;
+        }
+        return s; // single URL string
+      }
+    } catch {}
+    return null;
+  }
+
   return (
     <div className="w-full">
       <div className="flex items-center justify-between mb-6">
@@ -70,7 +97,7 @@ export default async function AdminProductsPage() {
                     alt={product.title}
                     className="aspect-square rounded-md object-cover"
                     height="64"
-                    src={product.images?.[0] || "/placeholder.svg"}
+                    src={pickPrimaryImage(product.images) || "/placeholder.svg"}
                     width="64"
                   />
                 </TableCell>
@@ -97,6 +124,11 @@ export default async function AdminProductsPage() {
                   {new Date(product.created_at).toLocaleDateString()}
                 </TableCell>
                 <TableCell className="text-right">
+                  {/* Hidden forms to be triggered from the dropdown */}
+                  <div className="sr-only">
+                    <ArchiveProductButton formId={`archive-form-${product.id}`} productId={product.id} isActive={product.is_active ?? true} />
+                    <DeleteProductButton formId={`delete-form-${product.id}`} productId={product.id} doubleConfirm />
+                  </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="outline" size="sm">إجراءات</Button>
@@ -108,15 +140,15 @@ export default async function AdminProductsPage() {
                         </Link>
                       </DropdownMenuItem>
                       <DropdownMenuItem asChild>
-                        <div className="w-full">
-                          <ArchiveProductButton productId={product.id} isActive={product.is_active ?? true} />
-                        </div>
+                        <button type="submit" form={`archive-form-${product.id}`} className="w-full text-right">
+                          {product.is_active === false ? 'استعادة' : 'أرشفة'}
+                        </button>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem asChild>
-                        <div className="w-full">
-                          <DeleteProductButton productId={product.id} />
-                        </div>
+                        <button type="submit" form={`delete-form-${product.id}`} className="w-full text-right text-red-600">
+                          حذف
+                        </button>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
