@@ -34,7 +34,7 @@ export default async function HomePage() {
 
   if (hasSupabaseEnv) {
     try {
-      const supabase = getSupabaseAnonServer();
+      const supabase = getSupabaseAnonServer()!;
       const { data, error } = await supabase.from("products").select("*").eq("is_active", true);
       if (error && (String((error as any).message || "").includes("is_active") || (error as any).code === "42703")) {
         // Column not found yet (migration not applied) → fallback to unfiltered query

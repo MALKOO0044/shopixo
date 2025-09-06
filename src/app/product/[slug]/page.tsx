@@ -11,6 +11,12 @@ export const revalidate = 60; // fresher PDP data every minute
 // --- Generate Metadata for SEO ---
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const supabase = getSupabaseAnonServer();
+  if (!supabase) {
+    return {
+      title: `${params.slug} | Shopixo`,
+      description: 'Product details',
+    };
+  }
   const isNumeric = /^\d+$/.test(params.slug);
   let product: { title: string; description: string; images: string[]; slug?: string } | null = null;
   // Try slug first (even if numeric), then fallback to id
@@ -75,6 +81,14 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 // --- Main Product Page Component (Server Component) ---
 export default async function ProductPage({ params }: { params: { slug: string } }) {
   const supabase = getSupabaseAnonServer();
+  if (!supabase) {
+    return (
+      <div className="container py-10">
+        <h1 className="text-2xl font-bold">المنتج</h1>
+        <p className="mt-2 text-slate-600">لا تتوفر بيانات المنتج حاليًا.</p>
+      </div>
+    );
+  }
 
   const isNumeric = /^\d+$/.test(params.slug);
   let product: Product | null = null;

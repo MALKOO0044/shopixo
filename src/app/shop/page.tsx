@@ -5,9 +5,23 @@ import Breadcrumbs from "@/components/breadcrumbs";
 
 export const metadata = { title: "المتجر", description: "تسوّق أحدث المنتجات والعروض" };
 export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 export default async function ShopPage({ searchParams }: { searchParams?: { sort?: string } }) {
   const supabase = getSupabaseAnonServer();
+  if (!supabase) {
+    return (
+      <div className="container py-10">
+        <Breadcrumbs items={[{ name: "الرئيسية", href: "/" }, { name: "المتجر" }]} />
+        <h1 className="text-3xl font-bold">المتجر</h1>
+        <p className="mt-2 text-slate-600">اكتشف مجموعتنا المختارة من المنتجات الرائجة.</p>
+        <div className="mt-8 rounded-md border p-6 text-center text-slate-500">
+          <p>لا توجد منتجات متاحة حاليًا.</p>
+          <p className="mt-2 text-sm">يرجى العودة لاحقًا.</p>
+        </div>
+      </div>
+    );
+  }
   // Try to filter active products; if the column is missing (migration not applied), fallback to unfiltered query
   let products: any[] | null = null;
   let error: any = null;

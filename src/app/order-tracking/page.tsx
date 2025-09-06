@@ -2,6 +2,7 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 export const metadata = { title: "Order Tracking" };
+export const dynamic = "force-dynamic";
 
 export default async function OrderTrackingPage({
   searchParams,

@@ -36,8 +36,12 @@ export default async function CategoryPage({ params, searchParams }: { params: {
   const categoryTitle = slugToTitle(params.slug);
 
   let products: Product[] | null = null;
-  {
-    let query = supabase
+  if (!supabase) {
+    // Graceful fallback when Supabase env is not configured (build-time / preview safety)
+    products = [] as any;
+  } else {
+    const s = supabase!;
+    let query = s
       .from("products")
       .select("*")
       .eq("category", categoryTitle)
@@ -56,7 +60,7 @@ export default async function CategoryPage({ params, searchParams }: { params: {
 
     const { data, error } = await query;
     if (error && (String((error as any).message || "").includes("is_active") || (error as any).code === "42703")) {
-      const fb = await supabase
+      const fb = await s
         .from("products")
         .select("*")
         .eq("category", categoryTitle);

@@ -37,40 +37,47 @@ export default async function SearchPage({
   const supabase = getSupabaseAnonServer();
 
   // Fetch categories for the filter dropdown
-  const { data: categoriesData } = await supabase
-    .from("products")
-    .select("category")
-    .eq("is_active", true);
-  const categories = Array.from(new Set((categoriesData ?? []).map((p: { category: string }) => p.category))).sort();
-
-  let query = supabase.from("products").select<"*", Product>("*").eq("is_active", true);
-
-  if (q) {
-    query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%`);
-  }
-  if (category) {
-    query = query.eq("category", category);
-  }
-  if (minPrice) {
-    query = query.gte("price", minPrice);
-  }
-  if (maxPrice) {
-    query = query.lte("price", maxPrice);
-  }
-  if (minRating) {
-    query = query.gte("rating", minRating);
+  let categories: string[] = [];
+  if (supabase) {
+    const { data: categoriesData } = await supabase
+      .from("products")
+      .select("category")
+      .eq("is_active", true);
+    categories = Array.from(new Set((categoriesData ?? []).map((p: { category: string }) => p.category))).sort();
   }
 
-  if (sort) {
-    const [field, order] = sort.split("-");
-    query = query.order(field, { ascending: order === "asc" });
-  }
+  let filtered: Product[] | null = [];
+  if (!supabase) {
+    filtered = [];
+  } else {
+    let query = supabase.from("products").select<"*", Product>("*").eq("is_active", true);
 
-  const { data: filtered, error } = await query;
+    if (q) {
+      query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%`);
+    }
+    if (category) {
+      query = query.eq("category", category);
+    }
+    if (minPrice) {
+      query = query.gte("price", minPrice);
+    }
+    if (maxPrice) {
+      query = query.lte("price", maxPrice);
+    }
+    if (minRating) {
+      query = query.gte("rating", minRating);
+    }
 
-  if (error) {
-    console.error("Error fetching products:", error);
-    // Handle error appropriately
+    if (sort) {
+      const [field, order] = sort.split("-");
+      query = query.order(field, { ascending: order === "asc" });
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error("Error fetching products:", error);
+    }
+    filtered = (data as Product[] | null) ?? [];
   }
 
   return (
