@@ -1,7 +1,10 @@
 import ProductCard from "@/components/product-card";
+import AdminProductActions from "@/components/admin-product-actions";
 import { getSupabaseAnonServer } from "@/lib/supabase-server";
 import type { Product } from "@/lib/types";
 import Breadcrumbs from "@/components/breadcrumbs";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
 
 export const metadata = { title: "المتجر", description: "تسوّق أحدث المنتجات والعروض" };
 export const revalidate = 60;
@@ -9,6 +12,10 @@ export const dynamic = "force-dynamic";
 
 export default async function ShopPage({ searchParams }: { searchParams?: { sort?: string } }) {
   const supabase = getSupabaseAnonServer();
+  // Detect admin once for rendering quick actions
+  const supabaseAuth = createServerComponentClient({ cookies });
+  const { data: { user } } = await supabaseAuth.auth.getUser();
+  const isPrivileged = !!user; // أي مستخدم مسجّل دخول يمكنه إدارة عناصره
   if (!supabase) {
     return (
       <div className="container py-10">
@@ -26,7 +33,7 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
   let products: any[] | null = null;
   let error: any = null;
   {
-    let query = supabase.from("products").select("*").eq("is_active", true) as any;
+    let query = supabase.from("products").select("*").or("is_active.is.null,is_active.eq.true") as any;
     const sort = (searchParams?.sort || '').toLowerCase();
     if (sort === 'price-asc') query = query.order('price', { ascending: true });
     else if (sort === 'price-desc') query = query.order('price', { ascending: false });
@@ -72,7 +79,12 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
         {products && products.length > 0 ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {products.map((p) => (
-              <ProductCard key={p.id} product={p as Product} />
+              <div key={p.id} className="space-y-2">
+                <ProductCard product={p as Product} />
+                {isPrivileged && (
+                  <AdminProductActions productId={p.id} productSlug={(p as any).slug} isActive={(p as any).is_active ?? true} />
+                )}
+              </div>
             ))}
           </div>
         ) : (

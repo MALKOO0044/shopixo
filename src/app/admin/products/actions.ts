@@ -38,6 +38,39 @@ function getSupabaseAdmin() {
   return createClient(url, key);
 }
 
+async function getCurrentUser() {
+  const supabaseAuth = createServerComponentClient({ cookies });
+  const { data: { user } } = await supabaseAuth.auth.getUser();
+  return user;
+}
+
+async function canManageProduct(productId: number | null) {
+  // Admins can always manage
+  const adminCheck = await requireAdmin();
+  if (adminCheck.allowed) return true;
+
+  // If no productId, only allow if admin
+  if (!productId) return false;
+
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) return false;
+  const user = await getCurrentUser();
+  if (!user) return false;
+
+  // Try to read owner column; if missing, fallback to admin-only
+  const { data, error } = await supabaseAdmin
+    .from("products")
+    .select("user_id")
+    .eq("id", productId)
+    .single();
+  if (error && ((error as any).code === "42703" || String(error.message || "").includes("user_id"))) {
+    // No owner column; cannot verify ownership
+    return false;
+  }
+  const ownerId = (data as any)?.user_id as string | null;
+  return !!ownerId && ownerId === user.id;
+}
+
 const setActiveSchema = z.object({
   id: z.coerce.number(),
   is_active: z
@@ -46,10 +79,6 @@ const setActiveSchema = z.object({
 });
 
 export async function setProductActive(prevState: { error: string | null; success: boolean }, formData: FormData) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.allowed) {
-    return { error: "Not authorized", success: false };
-  }
   const supabaseAdmin = getSupabaseAdmin();
   if (!supabaseAdmin) {
     return { error: "Server misconfiguration: missing Supabase service role envs", success: false };
@@ -64,6 +93,10 @@ export async function setProductActive(prevState: { error: string | null; succes
   }
 
   const { id, is_active } = validated.data;
+
+  if (!(await canManageProduct(id))) {
+    return { error: "Not authorized", success: false };
+  }
 
   const { error } = await supabaseAdmin.from("products").update({ is_active }).eq("id", id);
   if (error) {
@@ -98,8 +131,8 @@ async function requireAdmin() {
 }
 
 export async function addProduct(prevState: any, formData: FormData) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.allowed) {
+  const user = await getCurrentUser();
+  if (!user) {
     return { message: "Not authorized", fieldErrors: null };
   }
   const supabaseAdmin = getSupabaseAdmin();
@@ -115,7 +148,16 @@ export async function addProduct(prevState: any, formData: FormData) {
     };
   }
 
-  const { error } = await supabaseAdmin.from("products").insert(validatedFields.data);
+  // Attach owner if products.user_id column exists
+  let insertPayload: any = validatedFields.data;
+  try {
+    const probe = await supabaseAdmin.from("products").select("user_id").limit(1);
+    if (!probe.error) {
+      insertPayload = { ...insertPayload, user_id: user.id };
+    }
+  } catch {}
+
+  const { error } = await supabaseAdmin.from("products").insert(insertPayload);
 
   if (error) {
     // Provide a clearer, admin-friendly message (e.g., unique violation on slug)
@@ -137,8 +179,8 @@ const productUpdateSchema = productSchema.extend({
 });
 
 export async function updateProduct(prevState: any, formData: FormData) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.allowed) {
+  const user = await getCurrentUser();
+  if (!user) {
     return { message: "Not authorized", fieldErrors: null };
   }
   const supabaseAdmin = getSupabaseAdmin();
@@ -155,6 +197,10 @@ export async function updateProduct(prevState: any, formData: FormData) {
   }
 
   const { id, ...productData } = validatedFields.data;
+
+  if (!(await canManageProduct(id))) {
+    return { message: "Not authorized", fieldErrors: null };
+  }
 
   const { error } = await supabaseAdmin.from("products").update(productData).eq("id", id);
 
@@ -177,10 +223,6 @@ const deleteProductSchema = z.object({
 });
 
 export async function deleteProduct(prevState: { error: string | null; success: boolean }, formData: FormData) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.allowed) {
-    return { error: "Not authorized", success: false };
-  }
   const supabaseAdmin = getSupabaseAdmin();
   if (!supabaseAdmin) {
     return { error: "Server misconfiguration: missing Supabase service role envs", success: false };
@@ -192,6 +234,10 @@ export async function deleteProduct(prevState: { error: string | null; success: 
   }
 
   const { id } = validatedFields.data;
+
+  if (!(await canManageProduct(id))) {
+    return { error: "Not authorized", success: false };
+  }
 
   // First, remove any cart_items referencing this product to avoid FK restrict
   const cartDel = await supabaseAdmin.from("cart_items").delete().eq("product_id", id);

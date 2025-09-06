@@ -42,7 +42,7 @@ export default async function SearchPage({
     const { data: categoriesData } = await supabase
       .from("products")
       .select("category")
-      .eq("is_active", true);
+      .or("is_active.is.null,is_active.eq.true");
     categories = Array.from(new Set((categoriesData ?? []).map((p: { category: string }) => p.category))).sort();
   }
 
@@ -50,7 +50,7 @@ export default async function SearchPage({
   if (!supabase) {
     filtered = [];
   } else {
-    let query = supabase.from("products").select<"*", Product>("*").eq("is_active", true);
+    let query = supabase.from("products").select<"*", Product>("*").or("is_active.is.null,is_active.eq.true");
 
     if (q) {
       query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%`);

@@ -64,6 +64,12 @@ function transformCardImage(url: string): string {
   return url;
 }
 
+function getImageField(p: any): any {
+  return typeof p?.images !== 'undefined' && p?.images !== null && p?.images !== ''
+    ? p.images
+    : p?.image ?? null;
+}
+
 export default function ProductCard({ product }: { product: Product }) {
   return (
     <Link
@@ -72,7 +78,7 @@ export default function ProductCard({ product }: { product: Product }) {
     >
       <div className="relative mb-3 aspect-[4/3] w-full overflow-hidden rounded-image bg-slate-100">
         <Image
-          src={transformCardImage(pickPrimaryImage((product as any).images) || "/placeholder.svg")}
+          src={transformCardImage(pickPrimaryImage(getImageField(product as any)) || "/placeholder.svg")}
           alt={`صورة المنتج ${product.title}`}
           fill
           sizes="(min-width:1280px) 20vw, (min-width:1024px) 25vw, (min-width:768px) 33vw, (min-width:640px) 50vw, 100vw"

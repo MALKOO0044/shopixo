@@ -45,7 +45,7 @@ export default async function CategoryPage({ params, searchParams }: { params: {
       .from("products")
       .select("*")
       .eq("category", categoryTitle)
-      .eq("is_active", true) as any;
+      .or("is_active.is.null,is_active.eq.true") as any;
 
     // Price range filters
     const min = Number(searchParams?.min);
