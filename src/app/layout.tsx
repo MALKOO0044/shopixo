@@ -2,6 +2,7 @@ import "@/app/globals.css";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Header from "@/components/header";
+import AnnouncementBar from "@/components/announcement-bar";
 import NavigationBar from "@/components/navigation-bar";
 import Footer from "@/components/footer";
 import CookieConsent from "@/components/cookie-consent";
@@ -54,6 +55,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${inter.className} min-h-screen flex flex-col`}>
         <ThemeProvider>
           <ToastProvider>
+            {/* Skip to content for accessibility */}
+            <a href="#main-content" className="skip-link">تخطي إلى المحتوى</a>
+            {/* Announcement Bar */}
+            <AnnouncementBar />
             {/* Site-wide Structured Data: Organization + WebSite with SearchAction */}
             <script
               type="application/ld+json"
@@ -96,7 +101,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <NavigationBar />
             </Suspense>
             <Suspense fallback={null}>
-              <main className="flex-1">{children}</main>
+              <main id="main-content" className="flex-1">{children}</main>
             </Suspense>
             <Suspense fallback={null}>
               <Footer />

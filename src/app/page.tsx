@@ -96,7 +96,7 @@ export default async function HomePage() {
           No products available yet. Visit <Link href="/admin/products/new" className="text-indigo-600 hover:underline">Admin → Add Product</Link> to create your first product.
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {products.map((p) => (
             <ProductCard key={p.id} product={p as Product} />
           ))}

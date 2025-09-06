@@ -4,48 +4,73 @@
  
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 226 76% 55%;
+    /* Design Tokens (Light) */
+    --bg: 0 0% 100%; /* #FFFFFF */
+    --surface: 210 40% 98%; /* #F7F8FA approx */
+    --text-primary: 222 84% 5%; /* #0B1220 approx */
+    --text-secondary: 215 20% 45%; /* #556178 approx */
+    --muted-text: 210 10% 65%; /* #9AA6B2 approx */
+    --accent-color: 226 76% 55%; /* #2563EB */
+    --success-color: 160 84% 39%; /* #10B981 */
+    --error-color: 0 84% 60%;  /* #EF4444 */
+    --warning-color: 38 92% 50%; /* #F59E0B approx */
+    --elevation-shadow: 0 6px 18px rgba(2, 6, 23, 0.06);
+    --radius: 12px; /* cards default; buttons use rounded-md */
+
+    /* Theme Variables mapped for Tailwind (Light) */
+    --background: var(--bg);
+    --foreground: var(--text-primary);
+    --card: var(--surface);
+    --card-foreground: var(--text-primary);
+    --popover: var(--surface);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--accent-color);
     --primary-foreground: 210 40% 98%;
-    --secondary: 38 92% 50%;
+    --secondary: var(--warning-color);
     --secondary-foreground: 222.2 47.4% 11.2%;
     --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 38 92% 50%;
+    --muted-foreground: var(--text-secondary);
+    --accent: var(--accent-color);
     --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
+    --destructive: var(--error-color);
     --destructive-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 226 76% 55%;
-    --radius: 0.5rem;
+    --ring: var(--accent-color);
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 226 76% 55%;
+    /* Design Tokens (Dark) */
+    --bg: 222 84% 5%;    /* #0B0F12 approx */
+    --surface: 210 32% 10%; /* #0F1720 approx */
+    --text-primary: 210 40% 98%; /* #E6EEF6 approx */
+    --text-secondary: 210 20% 72%; /* #A8B3C2 approx */
+    --muted-text: 215 20% 65%;
+    --accent-color: 226 76% 55%;
+    --success-color: 160 84% 39%;
+    --error-color: 0 62% 41%;
+    --warning-color: 38 92% 50%;
+
+    /* Theme Variables mapped for Tailwind (Dark) */
+    --background: var(--bg);
+    --foreground: var(--text-primary);
+    --card: var(--surface);
+    --card-foreground: var(--text-primary);
+    --popover: var(--surface);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--accent-color);
     --primary-foreground: 210 40% 98%;
-    --secondary: 38 92% 50%;
+    --secondary: var(--warning-color);
     --secondary-foreground: 222.2 47.4% 11.2%;
     --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 38 92% 50%;
+    --muted-foreground: var(--text-secondary);
+    --accent: var(--accent-color);
     --accent-foreground: 222.2 47.4% 11.2%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
-    --ring: 226 76% 55%;
+    --ring: var(--accent-color);
   }
 }
 
@@ -61,4 +86,22 @@
 html, body { height: 100%; }
 
 .container { @apply mx-auto max-w-7xl px-4 sm:px-6 lg:px-8; }
+
+/* Accessible skip link */
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -3rem;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  box-shadow: var(--elevation-shadow);
+  transition: top 0.15s ease;
+  z-index: 50;
+}
+.skip-link:focus {
+  top: 0.5rem;
+}
 

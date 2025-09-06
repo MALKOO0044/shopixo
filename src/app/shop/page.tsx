@@ -39,7 +39,7 @@ export default async function ShopPage() {
       <p className="mt-2 text-slate-600">Explore our curated selection of trending products.</p>
       <div className="mt-8">
         {products && products.length > 0 ? (
-          <div className="grid grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {products.map((p) => (
               <ProductCard key={p.id} product={p as Product} />
             ))}

@@ -1,5 +1,4 @@
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
+import { getSupabaseAnonServer } from "@/lib/supabase-server";
 import Link from "next/link";
 import { type Route } from "next";
 
@@ -16,7 +15,7 @@ export default async function NavigationBar() {
 
   let categories: string[] = [];
   try {
-    const supabase = createServerComponentClient({ cookies });
+    const supabase = getSupabaseAnonServer();
     const { data, error } = await supabase.from("products").select("category");
     if (error) {
       console.error("NavigationBar: failed to fetch categories", error);

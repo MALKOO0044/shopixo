@@ -16,6 +16,7 @@ function getSupabaseAdmin() {
 }
 
 // Fetch product with graceful fallback if `is_active` column is missing (pre-migration)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getProductById(admin: any, id: number) {
   // Try selecting with is_active first
   const { data, error } = await admin
@@ -177,6 +178,7 @@ export async function getCartItemsBySessionId(cartSessionId: string) {
   return { items: cartItems, error: null };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getProductBySlug(admin: any, slug: string) {
   const { data, error } = await admin
     .from("products")
