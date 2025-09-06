@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import ArchiveProductButton from "@/app/admin/products/archive-button";
+import DeleteProductButton from "@/app/admin/products/delete-button";
 
 export const dynamic = "force-dynamic";
 
@@ -42,8 +43,8 @@ export default async function AdminProductsPage() {
           <TableCaption>A list of your products.</TableCaption>
           <TableHeader>
             <TableRow>
-              <TableHead className="hidden w-[100px] sm:table-cell">
-                <span className="sr-only">Image</span>
+              <TableHead className="w-[80px]">
+                صورة
               </TableHead>
               <TableHead>Title</TableHead>
               <TableHead>Price</TableHead>
@@ -56,7 +57,7 @@ export default async function AdminProductsPage() {
           <TableBody>
             {products.map((product: any) => (
               <TableRow key={product.id}>
-                <TableCell className="hidden sm:table-cell">
+                <TableCell>
                   <Image
                     alt={product.title}
                     className="aspect-square rounded-md object-cover"
@@ -76,11 +77,13 @@ export default async function AdminProductsPage() {
                   {new Date(product.created_at).toLocaleDateString()}
                 </TableCell>
                 <TableCell className="text-right space-x-2 rtl:space-x-reverse">
-                  <Link href={{ pathname: "/admin/products/[id]/edit", query: { id: String(product.id) } }} className="text-sm font-medium text-blue-600 hover:underline">
+                  <Link href={`/admin/products/${product.id}/edit`} className="text-sm font-medium text-blue-600 hover:underline">
                     Edit
                   </Link>
                   <span className="mx-2 text-slate-300">|</span>
                   <ArchiveProductButton productId={product.id} isActive={product.is_active ?? true} />
+                  <span className="mx-2 text-slate-300">|</span>
+                  <DeleteProductButton productId={product.id} />
                 </TableCell>
               </TableRow>
             ))}
