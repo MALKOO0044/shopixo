@@ -5,6 +5,7 @@ import type { Product } from "@/lib/types";
 import ProductDetailsClient from "@/components/product-details-client";
 import PriceComparison from "@/components/price-comparison";
 import type { Metadata } from 'next'
+import { getSiteUrl } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -42,6 +43,9 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   return {
     title: `${product.title} | Shopixo`,
     description: product.description,
+    alternates: {
+      canonical: `/product/${(product as any).slug ?? params.slug}`,
+    },
     openGraph: {
       title: `${product.title} | Shopixo`,
       description: product.description,
@@ -84,6 +88,42 @@ export default async function ProductPage({ params }: { params: { slug: string }
 
   return (
     <div className="container py-10">
+      {/* Structured Data: Product + BreadcrumbList */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Product",
+            name: product.title,
+            description: product.description,
+            image: product.images,
+            sku: String(product.id),
+            brand: { "@type": "Brand", name: process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo" },
+            offers: {
+              "@type": "Offer",
+              url: `${getSiteUrl()}/product/${product.slug}`,
+              priceCurrency: process.env.NEXT_PUBLIC_CURRENCY || "USD",
+              price: product.price,
+              availability: product.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+            },
+          }),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            itemListElement: [
+              { "@type": "ListItem", position: 1, name: "Home", item: getSiteUrl() },
+              { "@type": "ListItem", position: 2, name: product.category || "Shop", item: `${getSiteUrl()}/category/${(product.category || "").toLowerCase().replace(/\s+/g, '-')}` },
+              { "@type": "ListItem", position: 3, name: product.title, item: `${getSiteUrl()}/product/${product.slug}` },
+            ],
+          }),
+        }}
+      />
       <ProductDetailsClient product={product}>
         <PriceComparison productId={product.id} />
       </ProductDetailsClient>

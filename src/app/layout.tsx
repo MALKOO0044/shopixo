@@ -8,6 +8,7 @@ import CookieConsent from "@/components/cookie-consent";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Suspense } from "react";
 import { ToastProvider } from "@/components/ui/toast-provider";
+import { getSiteUrl } from "@/lib/site";
 
 const inter = Inter({ subsets: ["latin"] });
 const rawSiteUrl =
@@ -53,6 +54,41 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${inter.className} min-h-screen flex flex-col`}>
         <ThemeProvider>
           <ToastProvider>
+            {/* Site-wide Structured Data: Organization + WebSite with SearchAction */}
+            <script
+              type="application/ld+json"
+              dangerouslySetInnerHTML={{
+                __html: JSON.stringify({
+                  "@context": "https://schema.org",
+                  "@type": "Organization",
+                  name: process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo",
+                  url: getSiteUrl(),
+                  logo: `${getSiteUrl()}/favicon.svg`,
+                  sameAs: [
+                    process.env.NEXT_PUBLIC_SOCIAL_FACEBOOK,
+                    process.env.NEXT_PUBLIC_SOCIAL_INSTAGRAM,
+                    process.env.NEXT_PUBLIC_SOCIAL_TWITTER,
+                    process.env.NEXT_PUBLIC_SOCIAL_YOUTUBE,
+                  ].filter(Boolean),
+                }),
+              }}
+            />
+            <script
+              type="application/ld+json"
+              dangerouslySetInnerHTML={{
+                __html: JSON.stringify({
+                  "@context": "https://schema.org",
+                  "@type": "WebSite",
+                  name: process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo",
+                  url: getSiteUrl(),
+                  potentialAction: {
+                    "@type": "SearchAction",
+                    target: `${getSiteUrl()}/search?q={search_term_string}`,
+                    "query-input": "required name=search_term_string",
+                  },
+                }),
+              }}
+            />
             <Suspense fallback={null}>
               <Header />
             </Suspense>

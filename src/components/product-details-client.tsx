@@ -9,8 +9,29 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 
 // --- Sub-components (kept from original page) ---
+function transformImage(url: string): string {
+  try {
+    // Apply Cloudinary transformation if URL matches their pattern and no explicit transformation present
+    // Pattern: https://res.cloudinary.com/<cloud>/image/upload/(optional transforms)/<public_id>
+    if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/upload/')) {
+      // If it already has a transformation (a segment between upload/ and next slash), we keep it as-is
+      const marker = '/image/upload/';
+      const idx = url.indexOf(marker);
+      const after = url.slice(idx + marker.length);
+      // If there's already a comma-separated transform segment (no '/' immediately), we skip injecting
+      if (after && after[0] !== '/') {
+        return url;
+      }
+      const inject = 'f_auto,q_auto,c_fill,g_auto,w_800,h_800/';
+      return url.replace(marker, marker + inject);
+    }
+  } catch {}
+  return url;
+}
+
 function ProductGallery({ images, title }: { images: string[]; title: string }) {
-  const [selectedImage, setSelectedImage] = useState(images[0]);
+  const transformed = (images || []).map(transformImage);
+  const [selectedImage, setSelectedImage] = useState(transformed[0]);
 
   return (
     <div>
@@ -18,7 +39,7 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
         <Image src={selectedImage} alt={`Main image for ${title}`} fill className="object-cover" />
       </div>
       <div className="mt-4 grid grid-cols-5 gap-4">
-        {images.map((image, index) => (
+        {transformed.map((image, index) => (
           <button
             key={index}
             onClick={() => setSelectedImage(image)}
@@ -102,7 +123,8 @@ export default function ProductDetailsClient({ product, children }: { product: P
           <ProductOptions variants={product.variants} onOptionChange={handleOptionChange} />
         ) : null}
 
-        <div className="mt-8">
+        {/* Desktop CTA */}
+        <div className="mt-8 hidden md:block">
           <AddToCart productId={product.id} selectedOptions={selectedOptions} disabled={isOutOfStock} />
         </div>
 
@@ -113,6 +135,20 @@ export default function ProductDetailsClient({ product, children }: { product: P
           <p>• Free shipping on orders over $100</p>
           <p>• 30-day money-back guarantee</p>
           <p>• Secure checkout via Stripe & PayPal</p>
+        </div>
+      </div>
+      {/* Mobile sticky Add-to-Cart bar */}
+      <div className="md:hidden" aria-hidden={false}>
+        <div className="fixed bottom-0 left-0 right-0 z-20 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 p-3">
+          <div className="mx-auto flex max-w-md items-center justify-between gap-3">
+            <div>
+              <div className="text-sm text-muted-foreground">السعر</div>
+              <div className="text-lg font-semibold text-primary">{formatCurrency(product.price)}</div>
+            </div>
+            <div className="flex-1">
+              <AddToCart productId={product.id} selectedOptions={selectedOptions} disabled={isOutOfStock} />
+            </div>
+          </div>
         </div>
       </div>
     </div>

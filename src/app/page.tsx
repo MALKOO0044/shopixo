@@ -32,6 +32,7 @@ export const revalidate = 0;
 export default async function HomePage() {
   const hasSupabaseEnv = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   let products: any[] | null = null;
+  let categories: string[] = [];
 
   if (hasSupabaseEnv) {
     try {
@@ -46,6 +47,22 @@ export default async function HomePage() {
         if (error) console.error("Error fetching products:", error);
         products = (data as any[] | null) ?? null;
       }
+
+      // Featured categories (safe fallback if column missing)
+      try {
+        const { data: catData, error: catErr } = await supabase
+          .from("products")
+          .select("category")
+          .eq("is_active", true);
+        if (catErr && (String((catErr as any).message || "").includes("is_active") || (catErr as any).code === "42703")) {
+          const fbCats = await supabase.from("products").select("category");
+          categories = Array.from(new Set((fbCats.data ?? []).map((p: any) => p.category))).slice(0, 8);
+        } else {
+          categories = Array.from(new Set((catData ?? []).map((p: any) => p.category))).slice(0, 8);
+        }
+      } catch (e) {
+        console.warn("Failed to fetch categories for home:", e);
+      }
     } catch (e) {
       console.error("Failed to initialize Supabase client:", e);
     }
@@ -55,6 +72,27 @@ export default async function HomePage() {
 
   return (
     <main className="container py-6">
+      {/* Featured Categories */}
+      {categories.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-4 text-xl font-bold">تسوّق حسب التصنيف</h2>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+            {categories.map((c) => {
+              const slug = String(c || "general").toLowerCase().replace(/\s+/g, "-");
+              return (
+                <Link
+                  key={c}
+                  href={{ pathname: "/category/[slug]", query: { slug } }}
+                  className="rounded-md border px-3 py-2 text-center text-sm hover:bg-slate-50"
+                >
+                  {c}
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {(!products || products.length === 0) ? (
         <div className="rounded-md border p-6 text-slate-600">
           No products available yet. Visit <Link href="/admin/products/new" className="text-indigo-600 hover:underline">Admin → Add Product</Link> to create your first product.
