@@ -53,7 +53,8 @@ function UploadImagesControl({
           fd.append("timestamp", String(signData.timestamp));
           fd.append("upload_preset", String(signData.uploadPreset));
           fd.append("signature", String(signData.signature));
-          const res = await fetch(`https://api.cloudinary.com/v1_1/${signData.cloudName}/image/upload`, {
+          const kind = file.type.startsWith("video/") ? "video" : "image";
+          const res = await fetch(`https://api.cloudinary.com/v1_1/${signData.cloudName}/${kind}/upload`, {
             method: "POST",
             body: fd,
           });
@@ -71,7 +72,8 @@ function UploadImagesControl({
             const fd = new FormData();
             fd.append("file", file);
             fd.append("upload_preset", uploadPresetPublic as string);
-            const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudNamePublic}/image/upload`, {
+            const kind = file.type.startsWith("video/") ? "video" : "image";
+            const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudNamePublic}/${kind}/upload`, {
               method: "POST",
               body: fd,
             });
@@ -83,9 +85,7 @@ function UploadImagesControl({
           // Final fallback: just preview locally
           const objectUrls = Array.from(files).map((f) => URL.createObjectURL(f));
           onLocalPreview?.(objectUrls);
-          alert(
-            "Image upload is not configured. Paste direct image URLs, or configure Cloudinary env vars to enable uploads."
-          );
+          alert("Media upload is not configured. Configure Cloudinary env vars to enable uploads.");
         }
       }
 
@@ -107,14 +107,14 @@ function UploadImagesControl({
           </>
         ) : (
           <>
-            <UploadCloud className="mr-2 h-4 w-4" /> Upload Images
+            <UploadCloud className="mr-2 h-4 w-4" /> Upload Media
           </>
         )}
       </Button>
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         multiple
         className="hidden"
         onChange={(e) => e.target.files && handleFiles(e.target.files)}
@@ -135,6 +135,7 @@ export default function ProductForm({ product }: { product?: Product }) {
   const [state, formAction] = useFormState(action, initialState);
   const imagesInputRef = useRef<HTMLInputElement>(null);
   const [previews, setPreviews] = useState<string[]>(product?.images || []);
+  // Removed external URL manual input to simplify the form
 
   const appendUrls = (urls: string[]) => {
     const current = imagesInputRef.current?.value?.trim();
@@ -187,10 +188,12 @@ export default function ProductForm({ product }: { product?: Product }) {
           )}
         </div>
         <div className="grid gap-2">
-          <Label htmlFor="images">Image URLs (comma-separated)</Label>
-          <Input ref={imagesInputRef} id="images" name="images" defaultValue={product?.images?.join(', ') || ""} />
+          <Label>صور/فيديو المنتج</Label>
+          {/* نُخفي الحقل النصي ونملؤه تلقائيًا عند الرفع */}
+          <Input ref={imagesInputRef} id="images" name="images" defaultValue={product?.images?.join(', ') || ""} className="hidden" />
           <div className="flex items-center gap-3">
             <UploadImagesControl onAppendUrls={appendUrls} onLocalPreview={onLocalPreview} />
+            <span className="text-xs text-muted-foreground">ارفع صورًا أو فيديوهات؛ لا حاجة لإدخال روابط يدويًا.</span>
           </div>
           {previews && previews.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">

@@ -6,9 +6,25 @@ import type { Product } from "@/lib/types";
 
 function isLikelyImageUrl(s: string): boolean {
   if (!s) return false;
-  if (s.startsWith('http://') || s.startsWith('https://')) return true;
-  if (s.startsWith('/')) return true;
-  if (s.startsWith('data:image/')) return true;
+  const str = s.trim();
+  if (str.startsWith('data:image/')) return true;
+  const imageExt = /\.(png|jpe?g|webp|gif|avif|svg)(\?|#|$)/i;
+  if (imageExt.test(str)) return true;
+  if (str.includes('res.cloudinary.com') && str.includes('/image/upload/')) return true;
+  if (str.startsWith('/storage/v1/object/public/')) return imageExt.test(str);
+  if (/^\/?[^:\/]+\/.+/.test(str)) return imageExt.test(str); // bucket/path with image ext
+  return false;
+}
+
+function isLikelyVideoUrl(s: string): boolean {
+  if (!s) return false;
+  const str = s.trim().toLowerCase();
+  if (str.startsWith('data:video/')) return true;
+  if (/(\.mp4|\.webm|\.ogg|\.m3u8)(\?|#|$)/.test(str)) return true;
+  if (str.includes('res.cloudinary.com') && str.includes('/video/upload/')) return true;
+  if (str.startsWith('/storage/v1/object/public/') || /^\/?[^:\/]+\/.+/.test(str)) {
+    return /(\.mp4|\.webm|\.ogg|\.m3u8)(\?|#|$)/.test(str);
+  }
   return false;
 }
 
@@ -39,10 +55,32 @@ function pickPrimaryImage(images: any): string | null {
   return null;
 }
 
+function buildSupabasePublicUrl(path: string): string {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!base) return path;
+  const cleaned = path.replace(/^\/+/, "");
+  return `${base.replace(/\/$/, "")}/storage/v1/object/public/${cleaned}`;
+}
+
 function normalizeImageUrl(url: string): string {
   try {
     if (!url) return url;
     if (url.startsWith('http://')) return 'https://' + url.slice('http://'.length);
+    if (url.startsWith('https://') || url.startsWith('data:')) return url;
+    // '/storage/v1/object/public/...' -> prefix Supabase base URL
+    if (url.startsWith('/storage/v1/object/public/')) {
+      const base = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+      return `${base.replace(/\/$/, '')}${url}`;
+    }
+    // '/bucket/dir/file.jpg' -> treat as Supabase public bucket path
+    if (/^\/(?!storage\/v1\/object\/public\/)[^:\/]+\/.+/.test(url)) {
+      return buildSupabasePublicUrl(url.slice(1));
+    }
+    // Already handled: absolute http(s), data URLs. For relative without leading '/', try Supabase bucket form
+    // Treat plain 'bucket/dir/file.jpg' as Supabase public storage object
+    if (/^[^:\/]+\/.+/.test(url)) {
+      return buildSupabasePublicUrl(url);
+    }
   } catch {}
   return url;
 }
@@ -50,6 +88,18 @@ function normalizeImageUrl(url: string): string {
 function transformCardImage(url: string): string {
   try {
     url = normalizeImageUrl(url);
+    // If it's a Cloudinary video, derive a poster from first frame
+    if (isLikelyVideoUrl(url) && url.includes('res.cloudinary.com') && url.includes('/video/upload/')) {
+      const marker = '/video/upload/';
+      const idx = url.indexOf(marker);
+      if (idx !== -1) {
+        const before = url.slice(0, idx + marker.length);
+        const after = url.slice(idx + marker.length);
+        const inject = 'so_0/';
+        const core = after.replace(/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i, '');
+        return `${before}${inject}${core}.jpg`;
+      }
+    }
     if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/upload/')) {
       const marker = '/image/upload/';
       const idx = url.indexOf(marker);
@@ -61,7 +111,7 @@ function transformCardImage(url: string): string {
       return url.replace(marker, marker + inject);
     }
   } catch {}
-  return url;
+  return url || '/placeholder.svg';
 }
 
 function getImageField(p: any): any {

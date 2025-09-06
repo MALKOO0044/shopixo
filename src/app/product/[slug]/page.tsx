@@ -113,7 +113,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
       description: product.description,
       images: [
         (() => {
-          const img = pickPrimaryImage((product as any).images) || '/placeholder.svg';
+          const img = pickPrimaryImage((product as any).images ?? (product as any).image) || '/placeholder.svg';
           return img.startsWith('http') ? img : `${getSiteUrl()}${img}`;
         })(),
       ],
@@ -181,9 +181,9 @@ export default async function ProductPage({ params }: { params: { slug: string }
     notFound();
   }
 
-  // Normalize images field to array of strings (handles JSON string or comma-separated strings)
+  // Normalize images field to array of strings (handles JSON string or comma-separated strings) with fallback to legacy 'image'
   try {
-    const raw = (product as any).images;
+    const raw = (product as any).images ?? (product as any).image;
     let normalized: string[] = [];
     if (Array.isArray(raw)) normalized = raw.filter((s) => typeof s === 'string');
     else if (typeof raw === 'string') {

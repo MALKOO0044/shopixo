@@ -16,12 +16,60 @@ function isLikelyImageUrl(s: string): boolean {
   if (s.startsWith('data:image/')) return true;
   return false;
 }
+function isLikelyVideoUrl(s: string): boolean {
+  if (!s) return false;
+  const str = s.trim().toLowerCase();
+  if (str.startsWith('data:video/')) return true;
+  if (/(\.mp4|\.webm|\.ogg|\.m3u8)(\?|#|$)/.test(str)) return true;
+  if (str.includes('res.cloudinary.com') && str.includes('/video/upload/')) return true;
+  // Supabase storage path without scheme – rely on extension
+  if (str.startsWith('/storage/v1/object/public/') || /^\/?[^:\/]+\/.+/.test(str)) {
+    return /(\.mp4|\.webm|\.ogg|\.m3u8)(\?|#|$)/.test(str);
+  }
+  return false;
+}
+function buildSupabasePublicUrl(path: string): string {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!base) return path;
+  const cleaned = path.replace(/^\/+/, "");
+  return `${base.replace(/\/$/, "")}/storage/v1/object/public/${cleaned}`;
+}
+
 function normalizeImageUrl(url: string): string {
   try {
     if (!url) return url;
     if (url.startsWith('http://')) return 'https://' + url.slice('http://'.length);
+    if (url.startsWith('https://') || url.startsWith('data:')) return url;
+    if (url.startsWith('/storage/v1/object/public/')) {
+      const base = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+      return `${base.replace(/\/$/, '')}${url}`;
+    }
+    if (/^\/(?!storage\/v1\/object\/public\/)[^:\/]+\/.+/.test(url)) {
+      return buildSupabasePublicUrl(url.slice(1));
+    }
+    if (/^[^:\/]+\/.+/.test(url)) {
+      return buildSupabasePublicUrl(url);
+    }
   } catch {}
   return url;
+}
+
+function getCloudinaryVideoPoster(url: string): string | null {
+  try {
+    const u = normalizeImageUrl(url);
+    if (typeof u === 'string' && u.includes('res.cloudinary.com') && u.includes('/video/upload/')) {
+      const marker = '/video/upload/';
+      const idx = u.indexOf(marker);
+      if (idx === -1) return null;
+      const before = u.slice(0, idx + marker.length);
+      const after = u.slice(idx + marker.length);
+      // so_0 selects first frame; request jpg thumbnail
+      const inject = 'so_0/';
+      const core = after.replace(/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i, '');
+      return `${before}${inject}${core}.jpg`;
+    }
+  } catch {}
+  return null;
 }
 
 function transformImage(url: string): string {
@@ -47,46 +95,66 @@ function transformImage(url: string): string {
 }
 
 function ProductGallery({ images, title }: { images: string[]; title: string }) {
-  const cleaned = (Array.isArray(images) ? images : []).filter((s) => typeof s === 'string' && isLikelyImageUrl(s));
-  const base = cleaned.length > 0 ? cleaned : ["/placeholder.svg"];
-  const transformed = base.map(transformImage);
-  const [selectedImage, setSelectedImage] = useState(transformed[0]);
+  const media = (Array.isArray(images) ? images : [])
+    .map((s) => (typeof s === 'string' ? normalizeImageUrl(s) : s))
+    .filter((s) => typeof s === 'string') as string[];
+  const items = media.length > 0 ? media : ["/placeholder.svg"];
+  const [selected, setSelected] = useState(items[0]);
 
   return (
     <div>
       <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100">
-        <img
-          src={selectedImage}
-          alt={`الصورة الرئيسية للمنتج ${title}`}
-          className="h-full w-full object-cover"
-          onError={(e) => {
-            const el = e.currentTarget as HTMLImageElement;
-            if (el.src.endsWith('/placeholder.svg')) return;
-            el.src = '/placeholder.svg';
-          }}
-        />
+        {isLikelyVideoUrl(selected) ? (
+          <video
+            src={selected}
+            className="h-full w-full object-cover"
+            controls
+            playsInline
+          />
+        ) : (
+          <img
+            src={transformImage(selected)}
+            alt={`الصورة الرئيسية للمنتج ${title}`}
+            className="h-full w-full object-cover"
+            onError={(e) => {
+              const el = e.currentTarget as HTMLImageElement;
+              if (el.src.endsWith('/placeholder.svg')) return;
+              el.src = '/placeholder.svg';
+            }}
+          />
+        )}
       </div>
       <div className="mt-4 grid grid-cols-5 gap-4">
-        {transformed.map((image, index) => (
+        {items.map((item, index) => (
           <button
             key={index}
-            onClick={() => setSelectedImage(image)}
+            onClick={() => setSelected(item)}
             className={cn(
               "relative aspect-square w-full overflow-hidden rounded-md transition-all",
               "ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-              selectedImage === image ? "ring-2 ring-primary" : "hover:opacity-80"
+              selected === item ? "ring-2 ring-primary" : "hover:opacity-80"
             )}
           >
-            <img
-              src={image}
-              alt={`مصغّر ${index + 1} للمنتج ${title}`}
-              className="h-full w-full object-cover"
-              onError={(e) => {
-                const el = e.currentTarget as HTMLImageElement;
-                if (el.src.endsWith('/placeholder.svg')) return;
-                el.src = '/placeholder.svg';
-              }}
-            />
+            {isLikelyVideoUrl(item) ? (
+              <video
+                src={item}
+                className="h-full w-full object-cover"
+                muted
+                playsInline
+                poster={getCloudinaryVideoPoster(item) || undefined}
+              />
+            ) : (
+              <img
+                src={transformImage(item)}
+                alt={`مصغّر ${index + 1} للمنتج ${title}`}
+                className="h-full w-full object-cover"
+                onError={(e) => {
+                  const el = e.currentTarget as HTMLImageElement;
+                  if (el.src.endsWith('/placeholder.svg')) return;
+                  el.src = '/placeholder.svg';
+                }}
+              />
+            )}
           </button>
         ))}
       </div>
