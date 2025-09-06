@@ -4,73 +4,95 @@
  
 @layer base {
   :root {
-    /* Design Tokens (Light) */
-    --bg: 0 0% 100%; /* #FFFFFF */
-    --surface: 210 40% 98%; /* #F7F8FA approx */
-    --text-primary: 222 84% 5%; /* #0B1220 approx */
-    --text-secondary: 215 20% 45%; /* #556178 approx */
-    --muted-text: 210 10% 65%; /* #9AA6B2 approx */
-    --accent-color: 226 76% 55%; /* #2563EB */
-    --success-color: 160 84% 39%; /* #10B981 */
-    --error-color: 0 84% 60%;  /* #EF4444 */
-    --warning-color: 38 92% 50%; /* #F59E0B approx */
-    --elevation-shadow: 0 6px 18px rgba(2, 6, 23, 0.06);
-    --radius: 12px; /* cards default; buttons use rounded-md */
+    /* Soft-Rounded Variant Tokens (Light) */
+    /* Colors in HSL where used by Tailwind hsl(var(--token)); hex kept for gradients */
+    --bg: 210 100% 99%;            /* #FBFDFF */
+    --surface: 0 0% 100%;          /* #FFFFFF */
+    --text-primary: 222 42% 10%;   /* #0F1724 approx */
+    --text-secondary: 210 16% 42%; /* #5D6B7A approx */
+    --muted-foreground: 210 18% 70%; /* #A7B4C3 approx */
 
-    /* Theme Variables mapped for Tailwind (Light) */
+    /* Accent gradient (for CTAs, badges, hero overlays) */
+    --accent-start-hex: #7DD3FC;   /* pastel cyan */
+    --accent-end-hex: #C084FC;     /* soft lavender */
+    /* Single accent color (fallback/links/rings) – use start tone */
+    --accent-hsl: 204 95% 74%;     /* approx of #7DD3FC */
+
+    --success-hsl: 149 68% 70%;    /* #7EE7A6 */
+    --error-hsl: 0 100% 85%;       /* #FFB6B6 */
+    --warning-hsl: 35 100% 82%;    /* #FFD8A8 */
+
+    /* Radii */
+    --radius-lg: 18px;  /* cards & large containers */
+    --radius-btn: 28px; /* pill buttons */
+    --radius-sm: 8px;   /* inputs, badges */
+    --radius-image: 12px; /* thumbnails */
+    /* Keep legacy mapping for Tailwind rounded-lg/md/sm */
+    --radius: var(--radius-lg);
+
+    /* Shadows */
+    --shadow-soft: 0 10px 30px rgba(8, 15, 36, 0.06);
+    --shadow-hover: 0 18px 40px rgba(8, 15, 36, 0.08);
+
+    /* Tailwind theme mappings */
     --background: var(--bg);
     --foreground: var(--text-primary);
     --card: var(--surface);
     --card-foreground: var(--text-primary);
     --popover: var(--surface);
     --popover-foreground: var(--text-primary);
-    --primary: var(--accent-color);
-    --primary-foreground: 210 40% 98%;
-    --secondary: var(--warning-color);
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: var(--text-secondary);
-    --accent: var(--accent-color);
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: var(--error-color);
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: var(--accent-color);
+    --primary: var(--accent-hsl);
+    --primary-foreground: 0 0% 100%;
+    --secondary: var(--warning-hsl);
+    --secondary-foreground: 222 42% 10%;
+    --muted: 210 40% 96%;
+    --accent: var(--accent-hsl);
+    --accent-foreground: 222 42% 10%;
+    --destructive: var(--error-hsl);
+    --destructive-foreground: 222 42% 10%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: var(--accent-hsl);
   }
 
   .dark {
-    /* Design Tokens (Dark) */
-    --bg: 222 84% 5%;    /* #0B0F12 approx */
-    --surface: 210 32% 10%; /* #0F1720 approx */
-    --text-primary: 210 40% 98%; /* #E6EEF6 approx */
-    --text-secondary: 210 20% 72%; /* #A8B3C2 approx */
-    --muted-text: 215 20% 65%;
-    --accent-color: 226 76% 55%;
-    --success-color: 160 84% 39%;
-    --error-color: 0 62% 41%;
-    --warning-color: 38 92% 50%;
+    /* Soft-Rounded Variant Tokens (Dark) */
+    --bg: 219 69% 8%;             /* #071023 approx */
+    --surface: 217 54% 9%;        /* #0B1624 approx */
+    --text-primary: 204 100% 95%; /* #E6F4FF approx */
+    --text-secondary: 209 34% 72%;/* #9FB6CE approx */
+    --muted-foreground: 209 34% 72%;
 
-    /* Theme Variables mapped for Tailwind (Dark) */
+    /* Desaturate accent a bit in dark mode */
+    --accent-hsl: 204 88% 68%;
+    --accent-start-hex: #75C6F0;
+    --accent-end-hex: #B67BF0;
+
+    --success-hsl: 149 60% 66%;
+    --error-hsl: 0 92% 80%;
+    --warning-hsl: 35 92% 78%;
+
+    --shadow-soft: 0 8px 20px rgba(255,255,255,0.03);
+    --shadow-hover: 0 12px 28px rgba(255,255,255,0.05);
+
     --background: var(--bg);
     --foreground: var(--text-primary);
     --card: var(--surface);
     --card-foreground: var(--text-primary);
     --popover: var(--surface);
     --popover-foreground: var(--text-primary);
-    --primary: var(--accent-color);
-    --primary-foreground: 210 40% 98%;
-    --secondary: var(--warning-color);
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: var(--text-secondary);
-    --accent: var(--accent-color);
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: var(--accent-color);
+    --primary: var(--accent-hsl);
+    --primary-foreground: 0 0% 100%;
+    --secondary: var(--warning-hsl);
+    --secondary-foreground: 222 42% 10%;
+    --muted: 217 33% 17%;
+    --accent: var(--accent-hsl);
+    --accent-foreground: 222 42% 10%;
+    --destructive: var(--error-hsl);
+    --destructive-foreground: 222 42% 10%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: var(--accent-hsl);
   }
 }
 
@@ -80,7 +102,17 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    font-size: 17px;
+    line-height: 26px;
   }
+  h1, h2, h3 {
+    font-family: Poppins, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    font-weight: 700;
+  }
+  h1 { font-size: 40px; line-height: 48px; }
+  h2 { font-size: 30px; line-height: 36px; }
+  h3 { font-size: 24px; line-height: 30px; }
 }
 
 html, body { height: 100%; }
@@ -96,12 +128,22 @@ html, body { height: 100%; }
   color: hsl(var(--foreground));
   border: 1px solid hsl(var(--border));
   padding: 0.5rem 0.75rem;
-  border-radius: 0.375rem;
-  box-shadow: var(--elevation-shadow);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-soft);
   transition: top 0.15s ease;
   z-index: 50;
 }
 .skip-link:focus {
   top: 0.5rem;
+}
+
+/* Utilities for soft-rounded variant */
+.shadow-soft { box-shadow: var(--shadow-soft); }
+.hover\:shadow-soft:hover { box-shadow: var(--shadow-hover); }
+.rounded-image { border-radius: var(--radius-image); }
+.btn-gradient {
+  background: linear-gradient(90deg, var(--accent-start-hex), var(--accent-end-hex));
+  color: #fff;
+  border-radius: var(--radius-btn);
 }
 

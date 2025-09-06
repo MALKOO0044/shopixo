@@ -81,7 +81,8 @@ export default async function HomePage() {
                 <Link
                   key={c}
                   href={`/category/${slug}`}
-                  className="rounded-md border px-3 py-2 text-center text-sm hover:bg-slate-50"
+                  className="relative rounded-[var(--radius-lg)] border bg-card px-4 py-3 text-center text-sm shadow-soft transition will-change-transform hover:-translate-y-[4px] hover:shadow-soft"
+                  style={{ backgroundImage: "linear-gradient(90deg, var(--accent-start-hex) 0, var(--accent-start-hex) 6px, transparent 6px)" as any, backgroundRepeat: 'no-repeat' }}
                 >
                   {c}
                 </Link>

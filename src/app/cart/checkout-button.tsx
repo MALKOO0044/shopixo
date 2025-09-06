@@ -8,8 +8,15 @@ function SubmitButton() {
   const { pending } = useFormStatus();
 
   return (
-    <Button type="submit" className="w-full" disabled={pending}>
-      {pending ? "Processing..." : "Proceed to Checkout"}
+    <Button
+      type="submit"
+      className="w-full"
+      disabled={pending}
+      variant="gradient"
+      size="pill"
+      aria-label={pending ? "جارٍ المعالجة" : "تابع إتمام الشراء"}
+    >
+      {pending ? "جارٍ المعالجة..." : "تابع إتمام الشراء"}
     </Button>
   );
 }

@@ -15,6 +15,13 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import ArchiveProductButton from "@/app/admin/products/archive-button";
 import DeleteProductButton from "@/app/admin/products/delete-button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +55,7 @@ export default async function AdminProductsPage() {
               </TableHead>
               <TableHead>Title</TableHead>
               <TableHead>Price</TableHead>
+              <TableHead>المخزون</TableHead>
               <TableHead className="hidden md:table-cell">Created at</TableHead>
               <TableHead>
                 <span className="sr-only">Actions</span>
@@ -73,17 +81,45 @@ export default async function AdminProductsPage() {
                   )}
                 </TableCell>
                 <TableCell>{formatCurrency(product.price)}</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{typeof product.stock === 'number' ? product.stock : 0}</span>
+                    <span className={
+                      (product.stock ?? 0) > 0
+                        ? "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                        : "rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700"
+                    }>
+                      {(product.stock ?? 0) > 0 ? 'متاح' : 'غير متاح'}
+                    </span>
+                  </div>
+                </TableCell>
                 <TableCell className="hidden md:table-cell">
                   {new Date(product.created_at).toLocaleDateString()}
                 </TableCell>
-                <TableCell className="text-right space-x-2 rtl:space-x-reverse">
-                  <Link href={`/admin/products/${product.id}/edit`} className="text-sm font-medium text-blue-600 hover:underline">
-                    Edit
-                  </Link>
-                  <span className="mx-2 text-slate-300">|</span>
-                  <ArchiveProductButton productId={product.id} isActive={product.is_active ?? true} />
-                  <span className="mx-2 text-slate-300">|</span>
-                  <DeleteProductButton productId={product.id} />
+                <TableCell className="text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm">إجراءات</Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem asChild>
+                        <Link href={`/admin/products/${product.id}/edit`} className="cursor-pointer">
+                          تعديل
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <div className="w-full">
+                          <ArchiveProductButton productId={product.id} isActive={product.is_active ?? true} />
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem asChild>
+                        <div className="w-full">
+                          <DeleteProductButton productId={product.id} />
+                        </div>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             ))}

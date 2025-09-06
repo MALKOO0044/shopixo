@@ -1,7 +1,5 @@
 "use client";
 
-"use client";
-
 import { addItem } from "@/lib/cart-actions";
 import { useFormState, useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
@@ -12,8 +10,15 @@ function SubmitButton({ disabled }: { disabled: boolean }) {
   const isDisabled = disabled || pending;
 
   return (
-    <Button type="submit" disabled={isDisabled} className="flex-1">
-      {disabled ? "Out of Stock" : pending ? "Adding..." : "Add to Cart"}
+    <Button
+      type="submit"
+      disabled={isDisabled}
+      variant="gradient"
+      size="pill"
+      className="w-full sm:w-auto"
+      aria-label={disabled ? "غير متوفر" : pending ? "جارٍ الإضافة" : "أضف إلى السلة — سريع وآمن"}
+    >
+      {disabled ? "غير متوفر" : pending ? "جارٍ الإضافة..." : "أضف إلى السلة — سريع وآمن"}
     </Button>
   );
 }
