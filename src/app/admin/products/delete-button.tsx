@@ -3,12 +3,12 @@
 import { useFormState } from "react-dom";
 import { deleteProduct } from "@/app/admin/products/actions";
 
-type DeleteState = { error?: string | null; success?: boolean };
+type DeleteState = { error: string | null; success: boolean };
 
 const initialState: DeleteState = { error: null, success: false };
 
 export default function DeleteProductButton({ productId, doubleConfirm = false, formId }: { productId: number; doubleConfirm?: boolean; formId?: string }) {
-  const [state, formAction] = useFormState(deleteProduct, initialState);
+  const [state, formAction] = useFormState<DeleteState, FormData>(deleteProduct as any, initialState);
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     const first = window.confirm("هل أنت متأكد أنك تريد حذف هذا المنتج؟");

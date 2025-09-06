@@ -3,12 +3,12 @@
 import { useFormState } from "react-dom";
 import { setProductActive } from "@/app/admin/products/actions";
 
-type ToggleState = { error?: string | null; success?: boolean };
+type ToggleState = { error: string | null; success: boolean };
 
 const initialState: ToggleState = { error: null, success: false };
 
 export default function ArchiveProductButton({ productId, isActive, formId }: { productId: number; isActive: boolean; formId?: string }) {
-  const [state, formAction] = useFormState(setProductActive, initialState);
+  const [state, formAction] = useFormState<ToggleState, FormData>(setProductActive as any, initialState);
   const label = isActive ? "Archive" : "Restore";
 
   return (

@@ -45,14 +45,14 @@ const setActiveSchema = z.object({
     .transform((v) => (v === "true" || v === true ? true : false)),
 });
 
-export async function setProductActive(prevState: any, formData: FormData) {
+export async function setProductActive(prevState: { error: string | null; success: boolean }, formData: FormData) {
   const adminCheck = await requireAdmin();
   if (!adminCheck.allowed) {
-    return { error: "Not authorized" };
+    return { error: "Not authorized", success: false };
   }
   const supabaseAdmin = getSupabaseAdmin();
   if (!supabaseAdmin) {
-    return { error: "Server misconfiguration: missing Supabase service role envs" };
+    return { error: "Server misconfiguration: missing Supabase service role envs", success: false };
   }
 
   const validated = setActiveSchema.safeParse({
@@ -60,7 +60,7 @@ export async function setProductActive(prevState: any, formData: FormData) {
     is_active: formData.get("is_active"),
   });
   if (!validated.success) {
-    return { error: "Invalid input." };
+    return { error: "Invalid input.", success: false };
   }
 
   const { id, is_active } = validated.data;
@@ -68,14 +68,14 @@ export async function setProductActive(prevState: any, formData: FormData) {
   const { error } = await supabaseAdmin.from("products").update({ is_active }).eq("id", id);
   if (error) {
     console.error("setProductActive failed:", error);
-    return { error: "Database error: Could not update product status." };
+    return { error: "Database error: Could not update product status.", success: false };
   }
 
   revalidatePath("/admin");
   revalidatePath("/");
   revalidatePath("/shop");
   revalidatePath("/search");
-  redirect("/admin");
+  return { error: null, success: true };
 }
 
 async function requireAdmin() {
@@ -174,19 +174,19 @@ const deleteProductSchema = z.object({
   id: z.coerce.number(),
 });
 
-export async function deleteProduct(prevState: any, formData: FormData) {
+export async function deleteProduct(prevState: { error: string | null; success: boolean }, formData: FormData) {
   const adminCheck = await requireAdmin();
   if (!adminCheck.allowed) {
-    return { error: "Not authorized" };
+    return { error: "Not authorized", success: false };
   }
   const supabaseAdmin = getSupabaseAdmin();
   if (!supabaseAdmin) {
-    return { error: "Server misconfiguration: missing Supabase service role envs" };
+    return { error: "Server misconfiguration: missing Supabase service role envs", success: false };
   }
   const validatedFields = deleteProductSchema.safeParse(Object.fromEntries(formData.entries()));
 
   if (!validatedFields.success) {
-    return { error: "Invalid product ID." };
+    return { error: "Invalid product ID.", success: false };
   }
 
   const { id } = validatedFields.data;
@@ -204,9 +204,9 @@ export async function deleteProduct(prevState: any, formData: FormData) {
     console.error("Delete product failed:", error);
     // 23503 is foreign_key_violation in Postgres
     if ((error as any).code === "23503") {
-      return { error: "Cannot delete: product is referenced by existing orders. Consider setting stock to 0 instead." };
+      return { error: "Cannot delete: product is referenced by existing orders. Consider setting stock to 0 instead.", success: false };
     }
-    return { error: "Database error: Could not delete product." };
+    return { error: "Database error: Could not delete product.", success: false };
   }
 
   revalidatePath("/admin");
