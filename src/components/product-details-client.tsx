@@ -37,7 +37,7 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
   return (
     <div>
       <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100">
-        <Image src={selectedImage} alt={`Main image for ${title}`} fill className="object-cover" />
+        <Image src={selectedImage} alt={`الصورة الرئيسية للمنتج ${title}`} fill className="object-cover" />
       </div>
       <div className="mt-4 grid grid-cols-5 gap-4">
         {transformed.map((image, index) => (
@@ -50,7 +50,7 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
               selectedImage === image ? "ring-2 ring-primary" : "hover:opacity-80"
             )}
           >
-            <Image src={image} alt={`Thumbnail ${index + 1} for ${title}`} fill className="object-cover" />
+            <Image src={image} alt={`مصغّر ${index + 1} للمنتج ${title}`} fill className="object-cover" />
           </button>
         ))}
       </div>
@@ -115,7 +115,7 @@ export default function ProductDetailsClient({ product, children }: { product: P
             "rounded-full px-3 py-1 text-xs font-medium",
             isOutOfStock ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"
           )}>
-            {isOutOfStock ? 'Out of Stock' : 'In Stock'}
+            {isOutOfStock ? 'غير متوفر' : 'متوفر'}
           </span>
         </div>
         <p className="mt-4 text-muted-foreground">{product.description}</p>
@@ -133,9 +133,9 @@ export default function ProductDetailsClient({ product, children }: { product: P
         {children}
 
         <div className="mt-8 text-sm text-muted-foreground">
-          <p>• Free shipping on orders over $100</p>
-          <p>• 30-day money-back guarantee</p>
-          <p>• Secure checkout via Stripe & PayPal</p>
+          <p>• شحن مجاني للطلبات فوق 100</p>
+          <p>• ضمان استرجاع خلال 30 يومًا</p>
+          <p>• دفع آمن عبر Stripe وPayPal</p>
         </div>
       </div>
       {/* Mobile sticky Add-to-Cart bar */}

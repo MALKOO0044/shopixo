@@ -80,7 +80,7 @@ export default async function HomePage() {
               return (
                 <Link
                   key={c}
-                  href={{ pathname: "/category/[slug]", query: { slug } }}
+                  href={`/category/${slug}`}
                   className="rounded-md border px-3 py-2 text-center text-sm hover:bg-slate-50"
                 >
                   {c}

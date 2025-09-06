@@ -3,7 +3,7 @@ import { getSupabaseAnonServer } from "@/lib/supabase-server";
 import type { Product } from "@/lib/types";
 import Breadcrumbs from "@/components/breadcrumbs";
 
-export const metadata = { title: "Shop", description: "Browse categories and trending products" };
+export const metadata = { title: "المتجر", description: "تسوّق أحدث المنتجات والعروض" };
 export const revalidate = 60;
 
 export default async function ShopPage({ searchParams }: { searchParams?: { sort?: string } }) {
@@ -31,9 +31,9 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
     console.error("Error fetching products:", error.message);
     return (
       <div className="container py-10 text-center">
-        <h2 className="text-xl font-semibold text-red-600">Failed to load products</h2>
-        <p className="mt-2 text-slate-500">There was an issue connecting to the database. Please try again later.</p>
-        <p className="mt-4 text-xs text-slate-400">Error: {error.message}</p>
+        <h2 className="text-xl font-semibold text-red-600">تعذر تحميل المنتجات</h2>
+        <p className="mt-2 text-slate-500">حدثت مشكلة في الاتصال بقاعدة البيانات. يرجى المحاولة لاحقًا.</p>
+        <p className="mt-4 text-xs text-slate-400">الخطأ: {error.message}</p>
       </div>
     );
   }
@@ -41,8 +41,8 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
   return (
     <div className="container py-10">
       <Breadcrumbs items={[{ name: "الرئيسية", href: "/" }, { name: "المتجر" }]} />
-      <h1 className="text-3xl font-bold">Shop</h1>
-      <p className="mt-2 text-slate-600">Explore our curated selection of trending products.</p>
+      <h1 className="text-3xl font-bold">المتجر</h1>
+      <p className="mt-2 text-slate-600">اكتشف مجموعتنا المختارة من المنتجات الرائجة.</p>
       <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
         <span className="text-muted-foreground">ترتيب حسب:</span>
         <div className="flex items-center gap-2">
@@ -63,8 +63,8 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
           </div>
         ) : (
           <div className="rounded-md border p-6 text-center text-slate-500">
-            <p>No products found at the moment.</p>
-            <p className="mt-2 text-sm">Please check back later or visit the admin panel to add new products.</p>
+            <p>لا توجد منتجات متاحة حاليًا.</p>
+            <p className="mt-2 text-sm">يرجى العودة لاحقًا.</p>
           </div>
         )}
       </div>
