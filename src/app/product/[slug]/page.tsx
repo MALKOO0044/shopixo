@@ -1,5 +1,4 @@
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
+import { getSupabaseAnonServer } from "@/lib/supabase-server";
 import { notFound, redirect } from "next/navigation";
 import type { Product } from "@/lib/types";
 import ProductDetailsClient from "@/components/product-details-client";
@@ -7,12 +6,11 @@ import PriceComparison from "@/components/price-comparison";
 import type { Metadata } from 'next'
 import { getSiteUrl } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 60; // fresher PDP data every minute
 
 // --- Generate Metadata for SEO ---
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
-  const supabase = createServerComponentClient({ cookies });
+  const supabase = getSupabaseAnonServer();
   const isNumeric = /^\d+$/.test(params.slug);
   let product: { title: string; description: string; images: string[]; slug?: string } | null = null;
   // Try slug first (even if numeric), then fallback to id
@@ -76,7 +74,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 
 // --- Main Product Page Component (Server Component) ---
 export default async function ProductPage({ params }: { params: { slug: string } }) {
-  const supabase = createServerComponentClient({ cookies });
+  const supabase = getSupabaseAnonServer();
 
   const isNumeric = /^\d+$/.test(params.slug);
   let product: Product | null = null;

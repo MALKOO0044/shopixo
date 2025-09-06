@@ -5,6 +5,7 @@ import SearchBar from "./search-bar";
 import CartBadge from "./cart-badge";
 import { Suspense } from "react";
 import { ThemeToggle } from "./theme-toggle";
+import SearchModal from "./search-modal";
 
 // Trigger new deployment
 export default function Header() {
@@ -19,8 +20,8 @@ export default function Header() {
           </Link>
         </div>
 
-        {/* Center: Search Bar */}
-        <div className="flex flex-1 justify-center px-4 sm:px-8 lg:px-16">
+        {/* Center: Search Bar (hidden on small screens) */}
+        <div className="hidden flex-1 justify-center px-4 sm:px-8 lg:flex lg:px-16">
           <Suspense fallback={null}>
             <SearchBar />
           </Suspense>
@@ -28,6 +29,8 @@ export default function Header() {
 
         {/* Right: Icons */}
         <div className="flex items-center gap-4">
+          {/* Mobile search trigger */}
+          <SearchModal />
           <ThemeToggle />
           <UserNav />
           <CartBadge />
