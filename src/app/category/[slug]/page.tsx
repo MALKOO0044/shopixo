@@ -83,7 +83,7 @@ export default async function CategoryPage({ params, searchParams }: { params: {
             "@context": "https://schema.org",
             "@type": "BreadcrumbList",
             itemListElement: [
-              { "@type": "ListItem", position: 1, name: "Home", item: getSiteUrl() },
+              { "@type": "ListItem", position: 1, name: "الرئيسية", item: getSiteUrl() },
               { "@type": "ListItem", position: 2, name: categoryTitle, item: `${getSiteUrl()}/category/${params.slug}` },
             ],
           }),
@@ -117,7 +117,7 @@ export default async function CategoryPage({ params, searchParams }: { params: {
           ))}
         </div>
       ) : (
-        <p className="text-muted-foreground">No products found in this category.</p>
+        <p className="text-muted-foreground">لا توجد منتجات في هذا التصنيف.</p>
       )}
     </main>
   );

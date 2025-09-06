@@ -135,7 +135,7 @@ export default function ProductDetailsClient({ product, children }: { product: P
         <div className="mt-8 text-sm text-muted-foreground">
           <p>• شحن مجاني للطلبات فوق 100</p>
           <p>• ضمان استرجاع خلال 30 يومًا</p>
-          <p>• دفع آمن عبر Stripe وPayPal</p>
+          <p>• دفع آمن عبر Stripe</p>
         </div>
       </div>
       {/* Mobile sticky Add-to-Cart bar */}
