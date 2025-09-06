@@ -2,8 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import TrustBadges from "@/components/trust-badges";
 import ProductCard from "@/components/product-card";
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
+import { getSupabaseAnonServer } from "@/lib/supabase-server";
 import type { Product } from "@/lib/types";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -26,8 +25,7 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 60;
 
 export default async function HomePage() {
   const hasSupabaseEnv = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -36,7 +34,7 @@ export default async function HomePage() {
 
   if (hasSupabaseEnv) {
     try {
-      const supabase = createServerComponentClient({ cookies });
+      const supabase = getSupabaseAnonServer();
       const { data, error } = await supabase.from("products").select("*").eq("is_active", true);
       if (error && (String((error as any).message || "").includes("is_active") || (error as any).code === "42703")) {
         // Column not found yet (migration not applied) → fallback to unfiltered query

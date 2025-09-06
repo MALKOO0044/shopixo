@@ -1,5 +1,4 @@
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
+import { getSupabaseAnonServer } from "@/lib/supabase-server";
 import { notFound } from "next/navigation";
 import ProductCard from "@/components/product-card";
 import type { Product } from "@/lib/types";
@@ -9,20 +8,30 @@ function slugToTitle(slug: string) {
   return slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 60;
 
 export default async function CategoryPage({ params }: { params: { slug: string } }) {
-  const supabase = createServerComponentClient({ cookies });
+  const supabase = getSupabaseAnonServer();
   const categoryTitle = slugToTitle(params.slug);
 
-  const { data: products, error } = await supabase
-    .from("products")
-    .select<"*", Product>("*")
-    .eq("category", categoryTitle)
-    .eq("is_active", true);
-  if (error) {
-    console.error("Error fetching category products:", error);
+  let products: Product[] | null = null;
+  {
+    const { data, error } = await supabase
+      .from("products")
+      .select("*")
+      .eq("category", categoryTitle)
+      .eq("is_active", true);
+    if (error && (String((error as any).message || "").includes("is_active") || (error as any).code === "42703")) {
+      const fb = await supabase
+        .from("products")
+        .select("*")
+        .eq("category", categoryTitle);
+      products = (fb.data as any[] | null) as any;
+      if (fb.error) console.error("Category fallback error:", fb.error);
+    } else {
+      if (error) console.error("Error fetching category products:", error);
+      products = (data as any[] | null) as any;
+    }
   }
 
   if (!products || products.length === 0) {

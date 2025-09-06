@@ -1,14 +1,12 @@
 import ProductCard from "@/components/product-card";
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
+import { getSupabaseAnonServer } from "@/lib/supabase-server";
 import type { Product } from "@/lib/types";
 
 export const metadata = { title: "Shop", description: "Browse categories and trending products" };
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 60;
 
 export default async function ShopPage() {
-  const supabase = createServerComponentClient({ cookies });
+  const supabase = getSupabaseAnonServer();
   // Try to filter active products; if the column is missing (migration not applied), fallback to unfiltered query
   let products: any[] | null = null;
   let error: any = null;
