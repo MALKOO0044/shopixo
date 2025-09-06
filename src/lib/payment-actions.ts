@@ -42,7 +42,7 @@ export async function createCheckoutSession() {
       customer_email: user.email, // User is guaranteed to exist here
       line_items: validCartItems.map((item) => ({
         price_data: {
-          currency: "usd",
+          currency: (process.env.NEXT_PUBLIC_CURRENCY || "USD").toLowerCase(),
           product_data: {
             name: item.product!.title,
             images: item.product!.images?.length ? [item.product!.images[0]] : [],

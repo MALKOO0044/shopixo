@@ -25,7 +25,7 @@ export async function createCheckoutSession() {
     .filter(item => item.product !== null) // Filter out null products
     .map((item) => ({
       price_data: {
-        currency: "usd",
+        currency: (process.env.NEXT_PUBLIC_CURRENCY || "USD").toLowerCase(),
         product_data: {
           name: item.product!.title, // Use title instead of name
           images: item.product!.images.length > 0 ? [item.product!.images[0]] : [], // Use first image from images array
