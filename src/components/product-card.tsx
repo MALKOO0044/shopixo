@@ -4,11 +4,19 @@ import Ratings from "@/components/ratings";
 import { formatCurrency } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 
+function isLikelyImageUrl(s: string): boolean {
+  if (!s) return false;
+  if (s.startsWith('http://') || s.startsWith('https://')) return true;
+  if (s.startsWith('/')) return true;
+  if (s.startsWith('data:image/')) return true;
+  return false;
+}
+
 function pickPrimaryImage(images: any): string | null {
   try {
     if (!images) return null;
     if (Array.isArray(images)) {
-      const v = images.find((s) => typeof s === 'string' && s.trim().length > 0) as string | undefined;
+      const v = images.find((s) => typeof s === 'string' && isLikelyImageUrl(s.trim())) as string | undefined;
       return v || null;
     }
     if (typeof images === 'string') {
@@ -17,15 +25,15 @@ function pickPrimaryImage(images: any): string | null {
       if (s.startsWith('[') && s.endsWith(']')) {
         const parsed = JSON.parse(s);
         if (Array.isArray(parsed)) {
-          const v = parsed.find((x) => typeof x === 'string' && x.trim().length > 0);
+          const v = parsed.find((x) => typeof x === 'string' && isLikelyImageUrl(x.trim()));
           return (v as string) || null;
         }
       }
       if (s.includes(',')) {
-        const v = s.split(',').map((x) => x.trim()).find((x) => x.length > 0);
+        const v = s.split(',').map((x) => x.trim()).find((x) => isLikelyImageUrl(x));
         return v || null;
       }
-      return s; // single URL string
+      return isLikelyImageUrl(s) ? s : null; // single value must look like URL
     }
   } catch {}
   return null;

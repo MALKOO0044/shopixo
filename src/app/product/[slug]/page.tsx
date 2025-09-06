@@ -1,3 +1,37 @@
+function isLikelyImageUrl(s: string): boolean {
+  if (!s) return false;
+  if (s.startsWith('http://') || s.startsWith('https://')) return true;
+  if (s.startsWith('/')) return true;
+  if (s.startsWith('data:image/')) return true;
+  return false;
+}
+
+function pickPrimaryImage(images: any): string | null {
+  try {
+    if (!images) return null;
+    if (Array.isArray(images)) {
+      const v = images.find((s) => typeof s === 'string' && isLikelyImageUrl(s.trim())) as string | undefined;
+      return v || null;
+    }
+    if (typeof images === 'string') {
+      const s = images.trim();
+      if (!s) return null;
+      if (s.startsWith('[') && s.endsWith(']')) {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) {
+          const v = parsed.find((x) => typeof x === 'string' && isLikelyImageUrl(x.trim()));
+          return (v as string) || null;
+        }
+      }
+      if (s.includes(',')) {
+        const v = s.split(',').map((x) => x.trim()).find((x) => isLikelyImageUrl(x));
+        return v || null;
+      }
+      return isLikelyImageUrl(s) ? s : null;
+    }
+  } catch {}
+  return null;
+}
 import { getSupabaseAnonServer } from "@/lib/supabase-server";
 import { notFound, redirect } from "next/navigation";
 import type { Product } from "@/lib/types";
@@ -73,7 +107,12 @@ export async function generateMetadata({ params }: { params: { slug: string } })
     openGraph: {
       title: `${product.title} | Shopixo`,
       description: product.description,
-      images: [product.images[0]],
+      images: [
+        (() => {
+          const img = pickPrimaryImage((product as any).images) || '/placeholder.svg';
+          return img.startsWith('http') ? img : `${getSiteUrl()}${img}`;
+        })(),
+      ],
     },
   }
 }
@@ -149,7 +188,13 @@ export default async function ProductPage({ params }: { params: { slug: string }
             "@type": "Product",
             name: product.title,
             description: product.description,
-            image: product.images,
+            image: (() => {
+              const imgs = Array.isArray(product.images)
+                ? product.images.filter((s: any) => typeof s === 'string' && isLikelyImageUrl(s))
+                : [];
+              const base = imgs.length ? imgs : ['/placeholder.svg'];
+              return base.map((u: string) => (u.startsWith('http') ? u : `${getSiteUrl()}${u}`));
+            })(),
             sku: String(product.id),
             brand: { "@type": "Brand", name: process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo" },
             offers: {

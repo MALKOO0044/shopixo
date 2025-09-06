@@ -72,10 +72,11 @@ export async function setProductActive(prevState: { error: string | null; succes
   }
 
   revalidatePath("/admin");
+  revalidatePath("/admin/products");
   revalidatePath("/");
   revalidatePath("/shop");
   revalidatePath("/search");
-  return { error: null, success: true };
+  redirect("/admin/products");
 }
 
 async function requireAdmin() {
@@ -127,7 +128,8 @@ export async function addProduct(prevState: any, formData: FormData) {
   }
 
   revalidatePath("/admin");
-  redirect("/admin");
+  revalidatePath("/admin/products");
+  redirect("/admin/products");
 }
 
 const productUpdateSchema = productSchema.extend({
@@ -210,5 +212,6 @@ export async function deleteProduct(prevState: { error: string | null; success: 
   }
 
   revalidatePath("/admin");
-  redirect("/admin");
+  revalidatePath("/admin/products");
+  redirect("/admin/products");
 }

@@ -9,6 +9,13 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 
 // --- Sub-components (kept from original page) ---
+function isLikelyImageUrl(s: string): boolean {
+  if (!s) return false;
+  if (s.startsWith('http://') || s.startsWith('https://')) return true;
+  if (s.startsWith('/')) return true;
+  if (s.startsWith('data:image/')) return true;
+  return false;
+}
 function normalizeImageUrl(url: string): string {
   try {
     if (!url) return url;
@@ -40,13 +47,24 @@ function transformImage(url: string): string {
 }
 
 function ProductGallery({ images, title }: { images: string[]; title: string }) {
-  const transformed = (images || []).map(transformImage);
+  const cleaned = (Array.isArray(images) ? images : []).filter((s) => typeof s === 'string' && isLikelyImageUrl(s));
+  const base = cleaned.length > 0 ? cleaned : ["/placeholder.svg"];
+  const transformed = base.map(transformImage);
   const [selectedImage, setSelectedImage] = useState(transformed[0]);
 
   return (
     <div>
       <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100">
-        <Image src={selectedImage} alt={`الصورة الرئيسية للمنتج ${title}`} fill className="object-cover" unoptimized />
+        <img
+          src={selectedImage}
+          alt={`الصورة الرئيسية للمنتج ${title}`}
+          className="h-full w-full object-cover"
+          onError={(e) => {
+            const el = e.currentTarget as HTMLImageElement;
+            if (el.src.endsWith('/placeholder.svg')) return;
+            el.src = '/placeholder.svg';
+          }}
+        />
       </div>
       <div className="mt-4 grid grid-cols-5 gap-4">
         {transformed.map((image, index) => (
@@ -59,7 +77,16 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
               selectedImage === image ? "ring-2 ring-primary" : "hover:opacity-80"
             )}
           >
-            <Image src={image} alt={`مصغّر ${index + 1} للمنتج ${title}`} fill className="object-cover" unoptimized />
+            <img
+              src={image}
+              alt={`مصغّر ${index + 1} للمنتج ${title}`}
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                const el = e.currentTarget as HTMLImageElement;
+                if (el.src.endsWith('/placeholder.svg')) return;
+                el.src = '/placeholder.svg';
+              }}
+            />
           </button>
         ))}
       </div>
