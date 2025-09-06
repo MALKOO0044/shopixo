@@ -14,13 +14,14 @@ function transformImage(url: string): string {
     // Apply Cloudinary transformation if URL matches their pattern and no explicit transformation present
     // Pattern: https://res.cloudinary.com/<cloud>/image/upload/(optional transforms)/<public_id>
     if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/upload/')) {
-      // If it already has a transformation (a segment between upload/ and next slash), we keep it as-is
       const marker = '/image/upload/';
       const idx = url.indexOf(marker);
       const after = url.slice(idx + marker.length);
-      // If there's already a comma-separated transform segment (no '/' immediately), we skip injecting
-      if (after && after[0] !== '/') {
-        return url;
+      // Typical no-transform form starts with version segment: v123/...
+      // If it already has transforms, the segment will start with letters like c_, f_, t_, etc.
+      const hasTransforms = after && !after.startsWith('v');
+      if (hasTransforms) {
+        return url; // keep existing transforms
       }
       const inject = 'f_auto,q_auto,c_fill,g_auto,w_800,h_800/';
       return url.replace(marker, marker + inject);

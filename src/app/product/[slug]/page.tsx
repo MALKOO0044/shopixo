@@ -15,22 +15,42 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   const supabase = createServerComponentClient({ cookies });
   const isNumeric = /^\d+$/.test(params.slug);
   let product: { title: string; description: string; images: string[]; slug?: string } | null = null;
-  if (isNumeric) {
-    const { data } = await supabase
+  // Try slug first (even if numeric), then fallback to id
+  {
+    const { data, error } = await supabase
+      .from("products")
+      .select("title, description, images, slug")
+      .eq("slug", params.slug)
+      .eq("is_active", true)
+      .single();
+    if (error && (String((error as any).message || "").includes("is_active") || (error as any).code === "42703")) {
+      const fb = await supabase
+        .from("products")
+        .select("title, description, images, slug")
+        .eq("slug", params.slug)
+        .single();
+      product = fb.data as any;
+    } else {
+      product = data as any;
+    }
+  }
+  if (!product && isNumeric) {
+    const { data, error } = await supabase
       .from("products")
       .select("title, description, images, slug")
       .eq("id", Number(params.slug))
       .eq("is_active", true)
       .single();
-    product = data as any;
-  } else {
-    const { data } = await supabase
-      .from("products")
-      .select("title, description, images")
-      .eq("slug", params.slug)
-      .eq("is_active", true)
-      .single();
-    product = data as any;
+    if (error && (String((error as any).message || "").includes("is_active") || (error as any).code === "42703")) {
+      const fb = await supabase
+        .from("products")
+        .select("title, description, images, slug")
+        .eq("id", Number(params.slug))
+        .single();
+      product = fb.data as any;
+    } else {
+      product = data as any;
+    }
   }
  
   if (!product) {
@@ -60,26 +80,46 @@ export default async function ProductPage({ params }: { params: { slug: string }
 
   const isNumeric = /^\d+$/.test(params.slug);
   let product: Product | null = null;
-  if (isNumeric) {
-    const { data } = await supabase
-      .from("products")
-      .select<"*", Product>("*")
-      .eq("id", Number(params.slug))
-      .eq("is_active", true)
-      .single();
-    product = data as any;
-    // Redirect to canonical slug URL if found
-    if (product && product.slug && String(product.id) === params.slug) {
-      redirect(`/product/${product.slug}`);
-    }
-  } else {
-    const { data } = await supabase
+  // Try slug first (even if numeric)
+  {
+    const { data, error } = await supabase
       .from("products")
       .select<"*", Product>("*")
       .eq("slug", params.slug)
       .eq("is_active", true)
       .single();
-    product = data as any;
+    if (error && (String((error as any).message || "").includes("is_active") || (error as any).code === "42703")) {
+      const fb = await supabase
+        .from("products")
+        .select<"*", Product>("*")
+        .eq("slug", params.slug)
+        .single();
+      product = fb.data as any;
+    } else {
+      product = data as any;
+    }
+  }
+  // If not found and numeric, try by id then redirect to canonical slug
+  if (!product && isNumeric) {
+    const { data, error } = await supabase
+      .from("products")
+      .select<"*", Product>("*")
+      .eq("id", Number(params.slug))
+      .eq("is_active", true)
+      .single();
+    if (error && (String((error as any).message || "").includes("is_active") || (error as any).code === "42703")) {
+      const fb = await supabase
+        .from("products")
+        .select<"*", Product>("*")
+        .eq("id", Number(params.slug))
+        .single();
+      product = fb.data as any;
+    } else {
+      product = data as any;
+    }
+    if (product && product.slug && product.slug !== params.slug) {
+      redirect(`/product/${product.slug}`);
+    }
   }
 
   if (!product) {
