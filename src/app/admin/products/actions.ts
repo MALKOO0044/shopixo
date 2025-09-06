@@ -75,7 +75,7 @@ export async function setProductActive(prevState: any, formData: FormData) {
   revalidatePath("/");
   revalidatePath("/shop");
   revalidatePath("/search");
-  return { success: true };
+  redirect("/admin");
 }
 
 async function requireAdmin() {
@@ -210,5 +210,5 @@ export async function deleteProduct(prevState: any, formData: FormData) {
   }
 
   revalidatePath("/admin");
-  return { success: true };
+  redirect("/admin");
 }

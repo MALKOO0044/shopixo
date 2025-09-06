@@ -31,8 +31,17 @@ function pickPrimaryImage(images: any): string | null {
   return null;
 }
 
+function normalizeImageUrl(url: string): string {
+  try {
+    if (!url) return url;
+    if (url.startsWith('http://')) return 'https://' + url.slice('http://'.length);
+  } catch {}
+  return url;
+}
+
 function transformCardImage(url: string): string {
   try {
+    url = normalizeImageUrl(url);
     if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/upload/')) {
       const marker = '/image/upload/';
       const idx = url.indexOf(marker);
@@ -60,6 +69,7 @@ export default function ProductCard({ product }: { product: Product }) {
           fill
           sizes="(min-width:1280px) 20vw, (min-width:1024px) 25vw, (min-width:768px) 33vw, (min-width:640px) 50vw, 100vw"
           className="object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03]"
+          unoptimized
         />
       </div>
       <div className="flex items-center justify-between gap-2">

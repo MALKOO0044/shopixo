@@ -99,6 +99,7 @@ export default async function AdminProductsPage() {
                     height="64"
                     src={pickPrimaryImage(product.images) || "/placeholder.svg"}
                     width="64"
+                    unoptimized
                   />
                 </TableCell>
                 <TableCell className="font-medium">

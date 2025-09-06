@@ -9,8 +9,17 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 
 // --- Sub-components (kept from original page) ---
+function normalizeImageUrl(url: string): string {
+  try {
+    if (!url) return url;
+    if (url.startsWith('http://')) return 'https://' + url.slice('http://'.length);
+  } catch {}
+  return url;
+}
+
 function transformImage(url: string): string {
   try {
+    url = normalizeImageUrl(url);
     // Apply Cloudinary transformation if URL matches their pattern and no explicit transformation present
     // Pattern: https://res.cloudinary.com/<cloud>/image/upload/(optional transforms)/<public_id>
     if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/upload/')) {
@@ -37,7 +46,7 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
   return (
     <div>
       <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100">
-        <Image src={selectedImage} alt={`الصورة الرئيسية للمنتج ${title}`} fill className="object-cover" />
+        <Image src={selectedImage} alt={`الصورة الرئيسية للمنتج ${title}`} fill className="object-cover" unoptimized />
       </div>
       <div className="mt-4 grid grid-cols-5 gap-4">
         {transformed.map((image, index) => (
@@ -50,7 +59,7 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
               selectedImage === image ? "ring-2 ring-primary" : "hover:opacity-80"
             )}
           >
-            <Image src={image} alt={`مصغّر ${index + 1} للمنتج ${title}`} fill className="object-cover" />
+            <Image src={image} alt={`مصغّر ${index + 1} للمنتج ${title}`} fill className="object-cover" unoptimized />
           </button>
         ))}
       </div>
