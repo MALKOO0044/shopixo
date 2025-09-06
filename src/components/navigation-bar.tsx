@@ -16,6 +16,13 @@ export default async function NavigationBar() {
   let categories: string[] = [];
   try {
     const supabase = getSupabaseAnonServer();
+    if (!supabase) {
+      return (
+        <nav className="border-b bg-background shadow-sm">
+          <div className="container flex items-center justify-center gap-6 py-2 text-sm font-medium text-muted-foreground" />
+        </nav>
+      );
+    }
     const { data, error } = await supabase.from("products").select("category");
     if (error) {
       console.error("NavigationBar: failed to fetch categories", error);
