@@ -15,9 +15,31 @@ function getSupabaseAdmin() {
   return createClient(url, key);
 }
 
+// Fetch product with graceful fallback if `is_active` column is missing (pre-migration)
+async function getProductById(admin: any, id: number) {
+  // Try selecting with is_active first
+  const { data, error } = await admin
+    .from("products")
+    .select("id, stock, title, is_active")
+    .eq("id", id)
+    .single();
+
+  if (error && (String((error as any).message || "").includes("is_active") || (error as any).code === "42703")) {
+    const fb = await admin
+      .from("products")
+      .select("id, stock, title")
+      .eq("id", id)
+      .single();
+    return (fb.data as any) ?? null;
+  }
+
+  return (data as any) ?? null;
+}
+
 const addItemSchema = z.object({
   productId: z.number(),
   quantity: z.number().min(1),
+  productSlug: z.string().min(1).optional(),
 });
 
 async function getOrCreateCart() {
@@ -155,6 +177,24 @@ export async function getCartItemsBySessionId(cartSessionId: string) {
   return { items: cartItems, error: null };
 }
 
+async function getProductBySlug(admin: any, slug: string) {
+  const { data, error } = await admin
+    .from("products")
+    .select("id, stock, title, is_active")
+    .eq("slug", slug)
+    .single();
+
+  if (error && (String((error as any).message || "").includes("is_active") || (error as any).code === "42703")) {
+    const fb = await admin
+      .from("products")
+      .select("id, stock, title")
+      .eq("slug", slug)
+      .single();
+    return (fb.data as any) ?? null;
+  }
+  return (data as any) ?? null;
+}
+
 export async function addItem(prevState: any, formData: FormData) {
   const supabaseAdmin = getSupabaseAdmin();
   if (!supabaseAdmin) {
@@ -163,26 +203,33 @@ export async function addItem(prevState: any, formData: FormData) {
   const validatedFields = addItemSchema.safeParse({
     productId: Number(formData.get("productId")),
     quantity: Number(formData.get("quantity")),
+    productSlug: (() => {
+      const v = formData.get("productSlug");
+      return typeof v === "string" && v.trim().length > 0 ? v : undefined;
+    })(),
   });
 
   if (!validatedFields.success) {
     return { error: "Invalid input." };
   }
 
-  const { productId, quantity } = validatedFields.data;
+  let { productId, quantity, productSlug } = validatedFields.data;
 
   try {
     // 1. Fetch product stock
-    const { data: product } = await supabaseAdmin
-      .from("products")
-      .select("stock, title, is_active")
-      .eq("id", productId)
-      .single();
+    let product = await getProductById(supabaseAdmin, productId);
+    if (!product && productSlug) {
+      const bySlug = await getProductBySlug(supabaseAdmin, productSlug);
+      if (bySlug) {
+        product = bySlug;
+        productId = bySlug.id as number; // normalize id for subsequent operations
+      }
+    }
 
     if (!product) {
       return { error: "Product not found." };
     }
-    if (product.is_active === false) {
+    if (Object.prototype.hasOwnProperty.call(product, "is_active") && (product as any).is_active === false) {
       return { error: `This product is no longer available.` };
     }
 
@@ -301,15 +348,11 @@ export async function updateItemQuantity(prevState: any, formData: FormData) {
         return { error: "Cart item not found." };
       }
 
-      const { data: product, error: prodErr } = await supabaseAdmin
-        .from("products")
-        .select("stock, title, is_active")
-        .eq("id", itemRow.product_id)
-        .single();
-      if (prodErr || !product) {
+      const product = await getProductById(supabaseAdmin, itemRow.product_id as number);
+      if (!product) {
         return { error: "Product not found." };
       }
-      if (product.is_active === false) {
+      if (Object.prototype.hasOwnProperty.call(product, "is_active") && (product as any).is_active === false) {
         return { error: `This product is no longer available.` };
       }
       if (quantity > product.stock) {

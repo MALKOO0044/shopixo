@@ -126,7 +126,7 @@ export default function ProductDetailsClient({ product, children }: { product: P
 
         {/* Desktop CTA */}
         <div className="mt-8 hidden md:block">
-          <AddToCart productId={product.id} selectedOptions={selectedOptions} disabled={isOutOfStock} />
+          <AddToCart productId={product.id} productSlug={product.slug as any} selectedOptions={selectedOptions} disabled={isOutOfStock} />
         </div>
 
         {/* Price comparison component will be passed as a child */}
@@ -147,7 +147,7 @@ export default function ProductDetailsClient({ product, children }: { product: P
               <div className="text-lg font-semibold text-primary">{formatCurrency(product.price)}</div>
             </div>
             <div className="flex-1">
-              <AddToCart productId={product.id} selectedOptions={selectedOptions} disabled={isOutOfStock} />
+              <AddToCart productId={product.id} productSlug={product.slug as any} selectedOptions={selectedOptions} disabled={isOutOfStock} />
             </div>
           </div>
         </div>

@@ -19,11 +19,13 @@ function SubmitButton({ disabled }: { disabled: boolean }) {
 }
 
 export default function AddToCart({ 
-  productId, 
+  productId,
+  productSlug,
   selectedOptions, 
   disabled = false 
 }: { 
-  productId: number, 
+  productId: number,
+  productSlug?: string,
   selectedOptions: Record<string, string>, 
   disabled?: boolean 
 }) {
@@ -32,6 +34,7 @@ export default function AddToCart({
   return (
     <form action={formAction} className="mt-6 flex items-stretch gap-4">
       <input type="hidden" name="productId" value={productId} />
+      {productSlug ? <input type="hidden" name="productSlug" value={productSlug} /> : null}
       {Object.entries(selectedOptions).map(([name, value]) => (
         <input key={name} type="hidden" name={name} value={value} />
       ))}
