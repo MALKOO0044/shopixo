@@ -21,7 +21,7 @@ export default async function UserNav() {
         <Button asChild variant="ghost" size="sm">
           <Link href="/login">تسجيل الدخول</Link>
         </Button>
-        <Button asChild size="sm">
+        <Button asChild variant="gradient" size="sm">
           <Link href="/sign-up">إنشاء حساب</Link>
         </Button>
       </div>
@@ -100,7 +100,7 @@ export default async function UserNav() {
       <Button asChild variant="ghost" size="sm">
         <Link href="/login">تسجيل الدخول</Link>
       </Button>
-      <Button asChild size="sm">
+      <Button asChild variant="gradient" size="sm">
         <Link href="/sign-up">إنشاء حساب</Link>
       </Button>
     </div>
