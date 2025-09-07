@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import Ratings from "@/components/ratings";
 import { formatCurrency } from "@/lib/utils";
@@ -158,13 +157,15 @@ export default function ProductCard({ product }: { product: Product }) {
       className="group block rounded-[var(--radius-lg)] border bg-card p-5 shadow-soft transition will-change-transform hover:-translate-y-[6px] hover:shadow-soft"
     >
       <div className="relative mb-3 aspect-[4/3] w-full overflow-hidden rounded-image bg-slate-100">
-        <Image
+        <img
           src={transformCardImage(pickPrimaryMedia(getImageField(product as any)) || "/placeholder.svg")}
           alt={`صورة المنتج ${product.title}`}
-          fill
-          sizes="(min-width:1280px) 20vw, (min-width:1024px) 25vw, (min-width:768px) 33vw, (min-width:640px) 50vw, 100vw"
-          className="object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03]"
-          unoptimized
+          className="h-full w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03]"
+          onError={(e) => {
+            const el = e.currentTarget as HTMLImageElement;
+            if (el.src.endsWith('/placeholder.svg')) return;
+            el.src = '/placeholder.svg';
+          }}
         />
       </div>
       <div className="flex items-center justify-between gap-2">

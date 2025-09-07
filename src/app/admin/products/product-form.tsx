@@ -1,7 +1,7 @@
 "use client";
 
 import { useFormState, useFormStatus } from "react-dom";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { addProduct, updateProduct } from "@/app/admin/products/actions";
 import type { Product } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -43,49 +43,96 @@ function UploadImagesControl({
       } catch {}
 
       const canSigned = !!(signData && signData.ok && signData.cloudName && signData.apiKey && signData.signature && signData.timestamp && signData.uploadPreset);
+      const cloudNamePublic = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+      const uploadPresetPublic = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+      const hasUnsigned = !!cloudNamePublic && !!uploadPresetPublic;
 
       const uploadedUrls: string[] = [];
-      if (canSigned) {
-        for (const file of Array.from(files)) {
+      for (const file of Array.from(files)) {
+        let uploaded: string | null = null;
+        let lastErr: any = null;
+        // First preference: upload to our own /api/upload (Supabase Storage, public URL)
+        try {
           const fd = new FormData();
           fd.append("file", file);
-          fd.append("api_key", String(signData.apiKey));
-          fd.append("timestamp", String(signData.timestamp));
-          fd.append("upload_preset", String(signData.uploadPreset));
-          fd.append("signature", String(signData.signature));
-          const kind = file.type.startsWith("video/") ? "video" : "image";
-          const res = await fetch(`https://api.cloudinary.com/v1_1/${signData.cloudName}/${kind}/upload`, {
-            method: "POST",
-            body: fd,
-          });
-          if (!res.ok) throw new Error("Upload failed");
-          const json = await res.json();
-          if (json.secure_url) uploadedUrls.push(json.secure_url as string);
+          fd.append("dir", "products");
+          const res = await fetch("/api/upload", { method: "POST", body: fd });
+          if (res.ok) {
+            const j = await res.json();
+            if (j?.ok && j?.url) {
+              uploaded = j.url as string;
+            }
+          } else {
+            const errTxt = await res.text().catch(() => "");
+            lastErr = new Error(`Upload API failed: ${res.status} ${res.statusText} ${errTxt}`);
+          }
+        } catch (e) {
+          lastErr = e;
         }
-      } else {
-        // Fallback to unsigned preset if public envs exist
-        const cloudNamePublic = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-        const uploadPresetPublic = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
-        const hasUnsigned = !!cloudNamePublic && !!uploadPresetPublic;
-        if (hasUnsigned) {
-          for (const file of Array.from(files)) {
+        // Try signed first if available
+        if (canSigned) {
+          try {
+            const fd = new FormData();
+            fd.append("file", file);
+            fd.append("api_key", String(signData.apiKey));
+            fd.append("timestamp", String(signData.timestamp));
+            fd.append("upload_preset", String(signData.uploadPreset));
+            fd.append("signature", String(signData.signature));
+            const kind = file.type.startsWith("video/") ? "video" : "image";
+            const res = await fetch(`https://api.cloudinary.com/v1_1/${signData.cloudName}/${kind}/upload`, { method: "POST", body: fd });
+            if (!res.ok) {
+              const errTxt = await res.text().catch(() => "");
+              throw new Error(`Signed upload failed: ${res.status} ${res.statusText} ${errTxt}`);
+            }
+            const json = await res.json();
+            uploaded = (json.secure_url as string) || null;
+          } catch (e) {
+            lastErr = e;
+          }
+        }
+        // Fallback 1: unsigned using signing response values (covers case where preset is actually unsigned)
+        if (!uploaded && signData?.cloudName && signData?.uploadPreset) {
+          try {
+            const fd = new FormData();
+            fd.append("file", file);
+            fd.append("upload_preset", String(signData.uploadPreset));
+            const kind = file.type.startsWith("video/") ? "video" : "image";
+            const res = await fetch(`https://api.cloudinary.com/v1_1/${signData.cloudName}/${kind}/upload`, { method: "POST", body: fd });
+            if (!res.ok) {
+              const errTxt = await res.text().catch(() => "");
+              throw new Error(`Unsigned(upload_preset from sign) failed: ${res.status} ${res.statusText} ${errTxt}`);
+            }
+            const json = await res.json();
+            uploaded = (json.secure_url as string) || null;
+          } catch (e) {
+            lastErr = e;
+          }
+        }
+        // Fallback 2: unsigned using NEXT_PUBLIC vars
+        if (!uploaded && hasUnsigned) {
+          try {
             const fd = new FormData();
             fd.append("file", file);
             fd.append("upload_preset", uploadPresetPublic as string);
             const kind = file.type.startsWith("video/") ? "video" : "image";
-            const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudNamePublic}/${kind}/upload`, {
-              method: "POST",
-              body: fd,
-            });
-            if (!res.ok) throw new Error("Upload failed");
+            const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudNamePublic}/${kind}/upload`, { method: "POST", body: fd });
+            if (!res.ok) {
+              const errTxt = await res.text().catch(() => "");
+              throw new Error(`Unsigned(NEXT_PUBLIC) failed: ${res.status} ${res.statusText} ${errTxt}`);
+            }
             const json = await res.json();
-            if (json.secure_url) uploadedUrls.push(json.secure_url as string);
+            uploaded = (json.secure_url as string) || null;
+          } catch (e) {
+            lastErr = e;
           }
+        }
+        if (uploaded) {
+          uploadedUrls.push(uploaded);
         } else {
-          // Final fallback: just preview locally
-          const objectUrls = Array.from(files).map((f) => URL.createObjectURL(f));
-          onLocalPreview?.(objectUrls);
-          alert("Media upload is not configured. Configure Cloudinary env vars to enable uploads.");
+          // Last resort: local preview only
+          const objectUrl = URL.createObjectURL(file);
+          onLocalPreview?.([objectUrl]);
+          console.error("Image upload failed:", lastErr);
         }
       }
 
@@ -136,6 +183,27 @@ export default function ProductForm({ product }: { product?: Product }) {
   const imagesInputRef = useRef<HTMLInputElement>(null);
   const [previews, setPreviews] = useState<string[]>(product?.images || []);
   const [extUrl, setExtUrl] = useState<string>("");
+  const [uploadConfigured, setUploadConfigured] = useState<boolean | null>(null);
+  const [clientError, setClientError] = useState<string>("");
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/cloudinary/sign", { cache: "no-store" });
+        if (!mounted) return;
+        if (res.ok) {
+          const j = await res.json();
+          setUploadConfigured(!!j?.ok);
+        } else {
+          setUploadConfigured(false);
+        }
+      } catch {
+        if (mounted) setUploadConfigured(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const appendUrls = (urls: string[]) => {
     const current = imagesInputRef.current?.value?.trim();
@@ -151,8 +219,22 @@ export default function ProductForm({ product }: { product?: Product }) {
     setPreviews((prev) => Array.from(new Set([...(prev || []), ...urls])));
   };
 
+  const onSubmitForm = (e: React.FormEvent<HTMLFormElement>) => {
+    setClientError("");
+    const val = imagesInputRef.current?.value?.trim() || "";
+    // Prevent submitting products with no real media URLs saved
+    if (!val) {
+      e.preventDefault();
+      setClientError("يجب إضافة صورة أو فيديو واحد على الأقل قبل الحفظ. إذا كانت المعاينة من نوع blob: فلن يتم حفظها، الرجاء رفع الملف أو إدخال رابط مباشر.");
+      // Focus the external URL input to guide the user
+      try { (document.getElementById("images-ext-url") as HTMLInputElement | null)?.focus(); } catch {}
+      return false;
+    }
+    return true;
+  };
+
   return (
-    <form action={formAction}>
+    <form action={formAction} onSubmit={onSubmitForm}>
       {product && <input type="hidden" name="id" value={product.id} />}
       <div className="grid gap-4 py-4">
         <div className="grid gap-2">
@@ -193,13 +275,21 @@ export default function ProductForm({ product }: { product?: Product }) {
           <Input ref={imagesInputRef} id="images" name="images" defaultValue={product?.images?.join(', ') || ""} className="hidden" />
           <div className="flex items-center gap-3">
             <UploadImagesControl onAppendUrls={appendUrls} onLocalPreview={onLocalPreview} />
-            <span className="text-xs text-muted-foreground">ارفع صورًا أو فيديوهات؛ لا حاجة لإدخال روابط يدويًا.</span>
+            <span className="text-xs text-muted-foreground">
+              ارفع صورًا أو فيديوهات؛ لا حاجة لإدخال روابط يدويًا.
+            </span>
           </div>
+          {uploadConfigured === false && (
+            <div className="text-xs text-amber-600">
+              ملاحظة: الرفع غير مُفعّل (لم يتم ضبط Cloudinary). ستظهر معاينات blob: محليًا فقط ولن تُحفظ. أدخل رابطًا مباشرًا أو فعّل متغيرات Cloudinary.
+            </div>
+          )}
           <div className="mt-2 flex items-center gap-2">
             <Input
               placeholder="أو أدخل رابط صورة/فيديو (https://...)"
               value={extUrl}
               onChange={(e) => setExtUrl(e.target.value)}
+              id="images-ext-url"
             />
             <Button
               type="button"
@@ -214,6 +304,7 @@ export default function ProductForm({ product }: { product?: Product }) {
               إضافة الرابط
             </Button>
           </div>
+          {!!clientError && <p className="text-xs text-destructive">{clientError}</p>}
           {previews && previews.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
               {previews.map((src, i) => (

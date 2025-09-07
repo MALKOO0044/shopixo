@@ -28,6 +28,10 @@ const productSchema = z.object({
         .split(",")
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
+    })
+    .refine((arr) => Array.isArray(arr) && arr.length > 0, {
+      message: "الرجاء إضافة صورة أو فيديو واحد على الأقل",
+      path: ["images"],
     }),
 });
 

@@ -123,7 +123,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 }
 
 // --- Main Product Page Component (Server Component) ---
-export default async function ProductPage({ params }: { params: { slug: string } }) {
+export default async function ProductPage({ params, searchParams }: { params: { slug: string }, searchParams?: { debugMedia?: string } }) {
   const supabase = getSupabaseAnonServer();
   if (!supabase) {
     return (
@@ -215,8 +215,22 @@ export default async function ProductPage({ params }: { params: { slug: string }
     }
   } catch {}
 
+  const debug = (searchParams?.debugMedia || "").toString() === '1' || (searchParams?.debugMedia || "").toString().toLowerCase() === 'true';
+
   return (
     <div className="container py-10">
+      {debug && (
+        <pre className="mb-4 overflow-auto rounded bg-muted p-3 text-xs" dir="ltr">
+{JSON.stringify({
+  slug: params.slug,
+  hasProduct: !!product,
+  title: product?.title,
+  category: product?.category,
+  rawImages: (product as any)?.image ? { image: (product as any).image, images: (product as any).images } : (product as any)?.images,
+  normalizedImages: (product as any)?.images,
+}, null, 2)}
+        </pre>
+      )}
       {/* Structured Data: Product + BreadcrumbList */}
       <script
         type="application/ld+json"
