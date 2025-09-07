@@ -9,7 +9,12 @@ import { z } from "zod";
 
 const productSchema = z.object({
   title: z.string().min(1, "Title is required"),
-  slug: z.string().min(1, "Slug is required"),
+  slug: z
+    .string()
+    .min(1, "Slug is required")
+    .transform((s) => s.trim())
+    .transform((s) => s.replace(/\s+/g, '-'))
+    .transform((s) => s.toLowerCase()),
   description: z.string().optional(),
   price: z.coerce.number().min(0, "Price must be a positive number"),
   stock: z.coerce.number().int().min(0, "Stock must be a non-negative integer"),

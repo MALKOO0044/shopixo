@@ -189,7 +189,7 @@ function getImageField(p: any): any {
 export default function ProductCard({ product }: { product: Product }) {
   return (
     <Link
-      href={`/product/${product.slug}`}
+      href={`/product/${product.slug || (product.id as any)}`}
       className="group block rounded-[var(--radius-lg)] border bg-card p-5 shadow-soft transition will-change-transform hover:-translate-y-[6px] hover:shadow-soft"
     >
       <div className="relative mb-3 aspect-[4/3] w-full overflow-hidden rounded-image bg-slate-100">
