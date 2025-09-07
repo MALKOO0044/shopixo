@@ -9,6 +9,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { UploadCloud, Loader2 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+
+function isVideoSrc(s: string): boolean {
+  if (!s) return false;
+  const str = s.trim().toLowerCase();
+  if (str.startsWith('data:video/')) return true;
+  if (/\.(mp4|webm|ogg|m3u8)(\?|#|$)/.test(str)) return true;
+  if (str.includes('res.cloudinary.com') && str.includes('/video/')) return true;
+  // blob: URLs for local previews
+  if (str.startsWith('blob:')) return true;
+  return false;
+}
+
+function sanitizeFileName(name: string) {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
 
 function SubmitButton({ isEditing }: { isEditing: boolean }) {
   const { pending } = useFormStatus();
@@ -46,28 +62,51 @@ function UploadImagesControl({
       const cloudNamePublic = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
       const uploadPresetPublic = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
       const hasUnsigned = !!cloudNamePublic && !!uploadPresetPublic;
+      const supabaseReady = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
       const uploadedUrls: string[] = [];
       for (const file of Array.from(files)) {
         let uploaded: string | null = null;
         let lastErr: any = null;
-        // First preference: upload to our own /api/upload (Supabase Storage, public URL)
-        try {
-          const fd = new FormData();
-          fd.append("file", file);
-          fd.append("dir", "products");
-          const res = await fetch("/api/upload", { method: "POST", body: fd });
-          if (res.ok) {
-            const j = await res.json();
-            if (j?.ok && j?.url) {
-              uploaded = j.url as string;
+        // First preference: direct upload to Supabase Storage from the browser (no server size limits)
+        if (supabaseReady && !uploaded) {
+          try {
+            const now = new Date();
+            const y = now.getUTCFullYear();
+            const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+            const base = `uploads/${y}/${m}/products`;
+            const safe = sanitizeFileName(file.name || 'file');
+            const ext = safe.includes('.') ? safe.split('.').pop() : 'bin';
+            const rnd = Math.random().toString(36).slice(2);
+            const path = `${base}/${now.getTime()}-${rnd}.${ext}`;
+            const up = await supabase.storage.from('products').upload(path, file, { upsert: true, contentType: file.type || undefined });
+            if (!up.error) {
+              const pub = supabase.storage.from('products').getPublicUrl(path);
+              uploaded = (pub as any)?.data?.publicUrl || (pub as any)?.publicUrl || null;
+            } else {
+              lastErr = up.error;
             }
-          } else {
-            const errTxt = await res.text().catch(() => "");
-            lastErr = new Error(`Upload API failed: ${res.status} ${res.statusText} ${errTxt}`);
+          } catch (e) {
+            lastErr = e;
           }
-        } catch (e) {
-          lastErr = e;
+        }
+        // Fallback A: upload via our API route (will also work for smaller files)
+        if (!uploaded) {
+          try {
+            const fd = new FormData();
+            fd.append("file", file);
+            fd.append("dir", "products");
+            const res = await fetch("/api/upload", { method: "POST", body: fd });
+            if (res.ok) {
+              const j = await res.json();
+              if (j?.ok && j?.url) uploaded = j.url as string;
+            } else {
+              const errTxt = await res.text().catch(() => "");
+              lastErr = new Error(`Upload API failed: ${res.status} ${res.statusText} ${errTxt}`);
+            }
+          } catch (e) {
+            lastErr = e;
+          }
         }
         // Try signed first if available
         if (canSigned) {
@@ -308,7 +347,11 @@ export default function ProductForm({ product }: { product?: Product }) {
           {previews && previews.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
               {previews.map((src, i) => (
-                <img key={`${src}-${i}`} src={src} alt="preview" className="h-16 w-16 rounded border object-cover" />
+                isVideoSrc(src) ? (
+                  <video key={`${src}-${i}`} src={src} className="h-16 w-16 rounded border object-cover" muted playsInline />
+                ) : (
+                  <img key={`${src}-${i}`} src={src} alt="preview" className="h-16 w-16 rounded border object-cover" />
+                )
               ))}
             </div>
           )}

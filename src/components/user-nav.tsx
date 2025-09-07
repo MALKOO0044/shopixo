@@ -1,6 +1,6 @@
+"use client";
 import Link from "next/link";
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
+import { useEffect, useState } from "react";
 import { User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,9 +12,36 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import SignOutButton from "./sign-out-button";
+import { supabase } from "@/lib/supabase";
 
-export default async function UserNav() {
+export default function UserNav() {
   const hasSupabaseEnv = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const [email, setEmail] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(hasSupabaseEnv);
+
+  useEffect(() => {
+    if (!hasSupabaseEnv) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!mounted) return;
+        setEmail(session?.user?.email ?? null);
+      } catch (e) {
+        console.error("UserNav(client): failed to fetch session", e);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setEmail(session?.user?.email ?? null);
+    });
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, [hasSupabaseEnv]);
+
   if (!hasSupabaseEnv) {
     return (
       <div className="flex items-center gap-2">
@@ -28,71 +55,52 @@ export default async function UserNav() {
     );
   }
 
-  try {
-    const supabase = createServerComponentClient({ cookies });
-    const { data: { session } } = await supabase.auth.getSession();
+  if (loading) {
+    return <div className="h-9 w-9 animate-pulse rounded-full bg-muted" aria-hidden />;
+  }
 
-    if (session) {
-      const email = (session.user?.email || "").toLowerCase();
-      const adminEmails = (process.env.ADMIN_EMAILS || "")
-        .split(",")
-        .map((e) => e.trim().toLowerCase())
-        .filter(Boolean);
-      const isAdmin = adminEmails.length > 0 && email && adminEmails.includes(email);
-      return (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative h-9 w-9 rounded-full">
-              <User className="h-5 w-5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-56" align="end" forceMount>
-            <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">حسابي</p>
-                <p className="text-xs leading-none text-muted-foreground">
-                  {session.user?.email}
-                </p>
-              </div>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link href="/account">نظرة عامة</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/account/orders">الطلبات</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/account/addresses">العناوين</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/account/coupons">القسائم</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/account/reviews">المراجعات</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/account/security">الأمان</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/account/notifications">الإشعارات</Link>
-            </DropdownMenuItem>
-            {isAdmin && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/admin">لوحة التحكم</Link>
-                </DropdownMenuItem>
-              </>
-            )}
-            <DropdownMenuSeparator />
-            <SignOutButton />
-          </DropdownMenuContent>
-        </DropdownMenu>
-      );
-    }
-  } catch (e) {
-    console.error("UserNav: failed to init Supabase or fetch session", e);
+  if (email) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="relative h-9 w-9 rounded-full">
+            <User className="h-5 w-5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-56" align="end" forceMount>
+          <DropdownMenuLabel className="font-normal">
+            <div className="flex flex-col space-y-1">
+              <p className="text-sm font-medium leading-none">حسابي</p>
+              <p className="text-xs leading-none text-muted-foreground">{email}</p>
+            </div>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <Link href="/account">نظرة عامة</Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/account/orders">الطلبات</Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/account/addresses">العناوين</Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/account/coupons">القسائم</Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/account/reviews">المراجعات</Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/account/security">الأمان</Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/account/notifications">الإشعارات</Link>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <SignOutButton />
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
   }
 
   return (

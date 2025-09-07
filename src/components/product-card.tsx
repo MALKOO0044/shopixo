@@ -157,11 +157,29 @@ export default function ProductCard({ product }: { product: Product }) {
       className="group block rounded-[var(--radius-lg)] border bg-card p-5 shadow-soft transition will-change-transform hover:-translate-y-[6px] hover:shadow-soft"
     >
       <div className="relative mb-3 aspect-[4/3] w-full overflow-hidden rounded-image bg-slate-100">
-        <img
-          src={transformCardImage(pickPrimaryMedia(getImageField(product as any)) || "/placeholder.svg")}
-          alt={`صورة المنتج ${product.title}`}
-          className="h-full w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03]"
-        />
+        {(() => {
+          const media = pickPrimaryMedia(getImageField(product as any)) || "/placeholder.svg";
+          const normalized = normalizeImageUrl(media);
+          const isVideo = isLikelyVideoUrl(normalized);
+          if (isVideo) {
+            return (
+              <video
+                src={normalized}
+                className="h-full w-full object-cover"
+                muted
+                playsInline
+                preload="metadata"
+              />
+            );
+          }
+          return (
+            <img
+              src={transformCardImage(normalized)}
+              alt={`صورة المنتج ${product.title}`}
+              className="h-full w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03]"
+            />
+          );
+        })()}
       </div>
       <div className="flex items-center justify-between gap-2">
         <h3 className="truncate text-base font-semibold text-foreground" title={product.title}>{product.title}</h3>

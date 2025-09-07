@@ -36,6 +36,29 @@ function buildSupabasePublicUrl(path: string): string {
   return `${base.replace(/\/$/, "")}/storage/v1/object/public/${cleaned}`;
 }
 
+function transformVideo(url: string): string {
+  try {
+    url = normalizeImageUrl(url);
+    // For Cloudinary video, force delivery in MP4 for wide compatibility
+    if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/video/')) {
+      const isUpload = url.includes('/video/upload/');
+      const isFetch = url.includes('/video/fetch/');
+      const marker = isUpload ? '/video/upload/' : (isFetch ? '/video/fetch/' : null);
+      if (!marker) return url;
+      const idx = url.indexOf(marker);
+      const before = url.slice(0, idx + marker.length);
+      const after = url.slice(idx + marker.length);
+      const hasTransforms = after && !after.startsWith('v');
+      // Always inject f_mp4,vc_h264 for maximum compatibility if no transforms
+      const inject = 'f_mp4,vc_h264/';
+      const core = hasTransforms ? after : (inject + after);
+      // Ensure .mp4 extension for the final URL
+      return (before + core).replace(/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i, '.mp4');
+    }
+  } catch {}
+  return url;
+}
+
 function normalizeImageUrl(url: string): string {
   try {
     if (!url) return url;
@@ -113,7 +136,7 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
       <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100">
         {isLikelyVideoUrl(selected) ? (
           <video
-            src={selected}
+            src={transformVideo(selected)}
             className="h-full w-full object-cover"
             controls
             playsInline
