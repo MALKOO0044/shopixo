@@ -138,18 +138,30 @@ function normalizeImageUrl(url: string): string {
 function transformCardImage(url: string): string {
   try {
     url = normalizeImageUrl(url);
-    // If it's a Cloudinary video, derive a poster from first frame
-    if (isLikelyVideoUrl(url) && url.includes('res.cloudinary.com') && url.includes('/video/')) {
-      const marker = url.includes('/video/upload/') ? '/video/upload/' : (url.includes('/video/fetch/') ? '/video/fetch/' : null);
-      if (!marker) return url;
-      const idx = url.indexOf(marker);
-      if (idx !== -1) {
-        const before = url.slice(0, idx + marker.length);
-        const after = url.slice(idx + marker.length);
-        const inject = 'so_0/';
-        const core = after.replace(/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i, '');
-        return `${before}${inject}${core}.jpg`;
+    // Video -> choose a poster
+    if (isLikelyVideoUrl(url)) {
+      // If it's a Cloudinary video, derive a poster from first frame
+      if (url.includes('res.cloudinary.com') && url.includes('/video/')) {
+        const marker = url.includes('/video/upload/') ? '/video/upload/' : (url.includes('/video/fetch/') ? '/video/fetch/' : null);
+        if (!marker) return '/placeholder.svg';
+        const idx = url.indexOf(marker);
+        if (idx !== -1) {
+          const before = url.slice(0, idx + marker.length);
+          const after = url.slice(idx + marker.length);
+          const inject = 'so_0/';
+          const core = after.replace(/\.(mp4|webm|ogg|m3u8|mov)(\?.*)?$/i, '');
+          return `${before}${inject}${core}.jpg`;
+        }
       }
+      // Non-Cloudinary video: if Cloudinary cloud is available, use fetch to generate first-frame jpg
+      const cloud = (process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME) as string | undefined;
+      if (cloud) {
+        const abs = url; // url is normalized above; should be absolute for supabase paths
+        if (/^https?:\/\//i.test(abs)) {
+          return `https://res.cloudinary.com/${cloud}/video/fetch/so_0/${encodeURIComponent(abs)}.jpg`;
+        }
+      }
+      return '/placeholder.svg';
     }
     if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/')) {
       const isUpload = url.includes('/image/upload/');
@@ -184,22 +196,10 @@ export default function ProductCard({ product }: { product: Product }) {
         {(() => {
           const media = pickPrimaryMedia(getImageField(product as any)) || "/placeholder.svg";
           const normalized = normalizeImageUrl(media);
-          const isVideo = isLikelyVideoUrl(normalized);
-          if (isVideo) {
-            return (
-              <video
-                src={transformVideoForCard(normalized)}
-                className="h-full w-full object-cover"
-                muted
-                playsInline
-                preload="metadata"
-                poster={transformCardImage(normalized)}
-              />
-            );
-          }
+          const thumb = transformCardImage(normalized);
           return (
             <img
-              src={transformCardImage(normalized)}
+              src={thumb}
               alt={`صورة المنتج ${product.title}`}
               className="h-full w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03]"
             />
