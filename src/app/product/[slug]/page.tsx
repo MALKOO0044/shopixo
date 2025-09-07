@@ -5,6 +5,9 @@ function isLikelyImageUrl(s: string): boolean {
   if (s.startsWith('data:image/')) return true;
   return false;
 }
+function normalizeSlugCandidate(s: string) {
+  return (s || "").trim().toLowerCase().replace(/\s+/g, "-");
+}
 
 function pickPrimaryImage(images: any): string | null {
   try {
@@ -67,6 +70,26 @@ export async function generateMetadata({ params }: { params: { slug: string } })
       .single();
     product = data as any;
   }
+  // Fallbacks: case-insensitive and normalized
+  if (!product) {
+    const norm = normalizeSlugCandidate(params.slug);
+    const { data } = await supabase
+      .from("products")
+      .select("title, description, images, slug")
+      .ilike("slug", norm)
+      .maybeSingle();
+    product = (data as any) || null;
+  }
+  if (!product) {
+    const norm = normalizeSlugCandidate(params.slug);
+    const { data } = await supabase
+      .from("products")
+      .select("title, description, images, slug")
+      .ilike("slug", `%${norm}%`)
+      .limit(1)
+      .single();
+    product = (data as any) || null;
+  }
   if (!product && isNumeric) {
     const { data } = await supabase
       .from("products")
@@ -125,6 +148,26 @@ export default async function ProductPage({ params, searchParams }: { params: { 
       .single();
     product = data as any;
   }
+  // Fallbacks: case-insensitive and normalized
+  if (!product) {
+    const norm = normalizeSlugCandidate(params.slug);
+    const { data } = await supabase
+      .from("products")
+      .select<"*", Product>("*")
+      .ilike("slug", norm)
+      .maybeSingle();
+    product = (data as any) || null;
+  }
+  if (!product) {
+    const norm = normalizeSlugCandidate(params.slug);
+    const { data } = await supabase
+      .from("products")
+      .select<"*", Product>("*")
+      .ilike("slug", `%${norm}%`)
+      .limit(1)
+      .single();
+    product = (data as any) || null;
+  }
   // If not found and numeric, try by id then redirect to canonical slug
   if (!product && isNumeric) {
     const { data } = await supabase
@@ -136,6 +179,10 @@ export default async function ProductPage({ params, searchParams }: { params: { 
     if (product && product.slug && product.slug !== params.slug) {
       redirect(`/product/${product.slug}`);
     }
+  }
+  // If found but slug differs only by case/format, redirect to canonical
+  if (product && product.slug && product.slug !== params.slug) {
+    redirect(`/product/${product.slug}`);
   }
 
   if (!product) {
