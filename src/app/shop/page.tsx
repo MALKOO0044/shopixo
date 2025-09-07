@@ -15,7 +15,13 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
   // Detect admin once for rendering quick actions
   const supabaseAuth = createServerComponentClient({ cookies });
   const { data: { user } } = await supabaseAuth.auth.getUser();
-  const isPrivileged = !!user; // أي مستخدم مسجّل دخول يمكنه إدارة عناصره
+  const adminEmails = (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  const isPrivileged = !!user && (adminEmails.length === 0
+    ? true
+    : adminEmails.includes((user.email || "").toLowerCase()));
   if (!supabase) {
     return (
       <div className="container py-10">

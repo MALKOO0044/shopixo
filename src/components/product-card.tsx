@@ -55,6 +55,32 @@ function pickPrimaryImage(images: any): string | null {
   return null;
 }
 
+function pickPrimaryMedia(images: any): string | null {
+  // Returns first image; if none, returns first video. Accepts array/JSON/comma-separated/string.
+  try {
+    const tryParse = (raw: any): string[] => {
+      if (!raw) return [];
+      if (Array.isArray(raw)) return raw.filter((s) => typeof s === 'string');
+      if (typeof raw === 'string') {
+        const s = raw.trim();
+        if (!s) return [];
+        if (s.startsWith('[') && s.endsWith(']')) {
+          try { const arr = JSON.parse(s); return Array.isArray(arr) ? arr.filter((x: any) => typeof x === 'string') : []; } catch { return []; }
+        }
+        if (s.includes(',')) return s.split(',').map((x) => x.trim()).filter(Boolean);
+        return [s];
+      }
+      return [];
+    };
+    const arr = tryParse(images);
+    const img = arr.find((u) => isLikelyImageUrl(u));
+    if (img) return img;
+    const vid = arr.find((u) => isLikelyVideoUrl(u));
+    return vid || null;
+  } catch {}
+  return null;
+}
+
 function buildSupabasePublicUrl(path: string): string {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!base) return path;
@@ -128,7 +154,7 @@ export default function ProductCard({ product }: { product: Product }) {
     >
       <div className="relative mb-3 aspect-[4/3] w-full overflow-hidden rounded-image bg-slate-100">
         <Image
-          src={transformCardImage(pickPrimaryImage(getImageField(product as any)) || "/placeholder.svg")}
+          src={transformCardImage(pickPrimaryMedia(getImageField(product as any)) || "/placeholder.svg")}
           alt={`صورة المنتج ${product.title}`}
           fill
           sizes="(min-width:1280px) 20vw, (min-width:1024px) 25vw, (min-width:768px) 33vw, (min-width:640px) 50vw, 100vw"

@@ -135,7 +135,7 @@ export default function ProductForm({ product }: { product?: Product }) {
   const [state, formAction] = useFormState(action, initialState);
   const imagesInputRef = useRef<HTMLInputElement>(null);
   const [previews, setPreviews] = useState<string[]>(product?.images || []);
-  // Removed external URL manual input to simplify the form
+  const [extUrl, setExtUrl] = useState<string>("");
 
   const appendUrls = (urls: string[]) => {
     const current = imagesInputRef.current?.value?.trim();
@@ -194,6 +194,25 @@ export default function ProductForm({ product }: { product?: Product }) {
           <div className="flex items-center gap-3">
             <UploadImagesControl onAppendUrls={appendUrls} onLocalPreview={onLocalPreview} />
             <span className="text-xs text-muted-foreground">ارفع صورًا أو فيديوهات؛ لا حاجة لإدخال روابط يدويًا.</span>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <Input
+              placeholder="أو أدخل رابط صورة/فيديو (https://...)"
+              value={extUrl}
+              onChange={(e) => setExtUrl(e.target.value)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                const url = (extUrl || "").trim();
+                if (!url) return;
+                appendUrls([url]);
+                setExtUrl("");
+              }}
+            >
+              إضافة الرابط
+            </Button>
           </div>
           {previews && previews.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">

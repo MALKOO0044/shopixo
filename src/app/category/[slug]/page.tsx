@@ -14,9 +14,10 @@ function slugToTitle(slug: string) {
 export const revalidate = 60;
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
-  const titleBase = params.slug.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
-  const title = `${titleBase} - Best ${titleBase} Products | Shopixo`;
-  const description = `Discover top ${titleBase} products with great prices on Shopixo.`;
+  const categoryTitle = params.slug.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+  const storeName = process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo";
+  const title = `${categoryTitle} | ${storeName}`;
+  const description = `تسوّق ${categoryTitle} بأسعار مميزة على ${storeName}. اكتشف عروضنا ومنتجاتنا المختارة.`;
   return {
     title,
     description,

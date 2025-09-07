@@ -23,8 +23,8 @@ function pickPrimaryImage(images: any): string | null {
           return (v as string) || null;
         }
       }
-      if (s.includes(',')) {
-        const v = s.split(',').map((x) => x.trim()).find((x) => isLikelyImageUrl(x));
+      if (/[;,|\n\r\t]/.test(s) || s.includes(',')) {
+        const v = s.split(/[;,|\n\r\t,]+/).map((x) => x.trim()).find((x) => isLikelyImageUrl(x));
         return v || null;
       }
       return isLikelyImageUrl(s) ? s : null;
@@ -49,10 +49,11 @@ export const dynamic = "force-dynamic"; // render per-request to include session
 // --- Generate Metadata for SEO ---
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const supabase = getSupabaseAnonServer();
+  const storeName = process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo";
   if (!supabase) {
     return {
-      title: `${params.slug} | Shopixo`,
-      description: 'Product details',
+      title: `${params.slug} | ${storeName}`,
+      description: 'تفاصيل المنتج',
     };
   }
   const isNumeric = /^\d+$/.test(params.slug);
@@ -97,19 +98,19 @@ export async function generateMetadata({ params }: { params: { slug: string } })
  
   if (!product) {
     return {
-      title: 'Product Not Found',
-      description: 'The product you are looking for does not exist.',
+      title: 'المنتج غير موجود',
+      description: 'المنتج المطلوب غير متوفر.',
     }
   }
  
   return {
-    title: `${product.title} | Shopixo`,
+    title: `${product.title} | ${storeName}`,
     description: product.description,
     alternates: {
       canonical: `/product/${(product as any).slug ?? params.slug}`,
     },
     openGraph: {
-      title: `${product.title} | Shopixo`,
+      title: `${product.title} | ${storeName}`,
       description: product.description,
       images: [
         (() => {
@@ -251,8 +252,8 @@ export default async function ProductPage({ params }: { params: { slug: string }
             "@context": "https://schema.org",
             "@type": "BreadcrumbList",
             itemListElement: [
-              { "@type": "ListItem", position: 1, name: "Home", item: getSiteUrl() },
-              { "@type": "ListItem", position: 2, name: product.category || "Shop", item: `${getSiteUrl()}/category/${(product.category || "").toLowerCase().replace(/\s+/g, '-')}` },
+              { "@type": "ListItem", position: 1, name: "الرئيسية", item: getSiteUrl() },
+              { "@type": "ListItem", position: 2, name: product.category || "المتجر", item: `${getSiteUrl()}/category/${(product.category || "").toLowerCase().replace(/\s+/g, '-')}` },
               { "@type": "ListItem", position: 3, name: product.title, item: `${getSiteUrl()}/product/${product.slug}` },
             ],
           }),

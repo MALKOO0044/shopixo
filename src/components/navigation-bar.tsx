@@ -23,7 +23,10 @@ export default async function NavigationBar() {
         </nav>
       );
     }
-    const { data, error } = await supabase.from("products").select("category");
+    const { data, error } = await supabase
+      .from("products")
+      .select("category")
+      .or("is_active.is.null,is_active.eq.true");
     if (error) {
       console.error("NavigationBar: failed to fetch categories", error);
     } else if (data) {

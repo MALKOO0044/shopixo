@@ -43,7 +43,6 @@ const nextConfig = {
       { protocol: 'https', hostname: '**.supabase.co', pathname: '/**' },
       { protocol: 'https', hostname: '**.supabase.in', pathname: '/**' },
       { protocol: 'https', hostname: 'res.cloudinary.com', pathname: '/**' },
-      { protocol: 'https', hostname: '**', pathname: '/**' },
     ],
   },
   async headers() {
