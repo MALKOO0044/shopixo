@@ -16,14 +16,38 @@ function isLikelyImageUrl(s: string): boolean {
   return false;
 }
 
+function transformVideoForCard(url: string): string {
+  try {
+    url = normalizeImageUrl(url);
+    // Cloudinary native video: inject f_mp4,vc_h264 if missing transforms
+    if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/video/')) {
+      const marker = url.includes('/video/upload/') ? '/video/upload/' : (url.includes('/video/fetch/') ? '/video/fetch/' : null);
+      if (!marker) return url;
+      const idx = url.indexOf(marker);
+      const before = url.slice(0, idx + marker.length);
+      const after = url.slice(idx + marker.length);
+      const hasTransforms = after && !after.startsWith('v');
+      const inject = 'f_mp4,vc_h264/';
+      const core = hasTransforms ? after : (inject + after);
+      return (before + core).replace(/\.(mp4|webm|ogg|m3u8|mov)(\?.*)?$/i, '.mp4');
+    }
+    // Non-Cloudinary: wrap with Cloudinary fetch to deliver MP4 universally when cloud is set
+    const cloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME as string | undefined;
+    const isHttp = typeof url === 'string' && /^https?:\/\//i.test(url);
+    if (cloud && isHttp) {
+      return `https://res.cloudinary.com/${cloud}/video/fetch/f_mp4,vc_h264/${encodeURIComponent(url)}`;
+    }
+  } catch {}
+  return url;
+}
 function isLikelyVideoUrl(s: string): boolean {
   if (!s) return false;
   const str = s.trim().toLowerCase();
   if (str.startsWith('data:video/')) return true;
-  if (/(\.mp4|\.webm|\.ogg|\.m3u8)(\?|#|$)/.test(str)) return true;
+  if (/(\.mp4|\.webm|\.ogg|\.m3u8|\.mov)(\?|#|$)/.test(str)) return true;
   if (str.includes('res.cloudinary.com') && str.includes('/video/')) return true;
   if (str.startsWith('/storage/v1/object/public/') || /^\/?[^:\/]+\/.+/.test(str)) {
-    return /(\.mp4|\.webm|\.ogg|\.m3u8)(\?|#|$)/.test(str);
+    return /(\.mp4|\.webm|\.ogg|\.m3u8|\.mov)(\?|#|$)/.test(str);
   }
   return false;
 }
@@ -164,11 +188,12 @@ export default function ProductCard({ product }: { product: Product }) {
           if (isVideo) {
             return (
               <video
-                src={normalized}
+                src={transformVideoForCard(normalized)}
                 className="h-full w-full object-cover"
                 muted
                 playsInline
                 preload="metadata"
+                poster={transformCardImage(normalized)}
               />
             );
           }

@@ -36,6 +36,17 @@ function buildSupabasePublicUrl(path: string): string {
   return `${base.replace(/\/$/, "")}/storage/v1/object/public/${cleaned}`;
 }
 
+function videoMimeFromUrl(url: string): string | undefined {
+  try {
+    const u = normalizeImageUrl(url).toLowerCase();
+    if (u.includes('.mp4')) return 'video/mp4';
+    if (u.includes('.webm')) return 'video/webm';
+    if (u.includes('.ogg')) return 'video/ogg';
+    if (u.includes('.m3u8')) return 'application/vnd.apple.mpegURL';
+  } catch {}
+  return undefined;
+}
+
 function transformVideo(url: string): string {
   try {
     url = normalizeImageUrl(url);
@@ -54,6 +65,14 @@ function transformVideo(url: string): string {
       const core = hasTransforms ? after : (inject + after);
       // Ensure .mp4 extension for the final URL
       return (before + core).replace(/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i, '.mp4');
+    }
+    // For non-Cloudinary remote URLs (e.g., Supabase public), if a public cloud name is available,
+    // wrap with Cloudinary fetch to deliver MP4 universally.
+    const cloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    const isHttp = typeof url === 'string' && /^https?:\/\//i.test(url);
+    const isMp4 = typeof url === 'string' && /\.mp4(\?|#|$)/i.test(url);
+    if (cloud && isHttp && !isMp4) {
+      return `https://res.cloudinary.com/${cloud}/video/fetch/f_mp4,vc_h264/${encodeURIComponent(url)}`;
     }
   } catch {}
   return url;
@@ -136,11 +155,15 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
       <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100">
         {isLikelyVideoUrl(selected) ? (
           <video
-            src={transformVideo(selected)}
             className="h-full w-full object-cover"
             controls
             playsInline
-          />
+            preload="metadata"
+            crossOrigin="anonymous"
+            poster={getCloudinaryVideoPoster(selected) || undefined}
+          >
+            <source src={transformVideo(selected)} type={videoMimeFromUrl(selected)} />
+          </video>
         ) : (
           <img
             src={transformImage(selected)}
@@ -167,7 +190,7 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
           >
             {isLikelyVideoUrl(item) ? (
               <video
-                src={item}
+                src={transformVideo(item)}
                 className="h-full w-full object-cover"
                 muted
                 playsInline
