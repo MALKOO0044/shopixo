@@ -10,7 +10,8 @@ function isLikelyImageUrl(s: string): boolean {
   if (str.startsWith('data:image/')) return true;
   const imageExt = /\.(png|jpe?g|webp|gif|avif|svg)(\?|#|$)/i;
   if (imageExt.test(str)) return true;
-  if (str.includes('res.cloudinary.com') && str.includes('/image/upload/')) return true;
+  // Accept both Cloudinary upload and fetch delivery types
+  if (str.includes('res.cloudinary.com') && str.includes('/image/')) return true;
   if (str.startsWith('/storage/v1/object/public/')) return imageExt.test(str);
   if (/^\/?[^:\/]+\/.+/.test(str)) return imageExt.test(str); // bucket/path with image ext
   return false;
@@ -21,7 +22,7 @@ function isLikelyVideoUrl(s: string): boolean {
   const str = s.trim().toLowerCase();
   if (str.startsWith('data:video/')) return true;
   if (/(\.mp4|\.webm|\.ogg|\.m3u8)(\?|#|$)/.test(str)) return true;
-  if (str.includes('res.cloudinary.com') && str.includes('/video/upload/')) return true;
+  if (str.includes('res.cloudinary.com') && str.includes('/video/')) return true;
   if (str.startsWith('/storage/v1/object/public/') || /^\/?[^:\/]+\/.+/.test(str)) {
     return /(\.mp4|\.webm|\.ogg|\.m3u8)(\?|#|$)/.test(str);
   }
@@ -115,8 +116,9 @@ function transformCardImage(url: string): string {
   try {
     url = normalizeImageUrl(url);
     // If it's a Cloudinary video, derive a poster from first frame
-    if (isLikelyVideoUrl(url) && url.includes('res.cloudinary.com') && url.includes('/video/upload/')) {
-      const marker = '/video/upload/';
+    if (isLikelyVideoUrl(url) && url.includes('res.cloudinary.com') && url.includes('/video/')) {
+      const marker = url.includes('/video/upload/') ? '/video/upload/' : (url.includes('/video/fetch/') ? '/video/fetch/' : null);
+      if (!marker) return url;
       const idx = url.indexOf(marker);
       if (idx !== -1) {
         const before = url.slice(0, idx + marker.length);
@@ -126,8 +128,11 @@ function transformCardImage(url: string): string {
         return `${before}${inject}${core}.jpg`;
       }
     }
-    if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/upload/')) {
-      const marker = '/image/upload/';
+    if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/')) {
+      const isUpload = url.includes('/image/upload/');
+      const isFetch = url.includes('/image/fetch/');
+      const marker = isUpload ? '/image/upload/' : (isFetch ? '/image/fetch/' : null);
+      if (!marker) return url;
       const idx = url.indexOf(marker);
       const after = url.slice(idx + marker.length);
       const hasTransforms = after && !after.startsWith('v');

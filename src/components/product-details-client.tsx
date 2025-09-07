@@ -21,7 +21,8 @@ function isLikelyVideoUrl(s: string): boolean {
   const str = s.trim().toLowerCase();
   if (str.startsWith('data:video/')) return true;
   if (/(\.mp4|\.webm|\.ogg|\.m3u8)(\?|#|$)/.test(str)) return true;
-  if (str.includes('res.cloudinary.com') && str.includes('/video/upload/')) return true;
+  // Support Cloudinary video via both upload and fetch delivery types
+  if (str.includes('res.cloudinary.com') && (str.includes('/video/upload/') || str.includes('/video/fetch/'))) return true;
   // Supabase storage path without scheme – rely on extension
   if (str.startsWith('/storage/v1/object/public/') || /^\/?[^:\/]+\/.+/.test(str)) {
     return /(\.mp4|\.webm|\.ogg|\.m3u8)(\?|#|$)/.test(str);
@@ -57,8 +58,11 @@ function normalizeImageUrl(url: string): string {
 function getCloudinaryVideoPoster(url: string): string | null {
   try {
     const u = normalizeImageUrl(url);
-    if (typeof u === 'string' && u.includes('res.cloudinary.com') && u.includes('/video/upload/')) {
-      const marker = '/video/upload/';
+    if (typeof u === 'string' && u.includes('res.cloudinary.com') && (u.includes('/video/upload/') || u.includes('/video/fetch/'))) {
+      const markerUpload = '/video/upload/';
+      const markerFetch = '/video/fetch/';
+      const marker = u.includes(markerUpload) ? markerUpload : (u.includes(markerFetch) ? markerFetch : null);
+      if (!marker) return null;
       const idx = u.indexOf(marker);
       if (idx === -1) return null;
       const before = u.slice(0, idx + marker.length);
@@ -76,9 +80,12 @@ function transformImage(url: string): string {
   try {
     url = normalizeImageUrl(url);
     // Apply Cloudinary transformation if URL matches their pattern and no explicit transformation present
-    // Pattern: https://res.cloudinary.com/<cloud>/image/upload/(optional transforms)/<public_id>
-    if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/upload/')) {
-      const marker = '/image/upload/';
+    // Pattern: https://res.cloudinary.com/<cloud>/image/(upload|fetch)/(optional transforms)/<public_id>
+    if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/')) {
+      const isUpload = url.includes('/image/upload/');
+      const isFetch = url.includes('/image/fetch/');
+      const marker = isUpload ? '/image/upload/' : (isFetch ? '/image/fetch/' : null);
+      if (!marker) return url;
       const idx = url.indexOf(marker);
       const after = url.slice(idx + marker.length);
       // Typical no-transform form starts with version segment: v123/...
