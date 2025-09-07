@@ -161,11 +161,6 @@ export default function ProductCard({ product }: { product: Product }) {
           src={transformCardImage(pickPrimaryMedia(getImageField(product as any)) || "/placeholder.svg")}
           alt={`صورة المنتج ${product.title}`}
           className="h-full w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03]"
-          onError={(e) => {
-            const el = e.currentTarget as HTMLImageElement;
-            if (el.src.endsWith('/placeholder.svg')) return;
-            el.src = '/placeholder.svg';
-          }}
         />
       </div>
       <div className="flex items-center justify-between gap-2">
