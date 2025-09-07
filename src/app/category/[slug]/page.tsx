@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import ProductCard from "@/components/product-card";
 import Breadcrumbs from "@/components/breadcrumbs";
 import type { Product } from "@/lib/types";
+import { labelFromSlug } from "@/lib/categories";
 
 // Helper function to format slug back to title
 function slugToTitle(slug: string) {
@@ -14,7 +15,7 @@ function slugToTitle(slug: string) {
 export const revalidate = 60;
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
-  const categoryTitle = params.slug.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+  const categoryTitle = labelFromSlug(params.slug) || params.slug.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
   const storeName = process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo";
   const title = `${categoryTitle} | ${storeName}`;
   const description = `تسوّق ${categoryTitle} بأسعار مميزة على ${storeName}. اكتشف عروضنا ومنتجاتنا المختارة.`;
@@ -34,7 +35,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 
 export default async function CategoryPage({ params, searchParams }: { params: { slug: string }, searchParams?: { sort?: string; min?: string; max?: string } }) {
   const supabase = getSupabaseAnonServer();
-  const categoryTitle = slugToTitle(params.slug);
+  const categoryTitle = labelFromSlug(params.slug) || slugToTitle(params.slug);
 
   let products: Product[] | null = null;
   if (!supabase) {

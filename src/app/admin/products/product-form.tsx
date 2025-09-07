@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { UploadCloud, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { CATEGORIES, labelFromSlug, slugFromLabel } from "@/lib/categories";
 
 function isVideoSrc(s: string): boolean {
   if (!s) return false;
@@ -224,6 +226,9 @@ export default function ProductForm({ product }: { product?: Product }) {
   const [extUrl, setExtUrl] = useState<string>("");
   const [uploadConfigured, setUploadConfigured] = useState<boolean | null>(null);
   const [clientError, setClientError] = useState<string>("");
+  // Category selection
+  const initialCategoryLabel = product?.category || "General";
+  const [categorySlug, setCategorySlug] = useState<string>(slugFromLabel(initialCategoryLabel));
 
   useEffect(() => {
     let mounted = true;
@@ -303,7 +308,18 @@ export default function ProductForm({ product }: { product?: Product }) {
         </div>
         <div className="grid gap-2">
           <Label htmlFor="category">Category</Label>
-          <Input id="category" name="category" defaultValue={product?.category || "General"} />
+          {/* Hidden field stores the label for consistent DB values */}
+          <input type="hidden" name="category" value={labelFromSlug(categorySlug) || initialCategoryLabel} />
+          <Select value={categorySlug} onValueChange={(v) => setCategorySlug(v)}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select a category" />
+            </SelectTrigger>
+            <SelectContent>
+              {CATEGORIES.map((c) => (
+                <SelectItem key={c.slug} value={c.slug}>{c.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {state.fieldErrors?.category && (
             <p className="text-xs text-destructive">{state.fieldErrors.category.join(', ')}</p>
           )}
