@@ -1,7 +1,7 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import SignUpForm from "./sign-up-form";
+import AuthForm from "@/app/login/auth-form";
 
 export const metadata = { title: "إنشاء حساب" };
 
@@ -18,8 +18,8 @@ export default async function SignUpPage() {
 
   return (
     <main className="container max-w-lg py-12">
-      <h1 className="mb-6 text-center text-2xl font-bold">إنشاء حساب</h1>
-      <SignUpForm />
+      <h1 className="mb-6 text-center text-2xl font-bold">إنشاء حساب أو تسجيل الدخول</h1>
+      <AuthForm />
     </main>
   );
 }
