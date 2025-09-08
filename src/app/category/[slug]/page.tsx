@@ -36,6 +36,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 export default async function CategoryPage({ params, searchParams }: { params: { slug: string }, searchParams?: { sort?: string; min?: string; max?: string } }) {
   const supabase = getSupabaseAnonServer();
   const categoryTitle = labelFromSlug(params.slug) || slugToTitle(params.slug);
+  const englishFallback = slugToTitle(params.slug); // handles old data saved in English labels
 
   let products: Product[] | null = null;
   if (!supabase) {
@@ -46,7 +47,7 @@ export default async function CategoryPage({ params, searchParams }: { params: {
     let query = s
       .from("products")
       .select("*")
-      .eq("category", categoryTitle)
+      .in("category", Array.from(new Set([categoryTitle, englishFallback])))
       .or("is_active.is.null,is_active.eq.true") as any;
 
     // Price range filters
