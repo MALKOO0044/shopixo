@@ -6,9 +6,10 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
 export default function AuthForm() {
   const supabase = createClientComponentClient()
-  const redirectTo = typeof window !== 'undefined'
-    ? `${window.location.origin}/auth/callback`
-    : (process.env.NEXT_PUBLIC_SITE_URL ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback` : '/auth/callback')
+  const base = (process.env.NEXT_PUBLIC_SITE_URL && process.env.NEXT_PUBLIC_SITE_URL.trim().length > 0)
+    ? process.env.NEXT_PUBLIC_SITE_URL
+    : (typeof window !== 'undefined' ? window.location.origin : '')
+  const redirectTo = base ? `${base.replace(/\/$/, '')}/auth/callback` : '/auth/callback'
 
   return (
     <Auth
@@ -17,7 +18,7 @@ export default function AuthForm() {
       appearance={{ theme: ThemeSupa }}
       theme="light"
       showLinks={true}
-      providers={['github']}
+      providers={['google', 'facebook']}
       redirectTo={redirectTo}
     />
   )
