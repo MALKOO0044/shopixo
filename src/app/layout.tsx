@@ -33,18 +33,20 @@ export const metadata: Metadata = {
     template: "%s — Shopixo",
   },
   description: "Shopixo is a modern, professional online store.",
-  icons: { icon: "/favicon.svg", apple: "/favicon.svg" },
+  icons: { icon: process.env.NEXT_PUBLIC_BRAND_LOGO_URL || "/favicon.svg", apple: process.env.NEXT_PUBLIC_BRAND_LOGO_URL || "/favicon.svg" },
   openGraph: {
     type: "website",
     url: siteUrl,
     siteName: "Shopixo",
     title: "Shopixo — Modern Online Store",
     description: "Shopixo is a modern, professional online store.",
+    images: [process.env.NEXT_PUBLIC_BRAND_LOGO_URL || "/favicon.svg"],
   },
   twitter: {
     card: "summary_large_image",
     title: "Shopixo — Modern Online Store",
     description: "Shopixo is a modern, professional online store.",
+    images: [process.env.NEXT_PUBLIC_BRAND_LOGO_URL || "/favicon.svg"],
   },
 };
 

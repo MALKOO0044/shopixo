@@ -18,7 +18,16 @@ export default function AuthForm() {
   async function handleOAuth(provider: 'google' | 'facebook') {
     setError(''); setInfo('')
     const { error } = await supabase.auth.signInWithOAuth({ provider, options: { redirectTo } })
-    if (error) setError(error.message)
+    if (error) {
+      const msg = (error.message || '').toLowerCase()
+      if (msg.includes('unsupported provider') || msg.includes('not enabled')) {
+        setError(`مزود ${provider === 'google' ? 'Google' : 'Facebook'} غير مُفعّل في إعدادات Supabase. يرجى التأكد من تفعيله وإضافة بيانات OAuth وتعيين عنوان العودة الصحيح.`)
+      } else if (msg.includes('redirect') || msg.includes('uri')) {
+        setError('رابط العودة غير مسموح به. أضف https://shopixo.vercel.app/auth/callback إلى قائمة Redirect URLs في Supabase.')
+      } else {
+        setError(error.message)
+      }
+    }
   }
 
   function resendConfirm() {
