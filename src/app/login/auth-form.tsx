@@ -21,6 +21,35 @@ export default function AuthForm() {
     if (error) setError(error.message)
   }
 
+  function resendConfirm() {
+    if (!email) return;
+    setError(''); setInfo('')
+    startTransition(async () => {
+      // Resend email confirmation for signup
+      const { error } = await supabase.auth.resend({ type: 'signup', email })
+      if (error) setError(error.message)
+      else setInfo('تم إرسال رسالة تأكيد جديدة إلى بريدك الإلكتروني.')
+    })
+  }
+
+  function requestEmailOtp(e: React.FormEvent) {
+    e.preventDefault(); setError(''); setInfo('')
+    startTransition(async () => {
+      const { error } = await supabase.auth.signInWithOtp({ email: emailForOtp, options: { emailRedirectTo: redirectTo } })
+      if (error) setError(error.message)
+      else { setEmailOtpSent(true); setInfo('تم إرسال رمز التحقق إلى بريدك الإلكتروني.') }
+    })
+  }
+
+  function verifyEmailOtp(e: React.FormEvent) {
+    e.preventDefault(); setError(''); setInfo('')
+    startTransition(async () => {
+      const { error } = await supabase.auth.verifyOtp({ email: emailForOtp, token: emailOtp, type: 'email' })
+      if (error) setError(error.message)
+      else if (typeof window !== 'undefined') window.location.replace('/')
+    })
+  }
+
   // Email/password
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -46,6 +75,10 @@ export default function AuthForm() {
   const [phone, setPhone] = useState('')
   const [otp, setOtp] = useState('')
   const [otpSent, setOtpSent] = useState(false)
+  // Email OTP
+  const [emailForOtp, setEmailForOtp] = useState('')
+  const [emailOtp, setEmailOtp] = useState('')
+  const [emailOtpSent, setEmailOtpSent] = useState(false)
 
   function requestOtp(e: React.FormEvent) {
     e.preventDefault(); setError(''); setInfo('')
@@ -67,6 +100,7 @@ export default function AuthForm() {
 
   const [emailOpen, setEmailOpen] = useState(false)
   const [phoneOpen, setPhoneOpen] = useState(false)
+  const [emailOtpOpen, setEmailOtpOpen] = useState(false)
 
   return (
     <div className="space-y-3" dir="rtl">
@@ -121,6 +155,33 @@ export default function AuthForm() {
         </form>
       )}
 
+      {/* Email OTP */}
+      <button
+        type="button"
+        onClick={() => setEmailOtpOpen((v) => !v)}
+        className="w-full rounded-full border px-4 py-3 text-sm font-semibold hover:bg-accent flex items-center justify-between"
+      >
+        <span className="flex items-center gap-2"><Mail className="h-5 w-5" /> المتابعة من خلال رمز عبر البريد الإلكتروني</span>
+        {emailOtpOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </button>
+      {emailOtpOpen && (
+        <div className="space-y-2 rounded-xl border p-3">
+          <form onSubmit={requestEmailOtp} className="grid gap-2">
+            <label className="text-sm">البريد الإلكتروني</label>
+            <input type="email" required value={emailForOtp} onChange={(e) => setEmailForOtp(e.target.value)} className="rounded-md border px-3 py-2" />
+            <button disabled={pending} className="rounded-md bg-primary px-4 py-2 text-primary-foreground">إرسال الرمز</button>
+          </form>
+          {emailOtpSent && (
+            <form onSubmit={verifyEmailOtp} className="grid gap-2">
+              <label className="text-sm">أدخل رمز التحقق</label>
+              <input inputMode="numeric" pattern="[0-9]*" maxLength={6} required value={emailOtp} onChange={(e) => setEmailOtp(e.target.value)} className="rounded-md border px-3 py-2" />
+              <button disabled={pending} className="rounded-md bg-primary px-4 py-2 text-primary-foreground">تأكيد</button>
+            </form>
+          )}
+          <p className="text-xs text-muted-foreground">لِعرض رمز التحقق داخل الرسالة، أضف المتغير <code>{'{{ .Token }}'}</code> في قالب رسالة Supabase.</p>
+        </div>
+      )}
+
       {/* Phone */}
       <button
         type="button"
@@ -149,7 +210,16 @@ export default function AuthForm() {
       )}
 
       {error && <div className="rounded-md border border-destructive bg-destructive/10 p-2 text-sm text-destructive">{error}</div>}
-      {info && <div className="rounded-md border border-emerald-500 bg-emerald-50 p-2 text-sm text-emerald-700">{info}</div>}
+      {info && (
+        <div className="rounded-md border border-emerald-500 bg-emerald-50 p-2 text-sm text-emerald-700 flex items-center justify-between gap-2">
+          <span>{info}</span>
+          {email && (
+            <button type="button" onClick={resendConfirm} className="rounded border px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100">
+              إعادة الإرسال
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
