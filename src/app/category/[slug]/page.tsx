@@ -22,14 +22,15 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   return {
     title,
     description,
-    alternates: { canonical: `/category/${params.slug}` },
+    alternates: { canonical: `${getSiteUrl()}/category/${params.slug}` },
     openGraph: {
       title,
       description,
       url: `${getSiteUrl()}/category/${params.slug}`,
       type: "website",
+      images: ["/logo-wordmark.svg"],
     },
-    twitter: { card: "summary_large_image", title, description },
+    twitter: { card: "summary_large_image", title, description, images: ["/logo-wordmark.svg"] },
   };
 }
 

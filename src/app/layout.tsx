@@ -26,12 +26,9 @@ const siteUrl = (() => {
   }
 })();
 
-const brandLogo = (() => {
-  const raw = process.env.NEXT_PUBLIC_BRAND_LOGO_URL;
-  const cleaned = raw && typeof raw === 'string' ? raw.trim() : '';
-  return cleaned && cleaned.length > 0 ? cleaned : "/favicon.svg";
-})();
-const absoluteBrandLogo = brandLogo.startsWith('http') ? brandLogo : `${getSiteUrl()}${brandLogo}`;
+// Use our crisp SVG wordmark everywhere by default to avoid blurry raster logos
+const brandLogo = "/logo-wordmark.svg";
+const absoluteBrandLogo = `${getSiteUrl()}${brandLogo}`;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
