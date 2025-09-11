@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     template: "%s — Shopixo",
   },
   description: "Shopixo is a modern, professional online store.",
-  // Use dedicated icons in public/ for favicon + apple + svg
+  // Use dedicated icons in public/ for favicon + apple
   icons: {
     icon: [
       "/favicon.ico",
@@ -45,9 +45,6 @@ export const metadata: Metadata = {
       { url: "/favicon-16x16.png", type: "image/png", sizes: "16x16" },
     ],
     apple: "/apple-touch-icon.png",
-    other: [
-      { rel: "icon", url: "/favicon.svg", type: "image/svg+xml" },
-    ],
   },
   manifest: "/manifest.webmanifest",
   themeColor: "#0b2c4f",
