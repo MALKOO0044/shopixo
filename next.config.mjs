@@ -52,6 +52,61 @@ const nextConfig = {
         source: '/:path*',
         headers: securityHeaders,
       },
+      // Force immediate freshness for icons/manifest so updates reflect right away
+      {
+        source: '/manifest.webmanifest',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=0, s-maxage=0, must-revalidate' },
+        ],
+      },
+      {
+        source: '/favicon.ico',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=0, s-maxage=0, must-revalidate' },
+        ],
+      },
+      {
+        source: '/favicon-:size(16x16|32x32|48x48).png',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=0, s-maxage=0, must-revalidate' },
+        ],
+      },
+      {
+        source: '/apple-touch-icon.png',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=0, s-maxage=0, must-revalidate' },
+        ],
+      },
+      {
+        source: '/android-chrome-:size(192x192|256x256|384x384|512x512).png',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=0, s-maxage=0, must-revalidate' },
+        ],
+      },
+      {
+        source: '/maskable-icon-512.png',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=0, s-maxage=0, must-revalidate' },
+        ],
+      },
+      {
+        source: '/favicon.svg',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=0, s-maxage=0, must-revalidate' },
+        ],
+      },
+      {
+        source: '/logo-icon.svg',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=0, s-maxage=0, must-revalidate' },
+        ],
+      },
+      {
+        source: '/logo-wordmark.svg',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=0, s-maxage=0, must-revalidate' },
+        ],
+      },
     ];
   },
 };
