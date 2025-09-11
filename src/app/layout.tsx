@@ -26,6 +26,13 @@ const siteUrl = (() => {
   }
 })();
 
+const brandLogo = (() => {
+  const raw = process.env.NEXT_PUBLIC_BRAND_LOGO_URL;
+  const cleaned = raw && typeof raw === 'string' ? raw.trim() : '';
+  return cleaned && cleaned.length > 0 ? cleaned : "/favicon.svg";
+})();
+const absoluteBrandLogo = brandLogo.startsWith('http') ? brandLogo : `${getSiteUrl()}${brandLogo}`;
+
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
@@ -33,20 +40,33 @@ export const metadata: Metadata = {
     template: "%s — Shopixo",
   },
   description: "Shopixo is a modern, professional online store.",
-  icons: { icon: process.env.NEXT_PUBLIC_BRAND_LOGO_URL || "/favicon.svg", apple: process.env.NEXT_PUBLIC_BRAND_LOGO_URL || "/favicon.svg" },
+  // Use dedicated icons in public/ for favicon + apple + svg
+  icons: {
+    icon: [
+      "/favicon.ico",
+      { url: "/favicon-32x32.png", type: "image/png", sizes: "32x32" },
+      { url: "/favicon-16x16.png", type: "image/png", sizes: "16x16" },
+    ],
+    apple: "/apple-touch-icon.png",
+    other: [
+      { rel: "icon", url: "/favicon.svg", type: "image/svg+xml" },
+    ],
+  },
+  manifest: "/manifest.webmanifest",
+  themeColor: "#0b2c4f",
   openGraph: {
     type: "website",
     url: siteUrl,
     siteName: "Shopixo",
     title: "Shopixo — Modern Online Store",
     description: "Shopixo is a modern, professional online store.",
-    images: [process.env.NEXT_PUBLIC_BRAND_LOGO_URL || "/favicon.svg"],
+    images: [brandLogo],
   },
   twitter: {
     card: "summary_large_image",
     title: "Shopixo — Modern Online Store",
     description: "Shopixo is a modern, professional online store.",
-    images: [process.env.NEXT_PUBLIC_BRAND_LOGO_URL || "/favicon.svg"],
+    images: [brandLogo],
   },
 };
 
@@ -71,7 +91,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   "@type": "Organization",
                   name: process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo",
                   url: getSiteUrl(),
-                  logo: `${getSiteUrl()}/favicon.svg`,
+                  logo: absoluteBrandLogo,
                   sameAs: [
                     process.env.NEXT_PUBLIC_SOCIAL_FACEBOOK,
                     process.env.NEXT_PUBLIC_SOCIAL_INSTAGRAM,

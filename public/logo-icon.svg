@@ -13,6 +13,10 @@
       <feDropShadow dx="0" dy="10" stdDeviation="12" flood-opacity="0.22"/>
     </filter>
   </defs>
+
+  <!-- Rounded background -->
   <rect x="16" y="16" width="480" height="480" rx="96" fill="url(#bg)"/>
+
+  <!-- Star -->
   <polygon points="256,80 302,206 436,206 326,286 366,420 256,340 146,420 186,286 76,206 210,206" fill="url(#star)" filter="url(#shadow)"/>
 </svg>

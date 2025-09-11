@@ -15,9 +15,8 @@ export default function Header() {
       <div className="container flex h-16 items-center">
         {/* Left: Logo */}
         <div className="flex items-center">
-          <Link href="/" aria-label="Shopixo home">
-            <Logo />
-          </Link>
+          {/* Logo component already renders a Link to home */}
+          <Logo />
         </div>
 
         {/* Center: Search Bar (hidden on small screens) */}

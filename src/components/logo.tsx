@@ -4,18 +4,18 @@ import Link from "next/link";
 export default function Logo() {
   const name = process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo";
   const brandUrl = process.env.NEXT_PUBLIC_BRAND_LOGO_URL;
-  const src = brandUrl && brandUrl.trim().length > 0 ? brandUrl : "/favicon.svg";
+  const src = brandUrl && brandUrl.trim().length > 0 ? brandUrl.trim() : "/logo-wordmark.svg";
   return (
-    <Link href="/" className="flex items-center gap-2 select-none">
+    <Link href="/" aria-label={`${name} home`} className="flex items-center select-none">
+      {/* Use crisp SVG wordmark with fixed dimensions to avoid blurriness */}
       <Image
         src={src}
         alt={`${name} Logo`}
-        width={28}
-        height={28}
+        width={160}
+        height={40}
         priority
-        className="rounded-md object-contain"
+        className="h-[40px] w-[160px]"
       />
-      <span className="text-lg font-semibold tracking-tight">{name}</span>
     </Link>
   );
 }
