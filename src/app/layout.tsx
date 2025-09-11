@@ -26,8 +26,8 @@ const siteUrl = (() => {
   }
 })();
 
-// Use our crisp SVG wordmark everywhere by default to avoid blurry raster logos
-const brandLogo = "/logo-wordmark.svg";
+// Use the composite header logo (star + wordmark) as brand image in meta
+const brandLogo = "/logo-header.svg";
 const absoluteBrandLogo = `${getSiteUrl()}${brandLogo}`;
 
 export const metadata: Metadata = {
