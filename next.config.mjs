@@ -1,32 +1,20 @@
+import { withSentryConfig } from '@sentry/nextjs';
 const securityHeaders = [
   {
     key: 'Content-Security-Policy',
-    value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://*.stripe.com https://m.stripe.network; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.supabase.in wss://*.supabase.in https://*.stripe.com https://m.stripe.network https://api.cloudinary.com; frame-src https://*.stripe.com; object-src 'none'; base-uri 'self'; form-action 'self' https://hooks.stripe.com; frame-ancestors 'none';".replace(/\s{2,}/g, ' ').trim(),
+    // Removed 'unsafe-eval'. Kept 'unsafe-inline' in script-src to allow JSON-LD and Next runtime inline scripts.
+    // Consider migrating to nonces/hashes in the future for stricter CSP.
+    value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://*.stripe.com https://m.stripe.network https://plausible.io; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.supabase.in wss://*.supabase.in https://*.stripe.com https://m.stripe.network https://api.cloudinary.com https://plausible.io https://events.plausible.io https://*.sentry.io; frame-src https://*.stripe.com; object-src 'none'; base-uri 'self'; form-action 'self' https://hooks.stripe.com; frame-ancestors 'none';".replace(/\s{2,}/g, ' ').trim(),
   },
-  {
-    key: 'Referrer-Policy',
-    value: 'origin-when-cross-origin',
-  },
-  {
-    key: 'X-Frame-Options',
-    value: 'SAMEORIGIN',
-  },
-  {
-    key: 'X-Content-Type-Options',
-    value: 'nosniff',
-  },
-  {
-    key: 'X-DNS-Prefetch-Control',
-    value: 'on',
-  },
-  {
-    key: 'Strict-Transport-Security',
-    value: 'max-age=31536000; includeSubDomains; preload',
-  },
-  {
-    key: 'Permissions-Policy',
-    value: 'camera=(), microphone=(), geolocation=()',
-  },
+  { key: 'Referrer-Policy', value: 'origin-when-cross-origin' },
+  { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'X-DNS-Prefetch-Control', value: 'on' },
+  { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+  // Additional hardening
+  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+  { key: 'Cross-Origin-Resource-Policy', value: 'cross-origin' },
 ];
 
 /** @type {import('next').NextConfig} */
@@ -111,4 +99,12 @@ const nextConfig = {
   },
 };
 
-export default nextConfig
+export default withSentryConfig(nextConfig, {
+  silent: true,
+  // Avoid requiring org/project/token; runtime Sentry will still work via SENTRY_DSN
+  disableClientWebpackPlugin: true,
+  disableServerWebpackPlugin: true,
+}, {
+  // Keep source maps hidden even if later enabled
+  hideSourceMaps: true,
+});
