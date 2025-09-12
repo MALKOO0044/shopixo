@@ -1,4 +1,14 @@
-import { withSentryConfig } from '@sentry/nextjs';
+// Make Sentry optional at build time. If the package is not present,
+// we fall back to a no-op wrapper to avoid breaking builds.
+let withSentryConfig = (cfg) => cfg;
+try {
+  const mod = await import('@sentry/nextjs');
+  if (mod && typeof mod.withSentryConfig === 'function') {
+    withSentryConfig = mod.withSentryConfig;
+  }
+} catch (_) {
+  // No-op: Sentry not installed; continue without it.
+}
 const securityHeaders = [
   {
     key: 'Content-Security-Policy',
