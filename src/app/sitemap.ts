@@ -1,9 +1,8 @@
 import { MetadataRoute } from "next";
 import { createClient } from "@supabase/supabase-js";
+import { getSiteUrl } from "@/lib/site";
 
-const baseUrl =
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://shopixo.example");
+const baseUrl = getSiteUrl();
 
 // Regenerate sitemap periodically to include new products
 export const revalidate = 3600; // 1 hour
@@ -12,9 +11,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticPaths = [
     "",
     "/shop",
-    "/cart",
-    "/checkout",
-    "/order-tracking",
     "/about",
     "/contact",
     "/faq",
@@ -22,7 +18,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     "/return-policy",
     "/terms",
     "/blog",
-    "/account",
     "/search",
   ];
   const now = new Date();

@@ -104,7 +104,18 @@ export default function SearchModal() {
                       {/* Thumbnail */}
                       <div className="relative h-12 w-12 overflow-hidden rounded-md bg-muted">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={it.images?.[0]} alt={it.title} className="h-full w-full object-cover" />
+                        <img
+                          src={it.images?.[0] || '/placeholder.svg'}
+                          alt={it.title}
+                          loading="lazy"
+                          decoding="async"
+                          className="h-full w-full object-cover"
+                          onError={(e) => {
+                            const el = e.currentTarget as HTMLImageElement;
+                            if (el.src.endsWith('/placeholder.svg')) return;
+                            el.src = '/placeholder.svg';
+                          }}
+                        />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium text-foreground">{it.title}</div>

@@ -25,6 +25,7 @@ export default function SearchBar() {
         type="search"
         name="q"
         placeholder="ابحث عن منتجات..."
+        aria-label="بحث"
         className="w-full rounded-md bg-background pr-9 pl-4 py-2 text-sm"
       />
     </form>

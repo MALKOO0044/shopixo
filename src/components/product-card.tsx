@@ -201,6 +201,8 @@ export default function ProductCard({ product }: { product: Product }) {
             <img
               src={thumb}
               alt={`صورة المنتج ${product.title}`}
+              loading="lazy"
+              decoding="async"
               className="h-full w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03]"
             />
           );

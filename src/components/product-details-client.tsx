@@ -168,6 +168,8 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
           <img
             src={transformImage(selected)}
             alt={`الصورة الرئيسية للمنتج ${title}`}
+            loading="eager"
+            decoding="async"
             className="h-full w-full object-cover"
             onError={(e) => {
               const el = e.currentTarget as HTMLImageElement;
@@ -200,6 +202,8 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
               <img
                 src={transformImage(item)}
                 alt={`مصغّر ${index + 1} للمنتج ${title}`}
+                loading="lazy"
+                decoding="async"
                 className="h-full w-full object-cover"
                 onError={(e) => {
                   const el = e.currentTarget as HTMLImageElement;
