@@ -7,14 +7,14 @@ test.describe('Production Smoke', () => {
   test('home loads', async ({ page }) => {
     const resp = await page.goto(base + '/');
     expect(resp?.ok()).toBeTruthy();
-    // Expect to see Sign In link (public header)
-    await expect(page.getByRole('link', { name: /sign in/i })).toBeVisible();
+    // Expect to see Sign In link (public header) in Arabic or English
+    await expect(page.getByRole('link', { name: /(?:تسجيل الدخول|sign in)/i })).toBeVisible();
   });
 
   test('login page loads', async ({ page }) => {
     const resp = await page.goto(base + '/login');
     expect(resp?.ok()).toBeTruthy();
-    await expect(page.getByRole('heading', { name: /log in to shopixo/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /(?:تسجيل الدخول|log in)/i })).toBeVisible();
   });
 
   test('health endpoint is ok', async () => {
@@ -40,6 +40,6 @@ test.describe('Production Smoke', () => {
     }
     // Otherwise we expect a redirect (final URL contains /login)
     await expect(page).toHaveURL(/\/login/);
-    await expect(page.getByRole('heading', { name: /log in to shopixo/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /(?:تسجيل الدخول|log in)/i })).toBeVisible();
   });
 });
