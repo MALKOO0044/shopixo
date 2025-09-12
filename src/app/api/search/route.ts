@@ -1,10 +1,30 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { getClientIp, searchLimiter } from "@/lib/ratelimit";
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const revalidate = 0;
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") || "").trim();
+  // Rate limit (Upstash Redis)
+  try {
+    const ip = getClientIp(req);
+    const { success } = await searchLimiter.limit(ip);
+    if (!success) {
+      return NextResponse.json({ items: [], error: 'rate_limited' }, { status: 429 });
+    }
+  } catch (e) {
+    // if rate limit infra fails, do not block search
+  }
+
+  // Minimal input validation
   if (!q) {
+    return NextResponse.json({ items: [] });
+  }
+  if (q.length < 2) {
     return NextResponse.json({ items: [] });
   }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
