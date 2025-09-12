@@ -11,6 +11,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Suspense } from "react";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { getSiteUrl } from "@/lib/site";
+import Script from "next/script";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const poppins = Poppins({ subsets: ["latin"], weight: ["400","600","700"], variable: "--font-poppins" });
@@ -47,7 +48,6 @@ export const metadata: Metadata = {
     apple: "/apple-touch-icon.png",
   },
   manifest: "/manifest.webmanifest",
-  themeColor: "#0b2c4f",
   openGraph: {
     type: "website",
     url: siteUrl,
@@ -64,12 +64,32 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport = {
+  themeColor: "#0b2c4f",
+};
+
 export const runtime = "nodejs";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
       <body className={`${inter.variable} ${poppins.variable} ${inter.className} min-h-screen flex flex-col`}>
+        {/* Analytics: Plausible (loads only in production if domain is set) */}
+        {(() => {
+          try {
+            const analyticsDomain = process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN || new URL(getSiteUrl()).hostname;
+            if (!analyticsDomain) return null;
+            return (
+              <Script
+                src="https://plausible.io/js/script.js"
+                strategy="afterInteractive"
+                data-domain={analyticsDomain as any}
+              />
+            );
+          } catch {
+            return null;
+          }
+        })()}
         <ThemeProvider>
           <ToastProvider>
             {/* Skip to content for accessibility */}
