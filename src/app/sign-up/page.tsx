@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import AuthForm from "@/app/login/auth-form";
 
-export const metadata = { title: "إنشاء حساب" };
+export const metadata = { title: "إنشاء حساب أو تسجيل الدخول" };
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -17,9 +17,11 @@ export default async function SignUpPage() {
   }
 
   return (
-    <main className="container max-w-lg py-12">
-      <h1 className="mb-6 text-center text-2xl font-bold">إنشاء حساب أو تسجيل الدخول</h1>
-      <AuthForm />
-    </main>
+    <div className="container flex h-full w-full flex-col items-center justify-center py-10">
+      <div className="w-full max-w-md rounded-xl border bg-white p-8 shadow-sm">
+        <h1 className="mb-4 text-center text-2xl font-bold">إنشاء حساب أو تسجيل الدخول</h1>
+        <AuthForm />
+      </div>
+    </div>
   );
 }
