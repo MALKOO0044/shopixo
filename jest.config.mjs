@@ -14,6 +14,7 @@ const config = {
   transformIgnorePatterns: [
     '/node_modules/(?!lucide-react)/',
   ],
+  testPathIgnorePatterns: ['/node_modules/', '/.next/', '/e2e/', '/tests/', '/tests-examples/'],
   moduleNameMapper: {
     // Handle CSS imports (if you're using CSS Modules)
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
