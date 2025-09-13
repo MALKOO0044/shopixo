@@ -19,8 +19,12 @@ export default function AuthForm({ next = '/' }: { next?: string }) {
   async function handleOAuth(provider: 'google' | 'facebook') {
     setError(''); setInfo('')
     // Ensure Facebook returns an email by requesting the standard scopes
-    const options: { redirectTo: string; scopes?: string } = { redirectTo: redirectWithNext }
-    if (provider === 'facebook') options.scopes = 'email public_profile'
+    // and force re-request if the user previously declined email
+    const options: { redirectTo: string; scopes?: string; queryParams?: Record<string, string> } = { redirectTo: redirectWithNext }
+    if (provider === 'facebook') {
+      options.scopes = 'email public_profile'
+      options.queryParams = { auth_type: 'rerequest' }
+    }
     const { error } = await supabase.auth.signInWithOAuth({ provider, options })
     if (error) {
       const msg = (error.message || '').toLowerCase()
