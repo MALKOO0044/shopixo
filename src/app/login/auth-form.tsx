@@ -18,9 +18,9 @@ export default function AuthForm({ next = '/' }: { next?: string }) {
 
   async function handleOAuth(provider: 'google' | 'facebook') {
     setError(''); setInfo('')
-    // For Facebook, temporarily request only public_profile to avoid email scope issues
+    // Ensure Facebook returns an email by requesting the standard scopes
     const options: { redirectTo: string; scopes?: string } = { redirectTo: redirectWithNext }
-    if (provider === 'facebook') options.scopes = 'public_profile'
+    if (provider === 'facebook') options.scopes = 'email public_profile'
     const { error } = await supabase.auth.signInWithOAuth({ provider, options })
     if (error) {
       const msg = (error.message || '').toLowerCase()
