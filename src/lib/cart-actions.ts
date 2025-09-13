@@ -61,7 +61,12 @@ async function getOrCreateCart() {
     
     if (cart) {
       // Set cookie and return existing cart ID
-      cookies().set("cart_id", cart.id, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+      cookies().set("cart_id", cart.id, {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === 'production',
+      });
       return { id: cart.id };
     }
   }

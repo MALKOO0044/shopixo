@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import { formatCurrency, cn } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 import AddToCart from "@/components/add-to-cart";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import SmartImage from "@/components/smart-image";
 
 // --- Sub-components (kept from original page) ---
 function isLikelyImageUrl(s: string): boolean {
@@ -165,16 +165,19 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
             <source src={transformVideo(selected)} type={videoMimeFromUrl(selected)} />
           </video>
         ) : (
-          <img
+          <SmartImage
             src={transformImage(selected)}
             alt={`الصورة الرئيسية للمنتج ${title}`}
-            loading="eager"
-            decoding="async"
             className="h-full w-full object-cover"
-            onError={(e) => {
-              const el = e.currentTarget as HTMLImageElement;
-              if (el.src.endsWith('/placeholder.svg')) return;
-              el.src = '/placeholder.svg';
+            loading="eager"
+            fill
+            onError={(e: any) => {
+              try {
+                const el = e.currentTarget as HTMLImageElement;
+                if (el && !el.src.endsWith('/placeholder.svg')) {
+                  el.src = '/placeholder.svg';
+                }
+              } catch {}
             }}
           />
         )}
@@ -199,16 +202,19 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
                 poster={getCloudinaryVideoPoster(item) || undefined}
               />
             ) : (
-              <img
+              <SmartImage
                 src={transformImage(item)}
                 alt={`مصغّر ${index + 1} للمنتج ${title}`}
                 loading="lazy"
-                decoding="async"
                 className="h-full w-full object-cover"
-                onError={(e) => {
-                  const el = e.currentTarget as HTMLImageElement;
-                  if (el.src.endsWith('/placeholder.svg')) return;
-                  el.src = '/placeholder.svg';
+                fill
+                onError={(e: any) => {
+                  try {
+                    const el = e.currentTarget as HTMLImageElement;
+                    if (el && !el.src.endsWith('/placeholder.svg')) {
+                      el.src = '/placeholder.svg';
+                    }
+                  } catch {}
                 }}
               />
             )}

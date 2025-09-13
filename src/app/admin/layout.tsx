@@ -13,7 +13,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   // For now, we'll just protect the route. Role-based access will be next.
   if (!user) {
-    redirect("/login?redirect=/admin");
+    redirect("/login?next=/admin");
   }
 
   // Optional: enforce role-based access via ADMIN_EMAILS (comma-separated)

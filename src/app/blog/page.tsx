@@ -1,6 +1,8 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 export const metadata = { title: "Blog" };
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function BlogPage() {
   let posts: Array<{ id: number; title: string; slug: string; excerpt: string | null; created_at: string | null }> = [];

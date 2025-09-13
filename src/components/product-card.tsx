@@ -2,6 +2,7 @@ import Link from "next/link";
 import Ratings from "@/components/ratings";
 import { formatCurrency } from "@/lib/utils";
 import type { Product } from "@/lib/types";
+import SmartImage from "@/components/smart-image";
 
 function isLikelyImageUrl(s: string): boolean {
   if (!s) return false;
@@ -198,12 +199,12 @@ export default function ProductCard({ product }: { product: Product }) {
           const normalized = normalizeImageUrl(media);
           const thumb = transformCardImage(normalized);
           return (
-            <img
+            <SmartImage
               src={thumb}
               alt={`صورة المنتج ${product.title}`}
               loading="lazy"
-              decoding="async"
               className="h-full w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03]"
+              fill
             />
           );
         })()}

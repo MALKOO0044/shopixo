@@ -4,12 +4,13 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { useState, useTransition } from 'react'
 import { Mail, Smartphone, Facebook, ChevronDown, ChevronUp } from 'lucide-react'
 
-export default function AuthForm() {
+export default function AuthForm({ next = '/' }: { next?: string }) {
   const supabase = createClientComponentClient()
   const base = (process.env.NEXT_PUBLIC_SITE_URL && process.env.NEXT_PUBLIC_SITE_URL.trim().length > 0)
     ? process.env.NEXT_PUBLIC_SITE_URL
     : (typeof window !== 'undefined' ? window.location.origin : '')
   const redirectTo = base ? `${base.replace(/\/$/, '')}/auth/callback` : '/auth/callback'
+  const redirectWithNext = next ? `${redirectTo}?next=${encodeURIComponent(next)}` : redirectTo
 
   const [error, setError] = useState<string>('')
   const [info, setInfo] = useState<string>('')
@@ -17,7 +18,10 @@ export default function AuthForm() {
 
   async function handleOAuth(provider: 'google' | 'facebook') {
     setError(''); setInfo('')
-    const { error } = await supabase.auth.signInWithOAuth({ provider, options: { redirectTo } })
+    // For Facebook, temporarily request only public_profile to avoid email scope issues
+    const options: { redirectTo: string; scopes?: string } = { redirectTo: redirectWithNext }
+    if (provider === 'facebook') options.scopes = 'public_profile'
+    const { error } = await supabase.auth.signInWithOAuth({ provider, options })
     if (error) {
       const msg = (error.message || '').toLowerCase()
       if (msg.includes('unsupported provider') || msg.includes('not enabled')) {
@@ -52,12 +56,12 @@ export default function AuthForm() {
       // المحاولة 1: تسجيل الدخول
       const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
       if (!signInErr) {
-        if (typeof window !== 'undefined') window.location.replace('/')
+        if (typeof window !== 'undefined') window.location.replace(next)
         return
       }
 
       // المحاولة 2: إنشاء حساب إن لم يكن موجودًا
-      const { error: signUpErr } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo } })
+      const { error: signUpErr } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: redirectWithNext } })
       if (!signUpErr) {
         setInfo('تم إرسال رسالة تأكيد إلى بريدك الإلكتروني. الرجاء فتح الرابط لإكمال التسجيل.')
         return
@@ -92,7 +96,7 @@ export default function AuthForm() {
     startTransition(async () => {
       const { error } = await supabase.auth.verifyOtp({ phone, token: otp, type: 'sms' })
       if (error) setError(error.message)
-      else if (typeof window !== 'undefined') window.location.replace('/')
+      else if (typeof window !== 'undefined') window.location.replace(next)
     })
   }
 
@@ -195,3 +199,4 @@ export default function AuthForm() {
     </div>
   )
 }
+

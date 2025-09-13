@@ -1,6 +1,6 @@
 // Mock dropdown menu for this test file to avoid Radix complexity
+import React from 'react'
 jest.mock('@/components/ui/dropdown-menu', () => {
-  const React = require('react');
   return {
     __esModule: true,
     DropdownMenu: ({ children }: any) => React.createElement(React.Fragment, null, children),

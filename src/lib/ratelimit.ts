@@ -14,6 +14,13 @@ try {
   redis = null;
 }
 
+// One-time production warning when rate limiting is disabled due to missing env
+let warned = false;
+if (!redis && process.env.NODE_ENV === 'production' && !warned) {
+  warned = true;
+  console.warn("[ratelimit] Upstash env vars are missing in production; API routes will not be rate limited.");
+}
+
 export function getClientIp(req: Request): string {
   const xf = req.headers.get("x-forwarded-for");
   if (xf) return xf.split(",")[0].trim();

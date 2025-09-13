@@ -7,15 +7,26 @@ export default function Logo() {
   const src = brandUrl && typeof brandUrl === 'string' && brandUrl.trim().length > 0 ? brandUrl.trim() : "/favicon.svg";
   return (
     <Link href="/" className="flex items-center gap-2 select-none">
-      <Image
-        src={src}
-        alt={`${name} Logo`}
-        width={40}
-        height={40}
-        priority
-        quality={100}
-        className="rounded-xl object-cover shadow-sm"
-      />
+      {src.startsWith('/') ? (
+        <Image
+          src={src}
+          alt={`${name} Logo`}
+          width={40}
+          height={40}
+          priority
+          quality={100}
+          className="rounded-xl object-cover shadow-sm"
+        />
+      ) : (
+        <img
+          src={src}
+          alt={`${name} Logo`}
+          width={40}
+          height={40}
+          className="rounded-xl object-cover shadow-sm"
+          loading="eager"
+        />
+      )}
       <span className="text-lg font-semibold tracking-tight">{name}</span>
     </Link>
   );

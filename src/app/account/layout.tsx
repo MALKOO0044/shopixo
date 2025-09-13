@@ -12,7 +12,7 @@ export default async function AccountLayout({ children }: { children: ReactNode 
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login?redirect=/account");
+    redirect("/login?next=/account");
   }
 
   const navItems = [
