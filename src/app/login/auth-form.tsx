@@ -37,13 +37,14 @@ export default function AuthForm() {
   const [info, setInfo] = useState<string>("")
   const [error, setError] = useState<string>("")
   const [pending, startTransition] = useTransition()
+  const [emailExists, setEmailExists] = useState<boolean | null>(null)
 
   const titleByStep = useMemo(() => {
     switch (step) {
       case "email":
         return "تسجيل الدخول أو إنشاء حساب"
       case "password":
-        return "أدخل كلمة المرور"
+        return emailExists === false ? "إنشاء كلمة المرور" : "أدخل كلمة المرور"
       case "verify_code":
         return "تحقق من بريدك"
       case "onboarding":
@@ -53,7 +54,7 @@ export default function AuthForm() {
       default:
         return ""
     }
-  }, [step])
+  }, [step, emailExists])
 
   function resetMessages() {
     setError("")
@@ -68,7 +69,30 @@ export default function AuthForm() {
       setError("الرجاء إدخال البريد الإلكتروني")
       return
     }
-    setStep("password")
+    // Check if email exists via server to differentiate UX
+    startTransition(async () => {
+      try {
+        const res = await fetch("/api/auth/check-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        })
+        if (res.ok) {
+          const j = await res.json()
+          if (typeof j.exists === "boolean") {
+            setEmailExists(j.exists)
+          } else {
+            // unknown -> fallback behavior
+            setEmailExists(null)
+          }
+        } else {
+          setEmailExists(null)
+        }
+      } catch {
+        setEmailExists(null)
+      }
+      setStep("password")
+    })
   }
 
   function heading(h: string) {
@@ -86,35 +110,48 @@ export default function AuthForm() {
     }
 
     startTransition(async () => {
-      // Try sign-in first (existing account happy path)
+      if (emailExists === true) {
+        // Existing account -> sign in only
+        const { data, error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
+        if (!signInErr && data?.user) {
+          if (typeof window !== "undefined") window.location.replace(safeNext)
+          return
+        }
+        setError("كلمة المرور غير صحيحة. يرجى المحاولة مرة أخرى أو استخدام خيار استعادة كلمة المرور.")
+        return
+      }
+
+      if (emailExists === false) {
+        // New account -> sign up + send OTP
+        const { error: signUpErr } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: redirectTo },
+        })
+        if (!signUpErr) {
+          await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } }).catch(() => {})
+          setInfo(`تم إرسال رمز التحقق إلى ${email}.`)
+          setStep("verify_code")
+          return
+        }
+        setError(signUpErr?.message || "تعذر إنشاء الحساب")
+        return
+      }
+
+      // Fallback behavior when existence is unknown: try sign-in then sign-up
       const { data, error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
       if (!signInErr && data?.user) {
         if (typeof window !== "undefined") window.location.replace(safeNext)
         return
       }
-
-      // Attempt sign-up to detect if this is a new email
-      const { error: signUpErr } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { emailRedirectTo: redirectTo },
-      })
-
+      const { error: signUpErr } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo } })
       if (!signUpErr) {
-        // Send a 6-digit OTP email so the Verify Code step can proceed
         await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } }).catch(() => {})
         setInfo(`تم إرسال رمز التحقق إلى ${email}.`)
         setStep("verify_code")
         return
       }
-
-      // Existing account with wrong password (or other error)
-      const msg = (signUpErr.message || "").toLowerCase()
-      if (msg.includes("already registered") || msg.includes("already exists") || msg.includes("exists")) {
-        setError("كلمة المرور غير صحيحة. يرجى المحاولة مرة أخرى أو استخدام خيار استعادة كلمة المرور.")
-      } else {
-        setError(signUpErr.message)
-      }
+      setError(signUpErr?.message || "حصل خطأ غير متوقع")
     })
   }
 
@@ -269,7 +306,7 @@ export default function AuthForm() {
             <button type="button" className="underline" onClick={() => setStep("email")}>تعديل</button>
           </div>
           <div className="grid gap-2">
-            <label className="text-sm">كلمة المرور</label>
+            <label className="text-sm">{emailExists === false ? "إنشاء كلمة المرور" : "كلمة المرور"}</label>
             <div className="relative">
               <input
                 type={showPw ? "text" : "password"}
@@ -287,11 +324,16 @@ export default function AuthForm() {
           </div>
           <div className="flex items-center justify-between text-sm">
             <div />
-            <a href="#" className="text-blue-600 hover:underline">نسيت كلمة المرور؟</a>
+            {emailExists !== false && (
+              <a href="#" className="text-blue-600 hover:underline">نسيت كلمة المرور؟</a>
+            )}
           </div>
           <button disabled={pending} className="w-full h-12 rounded-full bg-black text-white text-sm font-semibold hover:opacity-95">
             متابعة
           </button>
+          {emailExists === false && (
+            <p className="text-xs text-gray-500 text-center">سيتم إنشاء حساب جديد لهذا البريد الإلكتروني.</p>
+          )}
         </form>
       )}
 

@@ -53,3 +53,6 @@ export const uploadLimiter = makeLimiter("rl:upload", 20, "60 s");
 
 // Cloudinary sign: 60 req / min per IP
 export const signLimiter = makeLimiter("rl:sign", 60, "60 s");
+
+// Auth endpoints (e.g., check-email): 30 req / min per IP
+export const authLimiter = makeLimiter("rl:auth", 30, "60 s");
