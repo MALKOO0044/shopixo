@@ -10,6 +10,7 @@ export const runtime = 'nodejs'
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
+  const linkType = (requestUrl.searchParams.get('type') || '').toLowerCase()
   const nextParam = requestUrl.searchParams.get('next') || requestUrl.searchParams.get('redirect') || '/'
   const safeNext = typeof nextParam === 'string' && nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '/'
 
@@ -19,6 +20,11 @@ export async function GET(request: NextRequest) {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
+        const shouldNotify = linkType === 'signup' || linkType === 'invite'
+        // Do not notify on recovery or email-change flows
+        if (!shouldNotify) {
+          // Skip notification, still proceed to redirect later
+        } else {
         const admins = (process.env.ADMIN_EMAILS || '')
           .split(',')
           .map((e) => e.trim())
@@ -47,6 +53,7 @@ export async function GET(request: NextRequest) {
               html,
             }),
           }).catch(() => {})
+        }
         }
       }
     } catch {}
