@@ -26,6 +26,7 @@ export default function AuthForm() {
     ? process.env.NEXT_PUBLIC_SITE_URL
     : (typeof window !== "undefined" ? window.location.origin : "")
   const redirectTo = base ? `${base.replace(/\/$/, "")}/auth/callback` : "/auth/callback"
+  const redirectWithNext = safeNext && safeNext !== "/" ? `${redirectTo}?next=${encodeURIComponent(safeNext)}` : redirectTo
 
   const [step, setStep] = useState<Step>("email")
   const [email, setEmail] = useState("")
@@ -122,6 +123,10 @@ export default function AuthForm() {
       }
 
       if (emailExists === false) {
+        if (password.length < 8) {
+          setError("يجب أن تتكون كلمة المرور من 8 أحرف على الأقل")
+          return
+        }
         // New account -> sign up + send OTP
         const { error: signUpErr } = await supabase.auth.signUp({
           email,
@@ -227,15 +232,27 @@ export default function AuthForm() {
   }
 
   async function handleOAuth(provider: "google" | "facebook") {
-    resetMessages()
-    const withNext = safeNext && safeNext !== "/" ? `${redirectTo}?next=${encodeURIComponent(safeNext)}` : redirectTo
-    const options: any = { redirectTo: withNext }
-    if (provider === "facebook") {
-      options.scopes = "email public_profile"
-      options.queryParams = { auth_type: "rerequest" }
+    setError(''); setInfo('')
+    // Ensure Facebook returns an email by requesting the standard scopes
+    // and force re-request if the user previously declined email
+    const options: { redirectTo: string; scopes?: string; queryParams?: Record<string, string> } = { redirectTo: redirectWithNext }
+    if (provider === 'facebook') {
+      options.scopes = 'email public_profile'
+      options.queryParams = { auth_type: 'rerequest' }
+    }
+    // Always show account picker when using Google (avoid auto-login to last account)
+    if (provider === 'google') {
+      options.queryParams = { prompt: 'select_account' }
     }
     const { error } = await supabase.auth.signInWithOAuth({ provider, options })
-    if (error) setError(error.message)
+    if (error) {
+      const msg = (error.message || '').toLowerCase()
+      if (msg.includes('unsupported provider') || msg.includes('not enabled')) {
+        setError(`مزود ${provider === 'google' ? 'Google' : 'Facebook'} غير مُفعّل في إعدادات Supabase. يرجى التأكد من تفعيله وإضافة بيانات OAuth وتعيين عنوان العودة الصحيح.`)
+      } else {
+        setError(error.message)
+      }
+    }
   }
 
   // Phone (optional minimal panel)
