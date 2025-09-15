@@ -325,7 +325,12 @@ export default function AuthForm() {
           <div className="flex items-center justify-between text-sm">
             <div />
             {emailExists !== false && (
-              <a href="#" className="text-blue-600 hover:underline">نسيت كلمة المرور؟</a>
+              <a
+                href={`/forgot-password${safeNext && safeNext !== "/" ? `?next=${encodeURIComponent(safeNext)}` : ""}${email ? `${safeNext && safeNext !== "/" ? "&" : "?"}email=${encodeURIComponent(email)}` : ""}`}
+                className="text-blue-600 hover:underline"
+              >
+                نسيت كلمة المرور؟
+              </a>
             )}
           </div>
           <button disabled={pending} className="w-full h-12 rounded-full bg-black text-white text-sm font-semibold hover:opacity-95">
