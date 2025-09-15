@@ -127,19 +127,17 @@ export default function AuthForm() {
           setError("يجب أن تتكون كلمة المرور من 8 أحرف على الأقل")
           return
         }
-        // New account -> sign up + send OTP
-        const { error: signUpErr } = await supabase.auth.signUp({
+        // New account -> send email OTP only (creates user after verification)
+        const { error: otpErr } = await supabase.auth.signInWithOtp({
           email,
-          password,
-          options: { emailRedirectTo: redirectTo },
+          options: { emailRedirectTo: redirectTo, shouldCreateUser: true },
         })
-        if (!signUpErr) {
-          await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } }).catch(() => {})
+        if (!otpErr) {
           setInfo(`تم إرسال رمز التحقق إلى ${email}.`)
           setStep("verify_code")
           return
         }
-        setError(signUpErr?.message || "تعذر إنشاء الحساب")
+        setError(otpErr?.message || "تعذر إرسال رمز التحقق")
         return
       }
 
@@ -149,14 +147,17 @@ export default function AuthForm() {
         if (typeof window !== "undefined") window.location.replace(safeNext)
         return
       }
-      const { error: signUpErr } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo } })
-      if (!signUpErr) {
-        await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } }).catch(() => {})
+      // Fallback: send OTP that will create the user upon verification
+      const { error: otpErr2 } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: redirectTo, shouldCreateUser: true },
+      })
+      if (!otpErr2) {
         setInfo(`تم إرسال رمز التحقق إلى ${email}.`)
         setStep("verify_code")
         return
       }
-      setError(signUpErr?.message || "حصل خطأ غير متوقع")
+      setError(otpErr2?.message || "حصل خطأ غير متوقع")
     })
   }
 
@@ -179,7 +180,12 @@ export default function AuthForm() {
         return
       }
 
-      // Password already set during signUp; proceed to onboarding
+      // If this is a new account (we sent OTP with shouldCreateUser), set the password now
+      if (emailExists === false && password && password.length >= 8) {
+        const { error: pwdErr } = await supabase.auth.updateUser({ password })
+        if (pwdErr) { setError(pwdErr.message); return }
+      }
+
       setStep("onboarding")
     })
   }
@@ -187,8 +193,8 @@ export default function AuthForm() {
   async function handleResend() {
     resetMessages()
     startTransition(async () => {
-      // Re-send a fresh 6-digit OTP email
-      const { error: otpErr } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } })
+      // Re-send a fresh 6-digit OTP email (also creates account when not existing)
+      const { error: otpErr } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo, shouldCreateUser: true } })
       if (otpErr) setError(otpErr.message)
       else setInfo("تمت إعادة إرسال رمز التحقق إلى بريدك الإلكتروني.")
     })
