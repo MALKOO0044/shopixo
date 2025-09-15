@@ -137,7 +137,17 @@ export default function AuthForm() {
           setStep("verify_code")
           return
         }
-        setError(otpErr?.message || "تعذر إرسال رمز التحقق")
+        // Fallback: if OTP email fails (SMTP/deliverability), create user via signUp and send Confirm Signup email
+        const { error: suErr } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: redirectTo },
+        })
+        if (!suErr) {
+          setInfo(`تم إرسال رسالة تأكيد إلى ${email}. افتح بريدك واضغط "تأكيد البريد" لإكمال إنشاء الحساب.`)
+          return
+        }
+        setError(suErr?.message || otpErr?.message || "تعذر إرسال رمز التحقق")
         return
       }
 
@@ -157,7 +167,13 @@ export default function AuthForm() {
         setStep("verify_code")
         return
       }
-      setError(otpErr2?.message || "حصل خطأ غير متوقع")
+      // Last resort: try signUp to send Confirm Signup email
+      const { error: suErr2 } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo } })
+      if (!suErr2) {
+        setInfo(`تم إرسال رسالة تأكيد إلى ${email}. يرجى فتح البريد والضغط على "تأكيد البريد".`)
+        return
+      }
+      setError(suErr2?.message || otpErr2?.message || "حصل خطأ غير متوقع")
     })
   }
 
