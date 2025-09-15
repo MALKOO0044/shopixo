@@ -10,8 +10,8 @@ export const runtime = 'nodejs'
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
-  const nextParam = requestUrl.searchParams.get('next')
-  const safeNext = nextParam && /^\/(?!\/)/.test(nextParam) ? nextParam : '/'
+  const nextParam = requestUrl.searchParams.get('next') || requestUrl.searchParams.get('redirect') || '/'
+  const safeNext = typeof nextParam === 'string' && nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '/'
 
   if (code) {
     const supabase = createRouteHandlerClient({ cookies })
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     } catch {}
   }
 
-  // URL to redirect to after sign in process completes
-  return NextResponse.redirect(new URL(safeNext, requestUrl.origin))
+  // Prefer deep redirect if present
+  const target = safeNext === '/' ? requestUrl.origin : `${requestUrl.origin}${safeNext}`
+  return NextResponse.redirect(target)
 }
-
