@@ -116,6 +116,7 @@ export const FULL_CATEGORIES: FullCategory[] = [
       { slug: "plus-bottoms", label: "جينز وبناطيل", image: "https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?q=80&w=640&auto=format&fit=crop" },
       { slug: "plus-lingerie", label: "ملابس داخلية (شوز/مشدات)", image: "https://images.unsplash.com/photo-1585144723202-13838a1a4884?q=80&w=640&auto=format&fit=crop" },
       { slug: "plus-sleepwear", label: "ملابس نوم وبيجامات", image: "https://images.unsplash.com/photo-1617025121133-5c6c9a419a4e?q=80&w=640&auto=format&fit=crop" },
+      { slug: "plus-shoes", label: "أحذية ومقتنيات ملائمة", image: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=640&auto=format&fit=crop" },
     ],
   },
   {
@@ -127,6 +128,7 @@ export const FULL_CATEGORIES: FullCategory[] = [
       { slug: "kids-boys", label: "أولاد", image: "https://images.unsplash.com/photo-1605292356183-a77d0a9c9d1d?q=80&w=640&auto=format&fit=crop" },
       { slug: "kids-baby", label: "رضّع", image: "https://images.unsplash.com/photo-1525999147711-835474620964?q=80&w=640&auto=format&fit=crop" },
       { slug: "kids-toys", label: "ألعاب", image: "https://images.unsplash.com/photo-1550171509-552147343552?q=80&w=640&auto=format&fit=crop" },
+      { slug: "kids-party", label: "ملابس حفلات", image: "https://images.unsplash.com/photo-1515488041-412559573a43?q=80&w=640&auto=format&fit=crop" },
       { slug: "kids-school", label: "ملابس مدرسية", image: "https://images.unsplash.com/photo-1580582932707-520aed93a94d?q=80&w=640&auto=format&fit=crop" },
       { slug: "kids-0-24m", label: "0-24 شهر", image: "https://images.unsplash.com/photo-1604467795338-02d02ab2525b?q=80&w=640&auto=format&fit=crop" },
       { slug: "kids-2-6", label: "2-6 سنوات", image: "https://images.unsplash.com/photo-1566004100631-35d015d6a491?q=80&w=640&auto=format&fit=crop" },
