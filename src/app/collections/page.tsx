@@ -1,10 +1,10 @@
 import Link from "next/link"
-import { CATEGORIES } from "@/lib/categories"
+import { FULL_CATEGORIES } from "@/lib/categories"
 
 export const metadata = { title: "المجموعات", description: "استكشف مجموعاتنا" }
 
 export default function CollectionsPage() {
-  const groups = CATEGORIES
+  const groups = FULL_CATEGORIES
   return (
     <div className="container py-10">
       <h1 className="text-3xl font-bold">المجموعات</h1>
@@ -14,10 +14,19 @@ export default function CollectionsPage() {
           <Link
             key={c.slug}
             href={`/category/${c.slug}`}
-            className="relative rounded-[var(--radius-lg)] border bg-card px-4 py-3 text-center text-sm shadow-soft transition will-change-transform hover:-translate-y-[4px] hover:shadow-soft"
-            style={{ backgroundImage: "linear-gradient(90deg, hsl(var(--primary)) 0, hsl(var(--primary)) 6px, transparent 6px)", backgroundRepeat: 'no-repeat' } as any}
+            className="group overflow-hidden rounded-xl border bg-card shadow-soft transition hover:-translate-y-[2px] hover:shadow"
           >
-            {c.label}
+            <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={c.image || "/placeholder.svg"}
+                alt={c.label}
+                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
+            <div className="p-3 text-center text-sm font-medium">{c.label}</div>
           </Link>
         ))}
       </div>

@@ -62,28 +62,6 @@ export default async function HomePage() {
       <Hero />
       <ValueProps />
       <div className="container py-8">
-        {/* Featured Categories */}
-        {categories.length > 0 && (
-          <section className="mb-10">
-            <h2 className="mb-4 text-2xl font-bold">تسوّق حسب التصنيف</h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-              {categories.map((c) => {
-                const slug = c.slug;
-                return (
-                  <Link
-                    key={c.slug}
-                    href={`/category/${slug}`}
-                    className="relative rounded-[var(--radius-lg)] border bg-card px-4 py-3 text-center text-sm shadow-soft transition will-change-transform hover:-translate-y-[4px] hover:shadow-soft"
-                    style={{ backgroundImage: "linear-gradient(90deg, hsl(var(--primary)) 0, hsl(var(--primary)) 6px, transparent 6px)" as any, backgroundRepeat: 'no-repeat' }}
-                  >
-                    {c.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
         {/* Best Sellers / Featured */}
         <section className="mb-10">
           <h2 className="mb-4 text-2xl font-bold">الأكثر مبيعًا</h2>

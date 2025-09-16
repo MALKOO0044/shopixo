@@ -5,9 +5,8 @@ import SearchBar from "./search-bar";
 import CartBadge from "./cart-badge";
 import { Suspense } from "react";
 import { ThemeToggle } from "./theme-toggle";
-import SearchModal from "./search-modal";
 import { Button } from "@/components/ui/button";
-import { Menu } from "lucide-react";
+import CategoriesMenu from "@/components/categories-menu";
 
 // Trigger new deployment
 export default function Header() {
@@ -16,9 +15,11 @@ export default function Header() {
     <header className="sticky top-0 z-40 w-full border-b bg-background">
       <div className="container flex h-16 items-center overflow-hidden">
         {/* Left: Logo (desktop/tablet only) */}
-        <div className="hidden md:flex items-center">
+        <div className="hidden md:flex items-center gap-2">
           {/* Logo component already renders a Link to home */}
           <Logo />
+          {/* Desktop: open categories menu */}
+          <CategoriesMenu />
         </div>
 
         {/* Center: Search Bar (desktop/tablet) */}
@@ -51,9 +52,7 @@ export default function Header() {
           <div className="justify-self-end flex items-center gap-2">
             <CartBadge />
             <UserNav />
-            <Link href="/shop" aria-label="القوائم" className="inline-flex rounded-md border p-2 hover:bg-muted">
-              <Menu className="h-5 w-5" />
-            </Link>
+            <CategoriesMenu />
           </div>
         </div>
 
@@ -65,10 +64,7 @@ export default function Header() {
               تسوّق الآن
             </Button>
           </Link>
-          {/* Mobile: quick icons */}
-          <Link href="/collections" aria-label="القوائم" className="inline-flex md:hidden rounded-md border p-2 hover:bg-muted">
-            <Menu className="h-5 w-5" />
-          </Link>
+          {/* Mobile menu is handled inside the left group above via <CategoriesMenu /> */}
           <div className="hidden md:block">
             <ThemeToggle />
           </div>

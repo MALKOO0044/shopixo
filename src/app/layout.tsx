@@ -4,7 +4,6 @@ import { Inter, Playfair_Display } from "next/font/google";
 import Header from "@/components/header";
 import AnnouncementBar from "@/components/announcement-bar";
 import NavigationBar from "@/components/navigation-bar";
-import CategoriesBar from "@/components/categories-bar";
 import Footer from "@/components/footer";
 import CookieConsent from "@/components/cookie-consent";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -136,9 +135,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </Suspense>
             <Suspense fallback={null}>
               <NavigationBar />
-            </Suspense>
-            <Suspense fallback={null}>
-              <CategoriesBar />
             </Suspense>
             <Suspense fallback={null}>
               <main id="main-content" className="flex-1">{children}</main>
