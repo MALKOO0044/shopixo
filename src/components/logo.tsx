@@ -6,7 +6,7 @@ export default function Logo() {
   const brandUrl = process.env.NEXT_PUBLIC_BRAND_LOGO_URL;
   const src = brandUrl && typeof brandUrl === 'string' && brandUrl.trim().length > 0 ? brandUrl.trim() : "/favicon.svg";
   return (
-    <Link href="/" className="flex items-center gap-2 select-none">
+    <Link href="/" className="flex items-center gap-2 sm:gap-2 select-none min-w-0">
       {src.startsWith('/') ? (
         <Image
           src={src}
@@ -27,7 +27,7 @@ export default function Logo() {
           loading="eager"
         />
       )}
-      <span className="text-lg font-semibold tracking-tight">{name}</span>
+      <span className="hidden sm:inline text-lg font-semibold tracking-tight truncate">{name}</span>
     </Link>
   );
 }

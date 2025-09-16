@@ -87,7 +87,7 @@ export default function CategoriesBar() {
 
         <ul
           ref={scrollerRef}
-          className="flex gap-2 overflow-x-auto py-2 whitespace-nowrap scrollbar-hide pr-10 pl-10"
+          className="flex gap-2 overflow-x-auto overscroll-x-contain touch-pan-x scroll-smooth py-2 whitespace-nowrap scrollbar-hide pr-10 pl-10"
         >
           {CATEGORIES.map((c) => {
             const isActive = activeSlug === c.slug;

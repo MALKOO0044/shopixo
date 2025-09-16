@@ -44,14 +44,26 @@ export default function UserNav() {
   }, [hasSupabaseEnv]);
 
   if (!hasSupabaseEnv) {
+    // Compact UX on mobile, full buttons on md+
     return (
       <div className="flex items-center gap-2">
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/login">تسجيل الدخول</Link>
-        </Button>
-        <Button asChild variant="cta" size="sm">
-          <Link href="/sign-up">إنشاء حساب</Link>
-        </Button>
+        {/* Mobile: icon-only */}
+        <div className="md:hidden">
+          <Button asChild variant="ghost" size="icon" aria-label="تسجيل الدخول">
+            <Link href="/login">
+              <User className="h-5 w-5" />
+            </Link>
+          </Button>
+        </div>
+        {/* Desktop: text buttons */}
+        <div className="hidden md:flex items-center gap-2">
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/login">تسجيل الدخول</Link>
+          </Button>
+          <Button asChild variant="cta" size="sm">
+            <Link href="/sign-up">إنشاء حساب</Link>
+          </Button>
+        </div>
       </div>
     );
   }
@@ -104,14 +116,26 @@ export default function UserNav() {
     );
   }
 
+  // Logged out (Supabase active): compact on mobile, full buttons on md+
   return (
     <div className="flex items-center gap-2">
-      <Button asChild variant="ghost" size="sm">
-        <Link href="/login">تسجيل الدخول</Link>
-      </Button>
-      <Button asChild variant="cta" size="sm">
-        <Link href="/sign-up">إنشاء حساب</Link>
-      </Button>
+      {/* Mobile: icon-only */}
+      <div className="md:hidden">
+        <Button asChild variant="ghost" size="icon" aria-label="تسجيل الدخول">
+          <Link href="/login">
+            <User className="h-5 w-5" />
+          </Link>
+        </Button>
+      </div>
+      {/* Desktop: text buttons */}
+      <div className="hidden md:flex items-center gap-2">
+        <Button asChild variant="ghost" size="sm">
+          <Link href="/login">تسجيل الدخول</Link>
+        </Button>
+        <Button asChild variant="cta" size="sm">
+          <Link href="/sign-up">إنشاء حساب</Link>
+        </Button>
+      </div>
     </div>
   );
 }

@@ -27,8 +27,31 @@ export default async function AccountLayout({ children }: { children: ReactNode 
 
   return (
     <div className="container mx-auto py-8" dir="rtl">
+      {/* Mobile: compact header + horizontal chips nav */}
+      <div className="md:hidden space-y-3 mb-4">
+        <div className="rounded-lg border bg-white p-4">
+          <p className="text-sm text-gray-500">مسجّل الدخول باسم</p>
+          <p className="font-semibold truncate">{user.email}</p>
+        </div>
+        <nav className="overflow-x-auto whitespace-nowrap">
+          <ul className="flex items-center gap-2">
+            {navItems.map((item) => (
+              <li key={item.label}>
+                <Link
+                  className="inline-block rounded-full border px-3 py-1.5 text-sm text-foreground/80 hover:text-foreground bg-white"
+                  href={item.href}
+                >
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-        <aside className="md:col-span-3 bg-white rounded-lg border p-4 h-fit sticky top-6 text-right">
+        {/* Desktop/Tablet: sticky sidebar */}
+        <aside className="hidden md:block md:col-span-3 bg-white rounded-lg border p-4 h-fit sticky top-6 text-right">
           <div className="mb-6">
             <p className="text-sm text-gray-500">مسجّل الدخول باسم</p>
             <p className="font-semibold truncate">{user.email}</p>

@@ -37,7 +37,9 @@ export default function Header() {
           </Link>
           {/* Mobile search trigger */}
           <SearchModal />
-          <ThemeToggle />
+          <div className="hidden md:block">
+            <ThemeToggle />
+          </div>
           <UserNav />
           <CartBadge />
         </div>
