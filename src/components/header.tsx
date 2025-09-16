@@ -34,16 +34,17 @@ export default function Header() {
           <div className="justify-self-start min-w-0">
             <Link href="/" className="block truncate text-base font-semibold tracking-tight">{name}</Link>
           </div>
-          {/* Center: search icon */}
+          {/* Center: search pill (placeholder like Temu) */}
           <div className="justify-self-center">
             <Link
               href="/search"
               aria-label="ابحث عن المنتجات"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border text-muted-foreground hover:bg-muted"
+              className="inline-flex items-center flex-row-reverse gap-2 rounded-full bg-muted px-4 py-1.5 text-sm text-muted-foreground"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
                 <path fillRule="evenodd" d="M10 3.75a6.25 6.25 0 104.76 10.41l3.54 3.54a.75.75 0 101.06-1.06l-3.54-3.54A6.25 6.25 0 0010 3.75zm-4.75 6.25a4.75 4.75 0 119.5 0 4.75 4.75 0 01-9.5 0z" clipRule="evenodd" />
               </svg>
+              <span>ألعاب</span>
             </Link>
           </div>
           {/* Left (end in RTL): three icons — cart, user, menu */}
