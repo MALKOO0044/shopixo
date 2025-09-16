@@ -49,7 +49,7 @@ export default function UserNav() {
         <Button asChild variant="ghost" size="sm">
           <Link href="/login">تسجيل الدخول</Link>
         </Button>
-        <Button asChild variant="gradient" size="sm">
+        <Button asChild variant="cta" size="sm">
           <Link href="/sign-up">إنشاء حساب</Link>
         </Button>
       </div>
@@ -109,7 +109,7 @@ export default function UserNav() {
       <Button asChild variant="ghost" size="sm">
         <Link href="/login">تسجيل الدخول</Link>
       </Button>
-      <Button asChild variant="gradient" size="sm">
+      <Button asChild variant="cta" size="sm">
         <Link href="/sign-up">إنشاء حساب</Link>
       </Button>
     </div>
