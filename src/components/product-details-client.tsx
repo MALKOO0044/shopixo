@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { formatCurrency, cn } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 import AddToCart from "@/components/add-to-cart";
@@ -150,9 +150,51 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
   const items = media.length > 0 ? media : ["/placeholder.svg"];
   const [selected, setSelected] = useState(items[0]);
 
+  // Zoom overlay state
+  const [zoomOpen, setZoomOpen] = useState(false);
+  const [scale, setScale] = useState(1);
+  const [tx, setTx] = useState(0);
+  const [ty, setTy] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const dragStart = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
+
+  function openZoom() {
+    setScale(1); setTx(0); setTy(0); setZoomOpen(true);
+  }
+  function closeZoom() {
+    setZoomOpen(false);
+  }
+  function onWheel(e: React.WheelEvent) {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 0.1 : -0.1;
+    setScale((s) => Math.min(4, Math.max(1, +(s + delta).toFixed(2))));
+  }
+  function onPointerDown(e: React.PointerEvent) {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setDragging(true);
+    dragStart.current = { x: e.clientX, y: e.clientY, tx, ty };
+  }
+  function onPointerMove(e: React.PointerEvent) {
+    if (!dragging || !dragStart.current) return;
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    setTx(dragStart.current.tx + dx);
+    setTy(dragStart.current.ty + dy);
+  }
+  function onPointerUp(e: React.PointerEvent) {
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    setDragging(false);
+    dragStart.current = null;
+  }
+
   return (
     <div>
-      <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100">
+      <div
+        className="relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100"
+        onClick={() => !isLikelyVideoUrl(selected) && openZoom()}
+        role={!isLikelyVideoUrl(selected) ? 'button' : undefined}
+        aria-label={!isLikelyVideoUrl(selected) ? 'تكبير الصورة' : undefined}
+      >
         {isLikelyVideoUrl(selected) ? (
           <video
             className="h-full w-full object-cover"
@@ -168,7 +210,7 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
           <SmartImage
             src={transformImage(selected)}
             alt={`الصورة الرئيسية للمنتج ${title}`}
-            className="h-full w-full object-cover"
+            className="h-full w-full cursor-zoom-in object-cover"
             loading="eager"
             fill
             onError={(e: any) => {
@@ -221,6 +263,53 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
           </button>
         ))}
       </div>
+
+      {/* Zoom Overlay */}
+      {zoomOpen && !isLikelyVideoUrl(selected) && (
+        <div className="fixed inset-0 z-40" aria-modal="true" role="dialog">
+          <div className="absolute inset-0 bg-black/60" onClick={closeZoom} />
+          <div className="absolute inset-0 mx-auto flex max-w-5xl items-center justify-center p-4">
+            <div className="relative h-[80vh] w-full overflow-hidden rounded-lg bg-black">
+              <button
+                aria-label="إغلاق"
+                onClick={closeZoom}
+                className="absolute right-3 top-3 z-10 rounded-md bg-white/90 px-2 py-1 text-sm hover:bg-white"
+              >
+                إغلاق
+              </button>
+              <div className="absolute left-3 top-3 z-10 flex gap-2">
+                <button onClick={() => setScale((s) => Math.min(4, +(s + 0.2).toFixed(2)))} className="rounded-md bg-white/90 px-2 py-1 text-sm hover:bg-white">+</button>
+                <button onClick={() => setScale((s) => Math.max(1, +(s - 0.2).toFixed(2)))} className="rounded-md bg-white/90 px-2 py-1 text-sm hover:bg-white">-</button>
+                <button onClick={() => { setScale(1); setTx(0); setTy(0); }} className="rounded-md bg-white/90 px-2 py-1 text-sm hover:bg-white">إعادة الضبط</button>
+              </div>
+              <div
+                className="absolute inset-0 touch-pan-y"
+                onWheel={onWheel}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={transformImage(selected)}
+                  alt={`تكبير - ${title}`}
+                  className="pointer-events-none select-none"
+                  style={{
+                    transform: `translate(${tx}px, ${ty}px) scale(${scale})`,
+                    transformOrigin: 'center center',
+                    maxWidth: 'unset',
+                    maxHeight: 'unset',
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'contain',
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

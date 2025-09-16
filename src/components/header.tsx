@@ -6,6 +6,7 @@ import CartBadge from "./cart-badge";
 import { Suspense } from "react";
 import { ThemeToggle } from "./theme-toggle";
 import SearchModal from "./search-modal";
+import { Button } from "@/components/ui/button";
 
 // Trigger new deployment
 export default function Header() {
@@ -26,8 +27,14 @@ export default function Header() {
           </Suspense>
         </div>
 
-        {/* Right: Icons */}
-        <div className="flex items-center gap-4">
+        {/* Right: CTA + Icons */}
+        <div className="ml-auto flex items-center gap-4">
+          {/* Desktop CTA */}
+          <Link href="/shop" className="hidden md:inline-flex">
+            <Button variant="cta" size="default" aria-label="تسوّق الآن">
+              تسوّق الآن
+            </Button>
+          </Link>
           {/* Mobile search trigger */}
           <SearchModal />
           <ThemeToggle />

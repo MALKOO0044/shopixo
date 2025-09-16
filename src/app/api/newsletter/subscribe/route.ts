@@ -1,12 +1,17 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { z } from 'zod'
 import { createClient } from '@supabase/supabase-js'
 import { marketingLimiter, getClientIp } from '@/lib/ratelimit'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-const Body = z.object({ email: z.string().email() })
+function isEmail(s: unknown): s is string {
+  if (typeof s !== 'string') return false
+  const v = s.trim()
+  if (!v) return false
+  // Simple RFC-compliant-ish pattern
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
+}
 
 export async function POST(req: NextRequest) {
   // Rate limit
@@ -16,12 +21,10 @@ export async function POST(req: NextRequest) {
     if (!lim.success) return NextResponse.json({ ok: false, error: 'rate_limited' }, { status: 429 })
   } catch {}
 
-  let email: string
-  try {
-    const json = await req.json()
-    ;({ email } = Body.parse(json))
-  } catch {
-    return NextResponse.json({ ok: false, error: 'invalid_payload' }, { status: 400 })
+  const json = await req.json().catch(() => null) as any
+  const email = json?.email
+  if (!isEmail(email)) {
+    return NextResponse.json({ ok: false, error: 'invalid_email' }, { status: 400 })
   }
 
   // Try to persist to Supabase (server-side) if service key configured

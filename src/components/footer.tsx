@@ -31,22 +31,22 @@ function Badge({ children }: { children: React.ReactNode }) {
 
 export default function Footer() {
   return (
-    <footer className="mt-12 border-t bg-slate-950 text-slate-300">
+    <footer className="mt-12 border-t bg-[hsl(var(--secondary))] text-white">
       <div className="container py-10">
         {/* Top grid */}
         <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
           {/* About / Brand */}
           <div>
             <h3 className="mb-3 text-lg font-semibold">
-              <span className="text-blue-500">{storeName}</span>
+              <span className="text-[hsl(var(--primary))]">{storeName}</span>
             </h3>
-            <p className="mb-4 text-sm leading-6 text-slate-400">
+            <p className="mb-4 text-sm leading-6 text-white/80">
               متجر حديث يوفر منتجات مختارة بعناية وتجربة تسوق سهلة وآمنة.
             </p>
             <ul className="space-y-2 text-sm">
-              <li><Link className="hover:text-white" href="/about">من نحن</Link></li>
-              <li><Link className="hover:text-white" href="/contact">اتصل بنا</Link></li>
-              <li><Link className="hover:text-white" href="/blog">المدونة</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/about">من نحن</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/contact">اتصل بنا</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/blog">المدونة</Link></li>
             </ul>
           </div>
 
@@ -54,11 +54,11 @@ export default function Footer() {
           <div>
             <h3 className="mb-3 text-lg font-semibold text-white">المساعدة</h3>
             <ul className="space-y-2 text-sm">
-              <li><Link className="hover:text-white" href="/faq">الأسئلة الشائعة</Link></li>
-              <li><Link className="hover:text-white" href="/order-tracking">تتبع الطلب</Link></li>
-              <li><Link className="hover:text-white" href="/contact">مركز الدعم</Link></li>
-              <li><Link className="hover:text-white" href="/privacy-policy">سياسة الخصوصية</Link></li>
-              <li><Link className="hover:text-white" href="/terms">شروط الخدمة</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/faq">الأسئلة الشائعة</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/order-tracking">تتبع الطلب</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/contact">مركز الدعم</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/privacy-policy">سياسة الخصوصية</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/terms">شروط الخدمة</Link></li>
             </ul>
           </div>
 
@@ -66,9 +66,9 @@ export default function Footer() {
           <div>
             <h3 className="mb-3 text-lg font-semibold text-white">خدمة العملاء</h3>
             <ul className="space-y-2 text-sm">
-              <li className="flex items-center gap-2"><Phone size={16} className="text-blue-400" /><span>دعم سريع عبر البريد</span></li>
-              <li className="flex items-center gap-2"><Mail size={16} className="text-blue-400" /><a className="hover:text-white" href="mailto:support@shopixo.com">support@shopixo.com</a></li>
-              <li className="flex items-center gap-2"><MapPin size={16} className="text-blue-400" /><span>خدمة توصيل لمعظم المناطق</span></li>
+              <li className="flex items-center gap-2"><Phone size={16} className="text-[hsl(var(--primary))]" /><span>دعم سريع عبر البريد</span></li>
+              <li className="flex items-center gap-2"><Mail size={16} className="text-[hsl(var(--primary))]" /><a className="hover:text-[hsl(var(--primary))]" href="mailto:support@shopixo.com">support@shopixo.com</a></li>
+              <li className="flex items-center gap-2"><MapPin size={16} className="text-[hsl(var(--primary))]" /><span>خدمة توصيل لمعظم المناطق</span></li>
             </ul>
           </div>
 
@@ -90,18 +90,18 @@ export default function Footer() {
                 <span>Google Play</span>
               </a>
             </div>
-            <p className="mt-2 text-[11px] text-slate-500">قريبًا على متاجر التطبيقات</p>
+            <p className="mt-2 text-[11px] text-white/70">قريبًا على متاجر التطبيقات</p>
           </div>
         </div>
 
         {/* Divider */}
-        <div className="my-8 h-px w-full bg-white/10" />
+        <div className="my-8 h-px w-full bg-white/15" />
 
         {/* Socials */}
         {socials.length > 0 && (
           <div className="mb-6 flex flex-wrap items-center justify-center gap-4">
             {socials.map(({ name, href, Icon }) => (
-              <a key={name} href={href as string} aria-label={name} target="_blank" rel="noopener noreferrer" className="text-slate-300 transition hover:text-white">
+              <a key={name} href={href as string} aria-label={name} target="_blank" rel="noopener noreferrer" className="text-white/80 transition hover:text-white">
                 <Icon size={20} />
               </a>
             ))}
@@ -119,20 +119,20 @@ export default function Footer() {
           <Badge>Discover</Badge>
           <Badge>mada</Badge>
         </div>
-        <div className="mb-2 flex flex-wrap items-center justify-center gap-2 text-[12px] text-slate-400">
-          <span className="inline-flex items-center gap-1"><ShieldCheck size={14} className="text-blue-400" /> SSL Secure</span>
-          <span className="inline-flex items-center gap-1"><ShieldCheck size={14} className="text-blue-400" /> PCI DSS</span>
-          <span className="inline-flex items-center gap-1"><ShieldCheck size={14} className="text-blue-400" /> 3D Secure</span>
+        <div className="mb-2 flex flex-wrap items-center justify-center gap-2 text-[12px] text-white/80">
+          <span className="inline-flex items-center gap-1"><ShieldCheck size={14} className="text-[hsl(var(--primary))]" /> SSL Secure</span>
+          <span className="inline-flex items-center gap-1"><ShieldCheck size={14} className="text-[hsl(var(--primary))]" /> PCI DSS</span>
+          <span className="inline-flex items-center gap-1"><ShieldCheck size={14} className="text-[hsl(var(--primary))]" /> 3D Secure</span>
         </div>
 
         {/* Lower links */}
         <div className="mt-6 flex flex-wrap items-center justify-center gap-6 text-sm">
-          <Link href="/privacy-policy" className="text-slate-400 hover:text-white">سياسة الخصوصية</Link>
-          <Link href="/terms" className="text-slate-400 hover:text-white">شروط الاستخدام</Link>
-          <Link href="/contact" className="text-slate-400 hover:text-white">الدعم</Link>
+          <Link href="/privacy-policy" className="text-white/80 hover:text-white">سياسة الخصوصية</Link>
+          <Link href="/terms" className="text-white/80 hover:text-white">شروط الاستخدام</Link>
+          <Link href="/contact" className="text-white/80 hover:text-white">الدعم</Link>
         </div>
 
-        <p className="mt-4 text-center text-xs text-slate-500">© {new Date().getFullYear()} {storeName}. جميع الحقوق محفوظة.</p>
+        <p className="mt-4 text-center text-xs text-white/70">© {new Date().getFullYear()} {storeName}. جميع الحقوق محفوظة.</p>
       </div>
     </footer>
   );

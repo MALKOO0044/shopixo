@@ -5,6 +5,7 @@ import type { Product } from "@/lib/types";
 import Breadcrumbs from "@/components/breadcrumbs";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
+import FiltersPanel from "@/components/pro/FiltersPanel";
 
 export const metadata = { title: "المتجر", description: "تسوّق أحدث المنتجات والعروض" };
 export const revalidate = 60;
@@ -74,29 +75,7 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
       <Breadcrumbs items={[{ name: "الرئيسية", href: "/" }, { name: "المتجر" }]} />
       <h1 className="text-3xl font-bold">المتجر</h1>
       <p className="mt-2 text-slate-600">اكتشف مجموعتنا المختارة من المنتجات الرائجة.</p>
-      <div className="mt-4 flex flex-wrap items-center gap-3 text-sm" dir="rtl">
-        <span className="text-muted-foreground">ترتيب حسب:</span>
-        <div className="flex items-center gap-2">
-          <a className={`rounded-md border px-3 py-1 ${searchParams?.sort === 'price-asc' ? 'bg-accent text-accent-foreground' : ''}`} href={`?sort=price-asc`}>
-            السعر ↑
-          </a>
-          <a className={`rounded-md border px-3 py-1 ${searchParams?.sort === 'price-desc' ? 'bg-accent text-accent-foreground' : ''}`} href={`?sort=price-desc`}>
-            السعر ↓
-          </a>
-        </div>
-        {/* Price range */}
-        <form className="ml-auto flex items-center gap-2" method="get">
-          <label className="text-muted-foreground" htmlFor="min">السعر من</label>
-          <input id="min" name="min" inputMode="numeric" pattern="[0-9]*" defaultValue={searchParams?.min || ''} className="h-9 w-24 rounded-md border px-2" dir="ltr" />
-          <label className="text-muted-foreground" htmlFor="max">إلى</label>
-          <input id="max" name="max" inputMode="numeric" pattern="[0-9]*" defaultValue={searchParams?.max || ''} className="h-9 w-24 rounded-md border px-2" dir="ltr" />
-          {searchParams?.sort && <input type="hidden" name="sort" value={searchParams.sort} />}
-          <button className="rounded-[var(--radius-sm)] border px-3 py-1">تطبيق</button>
-          {(searchParams?.min || searchParams?.max) && (
-            <a className="text-primary underline" href={`?${searchParams?.sort ? `sort=${encodeURIComponent(searchParams.sort)}` : ''}`}>إزالة</a>
-          )}
-        </form>
-      </div>
+      <FiltersPanel basePath="/shop" sort={searchParams?.sort} min={searchParams?.min} max={searchParams?.max} />
       <div className="mt-8">
         {products && products.length > 0 ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">

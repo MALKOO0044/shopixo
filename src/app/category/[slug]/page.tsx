@@ -6,6 +6,7 @@ import ProductCard from "@/components/product-card";
 import Breadcrumbs from "@/components/breadcrumbs";
 import type { Product } from "@/lib/types";
 import { labelFromSlug } from "@/lib/categories";
+import FiltersPanel from "@/components/pro/FiltersPanel";
 
 // Helper function to format slug back to title
 function slugToTitle(slug: string) {
@@ -98,25 +99,7 @@ export default async function CategoryPage({ params, searchParams }: { params: {
         }}
       />
       <Breadcrumbs items={[{ name: "الرئيسية", href: "/" }, { name: categoryTitle }]} />
-      {/* Sort & Filters (basic) */}
-      <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
-        <span className="text-muted-foreground">ترتيب حسب:</span>
-        <div className="flex items-center gap-2">
-          <a className={`rounded-md border px-3 py-1 ${searchParams?.sort === 'price-asc' ? 'bg-accent text-accent-foreground' : ''}`} href={`?sort=price-asc`}>
-            السعر ↑
-          </a>
-          <a className={`rounded-md border px-3 py-1 ${searchParams?.sort === 'price-desc' ? 'bg-accent text-accent-foreground' : ''}`} href={`?sort=price-desc`}>
-            السعر ↓
-          </a>
-        </div>
-        {(searchParams?.min || searchParams?.max) && (
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-muted-foreground">المدى السعري:</span>
-            <span className="rounded-full bg-muted px-3 py-1">{searchParams?.min ?? 0} - {searchParams?.max ?? '∞'}</span>
-            <a className="text-primary underline" href={`?`}>إزالة</a>
-          </div>
-        )}
-      </div>
+      <FiltersPanel basePath={`/category/${params.slug}`} sort={searchParams?.sort} min={searchParams?.min} max={searchParams?.max} />
       <h1 className="mb-6 text-2xl font-bold text-foreground">{categoryTitle}</h1>
       {products && products.length > 0 ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">

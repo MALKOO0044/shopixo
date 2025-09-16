@@ -59,3 +59,6 @@ export const authLimiter = makeLimiter("rl:auth", 30, "60 s");
 
 // Marketing (newsletter): 20 req / min per IP
 export const marketingLimiter = makeLimiter("rl:marketing", 20, "60 s");
+
+// Contact form submissions: 10 req / 5 min per IP
+export const contactLimiter = makeLimiter("rl:contact", 10, "300 s");
