@@ -12,6 +12,16 @@ function isEmail(s: unknown): s is string {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (ch: string) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  } as Record<string, string>)[ch]!)
+}
+
 export async function POST(req: NextRequest) {
   try {
     const ip = getClientIp(req as unknown as Request)
@@ -52,7 +62,7 @@ export async function POST(req: NextRequest) {
           <p style="margin:0 0 6px"><strong>الاسم:</strong> ${name}</p>
           <p style="margin:0 0 6px"><strong>البريد:</strong> ${email}</p>
           <p style="margin:12px 0 6px"><strong>الرسالة:</strong></p>
-          <div style="white-space:pre-wrap">${(message || '').replace(/[<>]/g, c => ({'<':'&lt;','>':'&gt;'} as any)[c])}</div>
+          <div style="white-space:pre-wrap">${escapeHtml(message || '')}</div>
         </div>`
       await fetch('https://api.resend.com/emails', {
         method: 'POST',
