@@ -13,7 +13,7 @@ function useDebouncedValue<T>(value: T, delay = 300) {
   return debounced;
 }
 
-export default function SearchModal() {
+export default function SearchModal({ renderTrigger }: { renderTrigger?: (open: () => void) => React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -58,14 +58,18 @@ export default function SearchModal() {
 
   return (
     <>
-      {/* Trigger button (mobile-first) */}
-      <button
-        aria-label="Open search"
-        className="inline-flex items-center justify-center rounded-md border px-2 py-2 text-sm hover:bg-muted lg:hidden"
-        onClick={() => setOpen(true)}
-      >
-        <SearchIcon className="h-4 w-4" />
-      </button>
+      {/* Trigger */}
+      {renderTrigger ? (
+        <>{renderTrigger(() => setOpen(true))}</>
+      ) : (
+        <button
+          aria-label="Open search"
+          className="inline-flex items-center justify-center rounded-md border px-2 py-2 text-sm hover:bg-muted lg:hidden"
+          onClick={() => setOpen(true)}
+        >
+          <SearchIcon className="h-4 w-4" />
+        </button>
+      )}
 
       {open && (
         <div aria-modal="true" role="dialog" className="fixed inset-0 z-50">

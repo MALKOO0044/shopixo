@@ -7,6 +7,7 @@ import { Suspense } from "react";
 import { ThemeToggle } from "./theme-toggle";
 import SearchModal from "./search-modal";
 import { Button } from "@/components/ui/button";
+import { Menu } from "lucide-react";
 
 // Trigger new deployment
 export default function Header() {
@@ -35,13 +36,30 @@ export default function Header() {
               تسوّق الآن
             </Button>
           </Link>
-          {/* Mobile search trigger */}
-          <SearchModal />
+          {/* Mobile: quick icons */}
+          <Link href="/collections" aria-label="القوائم" className="inline-flex md:hidden rounded-md border p-2 hover:bg-muted">
+            <Menu className="h-5 w-5" />
+          </Link>
           <div className="hidden md:block">
             <ThemeToggle />
           </div>
           <UserNav />
           <CartBadge />
+        </div>
+      </div>
+      {/* Mobile search pill (full width, like Temu) */}
+      <div className="md:hidden border-b bg-background/95">
+        <div className="container py-2">
+          <Link
+            href="/search"
+            aria-label="ابحث عن المنتجات"
+            className="flex w-full items-center gap-2 rounded-full bg-muted px-4 py-2 text-sm text-muted-foreground"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
+              <path fillRule="evenodd" d="M10 3.75a6.25 6.25 0 104.76 10.41l3.54 3.54a.75.75 0 101.06-1.06l-3.54-3.54A6.25 6.25 0 0010 3.75zm-4.75 6.25a4.75 4.75 0 119.5 0 4.75 4.75 0 01-9.5 0z" clipRule="evenodd" />
+            </svg>
+            <span className="flex-1 text-right">ابحث في Shopixo</span>
+          </Link>
         </div>
       </div>
     </header>

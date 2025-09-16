@@ -31,6 +31,8 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   experimental: { typedRoutes: true },
+  // Increase SSG timeout for heavy concurrent renders in CI
+  staticPageGenerationTimeout: 180,
   eslint: {
     // Do not fail the production build if ESLint errors are present
     // We'll surface them in CI/local and treat them as warnings during deploys
