@@ -20,9 +20,12 @@ const buttonVariants = cva(
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
         gradient: "btn-gradient shadow-soft hover:shadow-soft hover:brightness-95 hover:scale-[1.02] transition-transform rounded-[var(--radius-btn)]",
+        // Brand variants
+        cta: "bg-[hsl(var(--primary))] text-white rounded-[var(--radius-btn)] hover:brightness-95 shadow-soft",
+        secondaryOutline: "border-2 border-[hsl(var(--secondary))] text-[hsl(var(--secondary))] rounded-[var(--radius-btn)] hover:bg-[hsl(var(--secondary))]/10",
       },
       size: {
-        default: "h-10 px-4 py-2",
+        default: "h-12 px-5 py-2.5", // 48px height per brief
         sm: "h-9 px-3",
         lg: "h-11 px-8",
         pill: "h-11 px-6 py-3 rounded-[var(--radius-btn)]",

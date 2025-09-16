@@ -12,8 +12,8 @@ function SubmitButton() {
       type="submit"
       className="w-full"
       disabled={pending}
-      variant="gradient"
-      size="pill"
+      variant="cta"
+      size="default"
       aria-label={pending ? "جارٍ المعالجة" : "تابع إتمام الشراء"}
     >
       {pending ? "جارٍ المعالجة..." : "تابع إتمام الشراء"}

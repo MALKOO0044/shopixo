@@ -10,7 +10,7 @@ export const metadata = { title: "المتجر", description: "تسوّق أحد
 export const revalidate = 60;
 export const dynamic = "force-dynamic";
 
-export default async function ShopPage({ searchParams }: { searchParams?: { sort?: string } }) {
+export default async function ShopPage({ searchParams }: { searchParams?: { sort?: string; min?: string; max?: string } }) {
   const supabase = getSupabaseAnonServer();
   // Detect admin once for rendering quick actions
   const supabaseAuth = createServerComponentClient({ cookies });
@@ -43,6 +43,10 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
     const sort = (searchParams?.sort || '').toLowerCase();
     if (sort === 'price-asc') query = query.order('price', { ascending: true });
     else if (sort === 'price-desc') query = query.order('price', { ascending: false });
+    const min = Number(searchParams?.min);
+    const max = Number(searchParams?.max);
+    if (!Number.isNaN(min)) query = query.gte('price', min);
+    if (!Number.isNaN(max)) query = query.lte('price', max);
     const { data, error: err } = await query;
     if (err && (String(err.message || "").includes("is_active") || err.code === "42703")) {
       const fallback = await supabase.from("products").select("*");
@@ -70,7 +74,7 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
       <Breadcrumbs items={[{ name: "الرئيسية", href: "/" }, { name: "المتجر" }]} />
       <h1 className="text-3xl font-bold">المتجر</h1>
       <p className="mt-2 text-slate-600">اكتشف مجموعتنا المختارة من المنتجات الرائجة.</p>
-      <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+      <div className="mt-4 flex flex-wrap items-center gap-3 text-sm" dir="rtl">
         <span className="text-muted-foreground">ترتيب حسب:</span>
         <div className="flex items-center gap-2">
           <a className={`rounded-md border px-3 py-1 ${searchParams?.sort === 'price-asc' ? 'bg-accent text-accent-foreground' : ''}`} href={`?sort=price-asc`}>
@@ -80,6 +84,18 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
             السعر ↓
           </a>
         </div>
+        {/* Price range */}
+        <form className="ml-auto flex items-center gap-2" method="get">
+          <label className="text-muted-foreground" htmlFor="min">السعر من</label>
+          <input id="min" name="min" inputMode="numeric" pattern="[0-9]*" defaultValue={searchParams?.min || ''} className="h-9 w-24 rounded-md border px-2" dir="ltr" />
+          <label className="text-muted-foreground" htmlFor="max">إلى</label>
+          <input id="max" name="max" inputMode="numeric" pattern="[0-9]*" defaultValue={searchParams?.max || ''} className="h-9 w-24 rounded-md border px-2" dir="ltr" />
+          {searchParams?.sort && <input type="hidden" name="sort" value={searchParams.sort} />}
+          <button className="rounded-[var(--radius-sm)] border px-3 py-1">تطبيق</button>
+          {(searchParams?.min || searchParams?.max) && (
+            <a className="text-primary underline" href={`?${searchParams?.sort ? `sort=${encodeURIComponent(searchParams.sort)}` : ''}`}>إزالة</a>
+          )}
+        </form>
       </div>
       <div className="mt-8">
         {products && products.length > 0 ? (

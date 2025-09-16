@@ -4,76 +4,69 @@
  
 @layer base {
   :root {
-    /* Soft-Rounded Variant Tokens (Light) */
-    /* Colors in HSL where used by Tailwind hsl(var(--token)); hex kept for gradients */
-    --bg: 210 100% 99%;            /* #FBFDFF */
-    --surface: 0 0% 100%;          /* #FFFFFF */
-    --text-primary: 222 42% 10%;   /* #0F1724 approx */
-    --text-secondary: 210 16% 42%; /* #5D6B7A approx */
-    --muted-foreground: 210 18% 70%; /* #A7B4C3 approx */
+    /* Shopixo Brand Tokens (Light) */
+    /* Colors (HSL) */
+    --bg: 0 0% 100%;                 /* #FFFFFF */
+    --surface: 0 0% 100%;            /* #FFFFFF */
+    --text-primary: 0 0% 7%;         /* #111111 */
+    --text-secondary: 0 0% 32%;      /* ~#525252 */
+    --muted-foreground: 0 0% 45%;    /* ~#737373 */
 
-    /* Accent gradient (for CTAs, badges, hero overlays) */
-    --accent-start-hex: #7DD3FC;   /* pastel cyan */
-    --accent-end-hex: #C084FC;     /* soft lavender */
-    /* Single accent color (fallback/links/rings) – use start tone */
-    --accent-hsl: 204 95% 74%;     /* approx of #7DD3FC */
-
-    --success-hsl: 149 68% 70%;    /* #7EE7A6 */
-    --error-hsl: 0 100% 85%;       /* #FFB6B6 */
-    --warning-hsl: 35 100% 82%;    /* #FFD8A8 */
+    /* Brand palette */
+    --brand-gold: 46 67% 47%;        /* #C9A227 */
+    --brand-navy: 219 65% 29%;       /* #1A3D7C */
+    --brand-error: 0 65% 50%;        /* #D32F2F */
+    --brand-success: 123 43% 39%;    /* #388E3C */
+    --bg-secondary: 0 0% 97%;        /* #F8F8F8 */
 
     /* Radii */
-    --radius-lg: 18px;  /* cards & large containers */
-    --radius-btn: 28px; /* pill buttons */
-    --radius-sm: 8px;   /* inputs, badges */
-    --radius-image: 12px; /* thumbnails */
-    /* Keep legacy mapping for Tailwind rounded-lg/md/sm */
+    --radius-lg: 16px;   /* cards */
+    --radius-btn: 12px;  /* buttons */
+    --radius-sm: 8px;    /* inputs */
+    --radius-image: 12px;
     --radius: var(--radius-lg);
 
     /* Shadows */
-    --shadow-soft: 0 10px 30px rgba(8, 15, 36, 0.06);
-    --shadow-hover: 0 18px 40px rgba(8, 15, 36, 0.08);
+    --shadow-soft: 0 8px 24px rgba(0,0,0,0.06);
+    --shadow-hover: 0 12px 28px rgba(0,0,0,0.08);
 
-    /* Tailwind theme mappings */
+    /* Tailwind color mappings */
     --background: var(--bg);
     --foreground: var(--text-primary);
     --card: var(--surface);
     --card-foreground: var(--text-primary);
     --popover: var(--surface);
     --popover-foreground: var(--text-primary);
-    --primary: var(--accent-hsl);
+    --primary: var(--brand-gold);
     --primary-foreground: 0 0% 100%;
-    --secondary: var(--warning-hsl);
-    --secondary-foreground: 222 42% 10%;
-    --muted: 210 40% 96%;
-    --accent: var(--accent-hsl);
-    --accent-foreground: 222 42% 10%;
-    --destructive: var(--error-hsl);
-    --destructive-foreground: 222 42% 10%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: var(--accent-hsl);
+    --secondary: var(--brand-navy);
+    --secondary-foreground: 0 0% 100%;
+    --muted: var(--bg-secondary);
+    --accent: var(--brand-gold);
+    --accent-foreground: 0 0% 100%;
+    --destructive: var(--brand-error);
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 87%;              /* #DDDDDD */
+    --input: 0 0% 87%;
+    --ring: var(--brand-gold);
   }
 
   .dark {
-    /* Soft-Rounded Variant Tokens (Dark) */
-    --bg: 219 69% 8%;             /* #071023 approx */
-    --surface: 217 54% 9%;        /* #0B1624 approx */
-    --text-primary: 204 100% 95%; /* #E6F4FF approx */
-    --text-secondary: 209 34% 72%;/* #9FB6CE approx */
-    --muted-foreground: 209 34% 72%;
+    /* Dark mode approximations */
+    --bg: 0 0% 7%;                  /* near black */
+    --surface: 0 0% 10%;
+    --text-primary: 0 0% 98%;
+    --text-secondary: 0 0% 75%;
+    --muted-foreground: 0 0% 60%;
 
-    /* Desaturate accent a bit in dark mode */
-    --accent-hsl: 204 88% 68%;
-    --accent-start-hex: #75C6F0;
-    --accent-end-hex: #B67BF0;
+    --brand-gold: 46 67% 45%;
+    --brand-navy: 219 65% 40%;
+    --brand-error: 0 70% 58%;
+    --brand-success: 123 45% 48%;
+    --bg-secondary: 0 0% 12%;
 
-    --success-hsl: 149 60% 66%;
-    --error-hsl: 0 92% 80%;
-    --warning-hsl: 35 92% 78%;
-
-    --shadow-soft: 0 8px 20px rgba(255,255,255,0.03);
-    --shadow-hover: 0 12px 28px rgba(255,255,255,0.05);
+    --shadow-soft: 0 8px 20px rgba(255,255,255,0.06);
+    --shadow-hover: 0 12px 28px rgba(255,255,255,0.08);
 
     --background: var(--bg);
     --foreground: var(--text-primary);
@@ -81,18 +74,18 @@
     --card-foreground: var(--text-primary);
     --popover: var(--surface);
     --popover-foreground: var(--text-primary);
-    --primary: var(--accent-hsl);
+    --primary: var(--brand-gold);
     --primary-foreground: 0 0% 100%;
-    --secondary: var(--warning-hsl);
-    --secondary-foreground: 222 42% 10%;
-    --muted: 217 33% 17%;
-    --accent: var(--accent-hsl);
-    --accent-foreground: 222 42% 10%;
-    --destructive: var(--error-hsl);
-    --destructive-foreground: 222 42% 10%;
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: var(--accent-hsl);
+    --secondary: var(--brand-navy);
+    --secondary-foreground: 0 0% 100%;
+    --muted: var(--bg-secondary);
+    --accent: var(--brand-gold);
+    --accent-foreground: 0 0% 100%;
+    --destructive: var(--brand-error);
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: var(--brand-gold);
   }
 }
 
@@ -103,16 +96,23 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-    font-size: 17px;
-    line-height: 26px;
+    font-size: 18px;   /* Body desktop */
+    line-height: 1.5;  /* 27px on 18px */
   }
   h1, h2, h3 {
-    font-family: Poppins, Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    font-family: var(--font-playfair), Playfair Display, serif;
     font-weight: 700;
+    line-height: 1.2;
   }
-  h1 { font-size: 40px; line-height: 48px; }
-  h2 { font-size: 30px; line-height: 36px; }
-  h3 { font-size: 24px; line-height: 30px; }
+  h1 { font-size: 40px; }
+  h2 { font-size: 32px; }
+  h3 { font-size: 24px; }
+  @media (max-width: 768px) {
+    body { font-size: 16px; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 24px; }
+    h3 { font-size: 20px; }
+  }
 }
 
 html, body { height: 100%; }

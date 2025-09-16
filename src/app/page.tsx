@@ -1,10 +1,12 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import TrustBadges from "@/components/trust-badges";
 import ProductCard from "@/components/product-card";
 import { getSupabaseAnonServer } from "@/lib/supabase-server";
 import type { Product } from "@/lib/types";
 import { CATEGORIES } from "@/lib/categories";
+import Hero from "@/components/pro/Hero";
+import ValueProps from "@/components/pro/ValueProps";
+import Newsletter from "@/components/pro/Newsletter";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
@@ -56,40 +58,49 @@ export default async function HomePage() {
   }
 
   return (
-    <main className="container py-6">
-      {/* Featured Categories */}
-      {categories.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-4 text-xl font-bold">تسوّق حسب التصنيف</h2>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-            {categories.map((c) => {
-              const slug = c.slug;
-              return (
-                <Link
-                  key={c.slug}
-                  href={`/category/${slug}`}
-                  className="relative rounded-[var(--radius-lg)] border bg-card px-4 py-3 text-center text-sm shadow-soft transition will-change-transform hover:-translate-y-[4px] hover:shadow-soft"
-                  style={{ backgroundImage: "linear-gradient(90deg, var(--accent-start-hex) 0, var(--accent-start-hex) 6px, transparent 6px)" as any, backgroundRepeat: 'no-repeat' }}
-                >
-                  {c.label}
-                </Link>
-              );
-            })}
-          </div>
-        </section>
-      )}
+    <main>
+      <Hero />
+      <ValueProps />
+      <div className="container py-8">
+        {/* Featured Categories */}
+        {categories.length > 0 && (
+          <section className="mb-10">
+            <h2 className="mb-4 text-2xl font-bold">تسوّق حسب التصنيف</h2>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+              {categories.map((c) => {
+                const slug = c.slug;
+                return (
+                  <Link
+                    key={c.slug}
+                    href={`/category/${slug}`}
+                    className="relative rounded-[var(--radius-lg)] border bg-card px-4 py-3 text-center text-sm shadow-soft transition will-change-transform hover:-translate-y-[4px] hover:shadow-soft"
+                    style={{ backgroundImage: "linear-gradient(90deg, hsl(var(--primary)) 0, hsl(var(--primary)) 6px, transparent 6px)" as any, backgroundRepeat: 'no-repeat' }}
+                  >
+                    {c.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
-      {(!products || products.length === 0) ? (
-        <div className="rounded-md border p-6 text-slate-600">
-          No products available yet. Visit <Link href="/admin/products/new" className="text-indigo-600 hover:underline">Admin → Add Product</Link> to create your first product.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {products.map((p) => (
-            <ProductCard key={p.id} product={p as Product} />
-          ))}
-        </div>
-      )}
+        {/* Best Sellers / Featured */}
+        <section className="mb-10">
+          <h2 className="mb-4 text-2xl font-bold">الأكثر مبيعًا</h2>
+          {(!products || products.length === 0) ? (
+            <div className="rounded-md border p-6 text-slate-600">
+              لا توجد منتجات بعد. انتقل إلى <Link href="/admin/products/new" className="text-indigo-600 hover:underline">إضافة منتج</Link> لإنشاء أول منتج.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {products.slice(0, 10).map((p) => (
+                <ProductCard key={p.id} product={p as Product} />
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+      <Newsletter />
     </main>
   );
 }

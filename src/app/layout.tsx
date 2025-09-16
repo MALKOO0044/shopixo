@@ -1,6 +1,6 @@
 import "@/app/globals.css";
 import type { Metadata } from "next";
-import { Inter, Poppins } from "next/font/google";
+import { Inter, Playfair_Display } from "next/font/google";
 import Header from "@/components/header";
 import AnnouncementBar from "@/components/announcement-bar";
 import NavigationBar from "@/components/navigation-bar";
@@ -14,7 +14,7 @@ import { getSiteUrl } from "@/lib/site";
 import Script from "next/script";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-const poppins = Poppins({ subsets: ["latin"], weight: ["400","600","700"], variable: "--font-poppins" });
+const playfair = Playfair_Display({ subsets: ["latin"], weight: ["400","600","700"], variable: "--font-playfair" });
 const rawSiteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ||
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
@@ -73,7 +73,7 @@ export const runtime = "nodejs";
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
-      <body className={`${inter.variable} ${poppins.variable} ${inter.className} min-h-screen flex flex-col`}>
+      <body className={`${inter.variable} ${playfair.variable} ${inter.className} min-h-screen flex flex-col`}>
         {/* Analytics: Plausible (loads only in production if domain is set) */}
         {(() => {
           try {
