@@ -16,16 +16,20 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     redirect("/login?next=/admin");
   }
 
-  // Optional: enforce role-based access via ADMIN_EMAILS (comma-separated)
-  // If ADMIN_EMAILS is defined, only those emails can access /admin
+  // Enforce role-based access via ADMIN_EMAILS (comma-separated)
+  // In production: if ADMIN_EMAILS is unset -> deny by default
+  // In development: allow when unset for DX
   const adminEmails = (process.env.ADMIN_EMAILS || "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
-  if (adminEmails.length > 0) {
-    const email = (user.email || "").toLowerCase();
+  const email = (user.email || "").toLowerCase();
+  if (adminEmails.length === 0) {
+    if (process.env.NODE_ENV === "production") {
+      redirect("/");
+    }
+  } else {
     if (!email || !adminEmails.includes(email)) {
-      // Not authorized for admin panel
       redirect("/");
     }
   }

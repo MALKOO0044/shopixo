@@ -27,7 +27,7 @@ export async function POST(req: Request) {
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean);
     const isAdmin = adminEmails.length === 0
-      ? true // if not configured, allow during dev; set ADMIN_EMAILS in production
+      ? process.env.NODE_ENV !== "production"
       : !!user.email && adminEmails.includes(user.email.toLowerCase());
     if (!isAdmin) {
       return NextResponse.json({ ok: false, message: "Forbidden" }, { status: 403 });

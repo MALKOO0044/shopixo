@@ -218,7 +218,12 @@ export default async function ProductPage({ params, searchParams }: { params: { 
         .split(",")
         .map((e) => e.trim().toLowerCase())
         .filter(Boolean);
-      isAdmin = list.length === 0 ? true : list.includes((user.email || "").toLowerCase());
+      if (list.length === 0) {
+        // Default deny in production when unset; allow in development for DX
+        isAdmin = process.env.NODE_ENV !== 'production';
+      } else {
+        isAdmin = list.includes((user.email || "").toLowerCase());
+      }
     }
   } catch {}
 

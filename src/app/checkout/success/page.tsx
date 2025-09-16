@@ -15,8 +15,8 @@ export default async function CheckoutSuccessPage({ searchParams }: { searchPara
   if (!sessionId) {
     return (
       <div className="container text-center py-12">
-        <h1 className="text-2xl font-bold text-red-600">Error</h1>
-        <p className="mt-2">No session ID provided.</p>
+        <h1 className="text-2xl font-bold text-red-600">خطأ</h1>
+        <p className="mt-2">لا يوجد معرف جلسة.</p>
       </div>
     );
   }
@@ -32,17 +32,17 @@ export default async function CheckoutSuccessPage({ searchParams }: { searchPara
 
     return (
       <div className="container text-center py-12">
-        <h1 className="text-3xl font-bold text-green-600">Payment Successful!</h1>
-        <p className="mt-4">Thank you for your order, {session.customer_details?.email}.</p>
-        <p className="mt-2">A confirmation has been sent to your email.</p>
-        <Link href="/" className="btn-primary mt-6 inline-block">Continue Shopping</Link>
+        <h1 className="text-3xl font-bold text-green-600">تم الدفع بنجاح!</h1>
+        <p className="mt-4">شكرًا لطلبك، {session.customer_details?.email}.</p>
+        <p className="mt-2">تم إرسال رسالة تأكيد إلى بريدك الإلكتروني.</p>
+        <Link href="/" className="btn-primary mt-6 inline-block">متابعة التسوق</Link>
       </div>
     );
   } catch (error) {
     return (
       <div className="container text-center py-12">
-        <h1 className="text-2xl font-bold text-red-600">Error</h1>
-        <p className="mt-2">Invalid session. Please try again.</p>
+        <h1 className="text-2xl font-bold text-red-600">خطأ</h1>
+        <p className="mt-2">الجلسة غير صالحة. يرجى المحاولة مرة أخرى.</p>
       </div>
     );
   }

@@ -1,3 +1,5 @@
+// DEPRECATED: This CommonJS config is retained only for compatibility with certain IDEs.
+// The authoritative Jest config is jest.config.mjs (ESM) and is used by package.json scripts.
 const nextJest = require('next/jest');
 
 const createJestConfig = nextJest({

@@ -18,7 +18,9 @@ export async function GET(req: Request) {
   }
   const admins = (process.env.ADMIN_EMAILS || '')
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-  const isAdmin = admins.length === 0 ? true : !!user.email && admins.includes(user.email.toLowerCase());
+  const isAdmin = admins.length === 0
+    ? (process.env.NODE_ENV !== 'production')
+    : (!!user.email && admins.includes((user.email || '').toLowerCase()));
   if (!isAdmin) {
     return new Response(JSON.stringify({ ok: false, message: 'Forbidden' }), { status: 403 });
   }

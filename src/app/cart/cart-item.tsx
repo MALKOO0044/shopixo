@@ -34,7 +34,7 @@ export default function CartItem({ item }: { item: CartItemType }) {
         <Link href={`/product/${product.slug}`} className="font-medium hover:underline">
           {product.title}
         </Link>
-        <div className="text-sm text-slate-600">{formatCurrency(product.price)} each</div>
+        <div className="text-sm text-slate-600">{formatCurrency(product.price)} للقطعة الواحدة</div>
         <div className="mt-2 flex items-center">
           <form action={updateAction}>
             <input type="hidden" name="itemId" value={item.id} />
@@ -51,7 +51,7 @@ export default function CartItem({ item }: { item: CartItemType }) {
       </div>
       <form action={removeAction}>
         <input type="hidden" name="itemId" value={item.id} />
-        <SubmitButton className="text-sm text-red-600 underline">Remove</SubmitButton>
+        <SubmitButton className="text-sm text-red-600 underline">إزالة</SubmitButton>
       </form>
     </div>
   );

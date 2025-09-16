@@ -132,8 +132,8 @@ async function requireAdmin() {
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
   if (adminEmails.length === 0) {
-    // No admin list configured: treat any authenticated user as allowed (dev fallback)
-    return { allowed: true as const };
+    // Default deny in production when unset; allow in development for DX
+    return { allowed: process.env.NODE_ENV !== "production" } as const;
   }
   const email = (user.email || "").toLowerCase();
   return { allowed: !!email && adminEmails.includes(email) } as const;

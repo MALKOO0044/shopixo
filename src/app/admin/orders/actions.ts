@@ -21,7 +21,10 @@ async function requireAdmin() {
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
-  if (adminEmails.length === 0) return { allowed: true as const };
+  if (adminEmails.length === 0) {
+    // Default deny in production when unset; allow in development for DX
+    return { allowed: process.env.NODE_ENV !== "production" } as const;
+  }
   const email = (user.email || "").toLowerCase();
   return { allowed: !!email && adminEmails.includes(email) } as const;
 }

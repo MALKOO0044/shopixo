@@ -1,9 +1,9 @@
-export const metadata = { title: "Checkout" };
+export const metadata = { title: "الدفع" };
 
 export default function CheckoutPage() {
   return (
     <div className="container py-10">
-      <h1 className="text-3xl font-bold">Checkout</h1>
+      <h1 className="text-3xl font-bold">الدفع</h1>
       <p className="mt-2 text-slate-600">لإتمام الدفع الآمن، انتقل إلى السلة واضغط على زر متابعة الدفع.</p>
       <div className="mt-6">
         <a href="/cart" className="btn-primary inline-block">الانتقال إلى السلة</a>

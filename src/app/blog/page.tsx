@@ -1,6 +1,6 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
-export const metadata = { title: "Blog" };
+export const metadata = { title: "المدونة" };
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 

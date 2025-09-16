@@ -21,7 +21,7 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
   const isPrivileged = !!user && (adminEmails.length === 0
-    ? true
+    ? (process.env.NODE_ENV !== "production")
     : adminEmails.includes((user.email || "").toLowerCase()));
   if (!supabase) {
     return (
