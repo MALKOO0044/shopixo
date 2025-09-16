@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Menu, X } from "lucide-react";
-import { FULL_CATEGORIES } from "@/lib/categories";
+import { FULL_CATEGORIES, type FullCategory, type FullCategoryChild } from "@/lib/categories";
 
 export default function CategoriesMenu() {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -29,7 +31,20 @@ export default function CategoriesMenu() {
     return () => document.removeEventListener("mousedown", onClick);
   }, [open]);
 
-  const activeCat = FULL_CATEGORIES[Math.min(active, FULL_CATEGORIES.length - 1)];
+  const normalized = (s: string) => (s || "").toLowerCase().trim();
+  const filteredCats: FullCategory[] = useMemo(() => {
+    if (!query) return FULL_CATEGORIES;
+    const q = normalized(query);
+    return FULL_CATEGORIES.map((c) => {
+      const children = (c.children || []).filter((ch) => normalized(ch.label).includes(q));
+      const matchSelf = normalized(c.label).includes(q);
+      if (matchSelf || children.length) return { ...c, children };
+      return null as any;
+    }).filter((x): x is FullCategory => Boolean(x));
+  }, [query]);
+
+  const safeActiveIndex = Math.min(active, Math.max(0, filteredCats.length - 1));
+  const activeCat = filteredCats[safeActiveIndex];
 
   return (
     <div className="relative" dir="rtl">
@@ -49,23 +64,34 @@ export default function CategoriesMenu() {
             ref={panelRef}
             className="absolute inset-x-0 top-0 mx-auto h-[88vh] w-full max-w-6xl overflow-hidden rounded-b-2xl border bg-background shadow-xl md:top-8 md:h-auto md:rounded-2xl"
           >
-            <div className="flex items-center justify-between border-b p-3 md:p-4">
-              <div className="text-base font-semibold">كل التصنيفات</div>
-              <button aria-label="إغلاق" className="rounded-md p-2 hover:bg-muted" onClick={() => setOpen(false)}>
+            <div className="flex items-center justify-between gap-3 border-b p-3 md:p-4">
+              <div className="flex-1">
+                <div className="text-base font-semibold mb-2">كل التصنيفات</div>
+                <label className="sr-only" htmlFor="cat-search">ابحث</label>
+                <input
+                  id="cat-search"
+                  value={query}
+                  onChange={(e) => { setQuery(e.target.value); setActive(0); }}
+                  placeholder="ابحث في التصنيفات..."
+                  className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                  dir="rtl"
+                />
+              </div>
+              <button aria-label="إغلاق" className="self-start rounded-md p-2 hover:bg-muted" onClick={() => setOpen(false)}>
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             {/* Desktop layout: left rail + right content */}
-            <div className="hidden md:grid max-h-[70vh] grid-cols-[220px_1fr] overflow-hidden">
+            <div className="hidden md:grid max-h-[70vh] grid-cols-[240px_1fr] overflow-hidden">
               <aside className="border-l overflow-auto p-3">
                 <ul className="space-y-1 text-sm">
-                  {FULL_CATEGORIES.map((c, idx) => (
+                  {filteredCats.map((c: FullCategory, idx) => (
                     <li key={c.slug}>
                       <button
-                        className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-right hover:bg-muted ${idx===active ? 'bg-muted font-medium' : ''}`}
+                        className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-right hover:bg-muted ${idx===safeActiveIndex ? 'bg-muted font-medium' : ''}`}
                         onClick={() => setActive(idx)}
-                        aria-current={idx===active}
+                        aria-current={idx===safeActiveIndex}
                       >
                         <span className="truncate">{c.label}</span>
                       </button>
@@ -83,7 +109,7 @@ export default function CategoriesMenu() {
                 {/* Children grid */}
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
                   {activeCat?.children?.length ? (
-                    activeCat.children.map((child) => (
+                    activeCat.children.map((child: FullCategoryChild) => (
                       <Link
                         key={child.slug}
                         href={`/search?q=${encodeURIComponent(child.label)}`}
@@ -91,13 +117,13 @@ export default function CategoriesMenu() {
                         onClick={() => setOpen(false)}
                       >
                         <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
+                          <Image
                             src={child.image || "/placeholder.svg"}
                             alt={child.label}
-                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-                            loading="lazy"
-                            decoding="async"
+                            fill
+                            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
+                            className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                            priority={false}
                           />
                         </div>
                         <div className="p-3 text-center text-sm font-medium">{child.label}</div>
@@ -113,7 +139,7 @@ export default function CategoriesMenu() {
             {/* Mobile layout: stacked cards + children chips */}
             <div className="block max-h-[calc(88vh-56px)] overflow-auto p-4 md:hidden">
               <div className="grid grid-cols-2 gap-3">
-                {FULL_CATEGORIES.map((c) => (
+                {filteredCats.map((c: FullCategory) => (
                   <div key={c.slug} className="overflow-hidden rounded-xl border bg-card shadow-soft">
                     <Link
                       href={`/category/${c.slug}`}
@@ -121,20 +147,20 @@ export default function CategoriesMenu() {
                       onClick={() => setOpen(false)}
                     >
                       <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
+                        <Image
                           src={c.image || "/placeholder.svg"}
                           alt={c.label}
-                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-                          loading="lazy"
-                          decoding="async"
+                          fill
+                          sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
+                          className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                          priority={false}
                         />
                       </div>
                       <div className="p-3 text-center text-sm font-medium">{c.label}</div>
                     </Link>
                     {c.children && c.children.length > 0 && (
                       <div className="-mt-2 flex overflow-x-auto gap-2 px-3 pb-3">
-                        {c.children.slice(0, 8).map((child) => (
+                        {c.children.slice(0, 8).map((child: FullCategoryChild) => (
                           <Link
                             key={child.slug}
                             href={`/search?q=${encodeURIComponent(child.label)}`}

@@ -1,4 +1,5 @@
 import Link from "next/link"
+import Image from "next/image"
 import { FULL_CATEGORIES } from "@/lib/categories"
 
 export const metadata = { title: "المجموعات", description: "استكشف مجموعاتنا" }
@@ -17,13 +18,13 @@ export default function CollectionsPage() {
             className="group overflow-hidden rounded-xl border bg-card shadow-soft transition hover:-translate-y-[2px] hover:shadow"
           >
             <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <Image
                 src={c.image || "/placeholder.svg"}
                 alt={c.label}
-                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-                loading="lazy"
-                decoding="async"
+                fill
+                sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 16vw"
+                className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                priority={false}
               />
             </div>
             <div className="p-3 text-center text-sm font-medium">{c.label}</div>
