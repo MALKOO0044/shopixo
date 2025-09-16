@@ -35,7 +35,7 @@ export default function FiltersPanel({
               السعر ↓
             </a>
           </div>
-          <div className="ms-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
             <label className="text-muted-foreground" htmlFor="min">السعر من</label>
             <input id="min" name="min" inputMode="numeric" pattern="[0-9]*" defaultValue={min || ''} className="h-9 w-24 rounded-md border px-2" dir="ltr" />
             <label className="text-muted-foreground" htmlFor="max">إلى</label>

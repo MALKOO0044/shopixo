@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { UploadCloud, Loader2 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseBrowser } from "@/lib/supabase";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { CATEGORIES, labelFromSlug, slugFromLabel } from "@/lib/categories";
 
@@ -53,6 +53,7 @@ function UploadImagesControl({
     if (!files || files.length === 0) return;
     setUploading(true);
     try {
+      const supabase = getSupabaseBrowser();
       // Prefer signed uploads via our server API for better security
       let signData: any = null;
       try {

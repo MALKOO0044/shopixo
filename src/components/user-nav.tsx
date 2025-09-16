@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import SignOutButton from "./sign-out-button";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseBrowser } from "@/lib/supabase";
 
 export default function UserNav() {
   const hasSupabaseEnv = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -22,6 +22,7 @@ export default function UserNav() {
   useEffect(() => {
     if (!hasSupabaseEnv) return;
     let mounted = true;
+    const supabase = getSupabaseBrowser();
     (async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
