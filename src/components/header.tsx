@@ -28,18 +28,18 @@ export default function Header() {
           </Suspense>
         </div>
 
-        {/* Mobile: exact layout — right brand text, center search icon, left 3 icons */}
-        <div className="grid w-full grid-cols-3 items-center gap-2 md:hidden">
+        {/* Mobile: exact layout — right brand text, center search pill, left 3 icons */}
+        <div className="grid w-full grid-cols-[auto_minmax(0,_1fr)_auto] items-center gap-2 md:hidden">
           {/* Right (start in RTL): brand text only */}
           <div className="justify-self-start min-w-0">
-            <Link href="/" className="block truncate text-xl md:text-2xl font-semibold tracking-tight">{name}</Link>
+            <Link href="/" className="block truncate text-2xl md:text-3xl leading-none font-semibold tracking-tight">{name}</Link>
           </div>
           {/* Center: search pill (placeholder like Temu) */}
-          <div className="justify-self-center">
+          <div className="justify-self-center w-full flex items-center justify-center">
             <Link
               href="/search"
               aria-label="ابحث عن المنتجات"
-              className="inline-flex items-center flex-row-reverse gap-2 rounded-full bg-muted px-6 py-2.5 text-[15px] text-muted-foreground"
+              className="inline-flex w-full items-center flex-row-reverse gap-2 rounded-full bg-muted px-8 py-3 text-[16px] text-muted-foreground"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
                 <path fillRule="evenodd" d="M10 3.75a6.25 6.25 0 104.76 10.41l3.54 3.54a.75.75 0 101.06-1.06l-3.54-3.54A6.25 6.25 0 0010 3.75zm-4.75 6.25a4.75 4.75 0 119.5 0 4.75 4.75 0 01-9.5 0z" clipRule="evenodd" />
