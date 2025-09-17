@@ -69,6 +69,7 @@ export const FULL_CATEGORIES: FullCategory[] = [
       { slug: "women-blouses", label: "بلوزات / بلايز", image: "https://images.unsplash.com/photo-1620799140408-edc6d5f9650d?q=80&w=640&auto=format&fit=crop" },
       { slug: "women-knitwear", label: "كنزات وبلوفرات", image: "https://images.unsplash.com/photo-1616258417201-3758611b84a6?q=80&w=640&auto=format&fit=crop" },
       { slug: "women-hoodies", label: "هوديز وسويتشيرت", image: "https://images.unsplash.com/photo-1556306535-0f694a20e24b?q=80&w=640&auto=format&fit=crop" },
+      { slug: "women-cardigans", label: "كارديغانات", image: "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?q=80&w=640&auto=format&fit=crop" },
       // Bottoms
       { slug: "women-jeans", label: "بناطيل جينز", image: "https://images.unsplash.com/photo-1604176354204-926873782855?q=80&w=640&auto=format&fit=crop" },
       { slug: "women-trousers", label: "بناطيل قماش / رسمية", image: "https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?q=80&w=640&auto=format&fit=crop" },
@@ -89,6 +90,14 @@ export const FULL_CATEGORIES: FullCategory[] = [
       { slug: "women-one-piece", label: "مايوه قطعة واحدة", image: "https://images.unsplash.com/photo-1620037922920-59b435639682?q=80&w=640&auto=format&fit=crop" },
       // Activewear
       { slug: "women-active-sets", label: "مجموعات رياضية", image: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?q=80&w=640&auto=format&fit=crop" },
+      // Modest & Abaya
+      { slug: "women-abaya", label: "عبايات", image: "https://images.unsplash.com/photo-1519741497674-611481863552?q=80&w=640&auto=format&fit=crop" },
+      { slug: "women-modest", label: "ملابس محتشمة", image: "https://images.unsplash.com/photo-1520975916090-3105956dac38?q=80&w=640&auto=format&fit=crop" },
+      // Footwear (Women)
+      { slug: "women-shoes-heels", label: "أحذية كعب", image: "https://images.unsplash.com/photo-1590099033615-75185a024716?q=80&w=640&auto=format&fit=crop" },
+      { slug: "women-shoes-boots", label: "بوتس نسائية", image: "https://images.unsplash.com/photo-1544025162-d76694265947?q=80&w=640&auto=format&fit=crop" },
+      { slug: "women-shoes-sandals", label: "صنادل نسائية", image: "https://images.unsplash.com/photo-1603487742131-412903b6e12b?q=80&w=640&auto=format&fit=crop" },
+      { slug: "women-shoes-flats", label: "أحذية مسطحة نسائية", image: "https://images.unsplash.com/photo-1525966222134-fcfa99b8ae77?q=80&w=640&auto=format&fit=crop" },
     ],
   },
   {
@@ -104,6 +113,14 @@ export const FULL_CATEGORIES: FullCategory[] = [
       { slug: "men-underwear-sleep", label: "ملابس داخلية وبيجامات", image: "https://images.unsplash.com/photo-1585733478923-86b54a282a54?q=80&w=640&auto=format&fit=crop" },
       { slug: "men-coords", label: "مجموعات/أطقم", image: "https://images.unsplash.com/photo-1515515932832-86f1e2331f80?q=80&w=640&auto=format&fit=crop" },
       { slug: "men-accessories", label: "إكسسوارات (أحزمة/قبعات/محافظ)", image: "https://images.unsplash.com/photo-1523170335258-f5ed11844a49?q=80&w=640&auto=format&fit=crop" },
+      // Specific bottoms & footwear (Men)
+      { slug: "men-jeans", label: "جينز رجالي", image: "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?q=80&w=640&auto=format&fit=crop" },
+      { slug: "men-shoes-sneakers", label: "أحذية رياضية رجالي", image: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=640&auto=format&fit=crop" },
+      { slug: "men-shoes-boots", label: "بوتس رجالي", image: "https://images.unsplash.com/photo-1544025162-d76694265947?q=80&w=640&auto=format&fit=crop" },
+      { slug: "men-shoes-formal", label: "أحذية رسمية رجالي", image: "https://images.unsplash.com/photo-1449505278894-297fdb3edbc1?q=80&w=640&auto=format&fit=crop" },
+      // Tops specifics
+      { slug: "men-shirts", label: "قمصان رجالية", image: "https://images.unsplash.com/photo-1552374196-c4e7ffc6e126?q=80&w=640&auto=format&fit=crop" },
+      { slug: "men-tshirts", label: "تيشيرتات رجالية", image: "https://images.unsplash.com/photo-1618354691373-d851c5c3a990?q=80&w=640&auto=format&fit=crop" },
     ],
   },
   {

@@ -1,4 +1,5 @@
 import { getSupabaseAnonServer } from "@/lib/supabase-server";
+import { labelFromSlug } from "@/lib/categories";
 import ProductCard from "@/components/product-card";
 import type { Product } from "@/lib/types";
 import { headers } from "next/headers";
@@ -20,7 +21,8 @@ export default async function SearchPage({
     (Array.isArray(v) ? v[0] : v) ?? "";
 
   const q = getFirst(searchParams?.q).toLowerCase();
-  const category = getFirst(searchParams?.category);
+  const rawCategory = getFirst(searchParams?.category);
+  const category = labelFromSlug(rawCategory) || rawCategory;
   const minPriceRaw = getFirst(searchParams?.minPrice);
   const maxPriceRaw = getFirst(searchParams?.maxPrice);
   const minRatingRaw = getFirst(searchParams?.minRating);

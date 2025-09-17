@@ -106,27 +106,27 @@ export default function CategoriesMenu() {
                     <Link href={`/category/${activeCat.slug}`} className="text-sm text-primary hover:underline" onClick={() => setOpen(false)}>عرض الكل</Link>
                   )}
                 </div>
-                {/* Children grid */}
-                <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
+                {/* Children grid: circular thumbnails like Shein */}
+                <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4">
                   {activeCat?.children?.length ? (
                     activeCat.children.map((child: FullCategoryChild) => (
                       <Link
                         key={child.slug}
-                        href={`/search?q=${encodeURIComponent(child.label)}`}
-                        className="group overflow-hidden rounded-xl border bg-card shadow-soft transition hover:-translate-y-[2px] hover:shadow"
+                        href={`/search?category=${encodeURIComponent(activeCat.slug)}&q=${encodeURIComponent(child.label)}`}
+                        className="group flex flex-col items-center gap-2 rounded-xl border bg-card p-3 text-center shadow-soft transition hover:-translate-y-[2px] hover:shadow"
                         onClick={() => setOpen(false)}
                       >
-                        <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted">
+                        <div className="relative aspect-square w-24 overflow-hidden rounded-full bg-muted ring-1 ring-muted-foreground/10 sm:w-28">
                           <Image
                             src={child.image || "/placeholder.svg"}
                             alt={child.label}
                             fill
-                            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
-                            className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                            sizes="(max-width: 768px) 6rem, (max-width: 1200px) 7rem, 7rem"
+                            className="object-cover"
                             priority={false}
                           />
                         </div>
-                        <div className="p-3 text-center text-sm font-medium">{child.label}</div>
+                        <div className="text-xs sm:text-sm font-medium leading-tight">{child.label}</div>
                       </Link>
                     ))
                   ) : (
@@ -159,15 +159,18 @@ export default function CategoriesMenu() {
                       <div className="p-3 text-center text-sm font-medium">{c.label}</div>
                     </Link>
                     {c.children && c.children.length > 0 && (
-                      <div className="-mt-2 flex overflow-x-auto gap-2 px-3 pb-3">
-                        {c.children.slice(0, 8).map((child: FullCategoryChild) => (
+                      <div className="-mt-2 flex overflow-x-auto gap-3 px-3 pb-3">
+                        {c.children.slice(0, 10).map((child: FullCategoryChild) => (
                           <Link
                             key={child.slug}
-                            href={`/search?q=${encodeURIComponent(child.label)}`}
-                            className="shrink-0 rounded-full border bg-muted px-3 py-1 text-xs text-muted-foreground hover:bg-muted/70"
+                            href={`/search?category=${encodeURIComponent(c.slug)}&q=${encodeURIComponent(child.label)}`}
+                            className="shrink-0 flex flex-col items-center gap-1"
                             onClick={() => setOpen(false)}
                           >
-                            {child.label}
+                            <div className="relative h-16 w-16 overflow-hidden rounded-full bg-muted ring-1 ring-muted-foreground/10">
+                              <Image src={child.image || "/placeholder.svg"} alt={child.label} fill className="object-cover" />
+                            </div>
+                            <span className="text-[11px] leading-tight">{child.label}</span>
                           </Link>
                         ))}
                       </div>
