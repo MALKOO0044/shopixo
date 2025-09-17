@@ -206,21 +206,21 @@ function dataUriFromLabel(label: string) {
 }
 
 function buildSrcQueue(parentSlug: string, child: FullCategoryChild): string[] {
-  const queue: string[] = [];
-  // 1) exact child.image if absolute or relative
-  if (child.image) queue.push(child.image);
-  // 2) Cloudinary convention
+  const set = new Set<string>();
+  // 1) Prefer Cloudinary convention first (client can upload any time)
   const c = getCloudinaryUrl(parentSlug, child.slug);
-  if (c) queue.push(c);
+  if (c) set.add(c);
+  // 2) Then curated child.image (Unsplash or provided URL)
+  if (child.image) set.add(child.image);
   // 3) Local convention under public/categories
-  queue.push(`/categories/${parentSlug}/${child.slug}.jpg`);
-  queue.push(`/categories/${parentSlug}/${child.slug}.png`);
+  set.add(`/categories/${parentSlug}/${child.slug}.jpg`);
+  set.add(`/categories/${parentSlug}/${child.slug}.png`);
   // 4) Generic child slug at root
-  queue.push(`/categories/${child.slug}.jpg`);
-  queue.push(`/categories/${child.slug}.png`);
+  set.add(`/categories/${child.slug}.jpg`);
+  set.add(`/categories/${child.slug}.png`);
   // 5) Fallback placeholder (will be replaced by data URI on final error)
-  queue.push(`/placeholder.svg`);
-  return queue;
+  set.add(`/placeholder.svg`);
+  return Array.from(set);
 }
 
 function CategoryThumb({ parentSlug, child }: { parentSlug: string; child: FullCategoryChild }) {
