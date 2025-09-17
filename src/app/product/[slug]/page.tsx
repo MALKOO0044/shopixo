@@ -45,6 +45,7 @@ import type { Metadata } from 'next'
 import { getSiteUrl } from "@/lib/site";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
+import { headers } from "next/headers";
 
 export const revalidate = 60; // fresher PDP data every minute
 export const dynamic = "force-dynamic"; // render per-request to include session-based admin controls
@@ -127,6 +128,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 
 // --- Main Product Page Component (Server Component) ---
 export default async function ProductPage({ params, searchParams }: { params: { slug: string }, searchParams?: { debugMedia?: string } }) {
+  const nonce = headers().get('x-csp-nonce') || undefined;
   const supabase = getSupabaseAnonServer();
   if (!supabase) {
     return (
@@ -245,6 +247,7 @@ export default async function ProductPage({ params, searchParams }: { params: { 
       )}
       {/* Structured Data: Product + BreadcrumbList */}
       <script
+        nonce={nonce}
         type="application/ld+json"
         dangerouslySetInnerHTML={{
           __html: JSON.stringify({
@@ -272,6 +275,7 @@ export default async function ProductPage({ params, searchParams }: { params: { 
         }}
       />
       <script
+        nonce={nonce}
         type="application/ld+json"
         dangerouslySetInnerHTML={{
           __html: JSON.stringify({

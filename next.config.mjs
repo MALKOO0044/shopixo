@@ -9,13 +9,8 @@ try {
 } catch (_) {
   // No-op: Sentry not installed; continue without it.
 }
+// CSP is set via middleware with a per-request nonce. Keep other headers here.
 const securityHeaders = [
-  {
-    key: 'Content-Security-Policy',
-    // Removed 'unsafe-eval'. Kept 'unsafe-inline' in script-src to allow JSON-LD and Next runtime inline scripts.
-    // Consider migrating to nonces/hashes in the future for stricter CSP.
-    value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://*.stripe.com https://m.stripe.network https://plausible.io; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.supabase.in wss://*.supabase.in https://*.stripe.com https://m.stripe.network https://api.cloudinary.com https://plausible.io https://events.plausible.io https://*.sentry.io; frame-src https://*.stripe.com; object-src 'none'; base-uri 'self'; form-action 'self' https://hooks.stripe.com; frame-ancestors 'none';".replace(/\s{2,}/g, ' ').trim(),
-  },
   { key: 'Referrer-Policy', value: 'origin-when-cross-origin' },
   { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },

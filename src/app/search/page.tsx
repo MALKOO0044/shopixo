@@ -1,6 +1,7 @@
 import { getSupabaseAnonServer } from "@/lib/supabase-server";
 import ProductCard from "@/components/product-card";
 import type { Product } from "@/lib/types";
+import { headers } from "next/headers";
 
 export const metadata = { title: "البحث" };
 
@@ -14,6 +15,7 @@ export default async function SearchPage({
 }: {
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
+  const nonce = headers().get('x-csp-nonce') || undefined;
   const getFirst = (v: string | string[] | undefined) =>
     (Array.isArray(v) ? v[0] : v) ?? "";
 
@@ -83,6 +85,7 @@ export default async function SearchPage({
   return (
     <div className="container py-10">
       <script
+        nonce={nonce}
         type="application/ld+json"
         dangerouslySetInnerHTML={{
           __html: JSON.stringify({

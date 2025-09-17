@@ -7,6 +7,7 @@ import Breadcrumbs from "@/components/breadcrumbs";
 import type { Product } from "@/lib/types";
 import { labelFromSlug } from "@/lib/categories";
 import FiltersPanel from "@/components/pro/FiltersPanel";
+import { headers } from "next/headers";
 
 // Helper function to format slug back to title
 function slugToTitle(slug: string) {
@@ -36,6 +37,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 }
 
 export default async function CategoryPage({ params, searchParams }: { params: { slug: string }, searchParams?: { sort?: string; min?: string; max?: string } }) {
+  const nonce = headers().get('x-csp-nonce') || undefined;
   const supabase = getSupabaseAnonServer();
   const categoryTitle = labelFromSlug(params.slug) || slugToTitle(params.slug);
   const englishFallback = slugToTitle(params.slug); // handles old data saved in English labels
@@ -86,6 +88,7 @@ export default async function CategoryPage({ params, searchParams }: { params: {
     <main className="container py-6">
       {/* Breadcrumb JSON-LD */}
       <script
+        nonce={nonce}
         type="application/ld+json"
         dangerouslySetInnerHTML={{
           __html: JSON.stringify({

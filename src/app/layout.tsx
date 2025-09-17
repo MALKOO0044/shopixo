@@ -11,6 +11,7 @@ import { Suspense } from "react";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { getSiteUrl } from "@/lib/site";
 import Script from "next/script";
+import { headers } from "next/headers";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const playfair = Playfair_Display({ subsets: ["latin"], weight: ["400","600","700"], variable: "--font-playfair" });
@@ -70,6 +71,7 @@ export const viewport = {
 export const runtime = "nodejs";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const nonce = headers().get('x-csp-nonce') || undefined;
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
       <body className={`${inter.variable} ${playfair.variable} ${inter.className} min-h-screen flex flex-col`}>
@@ -83,6 +85,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 src="https://plausible.io/js/script.js"
                 strategy="afterInteractive"
                 data-domain={analyticsDomain as any}
+                nonce={nonce as any}
               />
             );
           } catch {
@@ -97,6 +100,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <AnnouncementBar />
             {/* Site-wide Structured Data: Organization + WebSite with SearchAction */}
             <script
+              nonce={nonce}
               type="application/ld+json"
               dangerouslySetInnerHTML={{
                 __html: JSON.stringify({
