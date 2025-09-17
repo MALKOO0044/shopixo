@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "test": "jest --config jest.config.mjs",
-    "icons:generate": "node scripts/brand-kit/generate-icons.mjs"
+    "icons:generate": "node scripts/brand-kit/generate-icons.mjs",
+    "cats:check": "node scripts/categories/check-missing-images.mjs",
+    "cats:download": "node scripts/categories/download-images.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dropdown-menu": "^2.1.16",

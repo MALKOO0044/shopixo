@@ -62,7 +62,7 @@ export default function CategoriesMenu() {
           <div className="absolute inset-0 bg-black/40" />
           <div
             ref={panelRef}
-            className="absolute inset-x-0 top-0 mx-auto h-[88vh] w-full max-w-6xl overflow-hidden rounded-b-2xl border bg-background shadow-xl md:top-8 md:h-auto md:rounded-2xl overscroll-contain"
+            className="absolute inset-x-0 top-0 mx-auto h-[88vh] w-full max-w-6xl overflow-hidden rounded-b-2xl border bg-background shadow-xl md:top-8 md:h-[80vh] md:rounded-2xl overscroll-contain flex flex-col touch-pan-y"
           >
             <div className="flex items-center justify-between gap-3 border-b p-3 md:p-4">
               <div className="flex-1">
@@ -83,7 +83,7 @@ export default function CategoriesMenu() {
             </div>
 
             {/* Desktop layout: left rail + right content */}
-            <div className="hidden md:grid max-h-[70vh] grid-cols-[240px_1fr] overflow-hidden min-h-0">
+            <div className="hidden md:grid flex-1 min-h-0 grid-cols-[240px_1fr] overflow-hidden">
               <aside className="border-l overflow-auto p-3 min-h-0">
                 <ul className="space-y-1 text-sm">
                   {filteredCats.map((c: FullCategory, idx) => (
