@@ -180,11 +180,11 @@ export default function CategoriesMenu() {
 }
 
 // --- Helpers ---
-function getCloudinaryUrl(parentSlug: string, childSlug: string) {
-  const cloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+function getCloudinaryUrl(parentSlug: string, childSlug: string, ext: 'jpg' | 'png' = 'jpg') {
+  const cloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dkwh8kbgr';
   if (!cloud) return null;
   // Ex: categories/women/women-jeans.jpg
-  const path = `categories/${parentSlug}/${childSlug}.jpg`;
+  const path = `categories/${parentSlug}/${childSlug}.${ext}`;
   return `https://res.cloudinary.com/${cloud}/image/upload/f_auto,q_auto,c_fill,g_auto,w_560,h_560/${path}`;
 }
 
@@ -207,11 +207,13 @@ function dataUriFromLabel(label: string) {
 
 function buildSrcQueue(parentSlug: string, child: FullCategoryChild): string[] {
   const set = new Set<string>();
-  // 1) Prefer Cloudinary convention first (client can upload any time)
-  const c = getCloudinaryUrl(parentSlug, child.slug);
-  if (c) set.add(c);
-  // 2) Then curated child.image (Unsplash or provided URL)
+  // 1) Always use client's provided image first if present
   if (child.image) set.add(child.image);
+  // 2) Then Cloudinary convention (client can upload any time)
+  const cj = getCloudinaryUrl(parentSlug, child.slug, 'jpg');
+  const cp = getCloudinaryUrl(parentSlug, child.slug, 'png');
+  if (cj) set.add(cj);
+  if (cp) set.add(cp);
   // 3) Local convention under public/categories
   set.add(`/categories/${parentSlug}/${child.slug}.jpg`);
   set.add(`/categories/${parentSlug}/${child.slug}.png`);
