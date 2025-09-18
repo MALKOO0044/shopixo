@@ -10,6 +10,7 @@ export const CATEGORIES: CategoryDef[] = [
   { slug: "men", label: "الملابس الرجالية" },
   { slug: "underwear-sleepwear", label: "ملابس داخلية، وملابس نوم" },
   { slug: "home-kitchen", label: "المنزل والمطبخ" },
+  { slug: "furniture", label: "الأثاث" },
   { slug: "shoes", label: "أحذية" },
   { slug: "health-beauty", label: "الصحة و الجمال" },
   { slug: "baby-maternity", label: "الأطفال والأمومة" },
@@ -410,6 +411,20 @@ export const FULL_CATEGORIES: FullCategory[] = [
       { slug: "fans-ac-heaters", label: "المراوح والمكيفات والدفايات", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758138643/photo-1601084195907-44baaa49dabd_y6z8xi.avif" },
       { slug: "air-quality", label: "جودة الهواء", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758138680/photo-1552847357-969b1fe01e97_xdqqhd.avif" },
       { slug: "kids-home-storage", label: "منتجات تخزين منزلية للأطفال", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758138765/premium_photo-1685276206600-125206420879_jkyoj2.avif" },
+    ],
+  },
+  {
+    slug: "furniture",
+    label: "الأثاث",
+    image: "https://images.unsplash.com/photo-1505692794403-34f34a3eb48e?q=80&w=640&auto=format&fit=crop",
+    children: [
+      { slug: "living-room-furniture", label: "أثاث غرفة المعيشة", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758216107/photo-1750639258774-9a714379a093_q3lc3t.avif" },
+      { slug: "patio-furniture", label: "أثاث الفناء", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758216116/photo-1754399005619-fc8e19e32443_b5fhcn.avif" },
+      { slug: "bedroom-furniture", label: "أثاث غرف النوم", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758216132/photo-1737467026661-31b5a87098fe_ihmtrg.avif" },
+      { slug: "kitchen-dining-furniture", label: "أثاث المطبخ وغرفة الطعام", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758216140/photo-1752254873481-6b6095601f38_optsa4.avif" },
+      { slug: "home-office-furniture", label: "أثاث المكاتب المنزلية", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758216362/photo-1632119289059-793dd347950f_bg2puf.avif" },
+      { slug: "bathroom-furniture", label: "أثاث الحمام", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758216155/premium_photo-1674758182838-226584707569_pfowqf.avif" },
+      { slug: "kids-baby-furniture", label: "أثاث الأطفال والرضع", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758216163/photo-1705042086793-e89c28b2e2f6_j2dzmj.avif" },
     ],
   },
   {
