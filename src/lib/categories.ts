@@ -243,7 +243,7 @@ export const FULL_CATEGORIES: FullCategory[] = [
       // Men
       { slug: "men-watches", label: "ساعات رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758191147/photo-1509941943102-10c232535736_kgkoig.avif" },
       { slug: "men-jewelry", label: "مجوهرات الرجال", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758191176/photo-1560186453-f83aa3c1cde4_hgr5ej.avif" },
-      { slug: "men-hats-headwear", label: "أغطية رأس وقبعات رجالي" },
+      { slug: "men-hats-headwear", label: "أغطية رأس وقبعات رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758202998/photo-1611583041077-ea1668688c47_qg4ogh.avif" },
       { slug: "men-sunglasses", label: "نظارات رجالية", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758191350/photo-1611578623900-1372f19a6186_f5yqx1.avif" },
       { slug: "men-belts", label: "أحزمة رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758191409/photo-1667284152823-0b07a791fb79_jdpwyl.avif" },
       { slug: "men-keychains-charms", label: "سلاسل المفاتيح والتعليقات الرجالية", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758191537/photo-1579565426003-f83d6036c8f9_mnaalb.avif" },
