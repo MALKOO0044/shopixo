@@ -148,6 +148,12 @@ export const FULL_CATEGORIES: FullCategory[] = [
       { slug: "men-plus-sweaters", label: "سترات رجالي بمقاس كبير", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758151802/photo-1579592610812-49855d94db0d_wgup5n.avif" },
       { slug: "men-plus-cargo-pants", label: "بنطال كارجو رجالي بمقاس كبير", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758151880/photo-1661110546807-4c1ce22ceced_chot5f.avif" },
       { slug: "men-plus-swimwear", label: "بدلة سباحة رجالي بمقاس كبير", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758152195/photo-1636016223841-e10d7a401ee4_nikk75.avif" },
+      { slug: "men-underwear", label: "ملابس داخلية رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758188100/cn50714147_p2u7y5.avif" },
+      { slug: "men-socks", label: "جوارب رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758188150/photo-1613151848917-80e67f421fff_jdoxwn.avif" },
+      { slug: "men-loungewear", label: "ملابس منزلية رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758188445/premium_photo-1708275668360-cd29b1f5b67d_smxvrz.avif" },
+      { slug: "men-shapewear", label: "ملابس تحديد الجسم رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758188490/photo-1582388734399-b929a2f0e114_p8mtmp.avif" },
+      { slug: "men-thermal-underwear", label: "ملابس داخلية حرارية", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758188675/OIP_rozsz6.webp" },
+      { slug: "men-novelty-wear", label: "ملابس غريبة رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758188736/photo-1729719762110-6ad6e60f4dbd_jkop2h.avif" },
     ],
   },
   {
