@@ -33,6 +33,7 @@ export const CATEGORIES: CategoryDef[] = [
   { slug: "kids-shoes", label: "أحذية الأطفال" },
   { slug: "mens-shoes", label: "رجالية" },
   { slug: "business-industry-science", label: "الأعمال والصناعة والعلوم" },
+  { slug: "arts-crafts-sewing", label: "الفنون والحرف اليدوية والخياطة" },
 ];
 
 export function labelFromSlug(slug: string): string |
@@ -531,6 +532,25 @@ export const FULL_CATEGORIES: FullCategory[] = [
       { slug: "gps-trackers-accessories", label: "أنظمة تحديد المواقع (GPS) وأجهزة التتبع وملحقاتها", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758236651/photo-1691318043266-4c673ed13b8f_isqfqv.avif" },
       { slug: "laptop-tablet-stickers", label: "ملصقات للابتوب والتابلت" },
       { slug: "usb-tools", label: "أدوات USB", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758236573/photo-1720048170512-d5d4fb0fff88_tnb36o.avif" },
+    ],
+  },
+  {
+    slug: "arts-crafts-sewing",
+    label: "الفنون والحرف اليدوية والخياطة",
+    image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758237674/photo-1749573642956-e894c165f55b_mtyjeu.avif",
+    children: [
+      { slug: "crafts", label: "الحرف", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758237674/photo-1749573642956-e894c165f55b_mtyjeu.avif" },
+      { slug: "sewing", label: "الخياطة", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758237683/premium_photo-1664195857591-968c2a9f2c03_vxjage.avif" },
+      { slug: "coloring-drawing-art-supplies", label: "لوازم التلوين والرسم والفن", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758237696/photo-1753200468785-eecdd7f6014c_cspn6j.avif" },
+      { slug: "decor-jewelry-making", label: "الديكور وصناعة المجوهرات", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758237703/premium_photo-1723575629992-b22e8782e7c9_iuityq.avif" },
+      { slug: "jewelry-forming-supplies", label: "مستلزمات تشكيل المجوهرات", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758237717/photo-1526388962-91cb484efdc7_egdq3t.avif" },
+      { slug: "cutting-engraving", label: "القطع والنقش", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758237898/premium_photo-1663045914445-6372b893e230_w6omwf.avif" },
+      { slug: "yarn", label: "خيوط الغزل", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758238015/photo-1700170726155-fe844921b8b3_jtspgz.avif" },
+      { slug: "model-building-hobbies", label: "بناء النماذج وتنمية الهوايات", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758238022/premium_photo-1705717314175-948a60cf6966_mug7wx.avif" },
+      { slug: "fabric", label: "قماش", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758238332/istockphoto-2168005603-612x612_eikvct.webp" },
+      { slug: "knitting-crochet-tools", label: "أدوات الحياكة والكروشيه", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758238050/photo-1745095034955-1019067b7ce4_vcef3o.avif" },
+      { slug: "bead-storage-packaging", label: "لوازم تخزين الخرز وتعبئته", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758238068/premium_photo-1747763107471-d25bae7853df_tzaqws.avif" },
+      { slug: "embroidery", label: "التطريز", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758238363/photo-1641320197434-6ae0ca235048_czegcw.avif" },
     ],
   },
   {
