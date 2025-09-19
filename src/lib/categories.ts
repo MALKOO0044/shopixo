@@ -29,6 +29,10 @@ export const CATEGORIES: CategoryDef[] = [
   { slug: "appliances", label: "أجهزة" },
   { slug: "automotive", label: "السيارات" },
   { slug: "pet-supplies", label: "مستلزمات الحيوانات الأليفة" },
+  { slug: "yard-garden", label: "الفناء والحديقة والبستان" },
+  { slug: "kids-shoes", label: "أحذية الأطفال" },
+  { slug: "mens-shoes", label: "رجالية" },
+  { slug: "business-industry-science", label: "الأعمال والصناعة والعلوم" },
 ];
 
 export function labelFromSlug(slug: string): string |
@@ -176,6 +180,25 @@ export const FULL_CATEGORIES: FullCategory[] = [
     ],
   },
   {
+    slug: "mens-shoes",
+    label: "رجالية",
+    image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758150233/photo-1616663308968-58162d332720_ilcvwb.avif",
+    children: [
+      { slug: "men-casual-shoes", label: "أحذية كاجوال رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758150233/photo-1616663308968-58162d332720_ilcvwb.avif" },
+      { slug: "men-semi-formal-shoes", label: "أحذية رجالية شبه رسمية", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758150253/premium_photo-1668376939292-bd6953dd1bac_isv7zy.avif" },
+      { slug: "men-loafers-slipon", label: "أحذية من دون كعب وأحذية من دون رباط للرجال", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758150366/photo-1426649397221-b62c5a7824ee_gk99w6.avif" },
+      { slug: "men-sandals", label: "صنادل للرجال", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758150400/istockphoto-72736585-612x612_wfyy9w.webp" },
+      { slug: "men-flip-flops", label: "نعال رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758150423/photo-1662308074084-8e2d73c353e6_xhzzgy.avif" },
+      { slug: "men-ice-high-boots", label: "أحذية جليد برقبة طويلة رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758150455/premium_photo-1728158949815-2c32a7fd3229_n8vxzr.avif" },
+      { slug: "men-boots", label: "أحذية برقبة رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758150498/photo-1608629601270-a0007becead3_lwiciq.avif" },
+      { slug: "men-skate-shoes", label: "أحذية التزلج للرجال", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758150518/photo-1707125249530-f1e3ee0a1b9c_nfrbdl.avif" },
+      { slug: "men-work-safety-shoes", label: "أحذية العمل والاستخدامات العملية للرجال", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758150523/photo-1520518225010-711b4f0b1d32_nteinq.avif" },
+      { slug: "men-mules-clogs", label: "أحذية ميول وقباقيب للرجال", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758150569/OIP_pb5tom.webp" },
+      { slug: "men-canvas-shoes", label: "أحذية من القماش رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758150633/istockphoto-1201660255-612x612_dpuwjv.webp" },
+      { slug: "men-rain-boots", label: "أحذية برقبة للمطر رجالي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758150699/photo-1626808763451-ffd08dcf0c36_xdkcgr.avif" },
+    ],
+  },
+  {
     slug: "plus-size",
     label: "مقاسات كبيرة",
     image: "https://images.unsplash.com/photo-1545291730-faff8ca1d4b0?q=80&w=640&auto=format&fit=crop",
@@ -218,6 +241,18 @@ export const FULL_CATEGORIES: FullCategory[] = [
       { slug: "kids-0-24m", label: "0-24 شهر", image: "https://images.unsplash.com/photo-1604467795338-02d02ab2525b?q=80&w=640&auto=format&fit=crop" },
       { slug: "kids-2-6", label: "2-6 سنوات", image: "https://images.unsplash.com/photo-1566004100631-35d015d6a491?q=80&w=640&auto=format&fit=crop" },
       { slug: "kids-7-14", label: "7-14 سنة", image: "https://images.unsplash.com/photo-1513883737812-383214533864?q=80&w=640&auto=format&fit=crop" },
+    ],
+  },
+  {
+    slug: "kids-shoes",
+    label: "أحذية الأطفال",
+    image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758239981/photo-1497319892902-e0a47680bb6b_bv5zcf.avif",
+    children: [
+      { slug: "girls-boots", label: "أحذية برقبة بناتي", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758239981/photo-1497319892902-e0a47680bb6b_bv5zcf.avif" },
+      { slug: "boys-sneakers", label: "أحذية سنيكرز للأولاد", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758239953/photo-1624991368922-3286d19c7fa5_yfcnlk.avif" },
+      { slug: "girls-sneakers", label: "أحذية سنيكرز للفتيات", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758239996/photo-1622920609618-6d06f2b27aea_hr4au4.avif" },
+      { slug: "boys-sports-products", label: "منتجات رياضية للأولاد", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758240004/photo-1679875806089-1d1d9c7c2c18_ow4ful.avif" },
+      { slug: "girls-sports-products", label: "منتجات رياضية للفتيات", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758240011/photo-1652500790208-9e01eaa76184_hcoykb.avif" },
     ],
   },
   {
@@ -330,7 +365,6 @@ export const FULL_CATEGORIES: FullCategory[] = [
       { slug: "sandals", label: "صنادل/شباشب", image: "https://images.unsplash.com/photo-1603487742131-412903b6e12b?q=80&w=640&auto=format&fit=crop" },
       { slug: "flats", label: "أحذية مسطحة", image: "https://images.unsplash.com/photo-1525966222134-fcfa99b8ae77?q=80&w=640&auto=format&fit=crop" },
       { slug: "formal", label: "أحذية رسمية", image: "https://images.unsplash.com/photo-1449505278894-297fdb3edbc1?q=80&w=640&auto=format&fit=crop" },
-      { slug: "kids-shoes", label: "أحذية الأطفال", image: "https://images.unsplash.com/photo-1511556532299-8f662fc26c06?q=80&w=640&auto=format&fit=crop" },
     ],
   },
   {
@@ -486,6 +520,7 @@ export const FULL_CATEGORIES: FullCategory[] = [
       { slug: "small-home-elec", label: "أجهزة منزلية إلكترونية صغيرة", image: "https://images.unsplash.com/photo-1626806819282-2c1dc01a5e0c?q=80&w=640&auto=format&fit=crop" },
       { slug: "flashlights", label: "كشافات", image: "https://images.unsplash.com/photo-1528421469611-82f15a2b0605?q=80&w=640&auto=format&fit=crop" },
       { slug: "speakers", label: "منتجات صوتية", image: "https://images.unsplash.com/photo-1593903173353-61e2a39a2b4b?q=80&w=640&auto=format&fit=crop" },
+      { slug: "laptop-tablet-stickers", label: "ملصقات للابتوب والتابلت" },
     ],
   },
   {
@@ -633,6 +668,18 @@ export const FULL_CATEGORIES: FullCategory[] = [
       { slug: "pet-food", label: "أغذية ومأكولات الحيوانات الأليفة", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758219007/photo-1608408891486-f5cade977d19_ntxqwj.avif" },
       { slug: "other-pet-supplies", label: "لوازم الحيوانات الأليفة الأخرى", image: "https://res.cloudinary.com/dkwh8kbgr/image/upload/v1758219026/photo-1625141976586-ff3f03d2f4d5_jyzv5b.avif" },
     ],
+  },
+  {
+    slug: "yard-garden",
+    label: "الفناء والحديقة والبستان",
+    image: "https://images.unsplash.com/photo-1501004318641-b39e6451bec6?q=80&w=640&auto=format&fit=crop",
+    children: [],
+  },
+  {
+    slug: "business-industry-science",
+    label: "الأعمال والصناعة والعلوم",
+    image: "https://images.unsplash.com/photo-1503387762-592deb58ef4e?q=80&w=640&auto=format&fit=crop",
+    children: [],
   },
   {
     slug: "baby-maternity",
