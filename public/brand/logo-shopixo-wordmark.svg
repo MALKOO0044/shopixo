@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 160" role="img" aria-label="Shopixo wordmark">
+  <defs>
+    <style>
+      .wordmark { font-family: 'Inter', Arial, Helvetica, sans-serif; font-weight: 800; letter-spacing: 1px; }
+    </style>
+  </defs>
+  <rect width="600" height="160" fill="#FFFFFF"/>
+  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" class="wordmark" font-size="96" fill="#111111">Shopixo</text>
+</svg>
