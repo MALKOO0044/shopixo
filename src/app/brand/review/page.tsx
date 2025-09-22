@@ -21,6 +21,10 @@ export default function BrandReviewPage() {
         :root{ --brand:#111111; --bg:#ffffff; --accent:#2563EB; --muted:#6b7280; }
         *{ box-sizing:border-box; }
         body{ margin:0; font-family: Inter, Cairo, Arial, Helvetica, sans-serif; color:#111; background:#fff; }
+        /* Hide global store chrome on this preview page only */
+        header.sticky.top-0{ display:none !important; }
+        nav{ display:none !important; }
+        footer{ display:none !important; }
         header{ position:sticky; top:0; background:#fff; border-bottom:1px solid #eee; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
         header .l{ display:flex; align-items:center; gap:12px; }
         header img{ height:28px; }
@@ -71,7 +75,7 @@ export default function BrandReviewPage() {
             <div>
               <div className="muted">Wordmark على خلفية داكنة</div>
               <div className="logo-box dark">
-                <img src="/brand/logo-shopixo-wordmark.svg" alt="Shopixo wordmark" />
+                <img src="/brand/logo-shopixo-wordmark-white.svg" alt="Shopixo wordmark (white)" />
               </div>
             </div>
           </div>
@@ -86,7 +90,7 @@ export default function BrandReviewPage() {
             <div>
               <div className="muted">نسخة الحقيبة — داكن</div>
               <div className="logo-box dark">
-                <img src="/brand/logo-shopixo-bag.svg" alt="Shopixo with bag" />
+                <img src="/brand/logo-shopixo-bag-white.svg" alt="Shopixo with bag (white)" />
               </div>
             </div>
           </div>
