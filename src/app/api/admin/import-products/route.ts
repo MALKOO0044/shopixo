@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Not authorized' }, { status: 401 });
   }
 
-  const supabase = getSupabaseAdmin();
+  const supabase = await getSupabaseAdmin();
   if (!supabase) {
     return NextResponse.json({ error: 'Server misconfiguration: missing Supabase envs' }, { status: 500 });
   }

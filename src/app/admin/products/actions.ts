@@ -45,7 +45,7 @@ export const productSchema = z.object({
     .transform((v) => (v === "false" || v === false ? false : true)),
 });
 
-export function getSupabaseAdmin() {
+export async function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
@@ -66,7 +66,7 @@ async function canManageProduct(productId: number | null) {
   // If no productId, only allow if admin
   if (!productId) return false;
 
-  const supabaseAdmin = getSupabaseAdmin();
+  const supabaseAdmin = await getSupabaseAdmin();
   if (!supabaseAdmin) return false;
   const user = await getCurrentUser();
   if (!user) return false;
@@ -93,7 +93,7 @@ const setActiveSchema = z.object({
 });
 
 export async function setProductActive(prevState: { error: string | null; success: boolean }, formData: FormData) {
-  const supabaseAdmin = getSupabaseAdmin();
+  const supabaseAdmin = await getSupabaseAdmin();
   if (!supabaseAdmin) {
     return { error: "Server misconfiguration: missing Supabase service role envs", success: false };
   }
@@ -149,7 +149,7 @@ export async function addProduct(prevState: any, formData: FormData) {
   if (!user) {
     return { message: "Not authorized", fieldErrors: null };
   }
-  const supabaseAdmin = getSupabaseAdmin();
+  const supabaseAdmin = await getSupabaseAdmin();
   if (!supabaseAdmin) {
     return { message: "Server misconfiguration: missing Supabase service role envs", fieldErrors: null };
   }
@@ -197,7 +197,7 @@ export async function updateProduct(prevState: any, formData: FormData) {
   if (!user) {
     return { message: "Not authorized", fieldErrors: null };
   }
-  const supabaseAdmin = getSupabaseAdmin();
+  const supabaseAdmin = await getSupabaseAdmin();
   if (!supabaseAdmin) {
     return { message: "Server misconfiguration: missing Supabase service role envs", fieldErrors: null };
   }
@@ -237,7 +237,7 @@ const deleteProductSchema = z.object({
 });
 
 export async function deleteProduct(prevState: { error: string | null; success: boolean }, formData: FormData) {
-  const supabaseAdmin = getSupabaseAdmin();
+  const supabaseAdmin = await getSupabaseAdmin();
   if (!supabaseAdmin) {
     return { error: "Server misconfiguration: missing Supabase service role envs", success: false };
   }
