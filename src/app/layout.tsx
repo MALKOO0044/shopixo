@@ -12,6 +12,7 @@ import { ToastProvider } from "@/components/ui/toast-provider";
 import { getSiteUrl } from "@/lib/site";
 import Script from "next/script";
 import { headers } from "next/headers";
+import ChatWidget from "@/components/chat-widget";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const playfair = Playfair_Display({ subsets: ["latin"], weight: ["400","600","700"], variable: "--font-playfair" });
@@ -145,6 +146,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </Suspense>
             <Suspense fallback={null}>
               <Footer />
+            </Suspense>
+            <Suspense fallback={null}>
+              <ChatWidget />
             </Suspense>
             <CookieConsent />
           </ToastProvider>

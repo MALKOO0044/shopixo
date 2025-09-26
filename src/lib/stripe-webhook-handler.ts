@@ -1,6 +1,7 @@
 import { getStripe } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
+import { maybeCreateCjOrderForOrderId } from '@/lib/ops/cj-fulfill';
 
 export async function handleStripeWebhook(req: Request): Promise<Response> {
   const textBody = await req.text();
@@ -107,7 +108,17 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
             )
           );
 
-          // 4) Best-effort: clear cart items by session ID (if provided)
+          // 4) Trigger CJ fulfillment (best-effort, non-blocking errors). This is idempotent upstream via CJ orderNo.
+          try {
+            const ful = await maybeCreateCjOrderForOrderId(order.id as number);
+            if (!ful.ok) {
+              console.warn('CJ fulfillment not created:', ful.reason);
+            }
+          } catch (e: any) {
+            console.warn('CJ fulfillment error:', e?.message || e);
+          }
+
+          // 5) Best-effort: clear cart items by session ID (if provided)
           const cartSessionId = (metadata.cartSessionId as string | undefined) || undefined;
           if (cartSessionId) {
             const { error: clearErr } = await supabaseAdmin

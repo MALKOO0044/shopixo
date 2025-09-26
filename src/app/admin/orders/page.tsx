@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import OrderStatusForm from "@/app/admin/orders/status-form";
+import { AdminFulfillCjButton } from "@/components/admin-fulfill-cj-button";
 
 // Admin client to bypass RLS (lazy init to avoid build-time env requirements)
 let supabaseAdmin: any = null;
@@ -34,7 +35,7 @@ async function getOrders(): Promise<Order[]> {
   if (!client) return [];
   const { data, error } = await client
     .from("orders")
-    .select(`id, created_at, total_amount, status, user_id`)
+    .select(`*`)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -60,6 +61,9 @@ export default async function OrdersPage() {
               <TableHead className="hidden md:table-cell">User ID</TableHead>
               <TableHead className="text-right">Total</TableHead>
               <TableHead className="text-center">Status</TableHead>
+              <TableHead className="hidden lg:table-cell">CJ Order</TableHead>
+              <TableHead className="hidden lg:table-cell">Tracking</TableHead>
+              <TableHead className="hidden lg:table-cell">Shipping</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -79,8 +83,13 @@ export default async function OrdersPage() {
                       {order.status}
                     </Badge>
                     <OrderStatusForm orderId={order.id} current={order.status} />
+                    {/* Manual CJ fulfillment trigger (in addition to automatic Stripe webhook) */}
+                    <AdminFulfillCjButton orderId={order.id} />
                   </div>
                 </TableCell>
+                <TableCell className="hidden lg:table-cell text-xs font-mono">{(order as any).cj_order_no || '—'}</TableCell>
+                <TableCell className="hidden lg:table-cell text-xs">{(order as any).tracking_number || '—'}{(order as any).carrier ? ` (${(order as any).carrier})` : ''}</TableCell>
+                <TableCell className="hidden lg:table-cell text-xs">{(order as any).shipping_status || '—'}</TableCell>
               </TableRow>
             ))}
           </TableBody>

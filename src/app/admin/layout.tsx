@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { ReactNode } from "react";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
@@ -48,6 +49,16 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             <li className="mb-4">
               <Link href="/admin/products" className="hover:text-gray-300">
                 Products
+              </Link>
+            </li>
+            <li className="mb-4">
+              <Link href={("/admin/products/import" as Route)} className="hover:text-gray-300">
+                Import Products (CSV)
+              </Link>
+            </li>
+            <li className="mb-4">
+              <Link href={("/admin/pricing" as Route)} className="hover:text-gray-300">
+                Pricing Calculator
               </Link>
             </li>
             <li className="mb-4">

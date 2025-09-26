@@ -42,6 +42,6 @@ export function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     // Apply to all paths except static assets and API routes that may need streaming
-    '/((?!_next/static|_next/image|favicon.ico|.*\.(png|jpg|jpeg|svg|webp|gif)|api/stripe/webhook).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\.(png|jpg|jpeg|svg|webp|gif)|api/stripe/webhook|api/cj/webhook).*)',
   ],
 }

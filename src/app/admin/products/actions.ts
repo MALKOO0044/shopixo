@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
-const productSchema = z.object({
+export const productSchema = z.object({
   title: z.string().min(1, "Title is required"),
   slug: z
     .string()
@@ -38,9 +38,14 @@ const productSchema = z.object({
       message: "الرجاء إضافة صورة أو فيديو واحد على الأقل",
       path: ["images"],
     }),
+  // Optional publishing flag (defaults to true when omitted)
+  is_active: z
+    .union([z.boolean(), z.literal("true"), z.literal("false"), z.null()])
+    .optional()
+    .transform((v) => (v === "false" || v === false ? false : true)),
 });
 
-function getSupabaseAdmin() {
+export function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
