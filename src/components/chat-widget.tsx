@@ -20,22 +20,22 @@ export default function ChatWidget() {
   async function send() {
     const text = input.trim();
     if (!text || sending) return;
-    const newMessages = [...messages, { role: 'user', content: text }];
-    setMessages(newMessages);
+    const nextMessages: Msg[] = [...messages, { role: 'user' as const, content: text }];
+    setMessages((m) => [...m, { role: 'user' as const, content: text }]);
     setInput('');
     setSending(true);
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages }),
+        body: JSON.stringify({ messages: nextMessages }),
       });
       const data = await res.json();
       if (!res.ok || !data) throw new Error(data?.error || res.statusText);
       const reply = (data.reply as string) || 'حدث خطأ. حاول مرة أخرى.';
-      setMessages((m) => [...m, { role: 'assistant', content: reply }]);
+      setMessages((m) => [...m, { role: 'assistant' as const, content: reply }]);
     } catch (e: any) {
-      setMessages((m) => [...m, { role: 'assistant', content: 'تعذر الحصول على رد الآن.' }]);
+      setMessages((m) => [...m, { role: 'assistant' as const, content: 'تعذر الحصول على رد الآن.' }]);
     } finally {
       setSending(false);
     }
