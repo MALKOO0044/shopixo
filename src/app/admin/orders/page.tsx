@@ -87,9 +87,9 @@ export default async function OrdersPage() {
                     <AdminFulfillCjButton orderId={order.id} />
                   </div>
                 </TableCell>
-                <TableCell className="hidden lg:table-cell text-xs font-mono">{(order as any).cj_order_no || '—'}</TableCell>
-                <TableCell className="hidden lg:table-cell text-xs">{(order as any).tracking_number || '—'}{(order as any).carrier ? ` (${(order as any).carrier})` : ''}</TableCell>
-                <TableCell className="hidden lg:table-cell text-xs">{(order as any).shipping_status || '—'}</TableCell>
+                <TableCell className="hidden lg:table-cell text-xs font-mono">{order.cj_order_no || '—'}</TableCell>
+                <TableCell className="hidden lg:table-cell text-xs">{order.tracking_number || '—'}{order.carrier ? ` (${order.carrier})` : ''}</TableCell>
+                <TableCell className="hidden lg:table-cell text-xs">{order.shipping_status || '—'}</TableCell>
               </TableRow>
             ))}
           </TableBody>

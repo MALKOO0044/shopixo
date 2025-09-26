@@ -28,6 +28,13 @@ export type Order = {
   order_items: OrderItem[];
   // This will be populated after joining with the users table
   user_email?: string;
+  // Stripe metadata
+  stripe_session_id?: string | null;
+  // CJ fulfillment and tracking
+  cj_order_no?: string | null;
+  shipping_status?: string | null;
+  tracking_number?: string | null;
+  carrier?: string | null;
 };
 
 export type CartItem = {

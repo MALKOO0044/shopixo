@@ -55,7 +55,26 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
           const parsedCart: Array<{ productId: number | string; quantity: number; price: number }>
             = JSON.parse(metadata.cart as string);
 
-          const totalAmount = parsedCart.reduce((acc, i) => acc + i.price * i.quantity, 0);
+          // Compute total using Stripe-authoritative data (fallback to line items if amount_total is unavailable)
+          let totalAmount = 0;
+          try {
+            if (typeof (session as any).amount_total === 'number') {
+              totalAmount = ((session as any).amount_total as number) / 100;
+            } else {
+              const stripe = getStripe();
+              const li = await stripe.checkout.sessions.listLineItems(session.id, { limit: 100 });
+              const cents = li.data.reduce((acc, item: any) => {
+                const itemTotal = typeof item.amount_total === 'number'
+                  ? item.amount_total
+                  : ((item.price?.unit_amount || 0) * (item.quantity || 1));
+                return acc + itemTotal;
+              }, 0);
+              totalAmount = cents / 100;
+            }
+          } catch (e) {
+            console.warn('Failed to compute Stripe-authoritative total; falling back to metadata.cart sum');
+            totalAmount = parsedCart.reduce((acc, i) => acc + i.price * i.quantity, 0);
+          }
 
           // 1) Create or update order (idempotent on stripe_session_id)
           const { data: order, error: orderError } = await supabaseAdmin
