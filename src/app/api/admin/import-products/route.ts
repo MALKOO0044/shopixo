@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import { productSchema, getSupabaseAdmin } from '@/app/admin/products/actions';
+import { getSupabaseAdmin } from '@/app/admin/products/actions';
+import { productSchema } from '@/lib/schemas/product';
 import { calculateRetailSar, usdToSar, computeVolumetricWeightKg, detectPricingAnomalies } from '@/lib/pricing';
 import { slugify } from '@/lib/utils/slug';
 import { generateTitle, generateDescription, translateAr } from '@/lib/ai/enrich';
