@@ -22,21 +22,29 @@ export async function createCheckoutSession() {
   }
 
   const lineItems = cart
-    .filter(item => item.product !== null) // Filter out null products
-    .map((item) => ({
-      price_data: {
-        currency: (process.env.NEXT_PUBLIC_CURRENCY || "USD").toLowerCase(),
-        product_data: {
-          name: item.product!.title, // Use title instead of name
-          images: item.product!.images.length > 0 ? [item.product!.images[0]] : [], // Use first image from images array
-          metadata: {
-            productId: item.product!.id,
+    .filter(item => item.product !== null)
+    .map((item) => {
+      const product = item.product!;
+      const hasVariantPrice = !!item.variant && item.variant.price !== null && item.variant.price !== undefined;
+      const unit = hasVariantPrice ? (item.variant!.price as number) : product.price;
+      const firstImage = product.images.length > 0 ? product.images[0] : undefined;
+      const absImage = firstImage && /^https?:\/\//i.test(firstImage) ? firstImage : (firstImage ? `${getSiteUrl()}${firstImage}` : undefined);
+      return {
+        price_data: {
+          currency: (process.env.NEXT_PUBLIC_CURRENCY || "USD").toLowerCase(),
+          product_data: {
+            name: product.title,
+            images: absImage ? [absImage] : [],
+            metadata: {
+              productId: product.id,
+              variantId: item.variant?.id || '',
+            },
           },
+          unit_amount: Math.round(unit * 100),
         },
-        unit_amount: Math.round(item.product!.price * 100), // Price in cents (rounded to avoid float issues)
-      },
-      quantity: item.quantity,
-    }));
+        quantity: item.quantity,
+      };
+    });
 
   const siteUrl = getSiteUrl();
   const checkoutSession = await getStripe().checkout.sessions.create({
@@ -50,7 +58,12 @@ export async function createCheckoutSession() {
     metadata: {
       userId: session.user.id,
       cart: JSON.stringify(
-        cart.map(item => ({ productId: item.product!.id, quantity: item.quantity, price: item.product!.price }))
+        cart.map(item => ({
+          productId: item.product!.id,
+          variantId: item.variant?.id || null,
+          quantity: item.quantity,
+          price: (item.variant && item.variant.price !== null && item.variant.price !== undefined) ? (item.variant.price as number) : item.product!.price,
+        }))
       ),
       cartSessionId: cookies().get("cart_id")?.value || "",
     },

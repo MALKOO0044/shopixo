@@ -37,8 +37,8 @@ function pickPrimaryImage(images: any): string | null {
 }
 import { getSupabaseAnonServer } from "@/lib/supabase-server";
 import { notFound, redirect } from "next/navigation";
-import type { Product } from "@/lib/types";
 import ProductDetailsClient from "@/components/product-details-client";
+import type { Product, ProductVariant } from "@/lib/types";
 import AdminProductActions from "@/components/admin-product-actions";
 import PriceComparison from "@/components/price-comparison";
 import type { Metadata } from 'next'
@@ -256,6 +256,22 @@ export default async function ProductPage({ params, searchParams }: { params: { 
     (product as any).images = normalized;
   } catch {}
 
+  // Fetch variant rows for this product and synthesize UI variants if missing
+  let variantRows: ProductVariant[] = [];
+  try {
+    const { data: v } = await supabase
+      .from("product_variants")
+      .select("id, product_id, option_name, option_value, cj_sku, cj_variant_id, price, stock")
+      .eq("product_id", (product as any).id)
+      .order("option_value", { ascending: true });
+    variantRows = (v as any) || [];
+  } catch {}
+  if ((!product.variants || product.variants.length === 0) && variantRows.length > 0) {
+    const name = variantRows[0].option_name || "Size";
+    const opts = Array.from(new Set(variantRows.map((r) => r.option_value))).filter(Boolean);
+    (product as any).variants = [{ name, options: opts }];
+  }
+
   // Detect admin (show inline admin actions on PDP)
   let isAdmin = false;
   try {
@@ -335,7 +351,7 @@ export default async function ProductPage({ params, searchParams }: { params: { 
           }),
         }}
       />
-      <ProductDetailsClient product={product}>
+      <ProductDetailsClient product={product} variantRows={variantRows}>
         <PriceComparison productId={product.id} />
         {isAdmin && (
           <AdminProductActions

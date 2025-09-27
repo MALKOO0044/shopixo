@@ -15,9 +15,11 @@ export default async function CartPage() {
   const cartItems = await getCart();
 
   const subtotal = cartItems.reduce((acc, item) => {
-    // Type guard to ensure product is not null
     if (item.product) {
-      return acc + item.quantity * item.product.price;
+      const unit = (item.variant && item.variant.price !== null && item.variant.price !== undefined)
+        ? item.variant.price!
+        : item.product.price;
+      return acc + item.quantity * unit;
     }
     return acc;
   }, 0);
@@ -46,7 +48,7 @@ export default async function CartPage() {
               <span>الإجمالي الفرعي</span>
               <span>{formatCurrency(subtotal)}</span>
             </div>
-            <p className="mt-2 text-xs text-slate-500">سيتم احتساب الضرائب والشحن عند الدفع.</p>
+            <p className="mt-2 text-xs text-slate-500">الشحن مجاني لجميع المنتجات. الضرائب تُحسب عند الدفع.</p>
             <div className="mt-4">
               <CheckoutButton />
             </div>

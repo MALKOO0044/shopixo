@@ -52,7 +52,7 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
             break;
           }
 
-          const parsedCart: Array<{ productId: number | string; quantity: number; price: number }>
+          const parsedCart: Array<{ productId: number | string; variantId?: number | string | null; quantity: number; price: number }>
             = JSON.parse(metadata.cart as string);
 
           // Compute total using Stripe-authoritative data (fallback to line items if amount_total is unavailable)
@@ -106,6 +106,7 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
           const orderItems = parsedCart.map((item) => ({
             order_id: order.id,
             product_id: typeof item.productId === 'string' ? Number(item.productId) : item.productId,
+            variant_id: item.variantId ? (typeof item.variantId === 'string' ? Number(item.variantId) : item.variantId) : null,
             quantity: item.quantity,
             price: item.price,
           }));
@@ -119,12 +120,22 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
 
           // 3) Decrement stock (best-effort)
           await Promise.all(
-            parsedCart.map((item) =>
-              supabaseAdmin.rpc("decrement_stock", {
-                product_id_in: typeof item.productId === 'string' ? Number(item.productId) : item.productId,
+            parsedCart.map((item) => {
+              const pid = typeof item.productId === 'string' ? Number(item.productId) : item.productId;
+              const vid = item.variantId ? (typeof item.variantId === 'string' ? Number(item.variantId) : item.variantId) : null;
+              if (vid) {
+                // Decrement variant stock; trigger will recompute product stock
+                return supabaseAdmin.rpc("decrement_variant_stock", {
+                  variant_id_in: vid,
+                  quantity_in: item.quantity,
+                });
+              }
+              // Fallback to product-level stock decrement
+              return supabaseAdmin.rpc("decrement_stock", {
+                product_id_in: pid,
                 quantity_in: item.quantity,
-              })
-            )
+              });
+            })
           );
 
           // 4) Trigger CJ fulfillment (best-effort, non-blocking errors). This is idempotent upstream via CJ orderNo.

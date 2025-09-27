@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { formatCurrency, cn } from "@/lib/utils";
-import type { Product } from "@/lib/types";
+import type { Product, ProductVariant } from "@/lib/types";
 import AddToCart from "@/components/add-to-cart";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -345,7 +345,7 @@ function ProductOptions({ variants, onOptionChange }: { variants: any[]; onOptio
 }
 
 // --- Main Client Component ---
-export default function ProductDetailsClient({ product, children }: { product: Product, children?: React.ReactNode }) {
+export default function ProductDetailsClient({ product, variantRows, children }: { product: Product, variantRows?: ProductVariant[], children?: React.ReactNode }) {
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>(() => {
     const initialOptions: Record<string, string> = {};
     product.variants?.forEach((v) => {
@@ -360,13 +360,23 @@ export default function ProductDetailsClient({ product, children }: { product: P
 
   const isOutOfStock = product.stock <= 0;
 
+  const selectedVariant = useMemo(() => {
+    if (!variantRows || variantRows.length === 0) return null;
+    const name = product.variants?.[0]?.name || 'Size';
+    const value = selectedOptions[name];
+    if (!value) return null;
+    return variantRows.find(v => (v.option_name || 'Size') === name && v.option_value === value) || null;
+  }, [variantRows, product.variants, selectedOptions]);
+
+  const addToCartDisabled = isOutOfStock || (!!variantRows?.length && (!!selectedVariant ? selectedVariant.stock <= 0 : true));
+
   return (
     <div className="grid gap-10 lg:grid-cols-2">
       <ProductGallery images={product.images} title={product.title} />
       <div>
         <h1 className="text-3xl font-bold text-foreground">{product.title}</h1>
         <div className="mt-2 flex items-center gap-4">
-          <span className="text-2xl font-semibold text-primary">{formatCurrency(product.price)}</span>
+          <span className="text-2xl font-semibold text-primary">{formatCurrency(selectedVariant?.price ?? product.price)}</span>
           <span className={cn(
             "rounded-full px-3 py-1 text-xs font-medium",
             isOutOfStock ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"
@@ -380,18 +390,56 @@ export default function ProductDetailsClient({ product, children }: { product: P
           <ProductOptions variants={product.variants} onOptionChange={handleOptionChange} />
         ) : null}
 
+        {variantRows && variantRows.length > 0 && (
+          <div className="mt-6">
+            <h3 className="mb-2 text-sm font-medium text-foreground">تفاصيل المخزون</h3>
+            <div className="overflow-auto rounded border">
+              <table className="min-w-full text-xs">
+                <thead>
+                  <tr className="bg-muted">
+                    <th className="p-2 text-left">المقاس</th>
+                    <th className="p-2 text-right">السعر</th>
+                    <th className="p-2 text-right">المتبقي</th>
+                    <th className="p-2 text-left">SKU</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {([...variantRows].sort((a,b) => {
+                    const order = ['XS','S','M','L','XL','XXL','XXXL','XXXXL'];
+                    const ia = order.indexOf(String(a.option_value).toUpperCase());
+                    const ib = order.indexOf(String(b.option_value).toUpperCase());
+                    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+                  })).map(v => (
+                    <tr key={v.id} className="border-t">
+                      <td className="p-2">{v.option_value}</td>
+                      <td className="p-2 text-right">{formatCurrency((v.price ?? product.price))}</td>
+                      <td className="p-2 text-right">{v.stock}</td>
+                      <td className="p-2">{v.cj_sku || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Desktop CTA */}
         <div className="mt-8 hidden md:block">
-          <AddToCart productId={product.id} productSlug={product.slug as any} selectedOptions={selectedOptions} disabled={isOutOfStock} />
+          <AddToCart productId={product.id} productSlug={product.slug as any} selectedOptions={selectedOptions} disabled={addToCartDisabled} />
         </div>
 
         {/* Price comparison component will be passed as a child */}
         {children}
 
-        <div className="mt-8 text-sm text-muted-foreground">
-          <p>• شحن مجاني للطلبات فوق 100</p>
-          <p>• ضمان استرجاع خلال 30 يومًا</p>
-          <p>• دفع آمن عبر Stripe</p>
+        {/* Shipping and fulfillment info */}
+        <div className="mt-8 text-sm text-muted-foreground space-y-1">
+          <div className="text-foreground font-medium">الشحن</div>
+          <p>• الشحن مجاني لجميع المنتجات</p>
+          <p>• رسوم شحن المخزون: {formatCurrency(product.inventory_shipping_fee ?? 0)}</p>
+          <p>• رسوم الشحن للميل الأخير: {formatCurrency(product.last_mile_fee ?? 0)}</p>
+          <p>• الشحن من: {product.shipping_from || product.origin_area || '—'}</p>
+          <p>• الوقت المقدر للمعالجة: {typeof product.processing_time_hours === 'number' ? (product.processing_time_hours >= 24 ? `${Math.round(product.processing_time_hours/24)} يوم` : `${product.processing_time_hours} ساعة`) : '—'}</p>
+          <p>• وقت التسليم المتوقع: {typeof product.delivery_time_hours === 'number' ? (product.delivery_time_hours >= 24 ? `${Math.round(product.delivery_time_hours/24)} يوم` : `${product.delivery_time_hours} ساعة`) : '—'}</p>
         </div>
       </div>
       {/* Mobile sticky Add-to-Cart bar */}
@@ -400,10 +448,10 @@ export default function ProductDetailsClient({ product, children }: { product: P
           <div className="mx-auto flex max-w-md items-center justify-between gap-3">
             <div>
               <div className="text-sm text-muted-foreground">السعر</div>
-              <div className="text-lg font-semibold text-primary">{formatCurrency(product.price)}</div>
+              <div className="text-lg font-semibold text-primary">{formatCurrency(selectedVariant?.price ?? product.price)}</div>
             </div>
             <div className="flex-1">
-              <AddToCart productId={product.id} productSlug={product.slug as any} selectedOptions={selectedOptions} disabled={isOutOfStock} />
+              <AddToCart productId={product.id} productSlug={product.slug as any} selectedOptions={selectedOptions} disabled={addToCartDisabled} />
             </div>
           </div>
         </div>

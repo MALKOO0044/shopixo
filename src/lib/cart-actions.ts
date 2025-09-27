@@ -43,6 +43,19 @@ const addItemSchema = z.object({
   productSlug: z.string().min(1).optional(),
 });
 
+function parseSelectedOption(formData: FormData): { name: string; value: string } | null {
+  const known = new Set(["productId", "quantity", "productSlug"]);
+  for (const [k, v] of formData.entries()) {
+    if (known.has(k)) continue;
+    const val = typeof v === "string" ? v : String(v);
+    const clean = val.trim();
+    if (clean.length > 0) {
+      return { name: k, value: clean };
+    }
+  }
+  return null;
+}
+
 async function getOrCreateCart() {
   const supabaseAuth = createServerComponentClient({ cookies });
   const { data: { user } } = await supabaseAuth.auth.getUser();
@@ -126,6 +139,8 @@ export async function getCart() {
     .select(`
       id,
       quantity,
+      variant_id,
+      variant:product_variants (*),
       products (*)
     `)
     .eq("session_id", cartId)
@@ -144,6 +159,7 @@ export async function getCart() {
     id: item.id,
     quantity: item.quantity,
     product: item.products, // Supabase returns 'products', so we map it to 'product'
+    variant: item.variant ?? null,
   }));
 
   return cartItems as CartItem[];
@@ -161,6 +177,8 @@ export async function getCartItemsBySessionId(cartSessionId: string) {
     .select(`
       id,
       quantity,
+      variant_id,
+      variant:product_variants (*),
       products (*)
     `)
     .eq("session_id", cartSessionId);
@@ -178,6 +196,7 @@ export async function getCartItemsBySessionId(cartSessionId: string) {
     id: item.id,
     quantity: item.quantity,
     product: item.products as Product,
+    variant: (item.variant as any) ?? null,
   }));
 
   return { items: cartItems, error: null };
@@ -221,9 +240,10 @@ export async function addItem(prevState: any, formData: FormData) {
   }
 
   let { productId, quantity, productSlug } = validatedFields.data;
+  const selected = parseSelectedOption(formData); // e.g., { name: "Size", value: "L" }
 
   try {
-    // 1. Fetch product stock
+    // 1. Fetch product and optional variant
     let product = await getProductById(supabaseAdmin, productId);
     if (!product && productSlug) {
       const bySlug = await getProductBySlug(supabaseAdmin, productSlug);
@@ -240,22 +260,53 @@ export async function addItem(prevState: any, formData: FormData) {
       return { error: `This product is no longer available.` };
     }
 
+    // Try resolve variant_id if option provided
+    let variantRow: any = null;
+    if (selected) {
+      const { data: vrow } = await supabaseAdmin
+        .from("product_variants")
+        .select("*")
+        .eq("product_id", productId)
+        .eq("option_name", selected.name)
+        .eq("option_value", selected.value)
+        .maybeSingle();
+      variantRow = vrow ?? null;
+    }
+
     const cart = await getOrCreateCart();
 
     // Check if item already exists in cart
-    const { data: existingItem } = await supabaseAdmin
-      .from("cart_items")
-      .select("id, quantity")
-      .eq("session_id", cart.id)
-      .eq("product_id", productId)
-      .single();
+    let existingItem: any = null;
+    if (variantRow && variantRow.id) {
+      const { data } = await supabaseAdmin
+        .from("cart_items")
+        .select("id, quantity")
+        .eq("session_id", cart.id)
+        .eq("product_id", productId)
+        .eq("variant_id", variantRow.id)
+        .maybeSingle();
+      existingItem = data ?? null;
+    } else {
+      const { data } = await supabaseAdmin
+        .from("cart_items")
+        .select("id, quantity")
+        .eq("session_id", cart.id)
+        .eq("product_id", productId)
+        .is("variant_id", null)
+        .maybeSingle();
+      existingItem = data ?? null;
+    }
 
     if (existingItem) {
       // Update quantity
       const newQuantity = existingItem.quantity + quantity;
 
       // 2a. Check stock before updating
-      if (newQuantity > product.stock) {
+      if (variantRow && typeof variantRow.stock === 'number') {
+        if (newQuantity > variantRow.stock) {
+          return { error: `الكمية المطلوبة غير متوفرة للمقاس ${variantRow.option_value}. المتبقي ${variantRow.stock}.` };
+        }
+      } else if (newQuantity > product.stock) {
         return { error: `Not enough stock for ${product.title}. Only ${product.stock} left.` };
       }
 
@@ -266,14 +317,20 @@ export async function addItem(prevState: any, formData: FormData) {
       if (error) throw error;
     } else {
       // 2b. Check stock before inserting
-      if (quantity > product.stock) {
+      if (variantRow && typeof variantRow.stock === 'number') {
+        if (quantity > variantRow.stock) {
+          return { error: `الكمية المطلوبة غير متوفرة للمقاس ${variantRow.option_value}. المتبقي ${variantRow.stock}.` };
+        }
+      } else if (quantity > product.stock) {
         return { error: `Not enough stock for ${product.title}. Only ${product.stock} left.` };
       }
 
       // Insert new item
+      const insertPayload: any = { session_id: cart.id, product_id: productId, quantity };
+      if (variantRow && variantRow.id) insertPayload.variant_id = variantRow.id;
       const { error } = await supabaseAdmin
         .from("cart_items")
-        .insert({ session_id: cart.id, product_id: productId, quantity });
+        .insert(insertPayload);
       if (error) throw error;
     }
 
@@ -347,7 +404,7 @@ export async function updateItemQuantity(prevState: any, formData: FormData) {
       // Validate stock before updating quantity
       const { data: itemRow, error: itemErr } = await supabaseAdmin
         .from("cart_items")
-        .select("id, product_id")
+        .select("id, product_id, variant_id")
         .eq("id", itemId)
         .eq("session_id", cartId)
         .single();
@@ -362,7 +419,17 @@ export async function updateItemQuantity(prevState: any, formData: FormData) {
       if (Object.prototype.hasOwnProperty.call(product, "is_active") && (product as any).is_active === false) {
         return { error: `This product is no longer available.` };
       }
-      if (quantity > product.stock) {
+      if (typeof itemRow.variant_id === 'number') {
+        const { data: vrow } = await supabaseAdmin
+          .from("product_variants")
+          .select("stock, option_value")
+          .eq("id", itemRow.variant_id)
+          .single();
+        const vstock = (vrow as any)?.stock ?? 0;
+        if (quantity > vstock) {
+          return { error: `الكمية المطلوبة غير متوفرة للمقاس ${(vrow as any)?.option_value ?? ''}. المتبقي ${vstock}.` };
+        }
+      } else if (quantity > product.stock) {
         return { error: `Not enough stock for ${product.title}. Only ${product.stock} left.` };
       }
 

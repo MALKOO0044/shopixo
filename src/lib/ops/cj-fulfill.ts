@@ -27,10 +27,10 @@ export async function maybeCreateCjOrderForOrderId(orderId: number): Promise<{ o
     .single();
   if (orderErr || !order) return { ok: false, reason: 'Order not found' };
 
-  // 2) Load order items
+  // 2) Load order items (include variant_id)
   const { data: items, error: itemsErr } = await supabase
     .from('order_items')
-    .select('product_id, quantity, price')
+    .select('product_id, variant_id, quantity, price')
     .eq('order_id', orderId);
   if (itemsErr || !items || items.length === 0) return { ok: false, reason: 'No order items' };
 
@@ -45,6 +45,19 @@ export async function maybeCreateCjOrderForOrderId(orderId: number): Promise<{ o
   }
   const productMap = new Map<number, { title: string; slug: string }>();
   for (const p of products || []) productMap.set(p.id, { title: p.title, slug: p.slug });
+
+  // 3b) Load variant info for those items that have variant_id (to extract cj_sku)
+  const variantIds = items.map((i) => i.variant_id).filter((v: any) => v !== null && v !== undefined) as number[];
+  let variantMap = new Map<number, { cj_sku: string | null; option_name: string | null; option_value: string | null }>();
+  if (variantIds.length > 0) {
+    const { data: variants } = await supabase
+      .from('product_variants')
+      .select('id, cj_sku, option_name, option_value')
+      .in('id', variantIds);
+    for (const v of variants || []) {
+      variantMap.set(v.id, { cj_sku: v.cj_sku, option_name: v.option_name, option_value: v.option_value });
+    }
+  }
 
   // 4) Load recipient (default address of user)
   const { data: addr } = await supabase
@@ -80,9 +93,12 @@ export async function maybeCreateCjOrderForOrderId(orderId: number): Promise<{ o
     },
     items: items.map((it) => {
       const meta = productMap.get(it.product_id as number);
+      const vmeta = (it as any).variant_id ? variantMap.get((it as any).variant_id) : null;
+      const sku = vmeta?.cj_sku || meta?.slug || String(it.product_id);
+      const optionLabel = vmeta?.option_value ? ` (${vmeta.option_value})` : '';
       return {
-        sku: meta?.slug || String(it.product_id),
-        name: meta?.title || `Product ${it.product_id}`,
+        sku,
+        name: (meta?.title || `Product ${it.product_id}`) + optionLabel,
         quantity: it.quantity,
       };
     }),

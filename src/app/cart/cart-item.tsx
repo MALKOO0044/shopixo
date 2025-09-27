@@ -19,7 +19,7 @@ function SubmitButton({ children, className }: { children: React.ReactNode, clas
 export default function CartItem({ item }: { item: CartItemType }) {
   const [removeMessage, removeAction] = useFormState(removeItem, null);
   const [updateMessage, updateAction] = useFormState(updateItemQuantity, null);
-  const { product } = item;
+  const { product, variant } = item;
 
   if (!product) {
     return null; // Or some fallback UI
@@ -34,7 +34,16 @@ export default function CartItem({ item }: { item: CartItemType }) {
         <Link href={`/product/${product.slug}`} className="font-medium hover:underline">
           {product.title}
         </Link>
-        <div className="text-sm text-slate-600">{formatCurrency(product.price)} للقطعة الواحدة</div>
+        <div className="text-sm text-slate-600">
+          {variant ? (
+            <>
+              <span className="mr-2 inline-block rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">المقاس: {variant.option_value}</span>
+              {formatCurrency((variant.price ?? product.price))} للقطعة الواحدة
+            </>
+          ) : (
+            <>{formatCurrency(product.price)} للقطعة الواحدة</>
+          )}
+        </div>
         <div className="mt-2 flex items-center">
           <form action={updateAction}>
             <input type="hidden" name="itemId" value={item.id} />
