@@ -34,6 +34,7 @@ export default function ImportProductsPage() {
       heightCm: Number(r.PackHeightCM || r.height || 3),
       weightKg: Number(r.GrossWeightKG || r.weight || 0.4),
       imagesCsv: r.Images || r.images || '',
+      videoUrl: r.VideoUrl || r.videoUrl || r.VIDEO || r.video || '',
       category: r.Category || r.category || 'General',
       stock: Number(r.Stock || r.stock || 100),
     }));
@@ -117,6 +118,7 @@ export default function ImportProductsPage() {
                 <th className="p-2 text-right">L×W×H (cm)</th>
                 <th className="p-2 text-right">Weight (kg)</th>
                 <th className="p-2 text-left">Images</th>
+                <th className="p-2 text-left">Video</th>
                 <th className="p-2 text-left">Category</th>
                 <th className="p-2 text-right">Stock</th>
               </tr>
@@ -130,6 +132,7 @@ export default function ImportProductsPage() {
                   <td className="p-2 text-right">{it.lengthCm}×{it.widthCm}×{it.heightCm}</td>
                   <td className="p-2 text-right">{it.weightKg}</td>
                   <td className="p-2 truncate max-w-[240px]" title={it.imagesCsv}>{it.imagesCsv || <span className="opacity-60">(missing)</span>}</td>
+                  <td className="p-2 truncate max-w-[200px]" title={it.videoUrl}>{it.videoUrl ? 'yes' : <span className="opacity-60">(none)</span>}</td>
                   <td className="p-2">{it.category}</td>
                   <td className="p-2 text-right">{it.stock}</td>
                 </tr>

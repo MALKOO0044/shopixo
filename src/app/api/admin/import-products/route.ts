@@ -19,6 +19,7 @@ type ImportItem = {
   heightCm?: number;
   weightKg?: number;
   imagesCsv?: string;          // comma-separated URLs (required by schema)
+  videoUrl?: string;           // optional single video URL if available from CJ
   category?: string;           // optional
   stock?: number;              // default 100
   margin?: number;             // default 0.35
@@ -37,6 +38,13 @@ export async function POST(req: NextRequest) {
   if (!supabase) {
     return NextResponse.json({ error: 'Server misconfiguration: missing Supabase envs' }, { status: 500 });
   }
+
+  // Probe optional columns once (e.g., products.video_url) to avoid runtime insert errors
+  let hasVideoColumn = false;
+  try {
+    const probe = await supabase.from('products').select('video_url').limit(1);
+    if (!probe.error) hasVideoColumn = true;
+  } catch {}
 
   let body: { items: ImportItem[]; preview?: boolean; draftOnAnomalies?: boolean };
   try { body = await req.json(); } catch {
@@ -83,9 +91,16 @@ export async function POST(req: NextRequest) {
       title = await generateTitle(title);
     } catch {}
     const slug = slugify(title);
-    const images = (it.imagesCsv && it.imagesCsv.trim().length > 0)
-      ? it.imagesCsv
-      : 'https://images.unsplash.com/photo-1541099649105-f69ad21f3246?auto=format&fit=crop&w=1200&q=80';
+    // Require real product media; do NOT fallback to placeholder
+    if (!it.imagesCsv || it.imagesCsv.trim().length === 0) {
+      results.push({
+        title,
+        ok: false,
+        errors: { images: ['Images are required. Provide at least one image URL from your source (e.g., CJ).'] },
+      });
+      continue;
+    }
+    const images = it.imagesCsv;
     let desc = `${title} — auto-imported. Landed SAR: ${retailCalc.landedCostSar}.`;
     try {
       const gen = await generateDescription(title);
@@ -118,7 +133,11 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    toInsert.push(validated.data);
+    // Include optional video_url in insertion only if the DB column exists
+    const insertRow = hasVideoColumn && it.videoUrl
+      ? { ...validated.data, video_url: it.videoUrl }
+      : validated.data;
+    toInsert.push(insertRow);
     results.push({
       title,
       slug,
@@ -130,6 +149,7 @@ export async function POST(req: NextRequest) {
       description: desc,
       description_ar: descAr,
       images: images.split(',').map((s) => s.trim()).filter(Boolean),
+      ...(it.videoUrl ? { videoUrl: it.videoUrl } : {}),
     });
   }
 
