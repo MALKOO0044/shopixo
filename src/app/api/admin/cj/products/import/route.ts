@@ -70,7 +70,7 @@ export async function POST(req: Request) {
         const defaultPrice = priceCandidates.length > 0 ? Math.min(...priceCandidates) : 0;
         const totalStock = (cj.variants || []).reduce((acc, v) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0);
 
-        const productPayload: any = {
+        let productPayload: any = {
           title: cj.name,
           slug: existing?.slug || baseSlug,
           description: '',
@@ -90,6 +90,18 @@ export async function POST(req: Request) {
           shipping_from: cj.originArea ?? null,
           is_active: true,
         };
+
+        // Omit is_active if column missing in this environment (supabase schema cache not having it)
+        try {
+          const probeActive = await supabase.from('products').select('is_active').limit(1);
+          if (probeActive.error) {
+            const { is_active, ...rest } = productPayload;
+            productPayload = rest;
+          }
+        } catch {
+          const { is_active, ...rest } = productPayload;
+          productPayload = rest;
+        }
 
         let productId: number;
         if (existing?.id) {
