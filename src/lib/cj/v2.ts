@@ -1,10 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Minimal CJ v2 client: uses a provided CJ access token if available, with optional email/password login (if later enabled).
-// Env vars:
+// CJ v2 client with token auth per docs:
+// - POST /authentication/getAccessToken { email, apiKey }
+// - POST /authentication/refreshAccessToken { refreshToken }
+// Token lives 15 days; refresh token 180 days; getAccessToken limited to once/5 minutes.
+// Env vars supported:
 // - CJ_API_BASE (optional; default: https://developers.cjdropshipping.com/api2.0/v1)
-// - CJ_ACCESS_TOKEN (optional)
-// - CJ_EMAIL, CJ_PASSWORD (optional; for future getAccessToken implementation)
+// - CJ_ACCESS_TOKEN (optional manual override)
+// - CJ_EMAIL (required if no CJ_ACCESS_TOKEN)
+// - CJ_API_KEY (required if no CJ_ACCESS_TOKEN)
 
 export type CjVariantLike = {
   cjSku?: string;
@@ -36,16 +40,109 @@ function getSupabaseAdmin() {
   return createClient(url, key);
 }
 
-let cachedToken: { token: string; expiresAt: number } | null = null;
+type TokenState = {
+  accessToken: string;
+  accessTokenExpiry?: string | null;
+  refreshToken?: string | null;
+  refreshTokenExpiry?: string | null;
+  lastAuthCallMs: number; // throttle get/refresh to avoid 5-min rule
+};
+
+let tokenState: TokenState | null = null;
+
+function ms() { return Date.now(); }
+
+function isNotExpired(iso?: string | null): boolean {
+  if (!iso) return true; // if server doesn't give, assume valid
+  const t = Date.parse(iso);
+  if (isNaN(t)) return true;
+  // treat token as expiring 60s earlier for safety
+  return t - 60_000 > Date.now();
+}
+
+function throttleOk(last: number): boolean {
+  // 5 minutes = 300000ms
+  return (Date.now() - last) >= 300_000;
+}
+
+async function authPost<T>(path: string, body: any): Promise<T> {
+  const url = `${getBase()}${path.startsWith('/') ? '' : '/'}${path}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+    cache: 'no-store',
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`CJ auth error ${res.status}: ${text}`);
+  try { return JSON.parse(text) as T; } catch { /* noop */ }
+  // @ts-ignore
+  return text as T;
+}
+
+async function fetchNewAccessToken(): Promise<TokenState> {
+  const email = process.env.CJ_EMAIL;
+  const apiKey = process.env.CJ_API_KEY;
+  if (!email || !apiKey) throw new Error('Missing CJ_EMAIL or CJ_API_KEY envs');
+  const r = await authPost<any>('/authentication/getAccessToken', { email, apiKey });
+  if (r?.code !== 200 || !r?.result) {
+    throw new Error(`getAccessToken failed: ${r?.message || 'Unknown error'}`);
+  }
+  const d = r.data || {};
+  return {
+    accessToken: String(d.accessToken || ''),
+    accessTokenExpiry: d.accessTokenExpiryDate || null,
+    refreshToken: d.refreshToken || null,
+    refreshTokenExpiry: d.refreshTokenExpiryDate || null,
+    lastAuthCallMs: ms(),
+  };
+}
+
+async function refreshAccessTokenState(state: TokenState): Promise<TokenState> {
+  if (!state.refreshToken) return state;
+  const r = await authPost<any>('/authentication/refreshAccessToken', { refreshToken: state.refreshToken });
+  if (r?.code !== 200 || !r?.result) {
+    throw new Error(`refreshAccessToken failed: ${r?.message || 'Unknown error'}`);
+  }
+  const d = r.data || {};
+  return {
+    accessToken: String(d.accessToken || state.accessToken),
+    accessTokenExpiry: d.accessTokenExpiryDate || state.accessTokenExpiry || null,
+    refreshToken: d.refreshToken || state.refreshToken || null,
+    refreshTokenExpiry: d.refreshTokenExpiryDate || state.refreshTokenExpiry || null,
+    lastAuthCallMs: ms(),
+  };
+}
 
 export async function getAccessToken(): Promise<string> {
-  // Prefer explicit CJ_ACCESS_TOKEN for now (manual provisioning)
-  const envToken = process.env.CJ_ACCESS_TOKEN;
-  if (envToken) return envToken;
+  // Manual override for emergencies
+  const manual = process.env.CJ_ACCESS_TOKEN;
+  if (manual) return manual;
 
-  // TODO: Implement login/refresh with CJ_EMAIL/CJ_PASSWORD when available from docs.
-  // For now, throw a descriptive error so user can set CJ_ACCESS_TOKEN.
-  throw new Error('CJ API access token not configured. Set CJ_ACCESS_TOKEN env var, or provide CJ_EMAIL & CJ_PASSWORD once auth flow is enabled.');
+  // Use cached if valid
+  if (tokenState && isNotExpired(tokenState.accessTokenExpiry)) {
+    return tokenState.accessToken;
+  }
+
+  // Try to refresh if we have a refreshToken and respect 5-min throttle
+  if (tokenState && tokenState.refreshToken) {
+    if (!throttleOk(tokenState.lastAuthCallMs)) {
+      // If throttled but token expired, we still have to try using the old token (may fail downstream)
+      return tokenState.accessToken;
+    }
+    try {
+      tokenState = await refreshAccessTokenState(tokenState);
+      if (tokenState && isNotExpired(tokenState.accessTokenExpiry)) return tokenState.accessToken;
+    } catch {/* will fallback to new token */}
+  }
+
+  // Fetch a new token with email/apiKey
+  if (!tokenState || throttleOk(tokenState.lastAuthCallMs)) {
+    tokenState = await fetchNewAccessToken();
+    return tokenState.accessToken;
+  }
+
+  throw new Error('Unable to obtain CJ access token (throttled). Please try again shortly.');
 }
 
 async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
