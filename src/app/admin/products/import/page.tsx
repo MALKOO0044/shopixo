@@ -91,6 +91,48 @@ export default function ImportProductsPage() {
     }
   }
 
+  // --- CJ Tab handlers ---
+  async function handleCjSearch() {
+    try {
+      setCjLoading(true);
+      setCjMessage('');
+      setCjResults(null);
+      const url = new URL('/api/admin/cj/products/query', window.location.origin);
+      if (cjPid.trim()) url.searchParams.set('pid', cjPid.trim());
+      if (cjKeyword.trim()) url.searchParams.set('keyword', cjKeyword.trim());
+      const res = await fetch(url.toString(), { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok || !data?.ok) throw new Error(data?.error || res.statusText);
+      setCjResults(data.items || []);
+      if ((data.items || []).length === 0) setCjMessage('لم يتم العثور على منتجات.');
+    } catch (e: any) {
+      setCjMessage(e?.message || 'فشل البحث في CJ. تأكد من إعداد CJ_ACCESS_TOKEN.');
+    } finally {
+      setCjLoading(false);
+    }
+  }
+
+  async function handleCjImportOne(idx: number) {
+    if (!cjResults || !cjResults[idx]) return;
+    try {
+      setCjLoading(true);
+      setCjMessage('');
+      const body = { items: [cjResults[idx]] };
+      const res = await fetch('/api/admin/cj/products/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.ok) throw new Error(data?.error || res.statusText);
+      setCjMessage('تم الاستيراد بنجاح.');
+    } catch (e: any) {
+      setCjMessage(e?.message || 'فشل الاستيراد.');
+    } finally {
+      setCjLoading(false);
+    }
+  }
+
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <h1 className="text-2xl font-semibold">CSV Import — Products</h1>

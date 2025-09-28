@@ -137,6 +137,18 @@ export async function addProduct(prevState: any, formData: FormData) {
     }
   } catch {}
 
+  // Probe for is_active column existence; omit it from payload if column is missing
+  try {
+    const probeActive = await supabaseAdmin.from("products").select("is_active").limit(1);
+    if (probeActive.error) {
+      const { is_active, ...rest } = insertPayload;
+      insertPayload = rest;
+    }
+  } catch {
+    const { is_active, ...rest } = insertPayload;
+    insertPayload = rest;
+  }
+
   const { error } = await supabaseAdmin.from("products").insert(insertPayload);
 
   if (error) {
@@ -180,6 +192,20 @@ export async function updateProduct(prevState: any, formData: FormData) {
 
   if (!(await canManageProduct(id))) {
     return { message: "Not authorized", fieldErrors: null };
+  }
+
+  // Omit is_active if column missing
+  try {
+    const probeActive = await supabaseAdmin.from("products").select("is_active").limit(1);
+    if (probeActive.error) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { is_active, ...rest } = productData as any;
+      (productData as any) = rest;
+    }
+  } catch {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { is_active, ...rest } = productData as any;
+    (productData as any) = rest;
   }
 
   const { error } = await supabaseAdmin.from("products").update(productData).eq("id", id);
