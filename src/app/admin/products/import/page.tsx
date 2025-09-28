@@ -23,6 +23,12 @@ export default function ImportProductsPage() {
   const [loading, setLoading] = useState(false);
   const [log, setLog] = useState<string>("");
   const [draftOnAnomalies, setDraftOnAnomalies] = useState(true);
+  // CJ tab state
+  const [cjKeyword, setCjKeyword] = useState("");
+  const [cjPid, setCjPid] = useState("");
+  const [cjLoading, setCjLoading] = useState(false);
+  const [cjResults, setCjResults] = useState<any[] | null>(null);
+  const [cjMessage, setCjMessage] = useState<string>("");
 
   function mapRowsToPayload(rows: any[]) {
     return rows.map((r) => ({
@@ -195,6 +201,66 @@ export default function ImportProductsPage() {
           </details>
         </div>
       )}
+
+      {/* CJ Import Section */}
+      <div className="mt-10 border-t pt-6 space-y-4">
+        <h2 className="text-xl font-semibold">CJ Import</h2>
+        <p className="text-sm opacity-80">ابحث بالـ PID أو كلمة مفتاحية، ثم استورد المنتج (يشمل الصور/الفيديو/المقاسات/المخزون). يتطلب إعداد CJ_ACCESS_TOKEN.</p>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <input className="border rounded p-2 flex-1" placeholder="PID" value={cjPid} onChange={(e) => setCjPid(e.target.value)} />
+          <input className="border rounded p-2 flex-1" placeholder="Keyword" value={cjKeyword} onChange={(e) => setCjKeyword(e.target.value)} />
+          <button onClick={handleCjSearch} disabled={cjLoading} className="px-4 py-2 bg-emerald-600 text-white rounded disabled:opacity-50">{cjLoading ? 'جارٍ البحث…' : 'Search CJ'}</button>
+        </div>
+        {cjMessage && <div className="text-sm text-slate-600">{cjMessage}</div>}
+        {Array.isArray(cjResults) && cjResults.length > 0 && (
+          <div className="space-y-4">
+            {cjResults.map((p, idx) => (
+              <div key={idx} className="rounded border p-3">
+                <div className="flex items-start gap-3">
+                  <div className="grid grid-cols-4 gap-2 w-1/2 pr-2">
+                    {(p.images || []).slice(0, 8).map((u: string, i: number) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img key={i} src={u} alt="" className="aspect-square w-full object-cover rounded bg-slate-100" />
+                    ))}
+                    {p.videoUrl ? (
+                      <div className="col-span-4 text-xs text-emerald-700">Video: نعم</div>
+                    ) : null}
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-medium">{p.name}</div>
+                    <div className="text-xs text-slate-500">PID: {p.productId} · From: {p.originArea || '—'} ({p.originCountryCode || '—'})</div>
+                    <div className="overflow-auto mt-2">
+                      <table className="min-w-[360px] text-xs">
+                        <thead>
+                          <tr className="bg-muted">
+                            <th className="p-1 text-left">Size</th>
+                            <th className="p-1 text-right">Price</th>
+                            <th className="p-1 text-right">Stock</th>
+                            <th className="p-1 text-left">SKU</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(p.variants || []).map((v: any, vi: number) => (
+                            <tr key={vi} className="border-t">
+                              <td className="p-1">{v.size || '-'}</td>
+                              <td className="p-1 text-right">{v.price ?? '—'}</td>
+                              <td className="p-1 text-right">{v.stock ?? '—'}</td>
+                              <td className="p-1">{v.cjSku || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="mt-2">
+                      <button onClick={() => handleCjImportOne(idx)} disabled={cjLoading} className="px-3 py-1 bg-blue-600 text-white rounded disabled:opacity-50">{cjLoading ? 'جارٍ الاستيراد…' : 'Import'}</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {log && (
         <pre className="bg-black text-green-300 text-xs p-3 rounded overflow-auto max-h-80">{log}</pre>
