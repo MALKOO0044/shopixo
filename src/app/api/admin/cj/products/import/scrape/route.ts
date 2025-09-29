@@ -97,6 +97,16 @@ export async function GET(req: Request) {
           is_active: false,
         };
 
+        // Omit cj_product_id if column missing
+        try {
+          const probeCj = await supabase.from('products').select('cj_product_id').limit(1);
+          if (probeCj.error) {
+            delete productPayload.cj_product_id;
+          }
+        } catch {
+          delete productPayload.cj_product_id;
+        }
+
         // Omit is_active if column missing
         try {
           const probeActive = await supabase.from('products').select('is_active').limit(1);
