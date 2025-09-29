@@ -1,4 +1,8 @@
 import { NextResponse } from 'next/server';
+
+// Ensure this route is always dynamic and not cached at the edge
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 import { createClient } from '@supabase/supabase-js';
 import { slugify } from '@/lib/utils/slug';
 
@@ -10,6 +14,20 @@ function getSupabaseAdmin() {
 }
 
 function uniq<T>(arr: T[]): T[] { return Array.from(new Set(arr)); }
+
+async function omitMissingProductColumns(admin: any, payload: Record<string, any>, cols: string[]) {
+  for (const c of cols) {
+    if (!(c in payload)) continue;
+    try {
+      const probe = await admin.from('products').select(c).limit(1);
+      // If Supabase reports error for the column, remove it from payload
+      // @ts-ignore
+      if (probe.error) delete payload[c];
+    } catch {
+      delete payload[c];
+    }
+  }
+}
 
 function extractFromHtml(html: string, pageUrl: string) {
   // Title: og:title > <title>
@@ -77,25 +95,43 @@ export async function GET(req: Request) {
 
         const baseSlug = await ensureUniqueSlug(supabase, ext.title);
         const productPayload: any = {
+          // Start with the most common columns only
           title: ext.title,
           slug: baseSlug,
-          description: '',
           price: 0,
-          images: ext.images,
           category: 'Women',
           stock: 0,
-          video_url: null,
-          processing_time_hours: null,
-          delivery_time_hours: null,
-          origin_area: null,
-          origin_country_code: null,
-          free_shipping: true,
-          inventory_shipping_fee: 0,
-          last_mile_fee: 0,
-          cj_product_id: ext.numericId || null,
-          shipping_from: null,
-          is_active: false,
         };
+
+        // Add optional fields that we will prune if absent
+        productPayload.description = '';
+        productPayload.images = ext.images;
+        productPayload.video_url = null;
+        productPayload.processing_time_hours = null;
+        productPayload.delivery_time_hours = null;
+        productPayload.origin_area = null;
+        productPayload.origin_country_code = null;
+        productPayload.free_shipping = true;
+        productPayload.inventory_shipping_fee = 0;
+        productPayload.last_mile_fee = 0;
+        productPayload.cj_product_id = ext.numericId || null;
+        productPayload.shipping_from = null;
+        productPayload.is_active = false;
+
+        // Omit optional columns that may not exist in this schema
+        await omitMissingProductColumns(supabase, productPayload, [
+          'video_url',
+          'processing_time_hours',
+          'delivery_time_hours',
+          'origin_area',
+          'origin_country_code',
+          'free_shipping',
+          'inventory_shipping_fee',
+          'last_mile_fee',
+          'shipping_from',
+          'description',
+          'images',
+        ]);
 
         // Omit cj_product_id if column missing
         try {
@@ -111,24 +147,46 @@ export async function GET(req: Request) {
         try {
           const probeActive = await supabase.from('products').select('is_active').limit(1);
           if (probeActive.error) {
-            const { is_active, ...rest } = productPayload;
-            Object.assign(productPayload, rest);
             delete productPayload.is_active;
           }
         } catch {
-          const { is_active, ...rest } = productPayload;
-          Object.assign(productPayload, rest);
           delete productPayload.is_active;
         }
 
-        // Insert product
+        // Insert with base columns only to avoid schema issues
+        const baseInsert = {
+          title: productPayload.title,
+          slug: productPayload.slug,
+          price: productPayload.price,
+          category: productPayload.category,
+          stock: productPayload.stock,
+        } as any;
+
         const { data: ins, error: insErr } = await supabase
           .from('products')
-          .insert(productPayload)
+          .insert(baseInsert)
           .select('id')
           .single();
         if (insErr || !ins) throw insErr || new Error('Failed to insert product');
         const productId = ins.id as number;
+
+        // Optional update with pruned fields if any remain
+        const optionalUpdate: Record<string, any> = { ...productPayload };
+        delete optionalUpdate.title;
+        delete optionalUpdate.slug;
+        delete optionalUpdate.price;
+        delete optionalUpdate.category;
+        delete optionalUpdate.stock;
+
+        await omitMissingProductColumns(supabase, optionalUpdate, [
+          'images', 'description', 'video_url', 'processing_time_hours', 'delivery_time_hours', 'origin_area',
+          'origin_country_code', 'free_shipping', 'inventory_shipping_fee', 'last_mile_fee', 'shipping_from',
+          'cj_product_id', 'is_active'
+        ]);
+        const keysLeft = Object.keys(optionalUpdate);
+        if (keysLeft.length > 0) {
+          await supabase.from('products').update(optionalUpdate).eq('id', productId);
+        }
 
         // One default variant placeholder; will be enriched later by API
         const { error: vErr } = await supabase
@@ -142,8 +200,8 @@ export async function GET(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, imported: results.filter(r => r.ok).length, results });
+    return NextResponse.json({ ok: true, version: 'scrape-v3', imported: results.filter(r => r.ok).length, results }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || 'Scrape import failed' }, { status: 500 });
+    return NextResponse.json({ ok: false, version: 'scrape-v3', error: e?.message || 'Scrape import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }
