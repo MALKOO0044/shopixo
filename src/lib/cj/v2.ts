@@ -173,15 +173,37 @@ async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
 // Query by keyword or PID (CJ sometimes exposes myProduct query); we attempt flexible endpoints.
 export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?: string }): Promise<any> {
   const { pid, keyword } = input;
-  // Try myProduct/query by keyword first when keyword present
-  if (keyword) {
-    return cjFetch<any>(`/product/myProduct/query?keyword=${encodeURIComponent(keyword)}&pageSize=10&pageNumber=1`);
+  const term = keyword || pid;
+  if (!term) throw new Error('Missing pid or keyword');
+
+  const qsKeyword = `keyword=${encodeURIComponent(term)}&pageSize=10&pageNumber=1`;
+  const qsList = `keyWords=${encodeURIComponent(term)}&pageSize=10&pageNum=1`;
+  const endpoints = [
+    `/product/myProduct/query?${qsKeyword}`,
+    `/product/query?${qsKeyword}`,
+    `/product/list?${qsList}`,
+  ];
+
+  const collected: any[] = [];
+  for (const ep of endpoints) {
+    try {
+      const r = await cjFetch<any>(ep);
+      const arr = Array.isArray(r?.data?.content)
+        ? r.data.content
+        : Array.isArray(r?.content)
+          ? r.content
+          : Array.isArray(r?.data)
+            ? r.data
+            : Array.isArray(r)
+              ? r
+              : [];
+      for (const it of arr) collected.push(it);
+      // If we already have hits, we can stop early
+      if (collected.length > 0) break;
+    } catch {}
   }
-  // Try list with keyword=PID as a workaround
-  if (pid) {
-    return cjFetch<any>(`/product/myProduct/query?keyword=${encodeURIComponent(pid)}&pageSize=10&pageNumber=1`);
-  }
-  throw new Error('Missing pid or keyword');
+
+  return { code: 200, data: { content: collected } };
 }
 
 // Attempt to map a CJ response item to our internal structure.
