@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 import { createClient } from '@supabase/supabase-js';
 import { queryProductByPidOrKeyword, mapCjItemToProductLike, type CjProductLike } from '@/lib/cj/v2';
 import { slugify } from '@/lib/utils/slug';
@@ -8,6 +11,41 @@ function getSupabaseAdmin() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
   return createClient(url, key);
+}
+
+async function columnExists(admin: any, table: string, col: string): Promise<boolean> {
+  try {
+    const probe = await admin.from(table).select(col).limit(1);
+    // @ts-ignore
+    if (probe.error) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function omitMissingProductColumns(admin: any, payload: Record<string, any>, cols: string[]) {
+  for (const c of cols) {
+    if (!(c in payload)) continue;
+    try {
+      const probe = await admin.from('products').select(c).limit(1);
+      // @ts-ignore
+      if (probe.error) delete payload[c];
+    } catch {
+      delete payload[c];
+    }
+  }
+}
+
+async function productVariantsTableExists(admin: any): Promise<boolean> {
+  try {
+    const probe = await admin.from('product_variants').select('product_id').limit(1);
+    // @ts-ignore
+    if (probe.error) return false;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function extractPidFromUrl(u?: string | null): string | undefined {
@@ -74,6 +112,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: 'Provide pid=... or url=... (supports multiple)' }, { status: 400 });
     }
 
+    // Optional pricing params
+    const marginPct = Math.max(0, Number(searchParams.get('marginPct') || '0'));
+    const shippingSar = Math.max(0, Number(searchParams.get('shippingSar') || '0'));
+
     // 1) Fetch CJ items by PID
     const fetched: CjProductLike[] = [];
     for (const pid of Array.from(pids)) {
@@ -104,25 +146,36 @@ export async function GET(req: Request) {
 
     for (const cj of fetched) {
       try {
-        const { data: existing } = await supabase
-          .from('products')
-          .select('id, slug')
-          .eq('cj_product_id', cj.productId)
-          .maybeSingle();
+        let existing: any = null;
+        if (await columnExists(supabase, 'products', 'cj_product_id')) {
+          const resp = await supabase
+            .from('products')
+            .select('id, slug')
+            .eq('cj_product_id', cj.productId)
+            .maybeSingle();
+          existing = resp.data || null;
+        }
 
         const baseSlug = await ensureUniqueSlug(supabase, cj.name);
         const priceCandidates = (cj.variants || []).map((v) => (typeof v.price === 'number' ? v.price : NaN)).filter((n) => !isNaN(n));
-        const defaultPrice = priceCandidates.length > 0 ? Math.min(...priceCandidates) : 0;
+        const baseCost = priceCandidates.length > 0 ? Math.min(...priceCandidates) : 0;
+        const defaultPrice = marginPct > 0 || shippingSar > 0
+          ? Math.round((baseCost + shippingSar) * (1 + marginPct))
+          : baseCost;
         const totalStock = (cj.variants || []).reduce((acc, v) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0);
 
         let productPayload: any = {
           title: cj.name,
           slug: existing?.slug || baseSlug,
-          description: '',
           price: defaultPrice,
-          images: cj.images || [],
           category: 'Women',
           stock: totalStock,
+        };
+
+        // optional fields
+        const optional: Record<string, any> = {
+          description: '',
+          images: cj.images || [],
           video_url: cj.videoUrl || null,
           processing_time_hours: null,
           delivery_time_hours: cj.deliveryTimeHours ?? null,
@@ -136,28 +189,22 @@ export async function GET(req: Request) {
           is_active: true,
         };
 
-        try {
-          const probeActive = await supabase.from('products').select('is_active').limit(1);
-          if (probeActive.error) {
-            const { is_active, ...rest } = productPayload;
-            productPayload = rest;
-          }
-        } catch {
-          const { is_active, ...rest } = productPayload;
-          productPayload = rest;
-        }
+        // Prune optional fields that do not exist in schema
+        await omitMissingProductColumns(supabase, optional, [
+          'description','images','video_url','processing_time_hours','delivery_time_hours','origin_area','origin_country_code',
+          'free_shipping','inventory_shipping_fee','last_mile_fee','shipping_from','cj_product_id','is_active'
+        ]);
 
         let productId: number;
         if (existing?.id) {
           const { data: upd, error: upErr } = await supabase
             .from('products')
-            .update(productPayload)
+            .update({ ...productPayload, ...optional })
             .eq('id', existing.id)
             .select('id')
             .single();
           if (upErr || !upd) throw upErr || new Error('Failed to update product');
           productId = upd.id as number;
-          await supabase.from('product_variants').delete().eq('product_id', productId);
         } else {
           const { data: ins, error: insErr } = await supabase
             .from('products')
@@ -168,19 +215,27 @@ export async function GET(req: Request) {
           productId = ins.id as number;
         }
 
-        const variantsRows = (cj.variants || [])
-          .filter((v) => v && (v.size || v.cjSku))
-          .map((v) => ({
-            product_id: productId,
-            option_name: 'Size',
-            option_value: v.size || '-',
-            cj_sku: v.cjSku || null,
-            price: typeof v.price === 'number' ? v.price : null,
-            stock: typeof v.stock === 'number' ? v.stock : 0,
-          }));
-        if (variantsRows.length > 0) {
-          const { error: vErr } = await supabase.from('product_variants').insert(variantsRows);
-          if (vErr) throw vErr;
+        // Optional update with pruned optional fields
+        if (Object.keys(optional).length > 0) {
+          await supabase.from('products').update(optional).eq('id', productId);
+        }
+
+        // Variants: only if table exists
+        if (await productVariantsTableExists(supabase)) {
+          const variantsRows = (cj.variants || [])
+            .filter((v) => v && (v.size || v.cjSku))
+            .map((v) => ({
+              product_id: productId,
+              option_name: 'Size',
+              option_value: v.size || '-',
+              cj_sku: v.cjSku || null,
+              price: typeof v.price === 'number' ? v.price : null,
+              stock: typeof v.stock === 'number' ? v.stock : 0,
+            }));
+          if (variantsRows.length > 0) {
+            const { error: vErr } = await supabase.from('product_variants').insert(variantsRows);
+            if (vErr) throw vErr;
+          }
         }
 
         try {
@@ -193,8 +248,8 @@ export async function GET(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, imported: results.filter(r => r.ok).length, results });
+    return NextResponse.json({ ok: true, version: 'quick-v2', imported: results.filter(r => r.ok).length, results }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || 'Quick import failed' }, { status: 500 });
+    return NextResponse.json({ ok: false, version: 'quick-v2', error: e?.message || 'Quick import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }

@@ -29,6 +29,36 @@ async function omitMissingProductColumns(admin: any, payload: Record<string, any
   }
 }
 
+async function productVariantsTableExists(admin: any): Promise<boolean> {
+  try {
+    const probe = await admin.from('product_variants').select('product_id').limit(1);
+    // @ts-ignore
+    if (probe.error) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeUrl(u: string): string {
+  try {
+    const url = new URL(u);
+    url.hash = '';
+    url.search = '';
+    url.protocol = 'https:';
+    return url.toString();
+  } catch { return u; }
+}
+
+function sanitizeTitle(t: string): string {
+  let s = t.trim();
+  s = s.replace(/\s*-\s*CJDropshipping\s*$/i, '');
+  s = s.replace(/\s*CJDropshipping\s*$/i, '');
+  s = s.replace(/\s*-\s*Cj\s*$/i, '');
+  s = s.replace(/\s{2,}/g, ' ').trim();
+  return s;
+}
+
 function extractFromHtml(html: string, pageUrl: string) {
   // Title: og:title > <title>
   let title = '';
@@ -39,23 +69,77 @@ function extractFromHtml(html: string, pageUrl: string) {
     if (t && t[1]) title = t[1].trim();
   }
   if (!title) title = 'Untitled';
+  title = sanitizeTitle(title);
 
-  // Images: pick common CJ CDN patterns and general img/src
-  const imgRegex = /(https?:\/\/(?:cc|cf)[^\s"'<>]+\.(?:jpg|jpeg|png|webp))/ig;
-  const imgRegex2 = /(https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp))(?:\?[^\s"'<>]*)?/ig;
+  // Images: parse <img src|data-src> and filter to product media
   const imgs: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = imgRegex.exec(html)) && imgs.length < 30) { imgs.push(m[1]); }
-  if (imgs.length < 6) {
-    while ((m = imgRegex2.exec(html)) && imgs.length < 30) { imgs.push(m[1]); }
+  const attrImgs = html.matchAll(/<img[^>]+(?:data-src|src)=["']([^"']+\.(?:jpg|jpeg|png|webp))(?:\?[^"']*)?["'][^>]*>/ig);
+  for (const m of attrImgs) {
+    if (typeof m[1] === 'string') imgs.push(normalizeUrl(m[1]));
   }
-  const images = uniq(imgs).slice(0, 12);
+  // Also catch direct URLs
+  const directImgs = html.matchAll(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"'<>]*)?/ig);
+  for (const m of directImgs) { if (typeof m[0] === 'string') imgs.push(normalizeUrl(m[0])); }
+
+  // Filter out icons/logos/ui
+  const deny = /(sprite|icon|favicon|logo|placeholder|blank|loading|alipay|wechat|whatsapp|kefu|service|avatar|thumb|thumbnail|small|tiny|mini|sizechart|chart|table|guide)/i;
+  const allowHost = /(cjdropshipping|aliyuncs|alicdn|oss-)/i;
+  function isSmall(u: string) {
+    // match -100x100 etc
+    const m = u.match(/-(\d{2,4})x(\d{2,4})(?=\.)/i);
+    if (m) {
+      const w = Number(m[1]);
+      const h = Number(m[2]);
+      if (w < 300 || h < 300) return true;
+    }
+    // query hints
+    const qm = u.match(/[?&](?:w|width|h|height)=(\d{2,4})/i);
+    if (qm && Number(qm[1]) < 300) return true;
+    return false;
+  }
+  function normKey(u: string) {
+    try {
+      const url = new URL(u);
+      const name = url.pathname.split('/').pop() || u;
+      return name.toLowerCase().replace(/-\d{2,4}x\d{2,4}(?=\.)/, '');
+    } catch { return u; }
+  }
+  const seen = new Set<string>();
+  const filtered: string[] = [];
+  for (const u of imgs) {
+    if (deny.test(u)) continue;
+    if (!allowHost.test(u)) continue;
+    if (isSmall(u)) continue;
+    const key = normKey(u);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    filtered.push(u);
+    if (filtered.length >= 8) break;
+  }
+  const images = filtered;
+
+  // Video: try og:video, <video src>, <source src>
+  let videoUrl: string | null = null;
+  const ogv = html.match(/<meta\s+property=["']og:video["']\s+content=["']([^"']+)["']/i);
+  if (ogv && ogv[1]) videoUrl = normalizeUrl(ogv[1]);
+  if (!videoUrl) {
+    const v1 = html.match(/<video[^>]+src=["']([^"']+\.(?:mp4|m3u8))(?:\?[^"']*)?["']/i);
+    if (v1 && v1[1]) videoUrl = normalizeUrl(v1[1]);
+  }
+  if (!videoUrl) {
+    const v2 = html.match(/<source[^>]+src=["']([^"']+\.(?:mp4|m3u8))(?:\?[^"']*)?["']/i);
+    if (v2 && v2[1]) videoUrl = normalizeUrl(v2[1]);
+  }
+  if (!videoUrl) {
+    const jv = html.match(/["']videoUrl["']\s*[:=]\s*["'](https?:[^"']+\.(?:mp4|m3u8))["']/i);
+    if (jv && jv[1]) videoUrl = normalizeUrl(jv[1]);
+  }
 
   // Attempt to extract numeric id from URL pattern p-123456...html
   const np = pageUrl.match(/p-([0-9]{6,})/i);
   const numericId = np ? np[1] : undefined;
 
-  return { title, images, numericId };
+  return { title, images, numericId, videoUrl };
 }
 
 async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
@@ -85,6 +169,8 @@ export async function GET(req: Request) {
     if (urlsCsv) for (const u of urlsCsv.split(',').map((s) => s.trim()).filter(Boolean)) urls.add(u);
     if (urls.size === 0) return NextResponse.json({ ok: false, error: 'Provide url=... (supports multiple)' }, { status: 400 });
 
+    const priceParam = Number(searchParams.get('price') || NaN);
+
     const results: any[] = [];
 
     for (const u of Array.from(urls)) {
@@ -98,7 +184,7 @@ export async function GET(req: Request) {
           // Start with the most common columns only
           title: ext.title,
           slug: baseSlug,
-          price: 0,
+          price: Number.isFinite(priceParam) && priceParam > 0 ? Math.round(priceParam) : 0,
           category: 'Women',
           stock: 0,
         };
@@ -106,7 +192,7 @@ export async function GET(req: Request) {
         // Add optional fields that we will prune if absent
         productPayload.description = '';
         productPayload.images = ext.images;
-        productPayload.video_url = null;
+        productPayload.video_url = ext.videoUrl || null;
         productPayload.processing_time_hours = null;
         productPayload.delivery_time_hours = null;
         productPayload.origin_area = null;
@@ -188,13 +274,17 @@ export async function GET(req: Request) {
           await supabase.from('products').update(optionalUpdate).eq('id', productId);
         }
 
-        // One default variant placeholder; will be enriched later by API
-        const { error: vErr } = await supabase
-          .from('product_variants')
-          .insert([{ product_id: productId, option_name: 'Size', option_value: '-', cj_sku: null, price: null, stock: 0 }]);
-        if (vErr) throw vErr;
+        let variantsInserted = false;
+        if (await productVariantsTableExists(supabase)) {
+          // One default variant placeholder; will be enriched later by API
+          const { error: vErr } = await supabase
+            .from('product_variants')
+            .insert([{ product_id: productId, option_name: 'Size', option_value: '-', cj_sku: null, price: null, stock: 0 }]);
+          if (vErr) throw vErr;
+          variantsInserted = true;
+        }
 
-        results.push({ ok: true, productId, url: u, title: ext.title, images: ext.images.length });
+        results.push({ ok: true, productId, url: u, title: ext.title, images: ext.images.length, variantsInserted });
       } catch (e: any) {
         results.push({ ok: false, url: u, error: e?.message || String(e) });
       }
