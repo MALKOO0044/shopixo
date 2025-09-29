@@ -178,10 +178,27 @@ export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?
   // If PID provided, hit the exact PID endpoint first
   if (pid) {
     try {
-      const r = await cjFetch<any>(`/product/query?pid=${encodeURIComponent(pid)}`);
-      // Normalize to array content
-      const one = r?.data || r?.content || r;
-      const content = one ? [one] : [];
+      const isNumericPid = /^[0-9]{16,}$/.test(pid);
+      let guidPid = pid;
+      if (isNumericPid) {
+        // Resolve GUID PID by searching product list with the numeric web id
+        const lr = await cjFetch<any>(`/product/list?keyWords=${encodeURIComponent(pid)}&pageSize=5&pageNum=1`);
+        const cand = (Array.isArray(lr?.data?.list) ? lr.data.list : []) as any[];
+        if (cand.length > 0 && cand[0]?.pid) {
+          guidPid = String(cand[0].pid);
+        }
+      }
+
+      // Fetch product details and variants using GUID pid
+      const pr = await cjFetch<any>(`/product/query?pid=${encodeURIComponent(guidPid)}`);
+      let base = pr?.data || pr?.content || pr || null;
+      try {
+        const vr = await cjFetch<any>(`/product/variant/query?pid=${encodeURIComponent(guidPid)}`);
+        const vlist = Array.isArray(vr?.data) ? vr.data : [];
+        if (base) base = { ...base, variantList: vlist };
+      } catch { /* ignore variant errors */ }
+
+      const content = base ? [base] : [];
       return { code: 200, data: { content } };
     } catch (e) {
       // Fall through to keyword mode as a last resort
@@ -224,9 +241,9 @@ export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?
 // Attempt to map a CJ response item to our internal structure.
 export function mapCjItemToProductLike(item: any): CjProductLike | null {
   if (!item) return null;
-  const productId = String(item.productId || item.id || item.vid || item.sku || '');
+  const productId = String(item.productId || item.pid || item.id || item.vid || item.sku || '');
   if (!productId) return null;
-  const name = String(item.nameEn || item.name || item.title || 'Untitled');
+  const name = String(item.nameEn || item.productName || item.name || item.title || 'Untitled');
   const bigImage = (item.bigImage || item.image || null) as string | null;
   const imageList: string[] = [];
   if (Array.isArray(item.imageList)) {

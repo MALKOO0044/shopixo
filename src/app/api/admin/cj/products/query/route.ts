@@ -15,6 +15,27 @@ function extractPidFromUrl(u?: string | null): string | undefined {
   }
 }
 
+async function extractGuidPidFromCjHtml(u?: string | null): Promise<string | undefined> {
+  if (!u) return undefined;
+  try {
+    const res = await fetch(u, { method: 'GET', cache: 'no-store' });
+    const html = await res.text();
+    const patterns = [
+      /["']pid["']\s*[:=]\s*["']([0-9A-Fa-f\-]{32,36})["']/i,
+      /pid=([0-9A-Fa-f\-]{32,36})/i,
+      /["']productId["']\s*[:=]\s*["']([0-9A-Fa-f\-]{32,36})["']/i,
+      /data-pid=["']([0-9A-Fa-f\-]{32,36})["']/i,
+    ];
+    for (const re of patterns) {
+      const m = html.match(re);
+      if (m && m[1]) return m[1];
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -22,6 +43,10 @@ export async function GET(req: Request) {
     const keyword = searchParams.get('keyword') || undefined;
     const urlParam = searchParams.get('url') || undefined;
     if (!pid && urlParam) pid = extractPidFromUrl(urlParam);
+    if (!pid && urlParam) {
+      // Try fetching CJ product page and extract GUID pid
+      pid = await extractGuidPidFromCjHtml(urlParam);
+    }
 
     if (!pid && !keyword) {
       return NextResponse.json({ ok: false, error: 'Provide pid or keyword' }, { status: 400 });
