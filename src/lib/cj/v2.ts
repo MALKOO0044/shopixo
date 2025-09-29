@@ -173,9 +173,23 @@ async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
 // Query by keyword or PID (CJ sometimes exposes myProduct query); we attempt flexible endpoints.
 export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?: string }): Promise<any> {
   const { pid, keyword } = input;
-  const term = keyword || pid;
-  if (!term) throw new Error('Missing pid or keyword');
+  if (!pid && !keyword) throw new Error('Missing pid or keyword');
 
+  // If PID provided, hit the exact PID endpoint first
+  if (pid) {
+    try {
+      const r = await cjFetch<any>(`/product/query?pid=${encodeURIComponent(pid)}`);
+      // Normalize to array content
+      const one = r?.data || r?.content || r;
+      const content = one ? [one] : [];
+      return { code: 200, data: { content } };
+    } catch (e) {
+      // Fall through to keyword mode as a last resort
+    }
+  }
+
+  // Keyword search: try multiple endpoints
+  const term = String(keyword || pid);
   const qsKeyword = `keyword=${encodeURIComponent(term)}&pageSize=10&pageNumber=1`;
   const qsList = `keyWords=${encodeURIComponent(term)}&pageSize=10&pageNum=1`;
   const endpoints = [
@@ -188,17 +202,18 @@ export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?
   for (const ep of endpoints) {
     try {
       const r = await cjFetch<any>(ep);
-      const arr = Array.isArray(r?.data?.content)
-        ? r.data.content
-        : Array.isArray(r?.content)
-          ? r.content
-          : Array.isArray(r?.data)
-            ? r.data
-            : Array.isArray(r)
-              ? r
-              : [];
+      const arr = Array.isArray(r?.data?.list)
+        ? r.data.list
+        : Array.isArray(r?.data?.content)
+          ? r.data.content
+          : Array.isArray(r?.content)
+            ? r.content
+            : Array.isArray(r?.data)
+              ? r.data
+              : Array.isArray(r)
+                ? r
+                : [];
       for (const it of arr) collected.push(it);
-      // If we already have hits, we can stop early
       if (collected.length > 0) break;
     } catch {}
   }

@@ -1,11 +1,27 @@
 import { NextResponse } from 'next/server';
 import { queryProductByPidOrKeyword, mapCjItemToProductLike } from '@/lib/cj/v2';
 
+function extractPidFromUrl(u?: string | null): string | undefined {
+  if (!u) return undefined;
+  try {
+    const url = new URL(u);
+    const cand = url.searchParams.get('pid') || url.searchParams.get('productId') || url.searchParams.get('id');
+    if (cand) return cand;
+    // Fallback: find a long GUID/ID in the URL
+    const m = url.href.match(/[0-9A-Fa-f-]{16,}/);
+    return m?.[0];
+  } catch {
+    return undefined;
+  }
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const pid = searchParams.get('pid') || undefined;
+    let pid = searchParams.get('pid') || undefined;
     const keyword = searchParams.get('keyword') || undefined;
+    const urlParam = searchParams.get('url') || undefined;
+    if (!pid && urlParam) pid = extractPidFromUrl(urlParam);
 
     if (!pid && !keyword) {
       return NextResponse.json({ ok: false, error: 'Provide pid or keyword' }, { status: 400 });
@@ -13,16 +29,18 @@ export async function GET(req: Request) {
 
     const raw = await queryProductByPidOrKeyword({ pid, keyword });
 
-    // Try to normalize CJ response to array of items
-    const itemsRaw = Array.isArray(raw?.data?.content)
-      ? raw.data.content
-      : Array.isArray(raw?.content)
-        ? raw.content
-        : Array.isArray(raw?.data)
-          ? raw.data
-          : Array.isArray(raw)
-            ? raw
-            : [];
+    // Normalize CJ response to an array: supports data.list, data.content, content, data (array), or single object
+    const itemsRaw = Array.isArray(raw?.data?.list)
+      ? raw.data.list
+      : Array.isArray(raw?.data?.content)
+        ? raw.data.content
+        : Array.isArray(raw?.content)
+          ? raw.content
+          : Array.isArray(raw?.data)
+            ? raw.data
+            : Array.isArray(raw)
+              ? raw
+              : (raw?.data ? [raw.data] : []);
 
     const items = (itemsRaw as any[])
       .map((it) => mapCjItemToProductLike(it))

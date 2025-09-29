@@ -26,6 +26,7 @@ export default function ImportProductsPage() {
   // CJ tab state
   const [cjKeyword, setCjKeyword] = useState("");
   const [cjPid, setCjPid] = useState("");
+  const [cjUrl, setCjUrl] = useState("");
   const [cjLoading, setCjLoading] = useState(false);
   const [cjResults, setCjResults] = useState<any[] | null>(null);
   const [cjMessage, setCjMessage] = useState<string>("");
@@ -100,6 +101,7 @@ export default function ImportProductsPage() {
       const url = new URL('/api/admin/cj/products/query', window.location.origin);
       if (cjPid.trim()) url.searchParams.set('pid', cjPid.trim());
       if (cjKeyword.trim()) url.searchParams.set('keyword', cjKeyword.trim());
+      if (cjUrl.trim()) url.searchParams.set('url', cjUrl.trim());
       const res = await fetch(url.toString(), { cache: 'no-store' });
       const data = await res.json();
       if (!res.ok || !data?.ok) throw new Error(data?.error || res.statusText);
@@ -247,10 +249,11 @@ export default function ImportProductsPage() {
       {/* CJ Import Section */}
       <div className="mt-10 border-t pt-6 space-y-4">
         <h2 className="text-xl font-semibold">CJ Import</h2>
-        <p className="text-sm opacity-80">ابحث بالـ PID أو كلمة مفتاحية، ثم استورد المنتج (يشمل الصور/الفيديو/المقاسات/المخزون). يتطلب إعداد CJ_ACCESS_TOKEN.</p>
+        <p className="text-sm opacity-80">ابحث بالـ PID أو كلمة مفتاحية أو الصق رابط منتج CJ، ثم استورد المنتج (يشمل الصور/الفيديو/المقاسات/المخزون). يحتاج تفعيل CJ_EMAIL و CJ_API_KEY في Vercel.</p>
         <div className="flex flex-col gap-3 sm:flex-row">
           <input className="border rounded p-2 flex-1" placeholder="PID" value={cjPid} onChange={(e) => setCjPid(e.target.value)} />
           <input className="border rounded p-2 flex-1" placeholder="Keyword" value={cjKeyword} onChange={(e) => setCjKeyword(e.target.value)} />
+          <input className="border rounded p-2 flex-1" placeholder="CJ Product URL" value={cjUrl} onChange={(e) => setCjUrl(e.target.value)} />
           <button onClick={handleCjSearch} disabled={cjLoading} className="px-4 py-2 bg-emerald-600 text-white rounded disabled:opacity-50">{cjLoading ? 'جارٍ البحث…' : 'Search CJ'}</button>
         </div>
         {cjMessage && <div className="text-sm text-slate-600">{cjMessage}</div>}

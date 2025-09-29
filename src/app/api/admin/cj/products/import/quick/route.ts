@@ -10,6 +10,19 @@ function getSupabaseAdmin() {
   return createClient(url, key);
 }
 
+function extractPidFromUrl(u?: string | null): string | undefined {
+  if (!u) return undefined;
+  try {
+    const url = new URL(u);
+    const cand = url.searchParams.get('pid') || url.searchParams.get('productId') || url.searchParams.get('id');
+    if (cand) return cand;
+    const m = url.href.match(/[0-9A-Fa-f-]{16,}/);
+    return m?.[0];
+  } catch {
+    return undefined;
+  }
+}
+
 async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
   const s = slugify(base);
   let candidate = s;
@@ -31,61 +44,65 @@ export async function GET(req: Request) {
     if (!supabase) return NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
 
     const { searchParams } = new URL(req.url);
-    const keywordsParam = searchParams.get('keywords') || '';
-    const limit = Math.max(1, Math.min(10, Number(searchParams.get('limit') || '2')));
 
-    const keywords = keywordsParam
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (keywords.length === 0) {
-      return NextResponse.json({ ok: false, error: 'Provide ?keywords=women%20dress,women%20blouse&limit=2' }, { status: 400 });
+    // Collect PIDs from multiple forms: pid=, pids=csv, url=, urls=csv
+    const pids = new Set<string>();
+
+    const pidParams = searchParams.getAll('pid');
+    for (const p of pidParams) if (p && p.trim()) pids.add(p.trim());
+
+    const pidsCsv = searchParams.get('pids');
+    if (pidsCsv) {
+      for (const p of pidsCsv.split(',').map((s) => s.trim()).filter(Boolean)) pids.add(p);
     }
 
-    // 1) Aggregate results from CJ for all keywords
-    const pool: any[] = [];
-    for (const kw of keywords) {
+    const urlParams = searchParams.getAll('url');
+    for (const u of urlParams) {
+      const pid = extractPidFromUrl(u);
+      if (pid) pids.add(pid);
+    }
+
+    const urlsCsv = searchParams.get('urls');
+    if (urlsCsv) {
+      for (const u of urlsCsv.split(',').map((s) => s.trim()).filter(Boolean)) {
+        const pid = extractPidFromUrl(u);
+        if (pid) pids.add(pid);
+      }
+    }
+
+    if (pids.size === 0) {
+      return NextResponse.json({ ok: false, error: 'Provide pid=... or url=... (supports multiple)' }, { status: 400 });
+    }
+
+    // 1) Fetch CJ items by PID
+    const fetched: CjProductLike[] = [];
+    for (const pid of Array.from(pids)) {
       try {
-        const raw = await queryProductByPidOrKeyword({ keyword: kw });
-        const itemsRaw = Array.isArray(raw?.data?.list)
-          ? raw.data.list
+        const raw = await queryProductByPidOrKeyword({ pid });
+        const itemRaw = Array.isArray(raw?.data?.list)
+          ? raw.data.list[0]
           : Array.isArray(raw?.data?.content)
-            ? raw.data.content
+            ? raw.data.content[0]
             : Array.isArray(raw?.content)
-              ? raw.content
+              ? raw.content[0]
               : Array.isArray(raw?.data)
-                ? raw.data
-                : Array.isArray(raw)
-                  ? raw
-                  : (raw?.data ? [raw.data] : []);
-        for (const it of itemsRaw) {
-          const mapped = mapCjItemToProductLike(it);
-          if (mapped) pool.push(mapped);
-        }
+                ? raw.data[0]
+                : (raw?.data || raw);
+        const mapped = mapCjItemToProductLike(itemRaw);
+        if (mapped) fetched.push(mapped);
       } catch (e) {
         // continue
       }
     }
 
-    // 2) Deduplicate by productId and take first N
-    const seen = new Set<string>();
-    const selected: CjProductLike[] = [];
-    for (const it of pool) {
-      if (!it.productId) continue;
-      if (seen.has(it.productId)) continue;
-      seen.add(it.productId);
-      selected.push(it);
-      if (selected.length >= limit) break;
+    if (fetched.length === 0) {
+      return NextResponse.json({ ok: false, error: 'No CJ products found for provided inputs' }, { status: 404 });
     }
 
-    if (selected.length === 0) {
-      return NextResponse.json({ ok: false, error: 'No CJ products found from given keywords' }, { status: 404 });
-    }
-
-    // 3) Import selected items (same logic as POST import route)
+    // 2) Import
     const results: any[] = [];
 
-    for (const cj of selected) {
+    for (const cj of fetched) {
       try {
         const { data: existing } = await supabase
           .from('products')
@@ -119,7 +136,6 @@ export async function GET(req: Request) {
           is_active: true,
         };
 
-        // Omit is_active if column missing
         try {
           const probeActive = await supabase.from('products').select('is_active').limit(1);
           if (probeActive.error) {
@@ -141,7 +157,6 @@ export async function GET(req: Request) {
             .single();
           if (upErr || !upd) throw upErr || new Error('Failed to update product');
           productId = upd.id as number;
-
           await supabase.from('product_variants').delete().eq('product_id', productId);
         } else {
           const { data: ins, error: insErr } = await supabase
@@ -178,8 +193,8 @@ export async function GET(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, selected: selected.map((s) => ({ productId: s.productId, name: s.name })), results });
+    return NextResponse.json({ ok: true, imported: results.filter(r => r.ok).length, results });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || 'Auto import failed' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || 'Quick import failed' }, { status: 500 });
   }
 }
