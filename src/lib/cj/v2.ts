@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { loadToken, saveToken } from '@/lib/integration/token-store';
 
 // CJ v2 client with token auth per docs:
 // - POST /authentication/getAccessToken { email, apiKey }
@@ -89,13 +90,23 @@ async function fetchNewAccessToken(): Promise<TokenState> {
     throw new Error(`getAccessToken failed: ${r?.message || 'Unknown error'}`);
   }
   const d = r.data || {};
-  return {
+  const out: TokenState = {
     accessToken: String(d.accessToken || ''),
     accessTokenExpiry: d.accessTokenExpiryDate || null,
     refreshToken: d.refreshToken || null,
     refreshTokenExpiry: d.refreshTokenExpiryDate || null,
     lastAuthCallMs: ms(),
   };
+  try {
+    await saveToken('cj', {
+      access_token: out.accessToken,
+      access_expiry: out.accessTokenExpiry || null,
+      refresh_token: out.refreshToken || null,
+      refresh_expiry: out.refreshTokenExpiry || null,
+      last_auth_call_at: new Date(out.lastAuthCallMs).toISOString(),
+    });
+  } catch {}
+  return out;
 }
 
 async function refreshAccessTokenState(state: TokenState): Promise<TokenState> {
@@ -105,13 +116,23 @@ async function refreshAccessTokenState(state: TokenState): Promise<TokenState> {
     throw new Error(`refreshAccessToken failed: ${r?.message || 'Unknown error'}`);
   }
   const d = r.data || {};
-  return {
+  const out: TokenState = {
     accessToken: String(d.accessToken || state.accessToken),
     accessTokenExpiry: d.accessTokenExpiryDate || state.accessTokenExpiry || null,
     refreshToken: d.refreshToken || state.refreshToken || null,
     refreshTokenExpiry: d.refreshTokenExpiryDate || state.refreshTokenExpiry || null,
     lastAuthCallMs: ms(),
   };
+  try {
+    await saveToken('cj', {
+      access_token: out.accessToken,
+      access_expiry: out.accessTokenExpiry || null,
+      refresh_token: out.refreshToken || null,
+      refresh_expiry: out.refreshTokenExpiry || null,
+      last_auth_call_at: new Date(out.lastAuthCallMs).toISOString(),
+    });
+  } catch {}
+  return out;
 }
 
 export async function getAccessToken(): Promise<string> {
@@ -123,6 +144,24 @@ export async function getAccessToken(): Promise<string> {
   if (tokenState && isNotExpired(tokenState.accessTokenExpiry)) {
     return tokenState.accessToken;
   }
+
+  // Try to load from DB token store
+  try {
+    const row = await loadToken('cj');
+    if (row?.access_token) {
+      const dbState: TokenState = {
+        accessToken: row.access_token,
+        accessTokenExpiry: row.access_expiry,
+        refreshToken: row.refresh_token,
+        refreshTokenExpiry: row.refresh_expiry,
+        lastAuthCallMs: row.last_auth_call_at ? Date.parse(row.last_auth_call_at) : 0,
+      };
+      tokenState = dbState;
+      if (isNotExpired(dbState.accessTokenExpiry)) {
+        return dbState.accessToken;
+      }
+    }
+  } catch {}
 
   // Try to refresh if we have a refreshToken and respect 5-min throttle
   if (tokenState && tokenState.refreshToken) {

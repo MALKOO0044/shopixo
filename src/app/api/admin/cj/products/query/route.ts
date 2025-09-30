@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { queryProductByPidOrKeyword, mapCjItemToProductLike } from '@/lib/cj/v2';
+import { ensureAdmin } from '@/lib/auth/admin-guard';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 function extractPidFromUrl(u?: string | null): string | undefined {
   if (!u) return undefined;
@@ -38,6 +42,8 @@ async function extractGuidPidFromCjHtml(u?: string | null): Promise<string | und
 
 export async function GET(req: Request) {
   try {
+    const guard = await ensureAdmin();
+    if (!guard.ok) return NextResponse.json({ ok: false, version: 'query-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
     const { searchParams } = new URL(req.url);
     let pid = searchParams.get('pid') || undefined;
     const keyword = searchParams.get('keyword') || undefined;
@@ -71,8 +77,8 @@ export async function GET(req: Request) {
       .map((it) => mapCjItemToProductLike(it))
       .filter(Boolean);
 
-    return NextResponse.json({ ok: true, count: items.length, items });
+    return NextResponse.json({ ok: true, version: 'query-v2', count: items.length, items }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || 'CJ query failed' }, { status: 500 });
+    return NextResponse.json({ ok: false, version: 'query-v2', error: e?.message || 'CJ query failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }

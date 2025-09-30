@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { queryProductByPidOrKeyword, mapCjItemToProductLike, type CjProductLike } from '@/lib/cj/v2';
 import { slugify } from '@/lib/utils/slug';
+import { ensureAdmin } from '@/lib/auth/admin-guard';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -27,6 +31,8 @@ async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
 
 export async function GET(req: Request) {
   try {
+    const guard = await ensureAdmin();
+    if (!guard.ok) return NextResponse.json({ ok: false, version: 'auto-import-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
     const supabase = getSupabaseAdmin();
     if (!supabase) return NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
 
@@ -84,6 +90,15 @@ export async function GET(req: Request) {
 
     // 3) Import selected items (same logic as POST import route)
     const results: any[] = [];
+
+    async function productVariantsTableExists(): Promise<boolean> {
+      try {
+        const probe = await supabase.from('product_variants').select('product_id').limit(1);
+        // @ts-ignore
+        if (probe.error) return false; return true;
+      } catch { return false; }
+    }
+    const hasVariantsTable = await productVariantsTableExists();
 
     for (const cj of selected) {
       try {
@@ -153,19 +168,21 @@ export async function GET(req: Request) {
           productId = ins.id as number;
         }
 
-        const variantsRows = (cj.variants || [])
-          .filter((v) => v && (v.size || v.cjSku))
-          .map((v) => ({
-            product_id: productId,
-            option_name: 'Size',
-            option_value: v.size || '-',
-            cj_sku: v.cjSku || null,
-            price: typeof v.price === 'number' ? v.price : null,
-            stock: typeof v.stock === 'number' ? v.stock : 0,
-          }));
-        if (variantsRows.length > 0) {
-          const { error: vErr } = await supabase.from('product_variants').insert(variantsRows);
-          if (vErr) throw vErr;
+        if (hasVariantsTable) {
+          const variantsRows = (cj.variants || [])
+            .filter((v) => v && (v.size || v.cjSku))
+            .map((v) => ({
+              product_id: productId,
+              option_name: 'Size',
+              option_value: v.size || '-',
+              cj_sku: v.cjSku || null,
+              price: typeof v.price === 'number' ? v.price : null,
+              stock: typeof v.stock === 'number' ? v.stock : 0,
+            }));
+          if (variantsRows.length > 0) {
+            const { error: vErr } = await supabase.from('product_variants').insert(variantsRows);
+            if (vErr) throw vErr;
+          }
         }
 
         try {
@@ -178,8 +195,8 @@ export async function GET(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, selected: selected.map((s) => ({ productId: s.productId, name: s.name })), results });
+    return NextResponse.json({ ok: true, version: 'auto-import-v2', selected: selected.map((s) => ({ productId: s.productId, name: s.name })), results }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || 'Auto import failed' }, { status: 500 });
+    return NextResponse.json({ ok: false, version: 'auto-import-v2', error: e?.message || 'Auto import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }

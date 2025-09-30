@@ -5,6 +5,7 @@ export const revalidate = 0;
 import { createClient } from '@supabase/supabase-js';
 import { queryProductByPidOrKeyword, mapCjItemToProductLike, type CjProductLike } from '@/lib/cj/v2';
 import { slugify } from '@/lib/utils/slug';
+import { ensureAdmin } from '@/lib/auth/admin-guard';
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -78,6 +79,8 @@ async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
 
 export async function GET(req: Request) {
   try {
+    const guard = await ensureAdmin();
+    if (!guard.ok) return NextResponse.json({ ok: false, version: 'quick-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
     const supabase = getSupabaseAdmin();
     if (!supabase) return NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
 
