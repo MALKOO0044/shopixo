@@ -53,9 +53,12 @@ function normalizeUrl(u: string): string {
 
 function sanitizeTitle(t: string): string {
   let s = t.trim();
-  s = s.replace(/\s*-\s*CJDropshipping\s*$/i, '');
-  s = s.replace(/\s*CJDropshipping\s*$/i, '');
-  s = s.replace(/\s*-\s*Cj\s*$/i, '');
+  // remove any occurrence of 'CJDropshipping' or 'CJ Dropshipping' (any case, with/without dash)
+  s = s.replace(/\b(cj\s*-?\s*dropshipping)\b/ig, '');
+  // remove trailing/leading separators left over
+  s = s.replace(/\s*-\s*$/g, '');
+  s = s.replace(/^\s*-\s*/g, '');
+  // collapse multiple spaces
   s = s.replace(/\s{2,}/g, ' ').trim();
   return s;
 }
@@ -82,8 +85,8 @@ function extractFromHtml(html: string, pageUrl: string) {
   const directImgs = html.matchAll(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"'<>]*)?/ig);
   for (const m of directImgs) { if (typeof m[0] === 'string') imgs.push(normalizeUrl(m[0])); }
 
-  // Filter out icons/logos/ui
-  const deny = /(sprite|icon|favicon|logo|placeholder|blank|loading|alipay|wechat|whatsapp|kefu|service|avatar|thumb|thumbnail|small|tiny|mini|sizechart|chart|table|guide)/i;
+  // Filter out icons/logos/ui/badges/flags/size-charts/etc.
+  const deny = /(sprite|icon|favicon|logo|placeholder|blank|loading|alipay|wechat|whatsapp|kefu|service|avatar|thumb|thumbnail|small|tiny|mini|sizechart|size\s*chart|chart|table|guide|tips|hot|badge|flag|promo|banner|sale|discount|qr|cm|inch)/i;
   const allowHost = /(cjdropshipping|aliyuncs|alicdn|oss-)/i;
   function isSmall(u: string) {
     // match -100x100 etc
@@ -91,11 +94,11 @@ function extractFromHtml(html: string, pageUrl: string) {
     if (m) {
       const w = Number(m[1]);
       const h = Number(m[2]);
-      if (w < 300 || h < 300) return true;
+      if (w < 512 || h < 512) return true;
     }
     // query hints
     const qm = u.match(/[?&](?:w|width|h|height)=(\d{2,4})/i);
-    if (qm && Number(qm[1]) < 300) return true;
+    if (qm && Number(qm[1]) < 512) return true;
     return false;
   }
   function normKey(u: string) {
@@ -173,6 +176,7 @@ export async function GET(req: Request) {
     if (urls.size === 0) return NextResponse.json({ ok: false, error: 'Provide url=... (supports multiple)' }, { status: 400 });
 
     const priceParam = Number(searchParams.get('price') || NaN);
+    const defaultPrice = Math.max(1, Number(process.env.DEFAULT_SCRAPE_PRICE_SAR || '69'));
 
     const results: any[] = [];
 
@@ -187,9 +191,9 @@ export async function GET(req: Request) {
           // Start with the most common columns only
           title: ext.title,
           slug: baseSlug,
-          price: Number.isFinite(priceParam) && priceParam > 0 ? Math.round(priceParam) : 0,
+          price: Number.isFinite(priceParam) && priceParam > 0 ? Math.round(priceParam) : defaultPrice,
           category: 'Women',
-          stock: 0,
+          stock: 100,
         };
 
         // Add optional fields that we will prune if absent
@@ -205,7 +209,7 @@ export async function GET(req: Request) {
         productPayload.last_mile_fee = 0;
         productPayload.cj_product_id = ext.numericId || null;
         productPayload.shipping_from = null;
-        productPayload.is_active = false;
+        productPayload.is_active = (productPayload.price > 0);
 
         // Omit optional columns that may not exist in this schema
         await omitMissingProductColumns(supabase, productPayload, [

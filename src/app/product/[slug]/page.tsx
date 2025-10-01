@@ -329,7 +329,7 @@ export default async function ProductPage({ params, searchParams }: { params: { 
             offers: {
               "@type": "Offer",
               url: `${getSiteUrl()}/product/${product.slug}`,
-              priceCurrency: process.env.NEXT_PUBLIC_CURRENCY || "USD",
+              priceCurrency: process.env.NEXT_PUBLIC_CURRENCY || "SAR",
               price: product.price,
               availability: product.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
             },
