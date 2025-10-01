@@ -44,7 +44,7 @@ export async function GET(req: Request) {
         .from('products')
         .select('id, cj_product_id, slug, title, price')
         .in('id', ids)
-        .is('cj_product_id', null, { negated: true });
+        .not('cj_product_id', 'is', null);
       products = data || [];
     } else {
       const { data } = await supabase
