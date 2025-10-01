@@ -91,14 +91,14 @@ export async function GET(req: Request) {
     // 3) Import selected items (same logic as POST import route)
     const results: any[] = [];
 
-    async function productVariantsTableExists(): Promise<boolean> {
+    async function productVariantsTableExists(admin: any): Promise<boolean> {
       try {
-        const probe = await supabase.from('product_variants').select('product_id').limit(1);
+        const probe = await admin.from('product_variants').select('product_id').limit(1);
         // @ts-ignore
         if (probe.error) return false; return true;
       } catch { return false; }
     }
-    const hasVariantsTable = await productVariantsTableExists();
+    const hasVariantsTable = await productVariantsTableExists(supabase);
 
     for (const cj of selected) {
       try {
