@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { hasTable } from '@/lib/db-features';
 
 export type ProviderKey = 'cj';
 
@@ -19,21 +20,10 @@ function getSupabaseAdmin() {
   return createClient(url, key);
 }
 
-async function tableExists(admin: any, table: string): Promise<boolean> {
-  try {
-    const probe = await admin.from(table).select('*').limit(1);
-    // @ts-ignore
-    if (probe.error) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function loadToken(provider: ProviderKey): Promise<TokenStateRow | null> {
   const admin = getSupabaseAdmin();
   if (!admin) return null;
-  if (!(await tableExists(admin, 'integration_tokens'))) return null;
+  if (!(await hasTable('integration_tokens'))) return null;
   try {
     const { data } = await admin
       .from('integration_tokens')
@@ -49,7 +39,7 @@ export async function loadToken(provider: ProviderKey): Promise<TokenStateRow | 
 export async function saveToken(provider: ProviderKey, row: Partial<TokenStateRow>): Promise<void> {
   const admin = getSupabaseAdmin();
   if (!admin) return;
-  if (!(await tableExists(admin, 'integration_tokens'))) return;
+  if (!(await hasTable('integration_tokens'))) return;
   try {
     const payload: TokenStateRow = {
       provider,

@@ -5,10 +5,13 @@ import crypto from 'crypto'
 export function middleware(req: NextRequest) {
   // Generate a per-request nonce
   const nonce = crypto.randomBytes(16).toString('base64')
+  // Generate a per-request id for logging correlation
+  const reqId = (req.headers.get('x-request-id') || req.headers.get('x-correlation-id')) ?? crypto.randomUUID()
 
   // Pass nonce to downstream server components via request headers
   const requestHeaders = new Headers(req.headers)
   requestHeaders.set('x-csp-nonce', nonce)
+  requestHeaders.set('x-request-id', reqId)
 
   const res = NextResponse.next({ request: { headers: requestHeaders } })
 
@@ -26,7 +29,7 @@ export function middleware(req: NextRequest) {
     "img-src 'self' data: blob: https:",
     "media-src 'self' data: blob: https:",
     "font-src 'self'",
-    `connect-src 'self' ${supabase} ${stripe} ${cloudinary} ${plausible} ${sentry}`,
+    `connect-src 'self' ${supabase} ${stripe} ${cloudinary} ${plausible} ${sentry} https://api.openai.com`,
     "frame-src https://*.stripe.com",
     "object-src 'none'",
     "base-uri 'self'",
@@ -35,6 +38,7 @@ export function middleware(req: NextRequest) {
   ].join('; ')
 
   res.headers.set('Content-Security-Policy', csp.replace(/\s{2,}/g, ' ').trim())
+  res.headers.set('x-request-id', reqId)
 
   return res
 }

@@ -66,6 +66,22 @@ begin
 end;
 $$;
 
+-- integration_tokens (for external provider tokens like CJ)
+create table if not exists public.integration_tokens (
+  provider text primary key,
+  access_token text null,
+  access_expiry timestamptz null,
+  refresh_token text null,
+  refresh_expiry timestamptz null,
+  last_auth_call_at timestamptz null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.integration_tokens enable row level security;
+drop policy if exists "Service role can manage integration_tokens" on public.integration_tokens;
+create policy "Service role can manage integration_tokens" on public.integration_tokens
+  for all using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
+
 -- CJ fulfillment and tracking fields on orders (idempotent)
 alter table if exists public.orders add column if not exists cj_order_no text null;
 alter table if exists public.orders add column if not exists shipping_status text null;

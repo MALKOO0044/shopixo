@@ -3,9 +3,12 @@ import { createClient } from '@supabase/supabase-js';
 import { queryProductByPidOrKeyword, mapCjItemToProductLike, type CjProductLike } from '@/lib/cj/v2';
 import { slugify } from '@/lib/utils/slug';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
+import { hasTable, hasColumn } from '@/lib/db-features';
+import { loggerForRequest } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const runtime = 'nodejs';
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -30,11 +33,20 @@ async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
 }
 
 export async function POST(req: Request) {
+  const log = loggerForRequest(req);
   try {
     const guard = await ensureAdmin();
-    if (!guard.ok) return NextResponse.json({ ok: false, version: 'import-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+    if (!guard.ok) {
+      const r = NextResponse.json({ ok: false, version: 'import-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
     const supabase = getSupabaseAdmin();
-    if (!supabase) return NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+    if (!supabase) {
+      const r = NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
 
     const body = await req.json();
     const pid: string | undefined = body?.pid || undefined;
@@ -61,16 +73,7 @@ export async function POST(req: Request) {
     }
 
     const results: any[] = [];
-
-    async function productVariantsTableExists(admin: any): Promise<boolean> {
-      try {
-        const probe = await admin.from('product_variants').select('product_id').limit(1);
-        // @ts-ignore
-        if (probe.error) return false; return true;
-      } catch { return false; }
-    }
-
-    const hasVariantsTable = await productVariantsTableExists(supabase);
+    const hasVariantsTable = await hasTable('product_variants');
 
     for (const cj of items) {
       try {
@@ -107,14 +110,8 @@ export async function POST(req: Request) {
           is_active: true,
         };
 
-        // Omit is_active if column missing in this environment (supabase schema cache not having it)
-        try {
-          const probeActive = await supabase.from('products').select('is_active').limit(1);
-          if (probeActive.error) {
-            const { is_active, ...rest } = productPayload;
-            productPayload = rest;
-          }
-        } catch {
+        // Omit is_active if column missing in this environment
+        if (!(await hasColumn('products', 'is_active'))) {
           const { is_active, ...rest } = productPayload;
           productPayload = rest;
         }
@@ -133,13 +130,33 @@ export async function POST(req: Request) {
           // Clear old variants
           await supabase.from('product_variants').delete().eq('product_id', productId);
         } else {
-          const { data: ins, error: insErr } = await supabase
-            .from('products')
-            .insert(productPayload)
-            .select('id')
-            .single();
-          if (insErr || !ins) throw insErr || new Error('Failed to insert product');
-          productId = ins.id as number;
+          // Insert with basic idempotency on slug conflicts
+          let insResult: any = null;
+          try {
+            const { data: ins, error: insErr } = await supabase
+              .from('products')
+              .insert(productPayload)
+              .select('id')
+              .single();
+            if (insErr || !ins) throw insErr || new Error('Failed to insert product');
+            insResult = ins;
+          } catch (e: any) {
+            const msg = String(e?.message || e || '');
+            if (/duplicate key|unique constraint|unique violation|already exists/i.test(msg)) {
+              const base = productPayload.slug || slugify(cj.name);
+              productPayload.slug = await ensureUniqueSlug(supabase, base);
+              const { data: ins2, error: err2 } = await supabase
+                .from('products')
+                .insert(productPayload)
+                .select('id')
+                .single();
+              if (err2 || !ins2) throw err2 || new Error('Failed to insert product (retry)');
+              insResult = ins2;
+            } else {
+              throw e;
+            }
+          }
+          productId = insResult.id as number;
         }
 
         // Insert variants if table exists
@@ -173,8 +190,12 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, version: 'import-v2', results }, { headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json({ ok: true, version: 'import-v2', results }, { headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   } catch (e: any) {
-    return NextResponse.json({ ok: false, version: 'import-v2', error: e?.message || 'CJ import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json({ ok: false, version: 'import-v2', error: e?.message || 'CJ import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
 }

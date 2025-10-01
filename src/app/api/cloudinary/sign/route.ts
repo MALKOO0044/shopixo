@@ -1,7 +1,8 @@
 import crypto from "crypto";
-import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { NextResponse } from "next/server";
 import { getClientIp, signLimiter } from "@/lib/ratelimit";
+import { ensureAdmin } from "@/lib/auth/admin-guard";
+import { loggerForRequest } from "@/lib/log";
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -10,19 +11,15 @@ export const revalidate = 0;
 // Upstash Redis rate limiting is used instead of in-memory
 
 export async function GET(req: Request) {
+  const log = loggerForRequest(req);
+  log.info('cloudinary_sign_start');
   // Require authenticated admin
-  const supabase = createRouteHandlerClient({ cookies });
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return new Response(JSON.stringify({ ok: false, message: 'Unauthorized' }), { status: 401 });
-  }
-  const admins = (process.env.ADMIN_EMAILS || '')
-    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-  const isAdmin = admins.length === 0
-    ? (process.env.NODE_ENV !== 'production')
-    : (!!user.email && admins.includes((user.email || '').toLowerCase()));
-  if (!isAdmin) {
-    return new Response(JSON.stringify({ ok: false, message: 'Forbidden' }), { status: 403 });
+  const guard = await ensureAdmin();
+  if (!guard.ok) {
+    log.warn('cloudinary_sign_unauthorized', { reason: guard.reason });
+    const r = NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
 
   // Rate limit (Upstash Redis)
@@ -30,7 +27,10 @@ export async function GET(req: Request) {
     const addr = getClientIp(req);
     const { success } = await signLimiter.limit(addr);
     if (!success) {
-      return new Response(JSON.stringify({ ok: false, message: 'rate_limited' }), { status: 429 });
+      log.warn('cloudinary_sign_rate_limited', { ip: addr });
+      const r = NextResponse.json({ ok: false, message: 'rate_limited' }, { status: 429 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
   } catch {}
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
@@ -39,10 +39,10 @@ export async function GET(req: Request) {
   const uploadPreset = process.env.CLOUDINARY_UPLOAD_PRESET || process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
 
   if (!cloudName || !apiKey || !apiSecret || !uploadPreset) {
-    return new Response(
-      JSON.stringify({ ok: false, message: "Cloudinary environment variables are not fully configured." }),
-      { status: 400, headers: { 'content-type': 'application/json' } }
-    );
+    log.warn('cloudinary_env_missing');
+    const r = NextResponse.json({ ok: false, message: "Cloudinary environment variables are not fully configured." }, { status: 400 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
 
   const timestamp = Math.floor(Date.now() / 1000);
@@ -51,5 +51,7 @@ export async function GET(req: Request) {
   const signatureBase = `timestamp=${timestamp}&upload_preset=${uploadPreset}${apiSecret}`;
   const signature = crypto.createHash('sha1').update(signatureBase).digest('hex');
 
-  return new Response(JSON.stringify({ ok: true, timestamp, signature, apiKey, cloudName, uploadPreset }), { status: 200, headers: { 'content-type': 'application/json' } });
+  const r = NextResponse.json({ ok: true, timestamp, signature, apiKey, cloudName, uploadPreset });
+  r.headers.set('x-request-id', log.requestId);
+  return r;
 }

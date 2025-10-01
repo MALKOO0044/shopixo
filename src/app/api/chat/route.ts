@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { chatLimiter, getClientIp } from '@/lib/ratelimit';
+import { loggerForRequest } from '@/lib/log';
+import { fetchWithMeta } from '@/lib/http';
 
 export const runtime = 'nodejs';
 
@@ -17,8 +20,26 @@ Policies:
 `;
 
 export async function POST(req: NextRequest) {
+  const log = loggerForRequest(req);
+  log.info('chat_start');
+  // Rate limit per IP to protect provider costs
+  try {
+    const ip = getClientIp(req as unknown as Request);
+    const lim = await chatLimiter.limit(`chat:${ip}`);
+    if (!lim.success) {
+      log.warn('chat_rate_limited', { ip });
+      const r = NextResponse.json({ error: 'rate_limited' }, { status: 429 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
+  } catch {/* noop if limiter not configured */}
   let body: any;
-  try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
+  try { body = await req.json(); } catch {
+    log.warn('chat_invalid_json');
+    const r = NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
+  }
   const messages = Array.isArray(body.messages) ? body.messages : [];
   // Try to enrich with user context (recent orders / tracking)
   let userFacts = '';
@@ -40,10 +61,13 @@ export async function POST(req: NextRequest) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
     const fallback = 'مرحباً! أنا مساعد المتجر. للردود الذكية، فعّل مفتاح OPENAI_API_KEY في الخادم. بإمكانك دائماً طرح أسئلتك بالعربية وسأحاول مساعدتك.';
-    return NextResponse.json({ reply: fallback });
+    log.info('chat_no_api_key');
+    const r = NextResponse.json({ reply: fallback });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
   try {
-    const res = await fetch(OPENAI_URL, {
+    const meta = await fetchWithMeta<any>(OPENAI_URL, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -54,15 +78,24 @@ export async function POST(req: NextRequest) {
           ...messages,
         ],
       }),
+      timeoutMs: 18000,
+      retries: 2,
     });
-    if (!res.ok) {
-      const text = await res.text();
-      return NextResponse.json({ error: text }, { status: 500 });
+    if (!meta.ok) {
+      log.warn('chat_provider_error', { status: meta.status });
+      const r = NextResponse.json({ error: typeof meta.body === 'string' ? meta.body : (meta.body?.error?.message || 'Upstream failed') }, { status: 500 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
-    const data = await res.json();
-    const reply = data.choices?.[0]?.message?.content || '';
-    return NextResponse.json({ reply });
+    const data = meta.body;
+    const reply = data?.choices?.[0]?.message?.content || '';
+    const r = NextResponse.json({ reply });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Chat failed' }, { status: 500 });
+    log.error('chat_exception', { error: e?.message || String(e) });
+    const r = NextResponse.json({ error: e?.message || 'Chat failed' }, { status: 500 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
 }

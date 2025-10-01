@@ -65,3 +65,6 @@ export const contactLimiter = makeLimiter("rl:contact", 10, "300 s");
 
 // CJ webhook: 120 req / min per IP (adjust if needed based on CJ event volume)
 export const cjWebhookLimiter = makeLimiter("rl:cj_webhook", 120, "60 s");
+
+// Chat: 15 req / min per IP
+export const chatLimiter = makeLimiter("rl:chat", 15, "60 s");

@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { loadToken, saveToken } from '@/lib/integration/token-store';
+import { fetchJson } from '@/lib/http';
 
 // CJ v2 client with token auth per docs:
 // - POST /authentication/getAccessToken { email, apiKey }
@@ -68,17 +69,14 @@ function throttleOk(last: number): boolean {
 
 async function authPost<T>(path: string, body: any): Promise<T> {
   const url = `${getBase()}${path.startsWith('/') ? '' : '/'}${path}`;
-  const res = await fetch(url, {
+  return await fetchJson<T>(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body || {}),
     cache: 'no-store',
+    timeoutMs: 12000,
+    retries: 2,
   });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`CJ auth error ${res.status}: ${text}`);
-  try { return JSON.parse(text) as T; } catch { /* noop */ }
-  // @ts-ignore
-  return text as T;
 }
 
 async function fetchNewAccessToken(): Promise<TokenState> {
@@ -187,26 +185,18 @@ export async function getAccessToken(): Promise<string> {
 async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await getAccessToken();
   const url = `${getBase()}${path.startsWith('/') ? '' : '/'}${path}`;
-  const res = await fetch(url, {
-    method: (init?.method || 'GET'),
-    headers: {
-      'Content-Type': 'application/json',
-      'CJ-Access-Token': token,
-      ...(init?.headers || {}),
-    },
+  const headers = {
+    'Content-Type': 'application/json',
+    'CJ-Access-Token': token,
+    ...(init?.headers || {}),
+  } as Record<string, string>;
+  return await fetchJson<T>(url, {
+    ...init,
+    headers,
     cache: 'no-store',
-    body: init?.body,
+    timeoutMs: 12000,
+    retries: 2,
   });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`CJ API error ${res.status}: ${text}`);
-  }
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    // @ts-ignore
-    return text as T;
-  }
 }
 
 // Query by keyword or PID (CJ sometimes exposes myProduct query); we attempt flexible endpoints.
