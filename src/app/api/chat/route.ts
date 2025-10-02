@@ -4,6 +4,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { chatLimiter, getClientIp } from '@/lib/ratelimit';
 import { loggerForRequest } from '@/lib/log';
 import { fetchWithMeta } from '@/lib/http';
+import { ensureEnv, getEnv } from '@/lib/env';
 
 export const runtime = 'nodejs';
 
@@ -58,7 +59,8 @@ export async function POST(req: NextRequest) {
       }
     }
   } catch {}
-  const key = process.env.OPENAI_API_KEY;
+  // Prefer centralized env access
+  const key = (getEnv('OPENAI_API_KEY') as string | undefined) || process.env.OPENAI_API_KEY;
   if (!key) {
     const fallback = 'مرحباً! أنا مساعد المتجر. للردود الذكية، فعّل مفتاح OPENAI_API_KEY في الخادم. بإمكانك دائماً طرح أسئلتك بالعربية وسأحاول مساعدتك.';
     log.info('chat_no_api_key');
@@ -71,7 +73,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: process.env.AI_MODEL_TEXT || 'gpt-4o-mini',
+        model: (getEnv('AI_MODEL_TEXT') as string | undefined) || process.env.AI_MODEL_TEXT || 'gpt-4o-mini',
         temperature: 0.2,
         messages: [
           { role: 'system', content: KNOWLEDGE + (userFacts ? `\nContext: ${userFacts}` : '') },

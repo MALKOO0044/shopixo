@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { maybeCreateCjOrderForOrderId } from '@/lib/ops/cj-fulfill';
 import { loggerForRequest } from '@/lib/log';
+import { ensureEnv, getEnv } from '@/lib/env';
 
 export async function handleStripeWebhook(req: Request): Promise<Response> {
   const log = loggerForRequest(req);
@@ -11,22 +12,16 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
     (req.headers.get("stripe-signature") as string | null) ||
     (req.headers.get("Stripe-Signature") as string | null);
 
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!webhookSecret) {
-    log.error("stripe_webhook_env_missing", { key: 'STRIPE_WEBHOOK_SECRET' });
+  const need = ensureEnv(['STRIPE_WEBHOOK_SECRET','NEXT_PUBLIC_SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY']);
+  if (!need.ok) {
+    log.error("stripe_webhook_env_missing", { keys: need.missing });
     const r = new Response("Server misconfiguration", { status: 500 });
     r.headers.set('x-request-id', log.requestId);
     return r;
   }
-  if (!supabaseUrl || !serviceRoleKey) {
-    log.error("stripe_webhook_env_missing", { keys: ['NEXT_PUBLIC_SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY'] });
-    const r = new Response("Server misconfiguration", { status: 500 });
-    r.headers.set('x-request-id', log.requestId);
-    return r;
-  }
+  const webhookSecret = getEnv('STRIPE_WEBHOOK_SECRET') as string;
+  const supabaseUrl = getEnv('NEXT_PUBLIC_SUPABASE_URL') as string;
+  const serviceRoleKey = getEnv('SUPABASE_SERVICE_ROLE_KEY') as string;
 
   if (!signature) {
     const r = new Response("Missing stripe-signature header", { status: 400 });

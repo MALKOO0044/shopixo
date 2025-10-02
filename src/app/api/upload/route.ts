@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { getClientIp, uploadLimiter } from "@/lib/ratelimit";
 import { ensureAdmin } from "@/lib/auth/admin-guard";
 import { loggerForRequest } from "@/lib/log";
+import { ensureEnv, getEnv } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -61,9 +62,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, message: "File too large" }, { status: 413 });
     }
 
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) {
+    const need = ensureEnv(['NEXT_PUBLIC_SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY']);
+    if (!need.ok) {
       const r = NextResponse.json(
         { ok: false, message: "Server misconfiguration: missing Supabase envs" },
         { status: 500 }
@@ -71,6 +71,9 @@ export async function POST(req: Request) {
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
+
+    const url = getEnv('NEXT_PUBLIC_SUPABASE_URL') as string;
+    const key = getEnv('SUPABASE_SERVICE_ROLE_KEY') as string;
 
     const supabase = createClient(url, key);
 
