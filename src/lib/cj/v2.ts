@@ -280,8 +280,45 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
   }
   if (bigImage) imageList.unshift(bigImage);
 
+  // Filter out non-product images (badges, icons, flags, logos, placeholders)
+  const deny = /(hot|badge|icon|favicon|logo|flag|qr|coupon|discount|sale|activity|cart|bag|money|usd|payment|sizechart|size\s*chart|guide|tips)/i;
+  function normalizeUrl(u: string): string {
+    try {
+      const url = new URL(u);
+      url.hash = '';
+      return url.toString();
+    } catch { return u; }
+  }
+  const filteredImages = Array.from(new Set(
+    imageList
+      .filter(Boolean)
+      .map((u) => normalizeUrl(String(u)))
+      .filter((u) => !deny.test(u))
+  ));
+
   // Video detection: some responses may contain videoUrl field
   const videoUrl = (item.video || item.videoUrl || null) as string | null;
+
+  // Helpers to coerce numbers from various shapes
+  const toNum = (x: any): number | undefined => {
+    if (typeof x === 'number' && isFinite(x)) return x;
+    if (typeof x === 'string') {
+      // Remove common separators and non-numeric chars except dot
+      const m = x.replace(/[,\s]/g, '').match(/-?\d*\.?\d+/);
+      if (m) {
+        const n = parseFloat(m[0]);
+        return isFinite(n) ? n : undefined;
+      }
+    }
+    return undefined;
+  };
+  const pickNum = (...cands: any[]): number | undefined => {
+    for (const c of cands) {
+      const n = toNum(c);
+      if (typeof n === 'number' && !isNaN(n)) return n;
+    }
+    return undefined;
+  };
 
   // Variants: try multiple shapes (skuList, variantList, productSku, etc.)
   const variants: CjVariantLike[] = [];
@@ -289,11 +326,15 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
   if (Array.isArray(rawVariants)) {
     for (const v of rawVariants) {
       const cjSku = v.cjSku || v.sku || v.skuId || v.barcode || null;
-      const size = v.size || v.attributeValue || (v.attributes && v.attributes.size) || v.optionValue || null;
-      const price = typeof v.sellPrice === 'number' ? v.sellPrice
-        : typeof v.price === 'number' ? v.price
-        : v.discountPrice ? Number(v.discountPrice) : (item.sellPrice ? Number(item.sellPrice) : undefined);
-      const stock = (typeof v.stock === 'number') ? v.stock : (typeof v.quantity === 'number' ? v.quantity : undefined);
+      const size = v.size || v.attributeValue || (v.attributes && (v.attributes.size || v.attributes.Size || v.attributes.SIZE)) || v.optionValue || null;
+      const price = pickNum(
+        v.sellPrice, v.price, v.discountPrice, v.sellPriceUSD, v.usdPrice, v.listedPrice, v.originalPrice,
+        (v.priceInfo && (v.priceInfo.sellPrice || v.priceInfo.price)),
+        item.sellPrice, item.price
+      );
+      const stock = pickNum(
+        v.stock, v.quantity, v.sellStock, v.availableStock, v.inventory, v.inventoryQuantity, v.stockNum
+      );
       variants.push({ cjSku: cjSku || undefined, size: size || undefined, price, stock });
     }
   }
@@ -307,7 +348,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
   return {
     productId,
     name,
-    images: Array.from(new Set(imageList.filter(Boolean))),
+    images: filteredImages,
     videoUrl: videoUrl || null,
     variants,
     deliveryTimeHours,

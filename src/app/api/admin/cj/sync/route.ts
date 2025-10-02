@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { queryProductByPidOrKeyword, mapCjItemToProductLike } from '@/lib/cj/v2';
-import { hasTable } from '@/lib/db-features';
+import { hasTable, hasColumn } from '@/lib/db-features';
 import { loggerForRequest } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
@@ -41,8 +41,11 @@ export async function GET(req: Request) {
     const offset = Math.max(0, Number(searchParams.get('offset') || '0'));
     const idsCsv = searchParams.get('ids');
     const updatePrice = (searchParams.get('updatePrice') || 'false').toLowerCase() === 'true';
+    const updateImages = (searchParams.get('updateImages') || 'false').toLowerCase() === 'true';
+    const updateVideo = (searchParams.get('updateVideo') || 'false').toLowerCase() === 'true';
 
     const hasVariants = await productVariantsTableExists(supabase);
+    const hasVideoCol = await hasColumn('products', 'video_url').catch(() => false);
 
     let products: any[] = [];
     if (idsCsv) {
@@ -50,14 +53,14 @@ export async function GET(req: Request) {
       if (ids.length === 0) return NextResponse.json({ ok: false, version: 'cj-sync-v1', error: 'No valid ids provided' }, { status: 400 });
       const { data } = await supabase
         .from('products')
-        .select('id, cj_product_id, slug, title, price')
+        .select('id, cj_product_id, slug, title, price, images')
         .in('id', ids)
         .not('cj_product_id', 'is', null);
       products = data || [];
     } else {
       const { data } = await supabase
         .from('products')
-        .select('id, cj_product_id, slug, title, price')
+        .select('id, cj_product_id, slug, title, price, images')
         .not('cj_product_id', 'is', null)
         .order('id', { ascending: true })
         .range(offset, offset + limit - 1);
@@ -103,7 +106,7 @@ export async function GET(req: Request) {
           }
         }
 
-        // Update product stock (and price optionally)
+        // Update product stock, media, and optionally price
         let update: Record<string, any> = {};
         if (hasVariants) {
           const stockSum = (cj.variants || []).reduce((acc, v) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0);
@@ -115,6 +118,12 @@ export async function GET(req: Request) {
             .filter((n) => !isNaN(n));
           const base = priceCandidates.length > 0 ? Math.min(...priceCandidates) : undefined;
           if (typeof base === 'number') update.price = base;
+        }
+        if (updateImages && Array.isArray(cj.images) && cj.images.length > 0) {
+          update.images = cj.images;
+        }
+        if (updateVideo && hasVideoCol) {
+          update.video_url = cj.videoUrl || null;
         }
         if (Object.keys(update).length > 0) {
           await supabase.from('products').update(update).eq('id', p.id);
