@@ -1,8 +1,10 @@
+import { loggerForRequest } from '@/lib/log';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const revalidate = 0;
 
-export async function GET() {
+export async function GET(req: Request) {
+  const log = loggerForRequest(req);
   const env = {
     NEXT_PUBLIC_SUPABASE_URL: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -18,7 +20,7 @@ export async function GET() {
     vercelEnv: process.env.VERCEL_ENV || null,
   } as const;
 
-  return Response.json({
+  const r = Response.json({
     ok: true,
     node: process.version,
     runtime: 'nodejs',
@@ -26,4 +28,6 @@ export async function GET() {
     deployment,
     timestamp: new Date().toISOString(),
   });
+  r.headers.set('x-request-id', log.requestId);
+  return r;
 }

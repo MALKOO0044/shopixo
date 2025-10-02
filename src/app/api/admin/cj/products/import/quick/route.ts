@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server';
-
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
 import { createClient } from '@supabase/supabase-js';
 import { queryProductByPidOrKeyword, mapCjItemToProductLike, type CjProductLike } from '@/lib/cj/v2';
 import { slugify } from '@/lib/utils/slug';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
+import { hasTable, hasColumn } from '@/lib/db-features';
+import { loggerForRequest } from '@/lib/log';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const runtime = 'nodejs';
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -14,39 +17,25 @@ function getSupabaseAdmin() {
   return createClient(url, key);
 }
 
-async function columnExists(admin: any, table: string, col: string): Promise<boolean> {
-  try {
-    const probe = await admin.from(table).select(col).limit(1);
-    // @ts-ignore
-    if (probe.error) return false;
-    return true;
-  } catch {
-    return false;
-  }
+async function columnExists(_admin: any, table: string, col: string): Promise<boolean> {
+  // Backward-compatible wrapper around centralized feature detection
+  return await hasColumn(table, col);
 }
 
-async function omitMissingProductColumns(admin: any, payload: Record<string, any>, cols: string[]) {
+async function omitMissingProductColumns(_admin: any, payload: Record<string, any>, cols: string[]) {
   for (const c of cols) {
     if (!(c in payload)) continue;
     try {
-      const probe = await admin.from('products').select(c).limit(1);
-      // @ts-ignore
-      if (probe.error) delete payload[c];
+      const exists = await hasColumn('products', c);
+      if (!exists) delete payload[c];
     } catch {
       delete payload[c];
     }
   }
 }
 
-async function productVariantsTableExists(admin: any): Promise<boolean> {
-  try {
-    const probe = await admin.from('product_variants').select('product_id').limit(1);
-    // @ts-ignore
-    if (probe.error) return false;
-    return true;
-  } catch {
-    return false;
-  }
+async function productVariantsTableExists(_admin: any): Promise<boolean> {
+  return await hasTable('product_variants');
 }
 
 function extractPidFromUrl(u?: string | null): string | undefined {
@@ -78,11 +67,20 @@ async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
 }
 
 export async function GET(req: Request) {
+  const log = loggerForRequest(req);
   try {
     const guard = await ensureAdmin();
-    if (!guard.ok) return NextResponse.json({ ok: false, version: 'quick-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+    if (!guard.ok) {
+      const r = NextResponse.json({ ok: false, version: 'quick-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
     const supabase = getSupabaseAdmin();
-    if (!supabase) return NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+    if (!supabase) {
+      const r = NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
 
     const { searchParams } = new URL(req.url);
 
@@ -112,7 +110,9 @@ export async function GET(req: Request) {
     }
 
     if (pids.size === 0) {
-      return NextResponse.json({ ok: false, error: 'Provide pid=... or url=... (supports multiple)' }, { status: 400 });
+      const r = NextResponse.json({ ok: false, error: 'Provide pid=... or url=... (supports multiple)' }, { status: 400 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
 
     // Optional pricing params
@@ -141,7 +141,9 @@ export async function GET(req: Request) {
     }
 
     if (fetched.length === 0) {
-      return NextResponse.json({ ok: false, error: 'No CJ products found for provided inputs' }, { status: 404 });
+      const r = NextResponse.json({ ok: false, error: 'No CJ products found for provided inputs' }, { status: 404 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
 
     // 2) Import
@@ -209,13 +211,33 @@ export async function GET(req: Request) {
           if (upErr || !upd) throw upErr || new Error('Failed to update product');
           productId = upd.id as number;
         } else {
-          const { data: ins, error: insErr } = await supabase
-            .from('products')
-            .insert(productPayload)
-            .select('id')
-            .single();
-          if (insErr || !ins) throw insErr || new Error('Failed to insert product');
-          productId = ins.id as number;
+          // Insert with basic idempotency on slug conflicts
+          let insResult: any = null;
+          try {
+            const { data: ins, error: insErr } = await supabase
+              .from('products')
+              .insert(productPayload)
+              .select('id')
+              .single();
+            if (insErr || !ins) throw insErr || new Error('Failed to insert product');
+            insResult = ins;
+          } catch (e: any) {
+            const msg = String(e?.message || e || '');
+            if (/duplicate key|unique constraint|unique violation|already exists/i.test(msg)) {
+              const base = productPayload.slug || slugify(cj.name);
+              productPayload.slug = await ensureUniqueSlug(supabase, base);
+              const { data: ins2, error: err2 } = await supabase
+                .from('products')
+                .insert(productPayload)
+                .select('id')
+                .single();
+              if (err2 || !ins2) throw err2 || new Error('Failed to insert product (retry)');
+              insResult = ins2;
+            } else {
+              throw e;
+            }
+          }
+          productId = insResult.id as number;
         }
 
         // Optional update with pruned optional fields
@@ -251,8 +273,12 @@ export async function GET(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, version: 'quick-v2', imported: results.filter(r => r.ok).length, results }, { headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json({ ok: true, version: 'quick-v2', imported: results.filter(r => r.ok).length, results }, { headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   } catch (e: any) {
-    return NextResponse.json({ ok: false, version: 'quick-v2', error: e?.message || 'Quick import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json({ ok: false, version: 'quick-v2', error: e?.message || 'Quick import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', loggerForRequest(req).requestId);
+    return r;
   }
 }

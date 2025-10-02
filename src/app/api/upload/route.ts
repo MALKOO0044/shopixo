@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { getClientIp, uploadLimiter } from "@/lib/ratelimit";
+import { ensureAdmin } from "@/lib/auth/admin-guard";
+import { loggerForRequest } from "@/lib/log";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,21 +16,13 @@ function sanitizeFileName(name: string) {
 
 export async function POST(req: Request) {
   try {
-    // Auth: require signed-in admin by email list
-    const supabaseAuth = createRouteHandlerClient({ cookies });
-    const { data: { user } } = await supabaseAuth.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ ok: false, message: "Unauthorized" }, { status: 401 });
-    }
-    const adminEmails = (process.env.ADMIN_EMAILS || "")
-      .split(",")
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean);
-    const isAdmin = adminEmails.length === 0
-      ? process.env.NODE_ENV !== "production"
-      : !!user.email && adminEmails.includes(user.email.toLowerCase());
-    if (!isAdmin) {
-      return NextResponse.json({ ok: false, message: "Forbidden" }, { status: 403 });
+    const log = loggerForRequest(req);
+    // Auth: require admin via centralized guard
+    const guard = await ensureAdmin();
+    if (!guard.ok) {
+      const r = NextResponse.json({ ok: false, message: "Unauthorized" }, { status: 401 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
 
     // Rate limit (Upstash Redis)
@@ -38,7 +30,9 @@ export async function POST(req: Request) {
       const ip = getClientIp(req);
       const { success } = await uploadLimiter.limit(ip);
       if (!success) {
-        return NextResponse.json({ ok: false, message: "Too Many Requests" }, { status: 429 });
+        const r = NextResponse.json({ ok: false, message: "Too Many Requests" }, { status: 429 });
+        r.headers.set('x-request-id', log.requestId);
+        return r;
       }
     } catch {}
 
@@ -46,7 +40,9 @@ export async function POST(req: Request) {
     const file = form.get("file") as File | null;
     const dir = (form.get("dir") as string | null) || "";
     if (!file) {
-      return NextResponse.json({ ok: false, message: "No file provided" }, { status: 400 });
+      const r = NextResponse.json({ ok: false, message: "No file provided" }, { status: 400 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
 
     // Validate content type & size
@@ -68,10 +64,12 @@ export async function POST(req: Request) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) {
-      return NextResponse.json(
+      const r = NextResponse.json(
         { ok: false, message: "Server misconfiguration: missing Supabase envs" },
         { status: 500 }
       );
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
 
     const supabase = createClient(url, key);
@@ -89,7 +87,7 @@ export async function POST(req: Request) {
     const y = now.getUTCFullYear();
     const m = String(now.getUTCMonth() + 1).padStart(2, "0");
     const safeDir = sanitizeFileName(dir).slice(0, 64);
-    const base = `uploads/${y}/${m}/${user.id}` + (safeDir ? `/${safeDir}` : "");
+    const base = `uploads/${y}/${m}/${guard.user.id}` + (safeDir ? `/${safeDir}` : "");
     const safeName = sanitizeFileName(file.name || "file");
     const ext = safeName.includes(".") ? safeName.split(".").pop() : "bin";
     const rnd = Math.random().toString(36).slice(2);
@@ -99,18 +97,26 @@ export async function POST(req: Request) {
       .from(bucketName)
       .upload(path, file, { contentType: contentType || undefined, upsert: true });
     if (upErr) {
-      return NextResponse.json({ ok: false, message: upErr.message }, { status: 500 });
+      const r = NextResponse.json({ ok: false, message: upErr.message }, { status: 500 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
 
     const pub = supabase.storage.from(bucketName).getPublicUrl(path);
     const publicUrl = (pub as any)?.data?.publicUrl || (pub as any)?.publicURL || (pub as any)?.publicUrl;
 
     if (!publicUrl) {
-      return NextResponse.json({ ok: false, message: "Could not resolve public URL" }, { status: 500 });
+      const r = NextResponse.json({ ok: false, message: "Could not resolve public URL" }, { status: 500 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
 
-    return NextResponse.json({ ok: true, url: publicUrl, path }, { status: 200 });
+    const r = NextResponse.json({ ok: true, url: publicUrl, path }, { status: 200 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   } catch (e: any) {
-    return NextResponse.json({ ok: false, message: e?.message || "Upload failed" }, { status: 500 });
+    const r = NextResponse.json({ ok: false, message: e?.message || "Upload failed" }, { status: 500 });
+    try { r.headers.set('x-request-id', loggerForRequest(req).requestId); } catch {}
+    return r;
   }
 }

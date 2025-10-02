@@ -3,9 +3,12 @@ import { createClient } from '@supabase/supabase-js';
 import { queryProductByPidOrKeyword, mapCjItemToProductLike, type CjProductLike } from '@/lib/cj/v2';
 import { slugify } from '@/lib/utils/slug';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
+import { loggerForRequest } from '@/lib/log';
+import { hasTable } from '@/lib/db-features';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const runtime = 'nodejs';
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -30,11 +33,20 @@ async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
 }
 
 export async function GET(req: Request) {
+  const log = loggerForRequest(req);
   try {
     const guard = await ensureAdmin();
-    if (!guard.ok) return NextResponse.json({ ok: false, version: 'auto-import-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+    if (!guard.ok) {
+      const r = NextResponse.json({ ok: false, version: 'auto-import-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
     const supabase = getSupabaseAdmin();
-    if (!supabase) return NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+    if (!supabase) {
+      const r = NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
 
     const { searchParams } = new URL(req.url);
     const keywordsParam = searchParams.get('keywords') || '';
@@ -45,7 +57,9 @@ export async function GET(req: Request) {
       .map((s) => s.trim())
       .filter(Boolean);
     if (keywords.length === 0) {
-      return NextResponse.json({ ok: false, error: 'Provide ?keywords=women%20dress,women%20blouse&limit=2' }, { status: 400 });
+      const r = NextResponse.json({ ok: false, error: 'Provide ?keywords=women%20dress,women%20blouse&limit=2' }, { status: 400 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
 
     // 1) Aggregate results from CJ for all keywords
@@ -85,20 +99,15 @@ export async function GET(req: Request) {
     }
 
     if (selected.length === 0) {
-      return NextResponse.json({ ok: false, error: 'No CJ products found from given keywords' }, { status: 404 });
+      const r = NextResponse.json({ ok: false, error: 'No CJ products found from given keywords' }, { status: 404 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
 
     // 3) Import selected items (same logic as POST import route)
     const results: any[] = [];
 
-    async function productVariantsTableExists(admin: any): Promise<boolean> {
-      try {
-        const probe = await admin.from('product_variants').select('product_id').limit(1);
-        // @ts-ignore
-        if (probe.error) return false; return true;
-      } catch { return false; }
-    }
-    const hasVariantsTable = await productVariantsTableExists(supabase);
+    const hasVariantsTable = await hasTable('product_variants');
 
     for (const cj of selected) {
       try {
@@ -195,8 +204,12 @@ export async function GET(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, version: 'auto-import-v2', selected: selected.map((s) => ({ productId: s.productId, name: s.name })), results }, { headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json({ ok: true, version: 'auto-import-v2', selected: selected.map((s) => ({ productId: s.productId, name: s.name })), results }, { headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   } catch (e: any) {
-    return NextResponse.json({ ok: false, version: 'auto-import-v2', error: e?.message || 'Auto import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json({ ok: false, version: 'auto-import-v2', error: e?.message || 'Auto import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', loggerForRequest(req).requestId);
+    return r;
   }
 }

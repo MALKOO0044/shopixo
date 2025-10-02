@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { marketingLimiter, getClientIp } from '@/lib/ratelimit'
+import { loggerForRequest } from '@/lib/log'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -14,17 +15,24 @@ function isEmail(s: unknown): s is string {
 }
 
 export async function POST(req: NextRequest) {
+  const log = loggerForRequest(req)
   // Rate limit
   try {
     const ip = getClientIp(req as unknown as Request)
     const lim = await marketingLimiter.limit(`newsletter:${ip}`)
-    if (!lim.success) return NextResponse.json({ ok: false, error: 'rate_limited' }, { status: 429 })
+    if (!lim.success) {
+      const r = NextResponse.json({ ok: false, error: 'rate_limited' }, { status: 429 })
+      r.headers.set('x-request-id', log.requestId)
+      return r
+    }
   } catch {}
 
   const json = await req.json().catch(() => null) as any
   const email = json?.email
   if (!isEmail(email)) {
-    return NextResponse.json({ ok: false, error: 'invalid_email' }, { status: 400 })
+    const r = NextResponse.json({ ok: false, error: 'invalid_email' }, { status: 400 })
+    r.headers.set('x-request-id', log.requestId)
+    return r
   }
 
   // Try to persist to Supabase (server-side) if service key configured
@@ -44,5 +52,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true })
+  const r = NextResponse.json({ ok: true })
+  r.headers.set('x-request-id', log.requestId)
+  return r
 }

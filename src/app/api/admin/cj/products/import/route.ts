@@ -67,9 +67,15 @@ export async function POST(req: Request) {
               ? raw
               : [];
       items = (listRaw as any[]).map((it) => mapCjItemToProductLike(it)).filter(Boolean) as CjProductLike[];
-      if (items.length === 0) return NextResponse.json({ ok: false, error: 'No CJ products found for pid' }, { status: 404 });
+      if (items.length === 0) {
+        const r = NextResponse.json({ ok: false, error: 'No CJ products found for pid' }, { status: 404 });
+        r.headers.set('x-request-id', log.requestId);
+        return r;
+      }
     } else {
-      return NextResponse.json({ ok: false, error: 'Provide pid or items' }, { status: 400 });
+      const r = NextResponse.json({ ok: false, error: 'Provide pid or items' }, { status: 400 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
 
     const results: any[] = [];

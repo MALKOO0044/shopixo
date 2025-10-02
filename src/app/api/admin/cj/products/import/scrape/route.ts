@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server';
+import { hasTable, hasColumn } from '@/lib/db-features';
+import { loggerForRequest } from '@/lib/log';
+import { fetchWithMeta } from '@/lib/http';
+import { createClient } from '@supabase/supabase-js';
+import { slugify } from '@/lib/utils/slug';
+import { ensureAdmin } from '@/lib/auth/admin-guard';
 
 // Ensure this route is always dynamic and not cached at the edge
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-import { createClient } from '@supabase/supabase-js';
-import { slugify } from '@/lib/utils/slug';
-import { ensureAdmin } from '@/lib/auth/admin-guard';
+export const runtime = 'nodejs';
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -16,29 +20,20 @@ function getSupabaseAdmin() {
 
 function uniq<T>(arr: T[]): T[] { return Array.from(new Set(arr)); }
 
-async function omitMissingProductColumns(admin: any, payload: Record<string, any>, cols: string[]) {
+async function omitMissingProductColumns(_admin: any, payload: Record<string, any>, cols: string[]) {
   for (const c of cols) {
     if (!(c in payload)) continue;
     try {
-      const probe = await admin.from('products').select(c).limit(1);
-      // If Supabase reports error for the column, remove it from payload
-      // @ts-ignore
-      if (probe.error) delete payload[c];
+      const exists = await hasColumn('products', c);
+      if (!exists) delete payload[c];
     } catch {
       delete payload[c];
     }
   }
 }
 
-async function productVariantsTableExists(admin: any): Promise<boolean> {
-  try {
-    const probe = await admin.from('product_variants').select('product_id').limit(1);
-    // @ts-ignore
-    if (probe.error) return false;
-    return true;
-  } catch {
-    return false;
-  }
+async function productVariantsTableExists(_admin: any): Promise<boolean> {
+  return await hasTable('product_variants');
 }
 
 function normalizeUrl(u: string): string {
@@ -162,18 +157,31 @@ async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
 }
 
 export async function GET(req: Request) {
+  const log = loggerForRequest(req);
   try {
     const guard = await ensureAdmin();
-    if (!guard.ok) return NextResponse.json({ ok: false, version: 'scrape-v3', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+    if (!guard.ok) {
+      const r = NextResponse.json({ ok: false, version: 'scrape-v3', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
     const supabase = getSupabaseAdmin();
-    if (!supabase) return NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+    if (!supabase) {
+      const r = NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
 
     const { searchParams } = new URL(req.url);
     const urls = new Set<string>();
     for (const u of searchParams.getAll('url')) if (u && u.trim()) urls.add(u.trim());
     const urlsCsv = searchParams.get('urls');
     if (urlsCsv) for (const u of urlsCsv.split(',').map((s) => s.trim()).filter(Boolean)) urls.add(u);
-    if (urls.size === 0) return NextResponse.json({ ok: false, error: 'Provide url=... (supports multiple)' }, { status: 400 });
+    if (urls.size === 0) {
+      const r = NextResponse.json({ ok: false, error: 'Provide url=... (supports multiple)' }, { status: 400 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
 
     const priceParam = Number(searchParams.get('price') || NaN);
     const defaultPrice = Math.max(1, Number(process.env.DEFAULT_SCRAPE_PRICE_SAR || '69'));
@@ -182,8 +190,10 @@ export async function GET(req: Request) {
 
     for (const u of Array.from(urls)) {
       try {
-        const res = await fetch(u, { method: 'GET', cache: 'no-store' });
-        const html = await res.text();
+        const meta = await fetchWithMeta<string>(u, { method: 'GET', cache: 'no-store', timeoutMs: 12000, retries: 1 });
+        log.info('scrape_fetch', { url: u, status: meta.status, ok: meta.ok });
+        const html = typeof meta.body === 'string' ? meta.body : '';
+        if (!meta.ok || !html) throw new Error('Failed to fetch source page');
         const ext = extractFromHtml(html, u);
 
         const baseSlug = await ensureUniqueSlug(supabase, ext.title);
@@ -227,22 +237,12 @@ export async function GET(req: Request) {
         ]);
 
         // Omit cj_product_id if column missing
-        try {
-          const probeCj = await supabase.from('products').select('cj_product_id').limit(1);
-          if (probeCj.error) {
-            delete productPayload.cj_product_id;
-          }
-        } catch {
+        if (!(await hasColumn('products', 'cj_product_id'))) {
           delete productPayload.cj_product_id;
         }
 
         // Omit is_active if column missing
-        try {
-          const probeActive = await supabase.from('products').select('is_active').limit(1);
-          if (probeActive.error) {
-            delete productPayload.is_active;
-          }
-        } catch {
+        if (!(await hasColumn('products', 'is_active'))) {
           delete productPayload.is_active;
         }
 
@@ -255,13 +255,33 @@ export async function GET(req: Request) {
           stock: productPayload.stock,
         } as any;
 
-        const { data: ins, error: insErr } = await supabase
-          .from('products')
-          .insert(baseInsert)
-          .select('id')
-          .single();
-        if (insErr || !ins) throw insErr || new Error('Failed to insert product');
-        const productId = ins.id as number;
+        let productId: number;
+        // Insert with basic idempotency on slug conflicts
+        try {
+          const { data: ins, error: insErr } = await supabase
+            .from('products')
+            .insert(baseInsert)
+            .select('id')
+            .single();
+          if (insErr || !ins) throw insErr || new Error('Failed to insert product');
+          productId = ins.id as number;
+        } catch (e: any) {
+          const msg = String(e?.message || e || '');
+          if (/duplicate key|unique constraint|unique violation|already exists/i.test(msg)) {
+            const base = baseInsert.slug || slugify(ext.title);
+            const newSlug = await ensureUniqueSlug(supabase, base);
+            const retry = { ...baseInsert, slug: newSlug };
+            const { data: ins2, error: err2 } = await supabase
+              .from('products')
+              .insert(retry)
+              .select('id')
+              .single();
+            if (err2 || !ins2) throw err2 || new Error('Failed to insert product (retry)');
+            productId = ins2.id as number;
+          } else {
+            throw e;
+          }
+        }
 
         // Optional update with pruned fields if any remain
         const optionalUpdate: Record<string, any> = { ...productPayload };
@@ -297,8 +317,12 @@ export async function GET(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, version: 'scrape-v3', imported: results.filter(r => r.ok).length, results }, { headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json({ ok: true, version: 'scrape-v3', imported: results.filter(r => r.ok).length, results }, { headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   } catch (e: any) {
-    return NextResponse.json({ ok: false, version: 'scrape-v3', error: e?.message || 'Scrape import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json({ ok: false, version: 'scrape-v3', error: e?.message || 'Scrape import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', loggerForRequest(req).requestId);
+    return r;
   }
 }

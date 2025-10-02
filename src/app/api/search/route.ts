@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getClientIp, searchLimiter } from "@/lib/ratelimit";
+import { loggerForRequest } from "@/lib/log";
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const revalidate = 0;
 
 export async function GET(req: Request) {
+  const log = loggerForRequest(req);
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") || "").trim();
   // Rate limit (Upstash Redis)
@@ -14,7 +16,9 @@ export async function GET(req: Request) {
     const ip = getClientIp(req);
     const { success } = await searchLimiter.limit(ip);
     if (!success) {
-      return NextResponse.json({ items: [], error: 'rate_limited' }, { status: 429 });
+      const r = NextResponse.json({ items: [], error: 'rate_limited' }, { status: 429 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
   } catch (e) {
     // if rate limit infra fails, do not block search
@@ -22,16 +26,22 @@ export async function GET(req: Request) {
 
   // Minimal input validation
   if (!q) {
-    return NextResponse.json({ items: [] });
+    const r = NextResponse.json({ items: [] });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
   if (q.length < 2) {
-    return NextResponse.json({ items: [] });
+    const r = NextResponse.json({ items: [] });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anon) {
     // Gracefully degrade if env missing during build or misconfiguration
-    return NextResponse.json({ items: [], error: "Supabase env not configured" }, { status: 200 });
+    const r = NextResponse.json({ items: [], error: "Supabase env not configured" }, { status: 200 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
   const supabase = createClient(url, anon);
   // Basic search on title (ilike). In production consider full-text indexes.
@@ -51,9 +61,21 @@ export async function GET(req: Request) {
       .select("id, slug, title, price, images")
       .ilike("title", `%${q}%`)
       .limit(8);
-    if (fbErr) return NextResponse.json({ items: [], error: fbErr.message }, { status: 500 });
-    return NextResponse.json({ items: fbData ?? [] });
+    if (fbErr) {
+      const r = NextResponse.json({ items: [], error: fbErr.message }, { status: 500 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
+    const r = NextResponse.json({ items: fbData ?? [] });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
-  if (error) return NextResponse.json({ items: [], error: error.message }, { status: 500 });
-  return NextResponse.json({ items: data ?? [] });
+  if (error) {
+    const r = NextResponse.json({ items: [], error: error.message }, { status: 500 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
+  }
+  const r = NextResponse.json({ items: data ?? [] });
+  r.headers.set('x-request-id', log.requestId);
+  return r;
 }

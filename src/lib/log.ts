@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { NextResponse } from 'next/server';
 
 export type Logger = {
   requestId: string;
@@ -48,5 +49,25 @@ export function loggerForRequest(req?: Request): Logger {
     info: (m, meta) => base('INFO', m, meta),
     warn: (m, meta) => base('WARN', m, meta),
     error: (m, meta) => base('ERROR', m, meta),
+  };
+}
+
+// Convenience helper: returns a logger and response helpers bound to this request
+export function withLogger(req: Request) {
+  const log = loggerForRequest(req);
+  return {
+    log,
+    requestId: log.requestId,
+    // Create a NextResponse.json with x-request-id attached
+    json: (data: any, init?: Parameters<typeof NextResponse.json>[1]) => {
+      const r = NextResponse.json(data, init as any);
+      try { r.headers.set('x-request-id', log.requestId); } catch {}
+      return r;
+    },
+    // Attach x-request-id to an existing Response/NextResponse
+    attach: <T extends Response>(res: T): T => {
+      try { res.headers.set('x-request-id', log.requestId); } catch {}
+      return res;
+    },
   };
 }

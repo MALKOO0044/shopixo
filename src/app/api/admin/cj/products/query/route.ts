@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 import { queryProductByPidOrKeyword, mapCjItemToProductLike } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
+import { fetchWithMeta } from '@/lib/http';
+import { loggerForRequest } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const runtime = 'nodejs';
 
 function extractPidFromUrl(u?: string | null): string | undefined {
   if (!u) return undefined;
@@ -22,8 +25,8 @@ function extractPidFromUrl(u?: string | null): string | undefined {
 async function extractGuidPidFromCjHtml(u?: string | null): Promise<string | undefined> {
   if (!u) return undefined;
   try {
-    const res = await fetch(u, { method: 'GET', cache: 'no-store' });
-    const html = await res.text();
+    const meta = await fetchWithMeta<string>(u, { method: 'GET', cache: 'no-store', timeoutMs: 10000, retries: 1 });
+    const html = typeof meta.body === 'string' ? meta.body : '';
     const patterns = [
       /["']pid["']\s*[:=]\s*["']([0-9A-Fa-f\-]{32,36})["']/i,
       /pid=([0-9A-Fa-f\-]{32,36})/i,
@@ -41,9 +44,14 @@ async function extractGuidPidFromCjHtml(u?: string | null): Promise<string | und
 }
 
 export async function GET(req: Request) {
+  const log = loggerForRequest(req);
   try {
     const guard = await ensureAdmin();
-    if (!guard.ok) return NextResponse.json({ ok: false, version: 'query-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+    if (!guard.ok) {
+      const r = NextResponse.json({ ok: false, version: 'query-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
     const { searchParams } = new URL(req.url);
     let pid = searchParams.get('pid') || undefined;
     const keyword = searchParams.get('keyword') || undefined;
@@ -55,7 +63,9 @@ export async function GET(req: Request) {
     }
 
     if (!pid && !keyword) {
-      return NextResponse.json({ ok: false, error: 'Provide pid or keyword' }, { status: 400 });
+      const r = NextResponse.json({ ok: false, error: 'Provide pid or keyword' }, { status: 400 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
 
     const raw = await queryProductByPidOrKeyword({ pid, keyword });
@@ -77,8 +87,12 @@ export async function GET(req: Request) {
       .map((it) => mapCjItemToProductLike(it))
       .filter(Boolean);
 
-    return NextResponse.json({ ok: true, version: 'query-v2', count: items.length, items }, { headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json({ ok: true, version: 'query-v2', count: items.length, items }, { headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   } catch (e: any) {
-    return NextResponse.json({ ok: false, version: 'query-v2', error: e?.message || 'CJ query failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json({ ok: false, version: 'query-v2', error: e?.message || 'CJ query failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', loggerForRequest(req).requestId);
+    return r;
   }
 }

@@ -2,8 +2,10 @@ import { getStripe } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { maybeCreateCjOrderForOrderId } from '@/lib/ops/cj-fulfill';
+import { loggerForRequest } from '@/lib/log';
 
 export async function handleStripeWebhook(req: Request): Promise<Response> {
+  const log = loggerForRequest(req);
   const textBody = await req.text();
   const signature =
     (req.headers.get("stripe-signature") as string | null) ||
@@ -14,16 +16,22 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!webhookSecret) {
-    console.error("Missing STRIPE_WEBHOOK_SECRET env var");
-    return new Response("Server misconfiguration", { status: 500 });
+    log.error("stripe_webhook_env_missing", { key: 'STRIPE_WEBHOOK_SECRET' });
+    const r = new Response("Server misconfiguration", { status: 500 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
   if (!supabaseUrl || !serviceRoleKey) {
-    console.error("Missing Supabase env vars");
-    return new Response("Server misconfiguration", { status: 500 });
+    log.error("stripe_webhook_env_missing", { keys: ['NEXT_PUBLIC_SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY'] });
+    const r = new Response("Server misconfiguration", { status: 500 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
 
   if (!signature) {
-    return new Response("Missing stripe-signature header", { status: 400 });
+    const r = new Response("Missing stripe-signature header", { status: 400 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
 
   let event: Stripe.Event;
@@ -31,10 +39,12 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
     const stripe = getStripe();
     event = stripe.webhooks.constructEvent(textBody, signature, webhookSecret);
   } catch (err: any) {
-    console.error(`Webhook signature verification failed: ${err.message}`);
-    return new Response(`Webhook Error: ${err.message}`, { status: 400 });
+    log.error('stripe_webhook_verify_failed', { error: err?.message || String(err) });
+    const r = new Response(`Webhook Error: ${err.message}`, { status: 400 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
-  console.log("stripe_webhook_event", { id: event.id, type: event.type });
+  log.info("stripe_webhook_event", { id: event.id, type: event.type });
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
   try {
@@ -48,7 +58,7 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
         if (metadata.cart) {
           const userId = metadata.userId as string | undefined;
           if (!userId) {
-            console.error("Missing userId in session metadata");
+            log.error("stripe_missing_user_id");
             break;
           }
 
@@ -72,7 +82,7 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
               totalAmount = cents / 100;
             }
           } catch (e) {
-            console.warn('Failed to compute Stripe-authoritative total; falling back to metadata.cart sum');
+            log.warn('stripe_compute_total_fallback');
             totalAmount = parsedCart.reduce((acc, i) => acc + i.price * i.quantity, 0);
           }
 
@@ -86,8 +96,10 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
             .select()
             .single();
           if (orderError || !order) {
-            console.error("Error upserting order:", orderError);
-            return new Response("Error creating order", { status: 500 });
+            log.error("stripe_order_upsert_error", { error: orderError?.message || String(orderError) });
+            const r = new Response("Error creating order", { status: 500 });
+            r.headers.set('x-request-id', log.requestId);
+            return r;
           }
 
           // If order already has items, we've processed this event; exit early (idempotency)
@@ -96,7 +108,7 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
             .select("id", { count: "exact", head: true })
             .eq("order_id", order.id);
           if (countError) {
-            console.warn("Failed to check existing order items:", countError);
+            log.warn("stripe_order_items_count_error", { error: countError?.message || String(countError) });
           }
           if ((existingItemsCount ?? 0) > 0) {
             break;
@@ -114,8 +126,10 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
             .from("order_items")
             .insert(orderItems);
           if (itemsError) {
-            console.error("Error creating order items:", itemsError);
-            return new Response("Error creating order items", { status: 500 });
+            log.error("stripe_order_items_error", { error: itemsError?.message || String(itemsError) });
+            const r = new Response("Error creating order items", { status: 500 });
+            r.headers.set('x-request-id', log.requestId);
+            return r;
           }
 
           // 3) Decrement stock (best-effort)
@@ -142,10 +156,10 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
           try {
             const ful = await maybeCreateCjOrderForOrderId(order.id as number);
             if (!ful.ok) {
-              console.warn('CJ fulfillment not created:', ful.reason);
+              log.warn('stripe_cj_fulfillment_warn', { reason: ful.reason });
             }
           } catch (e: any) {
-            console.warn('CJ fulfillment error:', e?.message || e);
+            log.warn('stripe_cj_fulfillment_error', { error: e?.message || String(e) });
           }
 
           // 5) Best-effort: clear cart items by session ID (if provided)
@@ -161,7 +175,7 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
           }
         } else if (metadata.cartSessionId) {
           // Legacy path: metadata had cartSessionId/userId; keep 200 so Stripe doesn't retry.
-          console.warn("Received legacy webhook format without cart JSON; ignoring.");
+          log.warn("stripe_legacy_webhook_format");
         }
         break;
       }
@@ -171,9 +185,13 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
       }
     }
   } catch (e: any) {
-    console.error("Unhandled webhook error:", e);
-    return new Response("Internal Server Error", { status: 500 });
+    log.error("stripe_webhook_unhandled_error", { error: e?.message || String(e) });
+    const r = new Response("Internal Server Error", { status: 500 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
 
-  return new Response(null, { status: 200 });
+  const r = new Response(null, { status: 200 });
+  r.headers.set('x-request-id', log.requestId);
+  return r;
 }

@@ -2,9 +2,12 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { queryProductByPidOrKeyword, mapCjItemToProductLike } from '@/lib/cj/v2';
+import { hasTable } from '@/lib/db-features';
+import { loggerForRequest } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const runtime = 'nodejs';
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -13,20 +16,25 @@ function getSupabaseAdmin() {
   return createClient(url, key);
 }
 
-async function productVariantsTableExists(admin: any): Promise<boolean> {
-  try {
-    const probe = await admin.from('product_variants').select('product_id').limit(1);
-    // @ts-ignore
-    if (probe.error) return false; return true;
-  } catch { return false; }
+async function productVariantsTableExists(_admin: any): Promise<boolean> {
+  return await hasTable('product_variants');
 }
 
 export async function GET(req: Request) {
+  const log = loggerForRequest(req);
   try {
     const guard = await ensureAdmin();
-    if (!guard.ok) return NextResponse.json({ ok: false, version: 'cj-sync-v1', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+    if (!guard.ok) {
+      const r = NextResponse.json({ ok: false, version: 'cj-sync-v1', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
     const supabase = getSupabaseAdmin();
-    if (!supabase) return NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+    if (!supabase) {
+      const r = NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
 
     const { searchParams } = new URL(req.url);
     const limit = Math.max(1, Math.min(50, Number(searchParams.get('limit') || '20')));
@@ -57,7 +65,9 @@ export async function GET(req: Request) {
     }
 
     if (products.length === 0) {
-      return NextResponse.json({ ok: true, version: 'cj-sync-v1', synced: 0, results: [] }, { headers: { 'Cache-Control': 'no-store' } });
+      const r = NextResponse.json({ ok: true, version: 'cj-sync-v1', synced: 0, results: [] }, { headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
 
     const results: any[] = [];
@@ -119,8 +129,12 @@ export async function GET(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, version: 'cj-sync-v1', synced: results.filter(r => r.ok).length, results }, { headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json({ ok: true, version: 'cj-sync-v1', synced: results.filter(r => r.ok).length, results }, { headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   } catch (e: any) {
-    return NextResponse.json({ ok: false, version: 'cj-sync-v1', error: e?.message || 'Sync failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json({ ok: false, version: 'cj-sync-v1', error: e?.message || 'Sync failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', loggerForRequest(req).requestId);
+    return r;
   }
 }

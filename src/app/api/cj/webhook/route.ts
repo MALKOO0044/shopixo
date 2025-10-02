@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { persistCjTracking } from '@/lib/ops/tracking';
 import { cjWebhookLimiter, getClientIp } from '@/lib/ratelimit';
+import { loggerForRequest } from '@/lib/log';
 
 export const runtime = 'nodejs';
 
@@ -21,11 +22,14 @@ function verifySignature(raw: string, signature: string | null, secret: string |
 }
 
 export async function POST(req: NextRequest) {
+  const log = loggerForRequest(req);
   // Rate limit by client IP to prevent abuse
   const ip = getClientIp(req as unknown as Request);
   const rl = await cjWebhookLimiter.limit(`cj:${ip}`);
   if (!rl.success) {
-    return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+    const r = NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
 
   const secret = process.env.CJ_WEBHOOK_SECRET;
@@ -38,25 +42,29 @@ export async function POST(req: NextRequest) {
   try { payload = JSON.parse(raw); } catch {}
 
   if (!ok) {
-    console.warn('CJ webhook signature invalid or missing');
+    log.warn('cj_webhook_signature_invalid');
     if (process.env.NODE_ENV === 'production') {
-      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+      const r = NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
     // In development, proceed to aid integration testing
   }
 
   // Handle events: shipped, tracking assigned, delivered, exception, etc.
   const event = payload?.event || payload?.type || 'unknown';
-  console.log('CJ webhook:', event, payload?.data?.orderId || payload?.orderId);
+  log.info('cj_webhook_received', { event, orderId: payload?.data?.orderId || payload?.orderId });
 
   try {
     const saved = await persistCjTracking(payload);
     if (!saved.ok) {
-      console.warn('persistCjTracking result:', saved.reason);
+      log.warn('cj_webhook_persist_warn', { reason: saved.reason });
     }
   } catch (e: any) {
-    console.warn('persistCjTracking error:', e?.message || e);
+    log.warn('cj_webhook_persist_error', { error: e?.message || String(e) });
   }
 
-  return NextResponse.json({ received: true, verified: ok });
+  const r = NextResponse.json({ received: true, verified: ok });
+  r.headers.set('x-request-id', log.requestId);
+  return r;
 }

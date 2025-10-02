@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { contactLimiter, getClientIp } from '@/lib/ratelimit'
 import { createClient } from '@supabase/supabase-js'
+import { loggerForRequest } from '@/lib/log'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -23,10 +24,15 @@ function escapeHtml(s: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const log = loggerForRequest(req)
   try {
     const ip = getClientIp(req as unknown as Request)
     const rl = await contactLimiter.limit(`contact:${ip}`)
-    if (!rl.success) return NextResponse.json({ ok: false, error: 'rate_limited' }, { status: 429 })
+    if (!rl.success) {
+      const r = NextResponse.json({ ok: false, error: 'rate_limited' }, { status: 429 })
+      r.headers.set('x-request-id', log.requestId)
+      return r
+    }
   } catch {}
 
   const body = await req.json().catch(() => null) as any
@@ -35,7 +41,9 @@ export async function POST(req: NextRequest) {
   const message = (body?.message || '').toString().trim()
 
   if (!name || !isEmail(email) || !message || message.length < 10) {
-    return NextResponse.json({ ok: false, error: 'invalid_payload' }, { status: 400 })
+    const r = NextResponse.json({ ok: false, error: 'invalid_payload' }, { status: 400 })
+    r.headers.set('x-request-id', log.requestId)
+    return r
   }
 
   // Persist to Supabase if service role is configured
@@ -77,5 +85,7 @@ export async function POST(req: NextRequest) {
     }
   } catch {}
 
-  return NextResponse.json({ ok: true })
+  const r = NextResponse.json({ ok: true })
+  r.headers.set('x-request-id', log.requestId)
+  return r
 }

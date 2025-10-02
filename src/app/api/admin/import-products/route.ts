@@ -7,6 +7,9 @@ import { calculateRetailSar, usdToSar, computeVolumetricWeightKg, detectPricingA
 import { slugify } from '@/lib/utils/slug';
 import { generateTitle, generateDescription, translateAr } from '@/lib/ai/enrich';
 import { mapCategory } from '@/lib/ai/category-map';
+import { ensureAdmin } from '@/lib/auth/admin-guard';
+import { loggerForRequest } from '@/lib/log';
+import { hasColumn } from '@/lib/db-features';
 
 export const runtime = 'nodejs';
 
@@ -26,36 +29,41 @@ type ImportItem = {
 };
 
 export async function POST(req: NextRequest) {
-  // Require admin user by email allowlist
-  const supabaseAuth = createRouteHandlerClient({ cookies });
-  const { data: { user } } = await supabaseAuth.auth.getUser();
-  const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
-  if (!user || (adminEmails.length > 0 && !adminEmails.includes((user.email || '').toLowerCase()))) {
-    return NextResponse.json({ error: 'Not authorized' }, { status: 401 });
+  const log = loggerForRequest(req);
+  // Require admin user via centralized guard
+  {
+    const guard = await ensureAdmin();
+    if (!guard.ok) {
+      const r = NextResponse.json({ error: 'Not authorized' }, { status: 401 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
   }
 
   const supabase = await getSupabaseAdmin();
   if (!supabase) {
-    return NextResponse.json({ error: 'Server misconfiguration: missing Supabase envs' }, { status: 500 });
+    const r = NextResponse.json({ error: 'Server misconfiguration: missing Supabase envs' }, { status: 500 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
 
-  // Probe optional columns once (e.g., products.video_url) to avoid runtime insert errors
-  let hasVideoColumn = false;
-  try {
-    const probe = await supabase.from('products').select('video_url').limit(1);
-    if (!probe.error) hasVideoColumn = true;
-  } catch {}
+  // Probe optional columns once (e.g., products.video_url) using centralized db-features
+  const hasVideoColumn = await hasColumn('products', 'video_url');
 
   let body: { items: ImportItem[]; preview?: boolean; draftOnAnomalies?: boolean };
   try { body = await req.json(); } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    const r = NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
 
   const items = Array.isArray(body.items) ? body.items : [];
   const preview = !!body.preview;
   const draftOnAnomalies = !!body.draftOnAnomalies;
   if (items.length === 0) {
-    return NextResponse.json({ error: 'No items provided' }, { status: 400 });
+    const r = NextResponse.json({ error: 'No items provided' }, { status: 400 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
   }
 
   const results: any[] = [];
@@ -156,9 +164,13 @@ export async function POST(req: NextRequest) {
   if (!preview && toInsert.length > 0) {
     const { error } = await supabase.from('products').insert(toInsert);
     if (error) {
-      return NextResponse.json({ error: error.message, results }, { status: 500 });
+      const r = NextResponse.json({ error: error.message, results }, { status: 500 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
   }
 
-  return NextResponse.json({ inserted: preview ? 0 : toInsert.length, preview, results });
+  const r = NextResponse.json({ inserted: preview ? 0 : toInsert.length, preview, results });
+  r.headers.set('x-request-id', log.requestId);
+  return r;
 }
