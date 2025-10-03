@@ -45,8 +45,12 @@ async function doClear(_req: Request) {
   // 4) Hard-delete unreferenced products
   let deleted = 0;
   if (toDelete.length > 0) {
-    const { count } = await supabase.from('products').delete().in('id', toDelete).select('id', { count: 'exact' });
-    deleted = count ?? 0;
+    const { data: delRows } = await supabase
+      .from('products')
+      .delete()
+      .in('id', toDelete)
+      .select('id');
+    deleted = delRows?.length ?? 0;
   }
 
   // 5) Soft-deactivate referenced products if column exists
@@ -54,12 +58,12 @@ async function doClear(_req: Request) {
   try {
     const hasActive = await hasColumn('products', 'is_active');
     if (hasActive && toDeactivate.length > 0) {
-      const { count } = await supabase
+      const { data: updRows } = await supabase
         .from('products')
         .update({ is_active: false, stock: 0 })
         .in('id', toDeactivate)
-        .select('id', { count: 'exact' });
-      deactivated = count ?? 0;
+        .select('id');
+      deactivated = updRows?.length ?? 0;
     }
   } catch {}
 
