@@ -1,5 +1,4 @@
 import { ImageResponse } from "next/og";
-import { getProductBySlug } from "@/lib/products";
 
 export const runtime = "edge";
 export const size = { width: 1200, height: 630 };
@@ -10,9 +9,8 @@ export default async function Image({
 }: {
   params: { slug: string };
 }) {
-  const product = getProductBySlug(params.slug);
-  const title = product?.title ?? "Product";
-  const price = typeof product?.price === "number" ? `$${product!.price.toFixed(2)}` : "";
+  const title = decodeURIComponent(params.slug).replace(/[-_]/g, " ") || "Product";
+  const price = "";
 
   return new ImageResponse(
     (

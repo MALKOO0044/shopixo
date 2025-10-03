@@ -7,7 +7,6 @@ import { CATEGORIES } from "@/lib/categories";
 import Hero from "@/components/pro/Hero";
 import ValueProps from "@/components/pro/ValueProps";
 import Newsletter from "@/components/pro/Newsletter";
-import { SAMPLE_PRODUCTS } from "@/lib/sample-products";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
@@ -55,8 +54,8 @@ export default async function HomePage() {
       console.error("Failed to initialize Supabase client:", e);
     }
   } else {
-    console.warn("Supabase env vars missing; using sample products.");
-    products = SAMPLE_PRODUCTS;
+    console.warn("Supabase env vars missing; showing empty state.");
+    products = [];
   }
 
   return (
@@ -68,14 +67,7 @@ export default async function HomePage() {
         <section className="mb-10">
           <h2 className="mb-4 text-2xl font-bold">الأكثر مبيعًا</h2>
           {(!products || products.length === 0) ? (
-            <div>
-              <div className="mb-3 text-sm text-slate-600">عرض منتجات تجريبية مؤقتًا حتى تتم إضافة منتجات حقيقية.</div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                {SAMPLE_PRODUCTS.slice(0, 10).map((p) => (
-                  <ProductCard key={p.id} product={p as Product} />
-                ))}
-              </div>
-            </div>
+            <div className="text-slate-600">لا توجد منتجات حالياً.</div>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {products.slice(0, 10).map((p) => (

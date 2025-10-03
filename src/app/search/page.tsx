@@ -3,7 +3,7 @@ import { labelFromSlug } from "@/lib/categories";
 import ProductCard from "@/components/product-card";
 import type { Product } from "@/lib/types";
 import { headers } from "next/headers";
-import { SAMPLE_PRODUCTS } from "@/lib/sample-products";
+ 
 
 export const metadata = { title: "البحث" };
 
@@ -50,29 +50,12 @@ export default async function SearchPage({
       .or("is_active.is.null,is_active.eq.true");
     categories = Array.from(new Set((categoriesData ?? []).map((p: { category: string }) => p.category))).sort();
   } else {
-    categories = Array.from(new Set(SAMPLE_PRODUCTS.map((p) => p.category))).sort();
+    categories = [];
   }
 
   let filtered: Product[] | null = [];
   if (!supabase) {
-    // Fallback: filter sample products
-    let arr = [...SAMPLE_PRODUCTS];
-    if (q) {
-      arr = arr.filter((p) =>
-        (p.title || "").toLowerCase().includes(q) || (p.description || "").toLowerCase().includes(q)
-      );
-    }
-    if (category) arr = arr.filter((p) => (p.category || "").toLowerCase() === (category || "").toLowerCase());
-    if (minPrice !== undefined) arr = arr.filter((p) => p.price >= minPrice);
-    if (maxPrice !== undefined) arr = arr.filter((p) => p.price <= maxPrice);
-    if (minRating !== undefined) arr = arr.filter((p) => (p.rating || 0) >= minRating);
-    if (sort) {
-      const [field, order] = sort.split("-");
-      const asc = order === "asc";
-      if (field === "price") arr = arr.sort((a, b) => asc ? a.price - b.price : b.price - a.price);
-      if (field === "rating") arr = arr.sort((a, b) => asc ? (a.rating - b.rating) : (b.rating - a.rating));
-    }
-    filtered = arr;
+    filtered = [];
   } else {
     let query = supabase.from("products").select<"*", Product>("*").or("is_active.is.null,is_active.eq.true");
 

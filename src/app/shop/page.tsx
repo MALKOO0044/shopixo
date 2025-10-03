@@ -6,7 +6,6 @@ import Breadcrumbs from "@/components/breadcrumbs";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import FiltersPanel from "@/components/pro/FiltersPanel";
-import { SAMPLE_PRODUCTS } from "@/lib/sample-products";
 
 export const metadata = { title: "المتجر", description: "تسوّق أحدث المنتجات والعروض" };
 export const revalidate = 60;
@@ -37,24 +36,13 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
   };
   
   if (!supabase) {
-    // Fallback: no DB configured, render sample products with filters/sort
-    const products: Product[] = applySortAndFilter(SAMPLE_PRODUCTS);
     return (
       <div className="container py-10">
         <Breadcrumbs items={[{ name: "الرئيسية", href: "/" }, { name: "المتجر" }]} />
         <h1 className="text-3xl font-bold">المتجر</h1>
         <p className="mt-2 text-slate-600">اكتشف مجموعتنا المختارة من المنتجات الرائجة.</p>
         <FiltersPanel basePath="/shop" sort={searchParams?.sort} min={searchParams?.min} max={searchParams?.max} />
-        <div className="mt-8">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {products.map((p) => (
-              <div key={p.id} className="space-y-2">
-                <ProductCard product={p as Product} />
-                {/* No admin actions without Supabase */}
-              </div>
-            ))}
-          </div>
-        </div>
+        <div className="mt-8 text-slate-600">لا توجد منتجات حالياً.</div>
       </div>
     );
   }
@@ -111,17 +99,7 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
             ))}
           </div>
         ) : (
-          // Fallback: show sample products if DB returned empty
-          <div>
-            <div className="mb-3 text-sm text-slate-500">عرض منتجات تجريبية حتى تتم إضافة منتجات حقيقية.</div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-              {applySortAndFilter(SAMPLE_PRODUCTS).map((p) => (
-                <div key={p.id} className="space-y-2">
-                  <ProductCard product={p as Product} />
-                </div>
-              ))}
-            </div>
-          </div>
+          <div className="text-slate-600">لا توجد منتجات حالياً.</div>
         )}
       </div>
     </div>

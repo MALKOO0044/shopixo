@@ -46,7 +46,7 @@ import { getSiteUrl } from "@/lib/site";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { headers } from "next/headers";
-import { SAMPLE_PRODUCTS } from "@/lib/sample-products";
+ 
 
 export const revalidate = 60; // fresher PDP data every minute
 export const dynamic = "force-dynamic"; // render per-request to include session-based admin controls
@@ -56,22 +56,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   const supabase = getSupabaseAnonServer();
   const storeName = process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo";
   if (!supabase) {
-    const isNumeric = /^\d+$/.test(params.slug);
-    const norm = normalizeSlugCandidate(params.slug);
-    const product = SAMPLE_PRODUCTS.find((p) => p.slug === norm) || (isNumeric ? SAMPLE_PRODUCTS.find((p) => p.id === Number(params.slug)) : undefined) || null;
-    if (!product) {
-      return { title: `${params.slug} | ${storeName}`, description: 'تفاصيل المنتج' };
-    }
-    return {
-      title: `${product.title} | ${storeName}`,
-      description: product.description,
-      alternates: { canonical: `/product/${product.slug}` },
-      openGraph: {
-        title: `${product.title} | ${storeName}`,
-        description: product.description,
-        images: [ (Array.isArray(product.images) && product.images[0]) || '/placeholder.svg' ],
-      },
-    };
+    return { title: `${params.slug} | ${storeName}`, description: 'تفاصيل المنتج' };
   }
   const isNumeric = /^\d+$/.test(params.slug);
   let product: { title: string; description: string; images: string[]; slug?: string } | null = null;
@@ -144,26 +129,7 @@ export default async function ProductPage({ params, searchParams }: { params: { 
   const nonce = headers().get('x-csp-nonce') || undefined;
   const supabase = getSupabaseAnonServer();
   if (!supabase) {
-    const isNumeric = /^\d+$/.test(params.slug);
-    const norm = normalizeSlugCandidate(params.slug);
-    let product: Product | null = SAMPLE_PRODUCTS.find((p) => p.slug === norm) || (isNumeric ? SAMPLE_PRODUCTS.find((p) => p.id === Number(params.slug)) : undefined) || null as any;
-    if (!product) {
-      notFound();
-    }
-    // Render with sample product
-    const debug = (searchParams?.debugMedia || "").toString() === '1' || (searchParams?.debugMedia || "").toString().toLowerCase() === 'true';
-    return (
-      <div className="container py-10">
-        {debug && (
-          <pre className="mb-4 overflow-auto rounded bg-muted p-3 text-xs" dir="ltr">
-{JSON.stringify({ slug: params.slug, hasProduct: !!product, from: 'sample', title: product?.title, category: product?.category, images: (product as any)?.images }, null, 2)}
-          </pre>
-        )}
-        <ProductDetailsClient product={product as Product}>
-          {/* PriceComparison depends on DB pricing; skip for sample mode */}
-        </ProductDetailsClient>
-      </div>
-    );
+    notFound();
   }
 
   const isNumeric = /^\d+$/.test(params.slug);
@@ -215,26 +181,7 @@ export default async function ProductPage({ params, searchParams }: { params: { 
   }
 
   if (!product) {
-    // Fallback: search in SAMPLE_PRODUCTS
-    const norm = normalizeSlugCandidate(params.slug);
-    const isNumeric2 = /^\d+$/.test(params.slug);
-    const sample = SAMPLE_PRODUCTS.find((p) => p.slug === norm) || (isNumeric2 ? SAMPLE_PRODUCTS.find((p) => p.id === Number(params.slug)) : undefined) || null;
-    if (!sample) {
-      notFound();
-    }
-    const debug = (searchParams?.debugMedia || "").toString() === '1' || (searchParams?.debugMedia || "").toString().toLowerCase() === 'true';
-    return (
-      <div className="container py-10">
-        {debug && (
-          <pre className="mb-4 overflow-auto rounded bg-muted p-3 text-xs" dir="ltr">
-{JSON.stringify({ slug: params.slug, hasProduct: !!sample, from: 'sample-fallback', title: sample?.title, category: sample?.category, images: (sample as any)?.images }, null, 2)}
-          </pre>
-        )}
-        <ProductDetailsClient product={sample as Product}>
-          {/* DB-dependent widgets disabled in sample mode */}
-        </ProductDetailsClient>
-      </div>
-    );
+    notFound();
   }
 
   // Normalize images field to array of strings (handles JSON string or comma-separated strings) with fallback to legacy 'image'
