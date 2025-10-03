@@ -285,8 +285,8 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
   }
   if (bigImage) imageList.unshift(bigImage);
 
-  // Filter out non-product images (badges, icons, flags, logos, placeholders)
-  const deny = /(hot|badge|icon|favicon|logo|flag|qr|coupon|discount|sale|activity|cart|bag|money|usd|payment|sizechart|size\s*chart|guide|tips)/i;
+  // Filter out non-product images (badges, icons, flags, logos, placeholders) and small thumbs
+  const deny = /(sprite|icon|favicon|logo|placeholder|blank|loading|alipay|wechat|whatsapp|kefu|service|avatar|thumb|thumbnail|small|tiny|mini|sizechart|size\s*chart|chart|table|guide|tips|hot|badge|flag|promo|banner|sale|discount|qr)/i;
   function normalizeUrl(u: string): string {
     try {
       const url = new URL(u);
@@ -294,12 +294,40 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
       return url.toString();
     } catch { return u; }
   }
-  const filteredImages = Array.from(new Set(
-    imageList
-      .filter(Boolean)
-      .map((u) => normalizeUrl(String(u)))
-      .filter((u) => !deny.test(u))
-  ));
+  function isSmall(u: string): boolean {
+    // match -100x100 etc in filename
+    const m = u.match(/-(\d{2,4})x(\d{2,4})(?=\.)/i);
+    if (m) {
+      const w = Number(m[1]);
+      const h = Number(m[2]);
+      if (w < 512 || h < 512) return true;
+    }
+    // query hints like ?w=300&h=300
+    const qm = u.match(/[?&](?:w|width|h|height)=(\d{2,4})/i);
+    if (qm && Number(qm[1]) < 512) return true;
+    return false;
+  }
+  function normKey(u: string): string {
+    try {
+      const url = new URL(u);
+      const name = url.pathname.split('/').pop() || u;
+      return name.toLowerCase().replace(/-\d{2,4}x\d{2,4}(?=\.)/, '');
+    } catch { return u; }
+  }
+
+  const seen = new Set<string>();
+  const filteredImages: string[] = [];
+  for (const raw of imageList) {
+    if (!raw) continue;
+    const u = normalizeUrl(String(raw));
+    if (deny.test(u)) continue;
+    if (isSmall(u)) continue;
+    const key = normKey(u);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    filteredImages.push(u);
+    if (filteredImages.length >= 10) break;
+  }
 
   // Video detection: some responses may contain videoUrl field
   const videoUrl = (item.video || item.videoUrl || null) as string | null;

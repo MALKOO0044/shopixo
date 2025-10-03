@@ -4,6 +4,7 @@ import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { queryProductByPidOrKeyword, mapCjItemToProductLike } from '@/lib/cj/v2';
 import { hasTable, hasColumn } from '@/lib/db-features';
 import { loggerForRequest } from '@/lib/log';
+import { calculateRetailSar, usdToSar } from '@/lib/pricing';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -43,6 +44,10 @@ export async function GET(req: Request) {
     const updatePrice = (searchParams.get('updatePrice') || 'false').toLowerCase() === 'true';
     const updateImages = (searchParams.get('updateImages') || 'false').toLowerCase() === 'true';
     const updateVideo = (searchParams.get('updateVideo') || 'false').toLowerCase() === 'true';
+    const updateRetail = (searchParams.get('updateRetail') || 'false').toLowerCase() === 'true';
+    const margin = Number(searchParams.get('margin') || '0.35');
+    const handlingSar = Number(searchParams.get('handlingSar') || '0');
+    const cjCurrency = (searchParams.get('cjCurrency') || 'USD').toUpperCase(); // USD | SAR
 
     const hasVariants = await productVariantsTableExists(supabase);
     const hasVideoCol = await hasColumn('products', 'video_url').catch(() => false);
@@ -91,18 +96,42 @@ export async function GET(req: Request) {
         if (hasVariants) {
           const rows = (cj.variants || [])
             .filter((v: any) => v && (v.size || v.cjSku))
-            .map((v: any) => ({
-              product_id: p.id,
-              option_name: 'Size',
-              option_value: v.size || '-',
-              cj_sku: v.cjSku || null,
-              price: typeof v.price === 'number' ? v.price : null,
-              stock: typeof v.stock === 'number' ? v.stock : 0,
-              weight_grams: typeof v.weightGrams === 'number' ? Math.round(v.weightGrams) : null,
-              length_cm: typeof v.lengthCm === 'number' ? v.lengthCm : null,
-              width_cm: typeof v.widthCm === 'number' ? v.widthCm : null,
-              height_cm: typeof v.heightCm === 'number' ? v.heightCm : null,
-            }));
+            .map((v: any) => {
+              // Supplier cost (assume CJ in USD unless specified)
+              const supplierCostRaw = typeof v.price === 'number' ? v.price : undefined;
+              const supplierCostSar = typeof supplierCostRaw === 'number'
+                ? (cjCurrency === 'USD' ? usdToSar(supplierCostRaw) : supplierCostRaw)
+                : undefined;
+
+              // Weight and dims
+              const weightG = typeof v.weightGrams === 'number' ? Math.max(0, v.weightGrams) : undefined;
+              const actualKg = typeof weightG === 'number' ? Math.max(0.05, weightG / 1000) : 0.3; // fallback 0.3kg
+              const L = typeof v.lengthCm === 'number' ? v.lengthCm : 25; // sensible apparel defaults
+              const W = typeof v.widthCm === 'number' ? v.widthCm : 20;
+              const H = typeof v.heightCm === 'number' ? v.heightCm : 3;
+
+              // Compute retail inclusive of DDP + margin if requested
+              let retailSar: number | null = null;
+              let retailSansShip: number | null = null;
+              if (updateRetail && typeof supplierCostSar === 'number' && supplierCostSar > 0) {
+                const calc = calculateRetailSar(supplierCostSar, { actualKg, lengthCm: L, widthCm: W, heightCm: H }, { handlingSar, margin });
+                retailSar = calc.retailSar;
+                retailSansShip = Math.max(0, calc.retailSar - calc.ddpShippingSar);
+              }
+
+              return {
+                product_id: p.id,
+                option_name: 'Size',
+                option_value: v.size || '-',
+                cj_sku: v.cjSku || null,
+                price: (retailSansShip ?? (typeof v.price === 'number' ? (cjCurrency === 'USD' ? usdToSar(v.price) : v.price) : null)),
+                stock: typeof v.stock === 'number' ? v.stock : 0,
+                weight_grams: typeof v.weightGrams === 'number' ? Math.round(v.weightGrams) : null,
+                length_cm: typeof v.lengthCm === 'number' ? v.lengthCm : null,
+                width_cm: typeof v.widthCm === 'number' ? v.widthCm : null,
+                height_cm: typeof v.heightCm === 'number' ? v.heightCm : null,
+              } as any;
+            });
           await supabase.from('product_variants').delete().eq('product_id', p.id);
           if (rows.length > 0) {
             const { error: vErr } = await supabase.from('product_variants').insert(rows);
@@ -116,9 +145,26 @@ export async function GET(req: Request) {
           const stockSum = (cj.variants || []).reduce((acc: number, v: any) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0);
           update.stock = stockSum;
         }
-        if (updatePrice) {
+        if (updateRetail) {
+          // Compute product-level price as min of variant retail
+          const variantRetail: { full: number; sansShip: number }[] = [];
+          for (const v of (cj.variants || [])) {
+            const costRaw = typeof v.price === 'number' ? v.price : undefined;
+            const costSar = typeof costRaw === 'number' ? (cjCurrency === 'USD' ? usdToSar(costRaw) : costRaw) : undefined;
+            const weightG = typeof v.weightGrams === 'number' ? Math.max(0, v.weightGrams) : undefined;
+            const actualKg = typeof weightG === 'number' ? Math.max(0.05, weightG / 1000) : 0.3;
+            const L = typeof v.lengthCm === 'number' ? v.lengthCm : 25;
+            const W = typeof v.widthCm === 'number' ? v.widthCm : 20;
+            const H = typeof v.heightCm === 'number' ? v.heightCm : 3;
+            if (typeof costSar === 'number' && costSar > 0) {
+              const calc = calculateRetailSar(costSar, { actualKg, lengthCm: L, widthCm: W, heightCm: H }, { handlingSar, margin });
+              if (typeof calc.retailSar === 'number' && isFinite(calc.retailSar)) variantRetail.push({ full: calc.retailSar, sansShip: Math.max(0, calc.retailSar - calc.ddpShippingSar) });
+            }
+          }
+          if (variantRetail.length > 0) update.price = Math.min(...variantRetail.map(v => v.sansShip));
+        } else if (updatePrice) {
           const priceCandidates = (cj.variants || [])
-            .map((v: any) => (typeof v.price === 'number' ? v.price : NaN))
+            .map((v: any) => (typeof v.price === 'number' ? (cjCurrency === 'USD' ? usdToSar(v.price) : v.price) : NaN))
             .filter((n: number) => !isNaN(n));
           const base = priceCandidates.length > 0 ? Math.min(...priceCandidates) : undefined;
           if (typeof base === 'number') update.price = base;
