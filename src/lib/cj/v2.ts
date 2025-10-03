@@ -17,6 +17,11 @@ export type CjVariantLike = {
   size?: string;
   price?: number;
   stock?: number;
+  // Optional shipping metadata when provided by CJ
+  weightGrams?: number; // unit grams if available; undefined if unknown
+  lengthCm?: number;
+  widthCm?: number;
+  heightCm?: number;
 };
 
 export type CjProductLike = {
@@ -335,7 +340,34 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
       const stock = pickNum(
         v.stock, v.quantity, v.sellStock, v.availableStock, v.inventory, v.inventoryQuantity, v.stockNum
       );
-      variants.push({ cjSku: cjSku || undefined, size: size || undefined, price, stock });
+      // Try to coerce weight (grams) and dimensions (cm) from common CJ fields
+      const weightCandidates = [
+        v.weightGram, v.weight_g, v.weightGrams, v.weight,
+        (v.packageWeight || v.packingWeight),
+      ];
+      let weightGrams: number | undefined = undefined;
+      for (const c of weightCandidates) {
+        const n = pickNum(c);
+        if (typeof n === 'number') {
+          // Heuristic: if looks like kilograms (very small number), convert to grams
+          weightGrams = n < 30 ? Math.round(n * 1000) : Math.round(n);
+          break;
+        }
+      }
+      const lengthCm = pickNum(v.length, v.lengthCm, v.l) as number | undefined;
+      const widthCm = pickNum(v.width, v.widthCm, v.w) as number | undefined;
+      const heightCm = pickNum(v.height, v.heightCm, v.h) as number | undefined;
+
+      variants.push({
+        cjSku: cjSku || undefined,
+        size: size || undefined,
+        price,
+        stock,
+        weightGrams,
+        lengthCm: typeof lengthCm === 'number' ? lengthCm : undefined,
+        widthCm: typeof widthCm === 'number' ? widthCm : undefined,
+        heightCm: typeof heightCm === 'number' ? heightCm : undefined,
+      });
     }
   }
 

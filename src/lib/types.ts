@@ -7,6 +7,11 @@ export type ProductVariant = {
   cj_variant_id?: string | null;
   price: number | null; // if null, fallback to product.price
   stock: number;
+  // Optional shipping metadata (if available from CJ)
+  weight_grams?: number | null;
+  length_cm?: number | null;
+  width_cm?: number | null;
+  height_cm?: number | null;
 };
 
 export type Product = {

@@ -27,12 +27,16 @@ export default function AddToCart({
   productId,
   productSlug,
   selectedOptions, 
-  disabled = false 
+  disabled = false,
+  quantity,
+  onQuantityChange,
 }: { 
   productId: number,
   productSlug?: string,
   selectedOptions: Record<string, string>, 
-  disabled?: boolean 
+  disabled?: boolean,
+  quantity?: number,
+  onQuantityChange?: (q: number) => void,
 }) {
   const [state, formAction] = useFormState(addItem, null);
 
@@ -46,7 +50,9 @@ export default function AddToCart({
       <Input
         type="number"
         name="quantity"
-        defaultValue={1}
+        value={typeof quantity === 'number' ? quantity : undefined}
+        defaultValue={typeof quantity === 'number' ? undefined : 1}
+        onChange={onQuantityChange ? (e) => onQuantityChange(Math.max(1, Number(e.currentTarget.value || '1'))) : undefined}
         min={1}
         className="w-20 text-center"
       />

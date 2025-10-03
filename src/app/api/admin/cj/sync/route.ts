@@ -90,14 +90,18 @@ export async function GET(req: Request) {
         // Update variants if table exists
         if (hasVariants) {
           const rows = (cj.variants || [])
-            .filter((v) => v && (v.size || v.cjSku))
-            .map((v) => ({
+            .filter((v: any) => v && (v.size || v.cjSku))
+            .map((v: any) => ({
               product_id: p.id,
               option_name: 'Size',
               option_value: v.size || '-',
               cj_sku: v.cjSku || null,
               price: typeof v.price === 'number' ? v.price : null,
               stock: typeof v.stock === 'number' ? v.stock : 0,
+              weight_grams: typeof v.weightGrams === 'number' ? Math.round(v.weightGrams) : null,
+              length_cm: typeof v.lengthCm === 'number' ? v.lengthCm : null,
+              width_cm: typeof v.widthCm === 'number' ? v.widthCm : null,
+              height_cm: typeof v.heightCm === 'number' ? v.heightCm : null,
             }));
           await supabase.from('product_variants').delete().eq('product_id', p.id);
           if (rows.length > 0) {
@@ -109,13 +113,13 @@ export async function GET(req: Request) {
         // Update product stock, media, and optionally price
         let update: Record<string, any> = {};
         if (hasVariants) {
-          const stockSum = (cj.variants || []).reduce((acc, v) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0);
+          const stockSum = (cj.variants || []).reduce((acc: number, v: any) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0);
           update.stock = stockSum;
         }
         if (updatePrice) {
           const priceCandidates = (cj.variants || [])
-            .map((v) => (typeof v.price === 'number' ? v.price : NaN))
-            .filter((n) => !isNaN(n));
+            .map((v: any) => (typeof v.price === 'number' ? v.price : NaN))
+            .filter((n: number) => !isNaN(n));
           const base = priceCandidates.length > 0 ? Math.min(...priceCandidates) : undefined;
           if (typeof base === 'number') update.price = base;
         }
@@ -125,6 +129,15 @@ export async function GET(req: Request) {
         if (updateVideo && hasVideoCol) {
           update.video_url = cj.videoUrl || null;
         }
+        // Product-level shipping metadata (best-effort)
+        if (typeof (cj as any).deliveryTimeHours === 'number') {
+          update.delivery_time_hours = Math.round((cj as any).deliveryTimeHours);
+        }
+        if (typeof (cj as any).processingTimeHours === 'number') {
+          update.processing_time_hours = Math.round((cj as any).processingTimeHours);
+        }
+        if ((cj as any).originArea) update.origin_area = (cj as any).originArea;
+        if ((cj as any).originCountryCode) update.origin_country_code = (cj as any).originCountryCode;
         if (Object.keys(update).length > 0) {
           await supabase.from('products').update(update).eq('id', p.id);
         }

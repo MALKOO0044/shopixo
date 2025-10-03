@@ -7,6 +7,7 @@ import AddToCart from "@/components/add-to-cart";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import SmartImage from "@/components/smart-image";
+import { computeBilledWeightKg, resolveDdpShippingSar } from "@/lib/pricing";
 
 // --- Sub-components (kept from original page) ---
 function isLikelyImageUrl(s: string): boolean {
@@ -314,44 +315,52 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
   );
 }
 
-function ProductOptions({ variants, onOptionChange }: { variants: any[]; onOptionChange: (name: string, value: string) => void }) {
+function ProductOptions({ variants, onOptionChange, selected }: { variants: { name: string; options: string[] }; onOptionChange: (name: string, value: string) => void; selected?: string }) {
   return (
     <div className="mt-6 space-y-6">
-      {variants.map((variant) => (
-        <div key={variant.name}>
-          <Label className="text-sm font-medium text-foreground">{variant.name}</Label>
-          <RadioGroup
-            defaultValue={variant.options[0]}
-            className="mt-2 flex flex-wrap gap-2"
-            onValueChange={(value: string) => onOptionChange(variant.name, value)}
-            name={variant.name}
-          >
-            {variant.options.map((option: string) => (
-              <div key={option}>
-                <RadioGroupItem value={option} id={`${variant.name}-${option}`} className="sr-only" />
-                <Label
-                  htmlFor={`${variant.name}-${option}`}
-                  className="cursor-pointer rounded-md border bg-card px-4 py-2 text-sm transition-colors hover:bg-accent data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
-                >
-                  {option}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </div>
-      ))}
+      <div>
+        <Label className="text-sm font-medium text-foreground">{variants.name}</Label>
+        <RadioGroup
+          defaultValue={selected || variants.options[0]}
+          className="mt-2 flex flex-wrap gap-2"
+          onValueChange={(value: string) => onOptionChange(variants.name, value)}
+          name={variants.name}
+        >
+          {variants.options.map((option: string) => (
+            <div key={option}>
+              <RadioGroupItem value={option} id={`${variants.name}-${option}`} className="sr-only" />
+              <Label
+                htmlFor={`${variants.name}-${option}`}
+                className="cursor-pointer rounded-md border bg-card px-4 py-2 text-sm transition-colors hover:bg-accent data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
+              >
+                {option}
+              </Label>
+            </div>
+          ))}
+        </RadioGroup>
+      </div>
     </div>
   );
 }
 
 // --- Main Client Component ---
 export default function ProductDetailsClient({ product, variantRows, children }: { product: Product, variantRows?: ProductVariant[], children?: React.ReactNode }) {
+  const uiVariant = useMemo(() => {
+    if (Array.isArray(variantRows) && variantRows.length > 0) {
+      const name = variantRows[0].option_name || 'Size';
+      const options = Array.from(new Set(variantRows.map(v => v.option_value))).filter(Boolean);
+      return { name, options };
+    }
+    if (Array.isArray(product.variants) && product.variants.length > 0) {
+      return product.variants[0];
+    }
+    return { name: 'Size', options: [] as string[] };
+  }, [variantRows, product.variants]);
+
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>(() => {
-    const initialOptions: Record<string, string> = {};
-    product.variants?.forEach((v) => {
-      initialOptions[v.name] = v.options[0];
-    });
-    return initialOptions;
+    const initial: Record<string, string> = {};
+    if (uiVariant.options.length > 0) initial[uiVariant.name] = uiVariant.options[0];
+    return initial;
   });
 
   const handleOptionChange = (name: string, value: string) => {
@@ -362,11 +371,11 @@ export default function ProductDetailsClient({ product, variantRows, children }:
 
   const selectedVariant = useMemo(() => {
     if (!variantRows || variantRows.length === 0) return null;
-    const name = product.variants?.[0]?.name || 'Size';
+    const name = uiVariant.name;
     const value = selectedOptions[name];
     if (!value) return null;
     return variantRows.find(v => (v.option_name || 'Size') === name && v.option_value === value) || null;
-  }, [variantRows, product.variants, selectedOptions]);
+  }, [variantRows, selectedOptions, uiVariant.name]);
 
   const addToCartDisabled = isOutOfStock || (!!variantRows?.length && (!!selectedVariant ? selectedVariant.stock <= 0 : true));
 
@@ -386,8 +395,8 @@ export default function ProductDetailsClient({ product, variantRows, children }:
         </div>
         <p className="mt-4 text-muted-foreground">{product.description}</p>
         
-        {product.variants?.length ? (
-          <ProductOptions variants={product.variants} onOptionChange={handleOptionChange} />
+        {uiVariant.options.length > 0 ? (
+          <ProductOptions variants={uiVariant} onOptionChange={handleOptionChange} selected={selectedOptions[uiVariant.name]} />
         ) : null}
 
         {variantRows && variantRows.length > 0 && (
@@ -430,16 +439,40 @@ export default function ProductDetailsClient({ product, variantRows, children }:
 
         {/* Price comparison component will be passed as a child */}
         {children}
-
-        {/* Shipping and fulfillment info */}
-        <div className="mt-8 text-sm text-muted-foreground space-y-1">
-          <div className="text-foreground font-medium">الشحن</div>
-          <p>• الشحن مجاني لجميع المنتجات</p>
-          <p>• رسوم شحن المخزون: {formatCurrency(product.inventory_shipping_fee ?? 0)}</p>
-          <p>• رسوم الشحن للميل الأخير: {formatCurrency(product.last_mile_fee ?? 0)}</p>
-          <p>• الشحن من: {product.shipping_from || product.origin_area || '—'}</p>
-          <p>• الوقت المقدر للمعالجة: {typeof product.processing_time_hours === 'number' ? (product.processing_time_hours >= 24 ? `${Math.round(product.processing_time_hours/24)} يوم` : `${product.processing_time_hours} ساعة`) : '—'}</p>
-          <p>• وقت التسليم المتوقع: {typeof product.delivery_time_hours === 'number' ? (product.delivery_time_hours >= 24 ? `${Math.round(product.delivery_time_hours/24)} يوم` : `${product.delivery_time_hours} ساعة`) : '—'}</p>
+        {/* Shipping and fulfillment info (estimated) */}
+        <div className="mt-8 text-sm space-y-2 rounded-md border bg-card p-4">
+          <div className="font-medium">الشحن والتسليم (تقديري)</div>
+          {(() => {
+            const sel = selectedVariant;
+            if (!sel) return (<p className="text-muted-foreground">اختر المقاس لعرض الشحن والإجمالي.</p>);
+            const actualKg = typeof sel.weight_grams === 'number' && sel.weight_grams > 0 ? sel.weight_grams / 1000 : 0.4;
+            const L = typeof sel.length_cm === 'number' ? sel.length_cm : 30;
+            const W = typeof sel.width_cm === 'number' ? sel.width_cm : 25;
+            const H = typeof sel.height_cm === 'number' ? sel.height_cm : 5;
+            const billedKg = computeBilledWeightKg({ actualKg, lengthCm: L, widthCm: W, heightCm: H });
+            const ddp = resolveDdpShippingSar(billedKg);
+            const itemPrice = sel.price ?? product.price;
+            return (
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <div>
+                  <div className="text-muted-foreground">رسوم الشحن (DDP)</div>
+                  <div>{formatCurrency(ddp)}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">الإجمالي</div>
+                  <div>{formatCurrency(itemPrice + ddp)}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">مدة المعالجة</div>
+                  <div>{typeof (product as any).processing_time_hours === 'number' ? `${Math.max(1, Math.round((product as any).processing_time_hours / 24))}–${Math.max(1, Math.ceil(((product as any).processing_time_hours + 24) / 24))} أيام` : '—'}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">مدة التوصيل</div>
+                  <div>{typeof (product as any).delivery_time_hours === 'number' ? `${Math.max(1, Math.round((product as any).delivery_time_hours / 24))}–${Math.max(1, Math.ceil(((product as any).delivery_time_hours + 24) / 24))} أيام` : '—'}</div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
       {/* Mobile sticky Add-to-Cart bar */}
