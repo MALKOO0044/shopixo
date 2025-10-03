@@ -1,69 +1,8 @@
 import type { Product } from "@/lib/types";
 
-export const SAMPLE_PRODUCTS: Product[] = [
-  {
-    id: 1001,
-    title: "تيشيرت قطن أساسي للنساء",
-    slug: "women-basic-cotton-tee",
-    description: "تيشيرت قطن ناعم 180 GSM بقصة مريحة. مناسب للاستخدام اليومي.",
-    price: 39,
-    images: [
-      "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?auto=format&fit=crop&w=1200&q=80",
-      "https://images.unsplash.com/photo-1544716278-e513176f20b5?auto=format&fit=crop&w=1200&q=80"
-    ],
-    category: "ملابس نسائية",
-    rating: 4.6,
-    stock: 120,
-    variants: [
-      { name: "المقاس", options: ["S","M","L","XL"] },
-      { name: "اللون", options: ["أسود","أبيض","بيج"] }
-    ],
-    is_active: true,
-  },
-  {
-    id: 1002,
-    title: "جينز هاي ويست للنساء",
-    slug: "women-high-waist-jeans",
-    description: "جينز بقصة مريحة ومرونة خفيفة، مظهر أنيق يومي.",
-    price: 79,
-    images: [
-      "https://images.unsplash.com/photo-1554238113-6d3dbed5cf55?auto=format&fit=crop&w=1200&q=80"
-    ],
-    category: "ملابس نسائية",
-    rating: 4.5,
-    stock: 60,
-    variants: [
-      { name: "المقاس", options: ["26","28","30","32","34"] },
-      { name: "اللون", options: ["أزرق","أسود"] }
-    ],
-    is_active: true,
-  },
-  {
-    id: 1003,
-    title: "حذاء رياضي نسائي خفيف",
-    slug: "women-light-sneaker",
-    description: "حذاء رياضي خفيف الوزن ومريح للمشي اليومي.",
-    price: 99,
-    images: [
-      "https://images.unsplash.com/photo-1695225897718-b657a89ca78f?auto=format&fit=crop&w=1200&q=80"
-    ],
-    category: "أحذية نسائية",
-    rating: 4.7,
-    stock: 80,
-    variants: [
-      { name: "المقاس", options: ["36","37","38","39","40","41"] },
-      { name: "اللون", options: ["أبيض","أسود","بيج"] }
-    ],
-    is_active: true,
-  },
-  {
-    id: 1004,
-    title: "قميص رجالي بأكمام طويلة",
-    slug: "men-long-sleeve-shirt",
-    description: "قميص كلاسيكي بخامة قطنية، مناسب للعمل والخروج.",
-    price: 89,
-    images: [
-      "https://images.unsplash.com/photo-1592878904946-b3cd69fbcf94?auto=format&fit=crop&w=1200&q=80"
+// Samples removed permanently. Keep empty export to avoid import errors if referenced.
+export const SAMPLE_PRODUCTS: Product[] = [];
+/*
     ],
     category: "ملابس رجالية",
     rating: 4.4,
@@ -567,5 +506,6 @@ export const SAMPLE_PRODUCTS: Product[] = [
       { name: "اللون", options: ["رمادي","بيج","أسود"] }
     ],
     is_active: true,
-  }
+  },
 ];
+*/
