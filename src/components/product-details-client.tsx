@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { formatCurrency, cn } from "@/lib/utils";
 import type { Product, ProductVariant } from "@/lib/types";
 import AddToCart from "@/components/add-to-cart";
@@ -377,6 +377,37 @@ export default function ProductDetailsClient({ product, variantRows, children }:
     return variantRows.find(v => (v.option_name || 'Size') === name && v.option_value === value) || null;
   }, [variantRows, selectedOptions, uiVariant.name]);
 
+  // --- Live CJ pricing & shipping quote ---
+  const [quote, setQuote] = useState<{ retailSar: number; shippingSar: number; options: any[] } | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const cjPid = (product as any)?.cj_product_id as string | undefined;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (!cjPid) { setQuote(null); return; }
+      setQuoteLoading(true);
+      try {
+        const res = await fetch('/api/cj/pricing/quote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pid: cjPid, sku: selectedVariant?.cj_sku, countryCode: 'SA', quantity: 1 }),
+          cache: 'no-store',
+        });
+        const j = await res.json();
+        if (cancelled) return;
+        if (res.ok && j && j.ok) setQuote({ retailSar: j.retailSar, shippingSar: j.shippingSar, options: j.options || [] });
+        else setQuote(null);
+      } catch {
+        if (!cancelled) setQuote(null);
+      } finally {
+        if (!cancelled) setQuoteLoading(false);
+      }
+    }
+    run();
+    return () => { cancelled = true; };
+  }, [cjPid, selectedVariant?.cj_sku]);
+
   const addToCartDisabled = isOutOfStock || (!!variantRows?.length && (!!selectedVariant ? selectedVariant.stock <= 0 : true));
 
   return (
@@ -393,11 +424,25 @@ export default function ProductDetailsClient({ product, variantRows, children }:
             {isOutOfStock ? 'غير متوفر' : 'متوفر'}
           </span>
         </div>
+        {/* Estimated delivered price incl. shipping (live from CJ) */}
+        {cjPid && (
+          <div className="mt-2 text-sm text-muted-foreground">
+            <span className="mr-2">التكلفة التقديرية مع الشحن:</span>
+            {quoteLoading ? <span>جاري الحساب…</span> : (
+              quote ? <span className="font-medium text-foreground">{formatCurrency(quote.retailSar)}</span> : <span>—</span>
+            )}
+          </div>
+        )}
         <p className="mt-4 text-muted-foreground">{product.description}</p>
         
         {uiVariant.options.length > 0 ? (
           <ProductOptions variants={uiVariant} onOptionChange={handleOptionChange} selected={selectedOptions[uiVariant.name]} />
         ) : null}
+
+        {/* Low stock hint */}
+        {selectedVariant && typeof selectedVariant.stock === 'number' && selectedVariant.stock > 0 && selectedVariant.stock <= 3 && (
+          <div className="mt-2 text-sm text-amber-700">متبقي {selectedVariant.stock} فقط</div>
+        )}
 
         {variantRows && variantRows.length > 0 && (
           <div className="mt-6">
@@ -445,6 +490,34 @@ export default function ProductDetailsClient({ product, variantRows, children }:
           {(() => {
             const sel = selectedVariant;
             if (!sel) return (<p className="text-muted-foreground">اختر المقاس لعرض الشحن والإجمالي.</p>);
+            if (cjPid && quote) {
+              const top = (quote.options || []).slice(0, 3);
+              return (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    <div>
+                      <div className="text-muted-foreground">أرخص شحن</div>
+                      <div>{formatCurrency(quote.shippingSar)}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">سعر التوصيل</div>
+                      <div className="font-medium">{formatCurrency(quote.retailSar)}</div>
+                    </div>
+                  </div>
+                  {top.length > 0 && (
+                    <div>
+                      <div className="text-muted-foreground mb-1">خيارات الشحن</div>
+                      <ul className="list-disc pl-5 text-xs">
+                        {top.map((o: any, i: number) => (
+                          <li key={i}>{o.name || o.code}: {formatCurrency(Number(o.price || 0))}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            // Fallback heuristic if live CJ quote not available
             const actualKg = typeof sel.weight_grams === 'number' && sel.weight_grams > 0 ? sel.weight_grams / 1000 : 0.4;
             const L = typeof sel.length_cm === 'number' ? sel.length_cm : 30;
             const W = typeof sel.width_cm === 'number' ? sel.width_cm : 25;
