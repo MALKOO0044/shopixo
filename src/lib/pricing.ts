@@ -118,6 +118,19 @@ export function usdToSar(usd: number): number {
   return Math.round(usd * rate * 100) / 100;
 }
 
+export function convertToSar(amount: number, currency?: string | null): number {
+  const cur = (currency || 'SAR').toUpperCase();
+  if (cur === 'USD') return usdToSar(amount);
+  // For now, assume already SAR for unknown currencies
+  return amount;
+}
+
+export function maybeUsdToSar(amount: number): number {
+  const flag = String(process.env.CJ_PRICES_ARE_USD || '').toLowerCase();
+  if (flag === '1' || flag === 'true' || flag === 'yes') return usdToSar(amount);
+  return amount;
+}
+
 // --- Packaging recommendation ---
 export type PackagingOption = {
   code: 'POLY_MAILER' | 'PADDED_BAG' | 'SMALL_BOX';

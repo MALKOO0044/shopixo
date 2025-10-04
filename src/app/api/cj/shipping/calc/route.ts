@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { shippingLimiter, getClientIp } from '@/lib/ratelimit'
 import { loggerForRequest } from '@/lib/log'
 import { freightCalculate, type CjFreightCalcParams } from '@/lib/cj/v2'
@@ -18,25 +19,37 @@ export async function POST(req: Request) {
       return r
     }
 
-    let body: any = {}
-    try { body = await req.json() } catch {}
-
-    const params: CjFreightCalcParams = {
-      countryCode: String(body.countryCode || body.country || 'SA').toUpperCase(),
-      zipCode: body.zipCode || body.zip || undefined,
-      weightGram: body.weightGram || body.weight || undefined,
-      lengthCm: body.lengthCm || body.length || undefined,
-      widthCm: body.widthCm || body.width || undefined,
-      heightCm: body.heightCm || body.height || undefined,
-      quantity: body.quantity ? Number(body.quantity) : 1,
-      pid: body.pid || body.productId || undefined,
-      sku: body.sku || body.variantSku || undefined,
-    }
-
-    if (!params.countryCode) {
-      const r = NextResponse.json({ ok: false, error: 'countryCode required' }, { status: 400 })
+    const Body = z.object({
+      countryCode: z.string().min(2).max(3),
+      zipCode: z.string().optional().nullable(),
+      weightGram: z.number().positive().optional().nullable(),
+      lengthCm: z.number().positive().optional().nullable(),
+      widthCm: z.number().positive().optional().nullable(),
+      heightCm: z.number().positive().optional().nullable(),
+      quantity: z.number().int().positive().default(1),
+      pid: z.string().optional().nullable(),
+      sku: z.string().optional().nullable(),
+    })
+    let parsed: z.infer<typeof Body>
+    try {
+      const json = await req.json()
+      parsed = Body.parse(json)
+    } catch (e: any) {
+      const r = NextResponse.json({ ok: false, error: 'Invalid body', details: e?.errors || String(e) }, { status: 400 })
       r.headers.set('x-request-id', log.requestId)
       return r
+    }
+
+    const params: CjFreightCalcParams = {
+      countryCode: parsed.countryCode.toUpperCase(),
+      zipCode: parsed.zipCode || undefined,
+      weightGram: parsed.weightGram || undefined,
+      lengthCm: parsed.lengthCm || undefined,
+      widthCm: parsed.widthCm || undefined,
+      heightCm: parsed.heightCm || undefined,
+      quantity: parsed.quantity || 1,
+      pid: parsed.pid || undefined,
+      sku: parsed.sku || undefined,
     }
 
     const res = await freightCalculate(params)

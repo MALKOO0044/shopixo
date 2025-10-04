@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
 import { listCjProductsPage, mapCjItemToProductLike, queryProductByPidOrKeyword } from '@/lib/cj/v2'
@@ -19,13 +20,29 @@ export async function GET(req: Request) {
     }
 
     const { searchParams } = new URL(req.url)
-    const pageNum = Math.max(1, Number(searchParams.get('pageNum') || '1'))
-    const pageSize = Math.min(50, Math.max(1, Number(searchParams.get('pageSize') || '20')))
-    const keyword = searchParams.get('keyword') || ''
-
-    const updateImages = (searchParams.get('updateImages') || 'true').toLowerCase() === 'true'
-    const updateVideo = (searchParams.get('updateVideo') || 'true').toLowerCase() === 'true'
-    const updatePrice = (searchParams.get('updatePrice') || 'true').toLowerCase() === 'true'
+    const Q = z.object({
+      pageNum: z.string().optional(),
+      pageSize: z.string().optional(),
+      keyword: z.string().optional(),
+      updateImages: z.string().optional(),
+      updateVideo: z.string().optional(),
+      updatePrice: z.string().optional(),
+    })
+    const q = Q.parse({
+      pageNum: searchParams.get('pageNum') || undefined,
+      pageSize: searchParams.get('pageSize') || undefined,
+      keyword: searchParams.get('keyword') || undefined,
+      updateImages: searchParams.get('updateImages') || undefined,
+      updateVideo: searchParams.get('updateVideo') || undefined,
+      updatePrice: searchParams.get('updatePrice') || undefined,
+    })
+    const pageNum = Math.max(1, Number(q.pageNum || '1'))
+    const pageSize = Math.min(50, Math.max(1, Number(q.pageSize || '20')))
+    const keyword = q.keyword || ''
+    const toBool = (v: string | undefined, d: boolean) => v ? v.toLowerCase() === 'true' : d
+    const updateImages = toBool(q.updateImages, true)
+    const updateVideo = toBool(q.updateVideo, true)
+    const updatePrice = toBool(q.updatePrice, true)
 
     // 1) List a catalog page
     const list = await listCjProductsPage({ pageNum, pageSize, keyword: keyword || undefined })

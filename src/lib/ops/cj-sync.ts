@@ -2,6 +2,9 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { slugify } from '@/lib/utils/slug'
 import { hasTable, hasColumn } from '@/lib/db-features'
 import type { CjProductLike } from '@/lib/cj/v2'
+import { freightCalculate } from '@/lib/cj/v2'
+import { loadPricingPolicy } from '@/lib/pricing-policy'
+import { computeRetailFromLanded, convertToSar } from '@/lib/pricing'
 
 function getSupabaseAdmin(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined
@@ -46,6 +49,12 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
     const baseSlug = await ensureUniqueSlug(admin, cj.name)
     const priceCandidates = (cj.variants || []).map((v) => (typeof v.price === 'number' ? v.price : NaN)).filter((n) => !isNaN(n))
     const minVariantPrice = priceCandidates.length > 0 ? Math.min(...priceCandidates) : 0
+    const minVariant = (cj.variants || []).reduce<{ price: number; sku?: string } | null>((best, v) => {
+      const p = typeof v.price === 'number' ? v.price : NaN
+      if (isNaN(p)) return best
+      if (!best || p < best.price) return { price: p, sku: v.cjSku }
+      return best
+    }, null)
 
     const totalStock = (cj.variants || []).reduce((acc, v) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0)
 
@@ -107,6 +116,30 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
       }
       productId = insRes.id as number
       updated.push('product')
+    }
+
+    // Recalculate retail price with shipping + margin when requested
+    if (options.updatePrice) {
+      try {
+        const policy = await loadPricingPolicy()
+        let shippingSar = 0
+        try {
+          const fc = await freightCalculate({ countryCode: 'SA', pid: cj.productId, sku: minVariant?.sku, quantity: 1 })
+          const cheapest = (fc.options || []).reduce<{ price: number; currency?: string } | null>((best, opt) => {
+            const p = Number(opt.price || 0)
+            if (!best || p < best.price) return { price: p, currency: opt.currency }
+            return best
+          }, null)
+          if (cheapest) shippingSar = convertToSar(cheapest.price, cheapest.currency)
+        } catch {}
+
+        const baseCostSar = typeof minVariantPrice === 'number' ? minVariantPrice : 0
+        const landed = Math.max(0, baseCostSar) + Math.max(0, shippingSar)
+        let retail = computeRetailFromLanded(landed, { margin: policy.margin, roundTo: policy.roundTo, prettyEnding: policy.endings })
+        if (retail < policy.floorSar) retail = policy.floorSar
+        await admin.from('products').update({ price: retail }).eq('id', productId)
+        updated.push('price')
+      } catch {}
     }
 
     // Variants table

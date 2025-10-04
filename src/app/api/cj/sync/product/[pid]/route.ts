@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
 import { mapCjItemToProductLike, queryProductByPidOrKeyword } from '@/lib/cj/v2'
@@ -26,9 +27,20 @@ export async function GET(req: Request, ctx: { params: { pid: string } }) {
     }
 
     const { searchParams } = new URL(req.url)
-    const updateImages = (searchParams.get('updateImages') || 'true').toLowerCase() === 'true'
-    const updateVideo = (searchParams.get('updateVideo') || 'true').toLowerCase() === 'true'
-    const updatePrice = (searchParams.get('updatePrice') || 'true').toLowerCase() === 'true'
+    const Q = z.object({
+      updateImages: z.string().optional(),
+      updateVideo: z.string().optional(),
+      updatePrice: z.string().optional(),
+    })
+    const q = Q.parse({
+      updateImages: searchParams.get('updateImages') || undefined,
+      updateVideo: searchParams.get('updateVideo') || undefined,
+      updatePrice: searchParams.get('updatePrice') || undefined,
+    })
+    const toBool = (v: string | undefined, def: boolean) => v ? v.toLowerCase() === 'true' : def
+    const updateImages = toBool(q.updateImages, true)
+    const updateVideo = toBool(q.updateVideo, true)
+    const updatePrice = toBool(q.updatePrice, true)
 
     const raw = await queryProductByPidOrKeyword({ pid })
     const itemRaw = Array.isArray(raw?.data?.list)
