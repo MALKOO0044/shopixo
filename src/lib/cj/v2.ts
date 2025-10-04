@@ -4,6 +4,69 @@ import { fetchJson } from '@/lib/http';
 
 // CJ v2 client with token auth per docs:
 // - POST /authentication/getAccessToken { email, apiKey }
+
+export async function listCjProductsPage(params: { pageNum: number; pageSize?: number; keyword?: string }): Promise<any> {
+  const pageNum = Math.max(1, Math.floor(params.pageNum || 1));
+  const pageSize = Math.min(50, Math.max(1, Math.floor(params.pageSize ?? 20)));
+  const kw = params.keyword ? String(params.keyword) : '';
+  const qs = `keyWords=${encodeURIComponent(kw)}&pageSize=${pageSize}&pageNum=${pageNum}`;
+  return await cjFetch<any>(`/product/list?${qs}`);
+}
+
+// --- Freight / Shipping ---
+export type CjFreightCalcParams = {
+  countryCode: string; // e.g., 'SA'
+  zipCode?: string;
+  weightGram?: number; // optional; CJ can compute by variant sometimes
+  lengthCm?: number;
+  widthCm?: number;
+  heightCm?: number;
+  quantity?: number;
+  pid?: string; // product id if required by backend
+  sku?: string; // variant sku if required
+};
+
+export type CjShippingOption = {
+  code: string;
+  name: string;
+  price: number;
+  currency?: string;
+  logisticAgingDays?: { min?: number; max?: number };
+};
+
+export async function freightCalculate(params: CjFreightCalcParams): Promise<{ options: CjShippingOption[] }> {
+  // CJ endpoint name varies in docs; use common one
+  const body: any = {
+    countryCode: params.countryCode,
+    zip: params.zipCode,
+    weight: params.weightGram,
+    length: params.lengthCm,
+    width: params.widthCm,
+    height: params.heightCm,
+    quantity: params.quantity ?? 1,
+    pid: params.pid,
+    sku: params.sku,
+  };
+  const r = await cjFetch<any>('/logistic/freightCalculate', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  const src: any = (r?.data ?? r?.content ?? r ?? []);
+  const out: CjShippingOption[] = [];
+  const arr: any[] = Array.isArray(src) ? src : Array.isArray(src?.list) ? src.list : [];
+  for (const it of arr) {
+    const price = Number(it.price || it.amount || it.totalFee || it.totalPrice || 0);
+    const currency = it.currency || it.ccy || 'USD';
+    const name = String(it.logisticsName || it.name || it.channelName || it.express || 'Shipping');
+    const code = String(it.logisticsType || it.code || it.channel || name);
+    const age = it.logisticAging || it.aging || it.days || null;
+    const aging = typeof age === 'string'
+      ? (() => { const m = age.match(/(\d+)[^\d]+(\d+)/); if (m) return { min: Number(m[1]), max: Number(m[2]) }; const n = age.match(/(\d+)/); return n ? { min: Number(n[1]) } : undefined; })()
+      : (typeof age === 'number' ? { min: age, max: age } : undefined);
+    out.push({ code, name, price, currency, logisticAgingDays: aging });
+  }
+  return { options: out };
+}
 // - POST /authentication/refreshAccessToken { refreshToken }
 // Token lives 15 days; refresh token 180 days; getAccessToken limited to once/5 minutes.
 // Env vars supported:
