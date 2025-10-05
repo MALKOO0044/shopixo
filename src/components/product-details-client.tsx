@@ -144,11 +144,15 @@ function transformImage(url: string): string {
   return url;
 }
 
-function ProductGallery({ images, title }: { images: string[]; title: string }) {
+function ProductGallery({ images, title, videoUrl }: { images: string[]; title: string; videoUrl?: string | null }) {
   const media = (Array.isArray(images) ? images : [])
     .map((s) => (typeof s === 'string' ? normalizeImageUrl(s) : s))
     .filter((s) => typeof s === 'string') as string[];
-  const items = media.length > 0 ? media : ["/placeholder.svg"];
+  const items = (() => {
+    const arr = [...media];
+    if (videoUrl && typeof videoUrl === 'string' && videoUrl.trim()) arr.unshift(videoUrl.trim());
+    return arr.length > 0 ? arr : ["/placeholder.svg"]; 
+  })();
   const [selected, setSelected] = useState(items[0]);
 
   // Zoom overlay state
@@ -412,7 +416,7 @@ export default function ProductDetailsClient({ product, variantRows, children }:
 
   return (
     <div className="grid gap-10 lg:grid-cols-2">
-      <ProductGallery images={product.images} title={product.title} />
+      <ProductGallery images={product.images} videoUrl={(product as any).video_url || undefined} title={product.title} />
       <div>
         <h1 className="text-3xl font-bold text-foreground">{product.title}</h1>
         <div className="mt-2 flex items-center gap-4">
@@ -487,6 +491,9 @@ export default function ProductDetailsClient({ product, variantRows, children }:
         {/* Shipping and fulfillment info (estimated) */}
         <div className="mt-8 text-sm space-y-2 rounded-md border bg-card p-4">
           <div className="font-medium">الشحن والتسليم (تقديري)</div>
+          {((product as any).origin_area || (product as any).origin_country_code) && (
+            <div className="text-xs text-muted-foreground">الشحن من: {((product as any).origin_area || '-')}{((product as any).origin_country_code ? `، ${ (product as any).origin_country_code }` : '')}</div>
+          )}
           {(() => {
             const sel = selectedVariant;
             if (!sel) return (<p className="text-muted-foreground">اختر المقاس لعرض الشحن والإجمالي.</p>);

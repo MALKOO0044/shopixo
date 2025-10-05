@@ -78,6 +78,7 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<{ o
 export type CjVariantLike = {
   cjSku?: string;
   size?: string;
+  color?: string;
   price?: number;
   stock?: number;
   // Optional shipping metadata when provided by CJ
@@ -94,6 +95,7 @@ export type CjProductLike = {
   videoUrl?: string | null;
   variants: CjVariantLike[];
   deliveryTimeHours?: number | null; // estimated delivery time in hours (if provided by CJ)
+  processingTimeHours?: number | null; // estimated processing time in hours (if provided by CJ)
   originArea?: string | null;
   originCountryCode?: string | null;
 };
@@ -396,7 +398,16 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
       return out || 'Untitled';
     } catch { return s || 'Untitled'; }
   }
-  const name = cleanTitle(String(item.nameEn || item.productName || item.name || item.title || 'Untitled'));
+  // Prefer English/Latin/Arabic title if available; fall back to cleaned string with CJK stripped if dominant
+  const rawTitle = String(item.nameEn || item.productNameEn || item.englishName || item.productName || item.name || item.title || 'Untitled');
+  let name = cleanTitle(rawTitle);
+  try {
+    const cjk = (name.match(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g) || []).length;
+    if (cjk > 0 && cjk / Math.max(1, name.length) > 0.4) {
+      const asciiish = name.replace(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g, '').replace(/\s{2,}/g, ' ').trim();
+      if (asciiish.length >= 10) name = cleanTitle(asciiish);
+    }
+  } catch {}
 
   // --- Image collection (robust across CJ shapes) ---
   const imageList: string[] = [];
@@ -503,6 +514,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     for (const v of rawVariants) {
       const cjSku = v.cjSku || v.sku || v.skuId || v.barcode || null;
       const size = v.size || v.attributeValue || (v.attributes && (v.attributes.size || v.attributes.Size || v.attributes.SIZE)) || v.optionValue || null;
+      const color = (v.color || v.colour || v.Color || (v.attributes && (v.attributes.color || v.attributes.Color || v.attributes.COLOUR))) || null;
       const price = pickNum(
         v.sellPrice, v.price, v.discountPrice, v.sellPriceUSD, v.usdPrice, v.listedPrice, v.originalPrice,
         (v.priceInfo && (v.priceInfo.sellPrice || v.priceInfo.price)),
@@ -532,6 +544,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
       variants.push({
         cjSku: cjSku || undefined,
         size: size || undefined,
+        color: color || undefined,
         price,
         stock,
         weightGrams,
@@ -558,8 +571,16 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     }
   }
 
-  // Delivery time (hours) if provided
-  const deliveryTimeHours = typeof item.deliveryTime === 'number' ? item.deliveryTime : null;
+  // Delivery/processing time (hours) if provided
+  const deliveryTimeHours = typeof item.deliveryTime === 'number' ? item.deliveryTime : (typeof item.logisticAging === 'number' ? item.logisticAging : null);
+  const processingTimeHours = (() => {
+    const d = pickNum(item.processingTime, item.handleTime, item.handlingTime, item.processingDays, item.deliveryAging);
+    if (typeof d === 'number') {
+      // If looks like days (<= 60), convert to hours
+      return d <= 60 ? Math.round(d * 24) : Math.round(d);
+    }
+    return null;
+  })();
 
   const originArea = (item.defaultArea || item.warehouse || item.areaName || null) as string | null;
   const originCountryCode = (item.areaCountryCode || item.countryCode || null) as string | null;
@@ -571,7 +592,10 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     videoUrl: videoUrl || null,
     variants,
     deliveryTimeHours,
+    processingTimeHours,
     originArea,
     originCountryCode,
+    // Attach processing time in a way that callers can read from item if needed
+    // (keeping CjProductLike strict; we will pass via casting if used)
   };
 }
