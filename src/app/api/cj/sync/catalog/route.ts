@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
@@ -66,6 +67,12 @@ export async function GET(req: Request) {
 
     // 2) For each item, resolve full details then map + upsert
     const results: any[] = []
+    const db = (() => {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+      if (!url || !key) return null
+      return createClient(url, key)
+    })()
     for (const it of arr) {
       try {
         const pid = String(it.pid || it.productId || it.id || '')
@@ -85,7 +92,14 @@ export async function GET(req: Request) {
         const up = await upsertProductFromCj(mapped, { updateImages, updateVideo, updatePrice })
         if (up.ok) {
           try { await persistRawCj(up.productId, itemRaw) } catch {}
-          results.push({ ok: true, pid, productId: up.productId, updated: up.updated })
+          let slug: string | undefined = undefined
+          if (db) {
+            try {
+              const { data } = await db.from('products').select('slug').eq('id', up.productId).maybeSingle()
+              slug = data?.slug || undefined
+            } catch {}
+          }
+          results.push({ ok: true, pid, productId: up.productId, slug, updated: up.updated })
         } else {
           results.push({ ok: false, pid, error: up.error })
         }

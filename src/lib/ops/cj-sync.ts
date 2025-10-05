@@ -4,7 +4,7 @@ import { hasTable, hasColumn } from '@/lib/db-features'
 import type { CjProductLike } from '@/lib/cj/v2'
 import { freightCalculate } from '@/lib/cj/v2'
 import { loadPricingPolicy } from '@/lib/pricing-policy'
-import { computeRetailFromLanded, convertToSar } from '@/lib/pricing'
+import { computeRetailFromLanded, convertToSar, maybeUsdToSar } from '@/lib/pricing'
 
 function getSupabaseAdmin(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined
@@ -70,6 +70,7 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
     const optional: Record<string, any> = {
       images: options.updateImages ? (cj.images || []) : undefined,
       video_url: options.updateVideo ? (cj.videoUrl || null) : undefined,
+      is_active: true,
     }
 
     // Prune undefineds and columns that don't exist
@@ -133,7 +134,7 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
           if (cheapest) shippingSar = convertToSar(cheapest.price, cheapest.currency)
         } catch {}
 
-        const baseCostSar = typeof minVariantPrice === 'number' ? minVariantPrice : 0
+        const baseCostSar = typeof minVariantPrice === 'number' ? maybeUsdToSar(minVariantPrice) : 0
         const landed = Math.max(0, baseCostSar) + Math.max(0, shippingSar)
         let retail = computeRetailFromLanded(landed, { margin: policy.margin, roundTo: policy.roundTo, prettyEnding: policy.endings })
         if (retail < policy.floorSar) retail = policy.floorSar
