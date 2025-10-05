@@ -105,7 +105,26 @@ export async function GET(req: Request) {
     const results: any[] = []
     for (const cj of selected) {
       try {
-        const up = await upsertProductFromCj(cj, { updateImages: true, updateVideo: true, updatePrice: true })
+        // Enrich via detail fetch by PID for better media/variants
+        let enriched = cj
+        try {
+          const d = await queryProductByPidOrKeyword({ pid: cj.productId })
+          const dlist: any[] = Array.isArray(d?.data?.content)
+            ? d.data.content
+            : Array.isArray(d?.data?.list)
+              ? d.data.list
+              : Array.isArray(d?.content)
+                ? d.content
+                : Array.isArray(d?.data)
+                  ? d.data
+                  : []
+          if (dlist && dlist[0]) {
+            const remap = mapCjItemToProductLike(dlist[0])
+            if (remap) enriched = remap
+          }
+        } catch {}
+
+        const up = await upsertProductFromCj(enriched, { updateImages: true, updateVideo: true, updatePrice: true })
         if (!('ok' in up) || !up.ok) {
           results.push({ ok: false, error: (up as any).error || 'Upsert failed', productId: null })
           continue

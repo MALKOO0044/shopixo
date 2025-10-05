@@ -36,8 +36,8 @@ export async function GET(req: Request) {
 
     // Bootstrap policy: if there are zero products, allow without token once.
     // Otherwise require token === SEED_IMPORT_TOKEN.
-    const { data: cntData } = await db.from('products').select('id', { count: 'exact', head: true })
-    const productsCount = (cntData as any)?.length ? (cntData as any).length : (db as any)._lastResponse?.count ?? 0
+    const { count: productsCountRaw } = await db.from('products').select('id', { count: 'exact', head: true })
+    const productsCount = typeof productsCountRaw === 'number' ? productsCountRaw : 0
 
     const tokenEnv = String(process.env.SEED_IMPORT_TOKEN || '')
     const disabled = String(process.env.SEED_IMPORT_DISABLED || '').toLowerCase() === 'true'
@@ -71,7 +71,27 @@ export async function GET(req: Request) {
     }
 
     const itemRaw = list[0]
-    const mapped = mapCjItemToProductLike(itemRaw)
+    // Enrich: if keyword search returned a shallow item, fetch product detail by PID before mapping
+    let mapped = mapCjItemToProductLike(itemRaw)
+    try {
+      const pid = (mapped?.productId || String((itemRaw as any)?.pid || (itemRaw as any)?.productId || '')) as string
+      if (pid) {
+        const detail = await queryProductByPidOrKeyword({ pid })
+        const dlist: any[] = Array.isArray(detail?.data?.content)
+          ? detail.data.content
+          : Array.isArray(detail?.data?.list)
+            ? detail.data.list
+            : Array.isArray(detail?.content)
+              ? detail.content
+              : Array.isArray(detail?.data)
+                ? detail.data
+                : []
+        if (dlist && dlist[0]) {
+          const remapped = mapCjItemToProductLike(dlist[0])
+          if (remapped) mapped = remapped
+        }
+      }
+    } catch {}
     if (!mapped) {
       const r = NextResponse.json({ ok: false, error: 'Mapping failed' }, { status: 422 })
       r.headers.set('x-request-id', log.requestId)
