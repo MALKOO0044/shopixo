@@ -251,20 +251,41 @@ export async function getAccessToken(): Promise<string> {
 }
 
 async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = await getAccessToken();
   const url = `${getBase()}${path.startsWith('/') ? '' : '/'}${path}`;
-  const headers = {
-    'Content-Type': 'application/json',
-    'CJ-Access-Token': token,
-    ...(init?.headers || {}),
-  } as Record<string, string>;
-  return await fetchJson<T>(url, {
-    ...init,
-    headers,
-    cache: 'no-store',
-    timeoutMs: 12000,
-    retries: 2,
-  });
+  const attempt = async (tok: string) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      'CJ-Access-Token': tok,
+      ...(init?.headers || {}),
+    } as Record<string, string>;
+    return await fetchJson<T>(url, {
+      ...init,
+      headers,
+      cache: 'no-store',
+      timeoutMs: 12000,
+      retries: 2,
+    });
+  };
+
+  let token = await getAccessToken();
+  try {
+    return await attempt(token);
+  } catch (e: any) {
+    const msg = String(e?.message || e || '');
+    const looksAuth = /HTTP\s*(401|403)/i.test(msg) || /token|auth/i.test(msg);
+    const canFetchFresh = !!process.env.CJ_EMAIL && !!process.env.CJ_API_KEY;
+    if (looksAuth && canFetchFresh) {
+      try {
+        // Force-fetch a fresh token bypassing any bad manual override
+        const fresh = await fetchNewAccessToken();
+        tokenState = fresh;
+        return await attempt(fresh.accessToken);
+      } catch {
+        // fall through to rethrow original error
+      }
+    }
+    throw e;
+  }
 }
 
 // Query by keyword or PID (CJ sometimes exposes myProduct query); we attempt flexible endpoints.
