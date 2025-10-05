@@ -64,13 +64,13 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
       price: existing?.price ?? minVariantPrice,
       category: 'Women',
       stock: totalStock,
-      cj_product_id: cj.productId,
     }
 
     const optional: Record<string, any> = {
       images: options.updateImages ? (cj.images || []) : undefined,
       video_url: options.updateVideo ? (cj.videoUrl || null) : undefined,
       is_active: true,
+      cj_product_id: cj.productId,
     }
 
     // Prune undefineds and columns that don't exist
