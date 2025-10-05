@@ -151,28 +151,48 @@ async function fetchNewAccessToken(): Promise<TokenState> {
   const email = process.env.CJ_EMAIL;
   const apiKey = process.env.CJ_API_KEY;
   if (!email || !apiKey) throw new Error('Missing CJ_EMAIL or CJ_API_KEY envs');
-  const r = await authPost<any>('/authentication/getAccessToken', { email, apiKey });
-  if (r?.code !== 200 || !r?.result) {
-    throw new Error(`getAccessToken failed: ${r?.message || 'Unknown error'}`);
+
+  const paths = [
+    '/authentication/getAccessToken',
+    '/accessToken/get',
+    '/token/create',
+    '/token/get',
+    '/token/getAccessToken',
+  ];
+
+  let lastErr: any = null;
+  for (const p of paths) {
+    try {
+      const r = await authPost<any>(p, { email, apiKey });
+      const d = r?.data || r?.result || r || {};
+      const accessToken = String(
+        d?.accessToken || r?.accessToken || (d?.token && d.token.accessToken) || ''
+      );
+      if (accessToken) {
+        const out: TokenState = {
+          accessToken,
+          accessTokenExpiry: d?.accessTokenExpiryDate || d?.accessTokenExpireAt || null,
+          refreshToken: d?.refreshToken || null,
+          refreshTokenExpiry: d?.refreshTokenExpiryDate || d?.refreshTokenExpireAt || null,
+          lastAuthCallMs: ms(),
+        };
+        try {
+          await saveToken('cj', {
+            access_token: out.accessToken,
+            access_expiry: out.accessTokenExpiry || null,
+            refresh_token: out.refreshToken || null,
+            refresh_expiry: out.refreshTokenExpiry || null,
+            last_auth_call_at: new Date(out.lastAuthCallMs).toISOString(),
+          });
+        } catch {}
+        return out;
+      }
+      lastErr = new Error(`getAccessToken empty from ${p}`);
+    } catch (e: any) {
+      lastErr = e;
+    }
   }
-  const d = r.data || {};
-  const out: TokenState = {
-    accessToken: String(d.accessToken || ''),
-    accessTokenExpiry: d.accessTokenExpiryDate || null,
-    refreshToken: d.refreshToken || null,
-    refreshTokenExpiry: d.refreshTokenExpiryDate || null,
-    lastAuthCallMs: ms(),
-  };
-  try {
-    await saveToken('cj', {
-      access_token: out.accessToken,
-      access_expiry: out.accessTokenExpiry || null,
-      refresh_token: out.refreshToken || null,
-      refresh_expiry: out.refreshTokenExpiry || null,
-      last_auth_call_at: new Date(out.lastAuthCallMs).toISOString(),
-    });
-  } catch {}
-  return out;
+  throw new Error(`getAccessToken failed: ${lastErr?.message || 'Unknown error'}`);
 }
 
 async function refreshAccessTokenState(state: TokenState): Promise<TokenState> {
@@ -296,16 +316,15 @@ export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?
   // If PID provided, hit the exact PID endpoint first
   if (pid) {
     try {
-      const isNumericPid = /^[0-9]{16,}$/.test(pid);
       let guidPid = pid;
-      if (isNumericPid) {
-        // Resolve GUID PID by searching product list with the numeric web id
+      // Resolve PID generically: the input may be a numeric web id or a SKU like CJTZ...; search to find the product pid
+      try {
         const lr = await cjFetch<any>(`/product/list?keyWords=${encodeURIComponent(pid)}&pageSize=5&pageNum=1`);
         const cand = (Array.isArray(lr?.data?.list) ? lr.data.list : []) as any[];
         if (cand.length > 0 && cand[0]?.pid) {
           guidPid = String(cand[0].pid);
         }
-      }
+      } catch {}
 
       // Fetch product details and variants using GUID pid
       const pr = await cjFetch<any>(`/product/query?pid=${encodeURIComponent(guidPid)}`);
@@ -334,6 +353,7 @@ export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?
   ];
 
   const collected: any[] = [];
+  let lastErr: any = null;
   for (const ep of endpoints) {
     try {
       const r = await cjFetch<any>(ep);
@@ -350,9 +370,12 @@ export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?
                 : [];
       for (const it of arr) collected.push(it);
       if (collected.length > 0) break;
-    } catch {}
+    } catch (e: any) {
+      lastErr = e;
+    }
   }
 
+  if (collected.length === 0 && lastErr) throw lastErr;
   return { code: 200, data: { content: collected } };
 }
 
@@ -361,13 +384,49 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
   if (!item) return null;
   const productId = String(item.productId || item.pid || item.id || item.vid || item.sku || '');
   if (!productId) return null;
-  const name = String(item.nameEn || item.productName || item.name || item.title || 'Untitled');
-  const bigImage = (item.bigImage || item.image || null) as string | null;
-  const imageList: string[] = [];
-  if (Array.isArray(item.imageList)) {
-    for (const u of item.imageList) if (typeof u === 'string') imageList.push(u);
+  // --- Title normalization ---
+  function cleanTitle(s: string): string {
+    try {
+      const normalized = s.replace(/[“”„‟‛]/g, '"').replace(/[’‘`]/g, "'");
+      const parts = normalized.split(/[",，、|]+/).map((p) => p.trim()).filter(Boolean);
+      const uniq: string[] = [];
+      for (const p of parts) if (!uniq.includes(p)) uniq.push(p);
+      let out = (uniq.join(', ') || normalized).replace(/^"+|"+$/g, '').replace(/\s{2,}/g, ' ').trim();
+      if (out.length > 120) { out = out.slice(0, 120).replace(/\s+\S*$/, '').trim(); }
+      return out || 'Untitled';
+    } catch { return s || 'Untitled'; }
   }
-  if (bigImage) imageList.unshift(bigImage);
+  const name = cleanTitle(String(item.nameEn || item.productName || item.name || item.title || 'Untitled'));
+
+  // --- Image collection (robust across CJ shapes) ---
+  const imageList: string[] = [];
+  const bigImage = (item.bigImage || item.image || item.mainImage || item.mainImageUrl || null) as string | null;
+  const pushUrl = (val: any) => { if (typeof val === 'string' && val.trim()) imageList.push(val.trim()); };
+  if (bigImage) pushUrl(bigImage);
+  // Arrays: strings or objects with common keys
+  const arrFields = ['imageList', 'productImageList', 'detailImageList'] as const;
+  for (const key of arrFields) {
+    const arr: any = (item as any)[key];
+    if (Array.isArray(arr)) {
+      for (const it of arr) {
+        if (typeof it === 'string') pushUrl(it);
+        else if (it && typeof it === 'object') pushUrl(it.imageUrl || it.url || it.imgUrl || it.big || it.origin || it.src);
+      }
+    }
+  }
+  // String fields that may contain JSON array or comma-separated URLs
+  const strFields = ['images', 'imageUrls'];
+  for (const key of strFields) {
+    const v: any = (item as any)[key];
+    if (typeof v === 'string' && v.trim()) {
+      const s = v.trim();
+      if (s.startsWith('[') && s.endsWith(']')) {
+        try { const parsed = JSON.parse(s); if (Array.isArray(parsed)) parsed.forEach(pushUrl); } catch {}
+      } else if (/[;,|\n\r\t,]+/.test(s)) {
+        s.split(/[;,|\n\r\t,]+/).map((x) => x.trim()).filter(Boolean).forEach(pushUrl);
+      } else { pushUrl(s); }
+    }
+  }
 
   // Filter out non-product images (badges, icons, flags, logos, placeholders) and small thumbs
   const deny = /(sprite|icon|favicon|logo|placeholder|blank|loading|alipay|wechat|whatsapp|kefu|service|avatar|thumb|thumbnail|small|tiny|mini|sizechart|size\s*chart|chart|table|guide|tips|hot|badge|flag|promo|banner|sale|discount|qr)/i;
@@ -379,16 +438,16 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     } catch { return u; }
   }
   function isSmall(u: string): boolean {
-    // match -100x100 etc in filename
+    // match -100x100 etc in filename; treat as small only if BOTH dims are small
     const m = u.match(/-(\d{2,4})x(\d{2,4})(?=\.)/i);
     if (m) {
       const w = Number(m[1]);
       const h = Number(m[2]);
-      if (w < 512 || h < 512) return true;
+      if (Math.max(w, h) < 300) return true;
     }
-    // query hints like ?w=300&h=300
+    // query hints like ?w=300 or &h=300: be lenient; only treat as small under 300
     const qm = u.match(/[?&](?:w|width|h|height)=(\d{2,4})/i);
-    if (qm && Number(qm[1]) < 512) return true;
+    if (qm && Number(qm[1]) < 300) return true;
     return false;
   }
   function normKey(u: string): string {
@@ -480,6 +539,22 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
         widthCm: typeof widthCm === 'number' ? widthCm : undefined,
         heightCm: typeof heightCm === 'number' ? heightCm : undefined,
       });
+
+      // Opportunistically collect variant images if main set is empty or small
+      if (filteredImages.length < 10) {
+        const vcands = [v.image, v.imageUrl, v.imgUrl, v.whiteImage, v.bigImage];
+        for (const c of vcands) {
+          if (!c || typeof c !== 'string') continue;
+          const u = normalizeUrl(String(c));
+          if (deny.test(u)) continue;
+          if (isSmall(u)) continue;
+          const key = normKey(u);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          filteredImages.push(u);
+          if (filteredImages.length >= 10) break;
+        }
+      }
     }
   }
 
