@@ -133,13 +133,13 @@ export async function GET(req: Request) {
     // Soft archive by is_active if available and not hard delete
     const hasIsActive = await hasColumn('products', 'is_active')
     if (!params.hard && hasIsActive && targetIds.length > 0) {
-      const { count, error } = await admin
+      const { data: updRows, error } = await admin
         .from('products')
         .update({ is_active: false })
         .in('id', targetIds)
-        .select('id', { count: 'exact', head: true })
+        .select('id')
       if (error) throw error
-      updated = count || 0
+      updated = (updRows?.length || 0)
     }
 
     // Hard delete if requested
