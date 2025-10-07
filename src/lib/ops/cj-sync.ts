@@ -102,10 +102,14 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
       productId = upd.id as number
       updated.push('product')
     } else {
-      // Insert with slug conflict retry
+      // Insert with slug conflict retry (include optional columns on insert)
       let insRes: any = null
       try {
-        const { data: ins, error: insErr } = await admin.from('products').insert(productPayload).select('id').single()
+        const { data: ins, error: insErr } = await admin
+          .from('products')
+          .insert({ ...productPayload, ...optional })
+          .select('id')
+          .single()
         if (insErr || !ins) throw insErr || new Error('Failed to insert product')
         insRes = ins
       } catch (e: any) {
@@ -113,7 +117,11 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
         if (/duplicate key|unique constraint|unique violation|already exists/i.test(msg)) {
           const base = productPayload.slug || slugify(cj.name)
           productPayload.slug = await ensureUniqueSlug(admin, base)
-          const { data: ins2, error: err2 } = await admin.from('products').insert(productPayload).select('id').single()
+          const { data: ins2, error: err2 } = await admin
+            .from('products')
+            .insert({ ...productPayload, ...optional })
+            .select('id')
+            .single()
           if (err2 || !ins2) throw err2 || new Error('Failed to insert product (retry)')
           insRes = ins2
         } else {
@@ -131,12 +139,25 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
         let shippingSar = 0
         try {
           const fc = await freightCalculate({ countryCode: 'SA', pid: cj.productId, sku: minVariant?.sku, quantity: 1 })
-          const cheapest = (fc.options || []).reduce<{ price: number; currency?: string } | null>((best, opt) => {
+          const cheapest = (fc.options || []).reduce<{ price: number; currency?: string; aging?: { min?: number; max?: number } } | null>((best, opt: any) => {
             const p = Number(opt.price || 0)
-            if (!best || p < best.price) return { price: p, currency: opt.currency }
+            if (!best || p < best.price) return { price: p, currency: opt.currency, aging: opt.logisticAgingDays }
             return best
           }, null)
-          if (cheapest) shippingSar = convertToSar(cheapest.price, cheapest.currency)
+          if (cheapest) {
+            shippingSar = convertToSar(cheapest.price, cheapest.currency)
+            // If we have an aging estimate in days, persist to product
+            try {
+              const aging = cheapest.aging
+              if (aging && (typeof aging.min === 'number' || typeof aging.max === 'number')) {
+                const avgDays = typeof aging.min === 'number' && typeof aging.max === 'number' ? (aging.min + aging.max) / 2
+                  : (typeof aging.min === 'number' ? aging.min : (aging.max as number))
+                const hours = Math.max(1, Math.round(avgDays * 24))
+                await admin.from('products').update({ delivery_time_hours: hours }).eq('id', productId)
+                updated.push('delivery_time_hours')
+              }
+            } catch {}
+          }
         } catch {}
 
         const baseCostSar = typeof minVariantPrice === 'number' ? maybeUsdToSar(minVariantPrice) : 0

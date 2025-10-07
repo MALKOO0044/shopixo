@@ -408,6 +408,37 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
       if (asciiish.length >= 10) name = cleanTitle(asciiish);
     }
   } catch {}
+  // Optional: basic Arabic terminology replacement if enabled (non-AI, deterministic)
+  function arabizeTitle(s: string): string {
+    const map: Array<[RegExp, string]> = [
+      [/\bwomen'?s\b/ig, 'للنساء'],
+      [/\bwomen\b/ig, 'نساء'],
+      [/\bmen'?s\b/ig, 'للرجال'],
+      [/\bmen\b/ig, 'رجال'],
+      [/\bdress(es)?\b/ig, 'فستان'],
+      [/\bblouse(s)?\b/ig, 'بلوزة'],
+      [/\bskirt(s)?\b/ig, 'تنورة'],
+      [/\bshirt(s)?\b/ig, 'قميص'],
+      [/\bt[- ]?shirt(s)?\b/ig, 'تيشيرت'],
+      [/\bhoodie(s)?\b/ig, 'هودي'],
+      [/\bsweater(s)?\b/ig, 'كنزة'],
+      [/\bjeans?\b/ig, 'جينز'],
+      [/\bpants?\b/ig, 'بنطال'],
+      [/\bshorts?\b/ig, 'شورت'],
+      [/\bshoes?\b/ig, 'أحذية'],
+      [/\bsneakers?\b/ig, 'سنيكرز'],
+      [/\blong sleeve(s)?\b/ig, 'أكمام طويلة'],
+      [/\bshort sleeve(s)?\b/ig, 'أكمام قصيرة'],
+    ];
+    let out = s;
+    for (const [re, ar] of map) out = out.replace(re, ar);
+    return out;
+  }
+  try {
+    if ((process.env.AUTO_ARABIC_TITLES || '').toLowerCase() === 'true') {
+      name = arabizeTitle(name);
+    }
+  } catch {}
 
   // --- Image collection (robust across CJ shapes) ---
   const imageList: string[] = [];
@@ -415,7 +446,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
   const pushUrl = (val: any) => { if (typeof val === 'string' && val.trim()) imageList.push(val.trim()); };
   if (bigImage) pushUrl(bigImage);
   // Arrays: strings or objects with common keys
-  const arrFields = ['imageList', 'productImageList', 'detailImageList'] as const;
+  const arrFields = ['imageList', 'productImageList', 'detailImageList', 'pictureList', 'productImages'] as const;
   for (const key of arrFields) {
     const arr: any = (item as any)[key];
     if (Array.isArray(arr)) {
@@ -426,7 +457,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     }
   }
   // String fields that may contain JSON array or comma-separated URLs
-  const strFields = ['images', 'imageUrls'];
+  const strFields = ['images', 'imageUrls', 'images2'];
   for (const key of strFields) {
     const v: any = (item as any)[key];
     if (typeof v === 'string' && v.trim()) {
@@ -483,8 +514,15 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     if (filteredImages.length >= 10) break;
   }
 
-  // Video detection: some responses may contain videoUrl field
-  const videoUrl = (item.video || item.videoUrl || null) as string | null;
+  // Video detection: some responses may contain videoUrl or list
+  let videoUrl: string | null = (item.video || item.videoUrl || null) as string | null;
+  try {
+    const vlist: any = (item as any).videoList || (item as any).videos;
+    if (!videoUrl && Array.isArray(vlist) && vlist.length > 0) {
+      const first = vlist.find((x: any) => typeof x === 'string') || vlist.find((x: any) => x && typeof x.url === 'string')?.url;
+      if (first && typeof first === 'string') videoUrl = first;
+    }
+  } catch {}
 
   // Helpers to coerce numbers from various shapes
   const toNum = (x: any): number | undefined => {
@@ -513,8 +551,62 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
   if (Array.isArray(rawVariants)) {
     for (const v of rawVariants) {
       const cjSku = v.cjSku || v.sku || v.skuId || v.barcode || null;
-      const size = v.size || v.attributeValue || (v.attributes && (v.attributes.size || v.attributes.Size || v.attributes.SIZE)) || v.optionValue || null;
-      const color = (v.color || v.colour || v.Color || (v.attributes && (v.attributes.color || v.attributes.Color || v.attributes.COLOUR))) || null;
+      // Extract size/color from multiple shapes
+      const baseSize = v.size || v.attributeValue || (v.attributes && (v.attributes.size || v.attributes.Size || v.attributes.SIZE)) || v.optionValue || null;
+      const baseColor = (v.color || v.colour || v.Color || (v.attributes && (v.attributes.color || v.attributes.Color || v.attributes.COLOUR))) || null;
+      const kvs: Array<{ key: string; value: string }> = [];
+      const pushKv = (k: any, val: any) => { if (typeof k === 'string' && typeof val === 'string' && k && val) kvs.push({ key: k, value: val }); };
+      try {
+        if (Array.isArray(v.attributes)) {
+          for (const a of v.attributes) pushKv(a?.name || a?.key || a?.k, a?.value || a?.v);
+        }
+        if (Array.isArray(v.attributeList)) {
+          for (const a of v.attributeList) pushKv(a?.name || a?.key, a?.value);
+        }
+        if (Array.isArray(v.properties)) {
+          for (const a of v.properties) pushKv(a?.name || a?.key, a?.value);
+        }
+        if (typeof v.variantKey === 'string' && (v as any).variantValue) pushKv(v.variantKey, String((v as any).variantValue));
+        if (typeof v.specKey === 'string' && (v as any).specValue) pushKv(v.specKey, String((v as any).specValue));
+      } catch {}
+      function deriveFromText(t?: string): { size?: string; color?: string } {
+        const out: { size?: string; color?: string } = {};
+        if (!t || typeof t !== 'string') return out;
+        const s = t.trim();
+        // Forms like "Color: Black; Size: L"
+        const mColor = s.match(/(?:color|colour)\s*[:=]\s*([^;|,\/]*)/i);
+        if (mColor && mColor[1]) out.color = mColor[1].trim();
+        const mSize = s.match(/size\s*[:=]\s*([^;|,\/]*)/i);
+        if (mSize && mSize[1]) out.size = mSize[1].trim();
+        // Hyphen or slash separated like "Black-L"
+        if (!out.color || !out.size) {
+          const parts = s.split(/[\-\/|]+/).map(x => x.trim()).filter(Boolean);
+          const sizeTokens = new Set(['XS','S','M','L','XL','XXL','XXXL','2XL','3XL','4XL','5XL','One Size','Free Size']);
+          const maybeSize = parts.find(p => sizeTokens.has(p.toUpperCase()) || /^\d{2}$/.test(p));
+          const maybeColor = parts.find(p => p && p !== maybeSize);
+          if (!out.size && maybeSize) out.size = maybeSize;
+          if (!out.color && maybeColor) out.color = maybeColor;
+        }
+        return out;
+      }
+      let derivedSize: string | null = null;
+      let derivedColor: string | null = null;
+      try {
+        // Prefer kv pairs
+        for (const kv of kvs) {
+          const k = String(kv.key).toLowerCase();
+          if (!derivedColor && /(color|colour)/i.test(k) && kv.value) derivedColor = kv.value;
+          if (!derivedSize && /size/i.test(k) && kv.value) derivedSize = kv.value;
+        }
+        if (!derivedColor || !derivedSize) {
+          const t = String((v as any).skuName || (v as any).variantName || (v as any).variant || '');
+          const got = deriveFromText(t);
+          if (!derivedColor && got.color) derivedColor = got.color;
+          if (!derivedSize && got.size) derivedSize = got.size;
+        }
+      } catch {}
+      const size = baseSize || derivedSize || null;
+      const color = baseColor || derivedColor || null;
       const price = pickNum(
         v.sellPrice, v.price, v.discountPrice, v.sellPriceUSD, v.usdPrice, v.listedPrice, v.originalPrice,
         (v.priceInfo && (v.priceInfo.sellPrice || v.priceInfo.price)),
