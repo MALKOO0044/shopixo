@@ -9,8 +9,45 @@ export async function listCjProductsPage(params: { pageNum: number; pageSize?: n
   const pageNum = Math.max(1, Math.floor(params.pageNum || 1));
   const pageSize = Math.min(50, Math.max(1, Math.floor(params.pageSize ?? 20)));
   const kw = params.keyword ? String(params.keyword) : '';
-  const qs = `keyWords=${encodeURIComponent(kw)}&pageSize=${pageSize}&pageNum=${pageNum}`;
-  return await cjFetch<any>(`/product/list?${qs}`);
+  const qsList = `keyWords=${encodeURIComponent(kw)}&pageSize=${pageSize}&pageNum=${pageNum}`;
+  const qsQuery = `keyword=${encodeURIComponent(kw)}&pageSize=${pageSize}&pageNumber=${pageNum}`;
+
+  const endpoints = [
+    `/product/list?${qsList}`,
+    `/product/query?${qsQuery}`,
+    `/product/myProduct/query?${qsQuery}`,
+  ];
+
+  const out: any[] = [];
+  const seen = new Set<string>();
+  let lastErr: any = null;
+  for (const ep of endpoints) {
+    try {
+      const r = await cjFetch<any>(ep);
+      const arr = Array.isArray(r?.data?.list)
+        ? r.data.list
+        : Array.isArray(r?.data?.content)
+          ? r.data.content
+          : Array.isArray(r?.list)
+            ? r.list
+            : Array.isArray(r?.data)
+              ? r.data
+              : Array.isArray(r)
+                ? r
+                : [];
+      for (const it of arr) {
+        const pid = String(it?.pid || it?.productId || it?.id || '');
+        const key = pid || JSON.stringify(it).slice(0, 120);
+        if (!seen.has(key)) { seen.add(key); out.push(it); }
+        if (out.length >= pageSize) break;
+      }
+      if (out.length >= pageSize) break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (out.length === 0 && lastErr) throw lastErr;
+  return { code: 200, data: { list: out } };
 }
 
 // --- Freight / Shipping ---
