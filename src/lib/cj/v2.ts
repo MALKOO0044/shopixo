@@ -86,6 +86,7 @@ export type CjVariantLike = {
   lengthCm?: number;
   widthCm?: number;
   heightCm?: number;
+  imageUrl?: string; // optional variant image if provided by CJ
 };
 
 export type CjProductLike = {
@@ -643,6 +644,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
         lengthCm: typeof lengthCm === 'number' ? lengthCm : undefined,
         widthCm: typeof widthCm === 'number' ? widthCm : undefined,
         heightCm: typeof heightCm === 'number' ? heightCm : undefined,
+        imageUrl: (v.whiteImage || v.image || v.imageUrl || v.imgUrl || undefined) as string | undefined,
       });
 
       // Opportunistically collect variant images if main set is empty or small

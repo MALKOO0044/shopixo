@@ -349,21 +349,79 @@ function ProductOptions({ variants, onOptionChange, selected }: { variants: { na
 
 // --- Main Client Component ---
 export default function ProductDetailsClient({ product, variantRows, children }: { product: Product, variantRows?: ProductVariant[], children?: React.ReactNode }) {
+  // Parse combined option_value of the form "Color / Size" produced by import
+  function splitColorSize(v: string): { color?: string; size?: string } {
+    if (!v) return {};
+    const parts = String(v).split('/').map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 2) return { color: parts[0] || undefined, size: parts[1] || undefined };
+    // Fallback: try hyphen
+    const parts2 = String(v).split('-').map(s => s.trim()).filter(Boolean);
+    if (parts2.length >= 2) return { color: parts2[0] || undefined, size: parts2[1] || undefined };
+    // Single dimension
+    return { size: v };
+  }
+
+  const hasRows = Array.isArray(variantRows) && variantRows.length > 0;
+  const bothDims = useMemo(() => {
+    if (!hasRows) return false;
+    // Heuristic: if most rows contain a separator, assume Color/Size combined
+    const withSep = (variantRows || []).filter(r => /\s\/\s|\s-\s/.test(String(r.option_value)));
+    return withSep.length >= Math.max(1, Math.floor((variantRows || []).length * 0.6));
+  }, [hasRows, variantRows]);
+
   const uiVariant = useMemo(() => {
-    if (Array.isArray(variantRows) && variantRows.length > 0) {
-      const name = variantRows[0].option_name || 'Size';
-      const options = Array.from(new Set(variantRows.map(v => v.option_value))).filter(Boolean);
-      return { name, options };
+    if (hasRows) {
+      if (!bothDims) {
+        const name = (variantRows![0].option_name || 'Size');
+        const options = Array.from(new Set(variantRows!.map(v => v.option_value))).filter(Boolean);
+        return { name, options };
+      }
+      // For two dimensions, we'll return a placeholder; actual rendering will use colorOptions/sizeOptions
+      const options = Array.from(new Set(variantRows!.map(v => v.option_value))).filter(Boolean);
+      return { name: 'Variant', options };
     }
     if (Array.isArray(product.variants) && product.variants.length > 0) {
       return product.variants[0];
     }
     return { name: 'Size', options: [] as string[] };
-  }, [variantRows, product.variants]);
+  }, [hasRows, bothDims, variantRows, product.variants]);
+
+  // Build color/size axes if combined
+  const colorOptions = useMemo(() => {
+    if (!hasRows || !bothDims) return [] as string[];
+    const set = new Set<string>();
+    for (const r of variantRows!) {
+      const cs = splitColorSize(r.option_value || '');
+      if (cs.color) set.add(cs.color);
+    }
+    return Array.from(set);
+  }, [hasRows, bothDims, variantRows]);
+  const sizeOptionsByColor = useMemo(() => {
+    if (!hasRows || !bothDims) return {} as Record<string, string[]>;
+    const map: Record<string, Set<string>> = {};
+    for (const r of variantRows!) {
+      const cs = splitColorSize(r.option_value || '');
+      if (!cs.color || !cs.size) continue;
+      if (!map[cs.color]) map[cs.color] = new Set<string>();
+      map[cs.color].add(cs.size);
+    }
+    const out: Record<string, string[]> = {};
+    for (const k of Object.keys(map)) out[k] = Array.from(map[k]);
+    return out;
+  }, [hasRows, bothDims, variantRows]);
 
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
-    if (uiVariant.options.length > 0) initial[uiVariant.name] = uiVariant.options[0];
+    if (!hasRows) return initial;
+    if (bothDims) {
+      const firstColor = colorOptions[0];
+      const sizes = firstColor ? (sizeOptionsByColor[firstColor] || []) : [];
+      const firstSize = sizes[0];
+      if (firstColor) initial['اللون'] = firstColor;
+      if (firstSize) initial['المقاس'] = firstSize;
+    } else {
+      if (uiVariant.options.length > 0) initial[uiVariant.name] = uiVariant.options[0];
+    }
     return initial;
   });
 
@@ -375,11 +433,20 @@ export default function ProductDetailsClient({ product, variantRows, children }:
 
   const selectedVariant = useMemo(() => {
     if (!variantRows || variantRows.length === 0) return null;
+    if (bothDims) {
+      const color = selectedOptions['اللون'];
+      const size = selectedOptions['المقاس'];
+      if (!color || !size) return null;
+      return variantRows.find(v => {
+        const cs = splitColorSize(v.option_value || '');
+        return cs.color === color && cs.size === size;
+      }) || null;
+    }
     const name = uiVariant.name;
     const value = selectedOptions[name];
     if (!value) return null;
     return variantRows.find(v => (v.option_name || 'Size') === name && v.option_value === value) || null;
-  }, [variantRows, selectedOptions, uiVariant.name]);
+  }, [variantRows, selectedOptions, uiVariant.name, bothDims]);
 
   // --- Live CJ pricing & shipping quote ---
   const [quote, setQuote] = useState<{ retailSar: number; shippingSar: number; options: any[] } | null>(null);
@@ -439,9 +506,21 @@ export default function ProductDetailsClient({ product, variantRows, children }:
         )}
         <p className="mt-4 text-muted-foreground">{product.description}</p>
         
-        {uiVariant.options.length > 0 ? (
-          <ProductOptions variants={uiVariant} onOptionChange={handleOptionChange} selected={selectedOptions[uiVariant.name]} />
-        ) : null}
+        {/* Options: if we have two dimensions, render Color then Size filtered by color */}
+        {bothDims ? (
+          <div className="space-y-4 mt-4">
+            {colorOptions.length > 0 && (
+              <ProductOptions variants={{ name: 'اللون', options: colorOptions }} onOptionChange={handleOptionChange} selected={selectedOptions['اللون']} />
+            )}
+            {selectedOptions['اللون'] && (sizeOptionsByColor[selectedOptions['اللون']] || []).length > 0 && (
+              <ProductOptions variants={{ name: 'المقاس', options: sizeOptionsByColor[selectedOptions['اللون']] }} onOptionChange={handleOptionChange} selected={selectedOptions['المقاس']} />
+            )}
+          </div>
+        ) : (
+          uiVariant.options.length > 0 ? (
+            <ProductOptions variants={uiVariant} onOptionChange={handleOptionChange} selected={selectedOptions[uiVariant.name]} />
+          ) : null
+        )}
 
         {/* Low stock hint */}
         {selectedVariant && typeof selectedVariant.stock === 'number' && selectedVariant.stock > 0 && selectedVariant.stock <= 3 && (
@@ -451,33 +530,70 @@ export default function ProductDetailsClient({ product, variantRows, children }:
         {variantRows && variantRows.length > 0 && (
           <div className="mt-6">
             <h3 className="mb-2 text-sm font-medium text-foreground">تفاصيل المخزون</h3>
-            <div className="overflow-auto rounded border">
-              <table className="min-w-full text-xs">
-                <thead>
-                  <tr className="bg-muted">
-                    <th className="p-2 text-left">المقاس</th>
-                    <th className="p-2 text-right">السعر</th>
-                    <th className="p-2 text-right">المتبقي</th>
-                    <th className="p-2 text-left">SKU</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {([...variantRows].sort((a,b) => {
-                    const order = ['XS','S','M','L','XL','XXL','XXXL','XXXXL'];
-                    const ia = order.indexOf(String(a.option_value).toUpperCase());
-                    const ib = order.indexOf(String(b.option_value).toUpperCase());
-                    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-                  })).map(v => (
-                    <tr key={v.id} className="border-t">
-                      <td className="p-2">{v.option_value}</td>
-                      <td className="p-2 text-right">{formatCurrency((v.price ?? product.price))}</td>
-                      <td className="p-2 text-right">{v.stock}</td>
-                      <td className="p-2">{v.cj_sku || '-'}</td>
+            {bothDims ? (
+              <div className="space-y-3">
+                {colorOptions.map((color) => {
+                  const rows = (variantRows || []).filter(r => {
+                    const cs = splitColorSize(r.option_value || '');
+                    return cs.color === color;
+                  });
+                  const sizes = (sizeOptionsByColor[color] || []);
+                  return (
+                    <div key={color} className="rounded border p-2">
+                      <div className="mb-2 text-sm font-medium">{color}</div>
+                      <div className="overflow-auto">
+                        <table className="min-w-full text-xs">
+                          <thead>
+                            <tr className="bg-muted">
+                              <th className="p-2 text-left">المقاس</th>
+                              <th className="p-2 text-right">السعر</th>
+                              <th className="p-2 text-right">المتبقي</th>
+                              <th className="p-2 text-left">SKU</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sizes.map(sz => {
+                              const row = rows.find(r => splitColorSize(r.option_value || '').size === sz);
+                              return (
+                                <tr key={sz} className="border-t">
+                                  <td className="p-2">{sz}</td>
+                                  <td className="p-2 text-right">{formatCurrency((row?.price ?? product.price))}</td>
+                                  <td className="p-2 text-right">{row?.stock ?? 0}</td>
+                                  <td className="p-2">{row?.cj_sku || '-'}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="overflow-auto rounded border">
+                <table className="min-w-full text-xs">
+                  <thead>
+                    <tr className="bg-muted">
+                      <th className="p-2 text-left">الخيار</th>
+                      <th className="p-2 text-right">السعر</th>
+                      <th className="p-2 text-right">المتبقي</th>
+                      <th className="p-2 text-left">SKU</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {([...variantRows!].map(v => (
+                      <tr key={v.id} className="border-t">
+                        <td className="p-2">{v.option_value}</td>
+                        <td className="p-2 text-right">{formatCurrency((v.price ?? product.price))}</td>
+                        <td className="p-2 text-right">{v.stock}</td>
+                        <td className="p-2">{v.cj_sku || '-'}</td>
+                      </tr>
+                    )))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
@@ -515,9 +631,13 @@ export default function ProductDetailsClient({ product, variantRows, children }:
                     <div>
                       <div className="text-muted-foreground mb-1">خيارات الشحن</div>
                       <ul className="list-disc pl-5 text-xs">
-                        {top.map((o: any, i: number) => (
-                          <li key={i}>{o.name || o.code}: {formatCurrency(Number(o.price || 0))}</li>
-                        ))}
+                        {top.map((o: any, i: number) => {
+                          const rng = o.logisticAgingDays;
+                          const days = rng ? (rng.max ? `${rng.min || rng.max}-${rng.max} أيام` : `${rng.min} أيام`) : null;
+                          return (
+                            <li key={i}>{o.name || o.code}: {formatCurrency(Number(o.price || 0))}{days ? ` · ${days}` : ''}</li>
+                          );
+                        })}
                       </ul>
                     </div>
                   )}
