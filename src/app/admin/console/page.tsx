@@ -83,7 +83,7 @@ export default async function AdminConsolePage() {
                   {it.desc ? <div className="text-sm text-gray-500">{it.desc}</div> : null}
                 </div>
                 <Link
-                  href={it.href}
+                  href={it.href as any}
                   className="inline-flex items-center rounded bg-blue-600 px-3 py-1.5 text-white hover:bg-blue-700"
                 >
                   Open
