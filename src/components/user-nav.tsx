@@ -18,7 +18,6 @@ export default function UserNav() {
   const hasSupabaseEnv = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const [email, setEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(hasSupabaseEnv);
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
 
   useEffect(() => {
     if (!hasSupabaseEnv) return;
@@ -44,24 +43,7 @@ export default function UserNav() {
     };
   }, [hasSupabaseEnv]);
 
-  // Detect admin by probing a protected admin route
-  useEffect(() => {
-    let aborted = false;
-    async function checkAdmin() {
-      try {
-        if (!email) {
-          setIsAdmin(false);
-          return;
-        }
-        const r = await fetch('/api/admin/settings', { cache: 'no-store' });
-        if (!aborted) setIsAdmin(r.ok);
-      } catch {
-        if (!aborted) setIsAdmin(false);
-      }
-    }
-    checkAdmin();
-    return () => { aborted = true };
-  }, [email]);
+  // No admin probe: Admin Console is publicly previewable; show link for any logged-in user.
 
   if (!hasSupabaseEnv) {
     // Compact UX on mobile, full buttons on md+
@@ -130,12 +112,10 @@ export default function UserNav() {
             <Link href="/account/notifications">الإشعارات</Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          {isAdmin && (
-            <DropdownMenuItem asChild>
-              <Link href="/admin/console">لوحة التحكم</Link>
-            </DropdownMenuItem>
-          )}
-          {isAdmin && <DropdownMenuSeparator />}
+          <DropdownMenuItem asChild>
+            <Link href="/admin/console">لوحة التحكم</Link>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <SignOutButton />
         </DropdownMenuContent>
       </DropdownMenu>
