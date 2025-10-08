@@ -120,6 +120,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               }}
             />
             <script
+              nonce={nonce}
               type="application/ld+json"
               dangerouslySetInnerHTML={{
                 __html: JSON.stringify({

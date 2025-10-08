@@ -8,7 +8,7 @@ import { cookies } from "next/headers";
 import FiltersPanel from "@/components/pro/FiltersPanel";
 
 export const metadata = { title: "المتجر", description: "تسوّق أحدث المنتجات والعروض" };
-export const revalidate = 60;
+export const revalidate = 0;
 export const dynamic = "force-dynamic";
 
 export default async function ShopPage({ searchParams }: { searchParams?: { sort?: string; min?: string; max?: string } }) {

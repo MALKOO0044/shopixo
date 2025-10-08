@@ -22,6 +22,9 @@ function isAllowedNextImage(src: string): boolean {
     if (host === "res.cloudinary.com") return true;
     if (host.endsWith(".supabase.co")) return true;
     if (host.endsWith(".supabase.in")) return true;
+    // Allow CJ and common Alibaba CDNs so next/image can optimize them
+    if (host === 'cjdropshipping.com' || host.endsWith('.cjdropshipping.com')) return true;
+    if (host.includes('alicdn.com') || host.includes('aliyuncs.com')) return true;
   } catch {
     // Non-URL strings (e.g., bucket/object); treat as not allowed for next/image
   }

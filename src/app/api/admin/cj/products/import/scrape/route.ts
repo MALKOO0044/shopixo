@@ -5,6 +5,7 @@ import { fetchWithMeta } from '@/lib/http';
 import { createClient } from '@supabase/supabase-js';
 import { slugify } from '@/lib/utils/slug';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
+import { isKillSwitchOn } from '@/lib/settings';
 
 // Ensure this route is always dynamic and not cached at the edge
 export const dynamic = 'force-dynamic';
@@ -168,6 +169,13 @@ export async function GET(req: Request) {
     const supabase = getSupabaseAdmin();
     if (!supabase) {
       const r = NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
+
+    // Global kill-switch enforcement
+    if (await isKillSwitchOn()) {
+      const r = NextResponse.json({ ok: false, version: 'scrape-v3', error: 'Kill switch is ON. Import is disabled.' }, { status: 423, headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }

@@ -4,6 +4,7 @@ import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
 import { hasColumn, hasTable } from '@/lib/db-features'
 import { createClient } from '@supabase/supabase-js'
+import { isKillSwitchOn } from '@/lib/settings'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -48,6 +49,13 @@ export async function GET(req: Request) {
   try {
     if (!(await allow(req))) {
       const r = NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+      r.headers.set('x-request-id', log.requestId)
+      return r
+    }
+
+    // Global kill-switch enforcement
+    if (await isKillSwitchOn()) {
+      const r = NextResponse.json({ ok: false, error: 'Kill switch is ON. Purge is disabled.' }, { status: 423 })
       r.headers.set('x-request-id', log.requestId)
       return r
     }

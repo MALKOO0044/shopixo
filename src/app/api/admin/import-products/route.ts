@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import { getSupabaseAdmin } from '@/app/admin/products/actions';
 import { productSchema } from '@/lib/schemas/product';
 import { calculateRetailSar, usdToSar, computeVolumetricWeightKg, detectPricingAnomalies } from '@/lib/pricing';
 import { slugify } from '@/lib/utils/slug';
 import { generateTitle, generateDescription, translateAr } from '@/lib/ai/enrich';
 import { mapCategory } from '@/lib/ai/category-map';
-import { ensureAdmin } from '@/lib/auth/admin-guard';
-import { loggerForRequest } from '@/lib/log';
 import { hasColumn } from '@/lib/db-features';
+import { loggerForRequest } from '@/lib/log';
+import { isKillSwitchOn } from '@/lib/settings';
+import { ensureAdmin } from '@/lib/auth/admin-guard';
+import { getSupabaseAdmin } from '@/app/admin/products/actions';
 
 export const runtime = 'nodejs';
 
@@ -43,6 +42,13 @@ export async function POST(req: NextRequest) {
   const supabase = await getSupabaseAdmin();
   if (!supabase) {
     const r = NextResponse.json({ error: 'Server misconfiguration: missing Supabase envs' }, { status: 500 });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
+  }
+
+  // Global kill-switch enforcement: block write operations
+  if (await isKillSwitchOn()) {
+    const r = NextResponse.json({ error: 'Kill switch is ON. Import is temporarily disabled.' }, { status: 423 });
     r.headers.set('x-request-id', log.requestId);
     return r;
   }

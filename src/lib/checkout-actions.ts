@@ -31,7 +31,7 @@ export async function createCheckoutSession() {
       const absImage = firstImage && /^https?:\/\//i.test(firstImage) ? firstImage : (firstImage ? `${getSiteUrl()}${firstImage}` : undefined);
       return {
         price_data: {
-          currency: (process.env.NEXT_PUBLIC_CURRENCY || "USD").toLowerCase(),
+          currency: (process.env.NEXT_PUBLIC_CURRENCY || "SAR").toLowerCase(),
           product_data: {
             name: product.title,
             images: absImage ? [absImage] : [],

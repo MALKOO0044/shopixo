@@ -47,6 +47,11 @@ export default async function AdminLayout({ children }: { children: ReactNode })
               </Link>
             </li>
             <li className="mb-4">
+              <Link href="/admin/console" className="hover:text-gray-300">
+                Admin Console
+              </Link>
+            </li>
+            <li className="mb-4">
               <Link href="/admin/products" className="hover:text-gray-300">
                 Products
               </Link>

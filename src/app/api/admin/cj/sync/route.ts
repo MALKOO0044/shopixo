@@ -5,6 +5,7 @@ import { queryProductByPidOrKeyword, mapCjItemToProductLike } from '@/lib/cj/v2'
 import { hasTable, hasColumn } from '@/lib/db-features';
 import { loggerForRequest } from '@/lib/log';
 import { calculateRetailSar, usdToSar } from '@/lib/pricing';
+import { isKillSwitchOn } from '@/lib/settings';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -33,6 +34,13 @@ export async function GET(req: Request) {
     const supabase = getSupabaseAdmin();
     if (!supabase) {
       const r = NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
+
+    // Global kill-switch enforcement: block write operations
+    if (await isKillSwitchOn()) {
+      const r = NextResponse.json({ ok: false, version: 'cj-sync-v1', error: 'Kill switch is ON. Sync is temporarily disabled.' }, { status: 423, headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }

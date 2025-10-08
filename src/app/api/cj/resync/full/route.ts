@@ -57,20 +57,22 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url)
     const idsParam = searchParams.get('ids') || ''
+    const allFlag = (searchParams.get('all') || '').trim() === '1'
+    const limit = Math.max(1, Math.min(200, Number(searchParams.get('limit') || '30')))
     let ids: number[] = []
     if (idsParam) ids = idsParam.split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n > 0)
 
-    // If no ids specified, pick up to 10 products missing media or with price 0
+    // If no ids specified, pick products missing media or with price 0
     if (ids.length === 0) {
       const { data } = await db
         .from('products')
         .select('id, images, price')
         .order('id', { ascending: false })
-        .limit(30)
+        .limit(limit)
       const candidates = (data || []) as any[]
       ids = candidates
         .filter((p) => p.price === 0 || !p.images || (Array.isArray(p.images) && p.images.length === 0) || (typeof p.images === 'string' && (!p.images.trim() || p.images.trim() === '[]')))
-        .slice(0, 10)
+        .slice(0, allFlag ? limit : Math.min(limit, 10))
         .map((p) => p.id)
     }
 

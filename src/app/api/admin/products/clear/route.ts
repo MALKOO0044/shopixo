@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { hasColumn } from '@/lib/db-features';
 import { loggerForRequest } from '@/lib/log';
+import { isKillSwitchOn } from '@/lib/settings';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -78,6 +79,11 @@ export async function POST(req: Request) {
     r.headers.set('x-request-id', log.requestId);
     return r;
   }
+  if (await isKillSwitchOn()) {
+    const r = NextResponse.json({ ok: false, error: 'Kill switch is ON. Clear operation is disabled.' }, { status: 423, headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
+  }
   const r = await doClear(req);
   r.headers.set('x-request-id', log.requestId);
   return r;
@@ -96,6 +102,11 @@ export async function GET(req: Request) {
   const confirm = (url.searchParams.get('confirm') || '').toLowerCase();
   if (confirm !== '1' && confirm !== 'true' && confirm !== 'yes') {
     const r = NextResponse.json({ ok: false, error: 'Confirm with ?confirm=1' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
+    r.headers.set('x-request-id', log.requestId);
+    return r;
+  }
+  if (await isKillSwitchOn()) {
+    const r = NextResponse.json({ ok: false, error: 'Kill switch is ON. Clear operation is disabled.' }, { status: 423, headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);
     return r;
   }

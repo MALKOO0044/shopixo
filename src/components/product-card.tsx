@@ -8,8 +8,9 @@ function isLikelyImageUrl(s: string): boolean {
   if (!s) return false;
   const str = s.trim();
   if (str.startsWith('data:image/')) return true;
+  // Accept any absolute http(s) URL – many CJ image URLs lack file extensions
+  if (/^https?:\/\//i.test(str)) return true;
   const imageExt = /\.(png|jpe?g|webp|gif|avif|svg)(\?|#|$)/i;
-  if (imageExt.test(str)) return true;
   // Accept both Cloudinary upload and fetch delivery types
   if (str.includes('res.cloudinary.com') && str.includes('/image/')) return true;
   if (str.startsWith('/storage/v1/object/public/')) return imageExt.test(str);
