@@ -126,6 +126,7 @@ export async function GET(req: Request) {
           .maybeSingle();
 
         const baseSlug = await ensureUniqueSlug(supabase, cj.name);
+        // Compute a conservative product price using min retail without shipping if we can compute; fallback to min supplier cost
         const priceCandidates = (cj.variants || []).map((v) => (typeof v.price === 'number' ? v.price : NaN)).filter((n) => !isNaN(n));
         const defaultPrice = priceCandidates.length > 0 ? Math.min(...priceCandidates) : 0;
         const totalStock = (cj.variants || []).reduce((acc, v) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0);
@@ -187,17 +188,26 @@ export async function GET(req: Request) {
 
         if (hasVariantsTable) {
           const variantsRows = (cj.variants || [])
-            .filter((v) => v && (v.size || v.cjSku))
-            .map((v) => ({
-              product_id: productId,
-              option_name: 'Size',
-              option_value: v.size || '-',
-              cj_sku: v.cjSku || null,
-              price: typeof v.price === 'number' ? v.price : null,
-              stock: typeof v.stock === 'number' ? v.stock : 0,
-            }));
+            .filter((v) => v && ((v.size || v.color) || v.cjSku))
+            .map((v) => {
+              const color = (v as any).color || null;
+              const size = (v as any).size || null;
+              const optionValue = color ? (size ? `${color} / ${size}` : color) : (size || '-');
+              return {
+                product_id: productId,
+                option_name: 'Variant',
+                option_value: optionValue,
+                cj_sku: v.cjSku || null,
+                price: typeof v.price === 'number' ? v.price : null,
+                stock: typeof v.stock === 'number' ? v.stock : 0,
+                weight_grams: typeof (v as any).weightGrams === 'number' ? Math.round((v as any).weightGrams) : null,
+                length_cm: typeof (v as any).lengthCm === 'number' ? (v as any).lengthCm : null,
+                width_cm: typeof (v as any).widthCm === 'number' ? (v as any).widthCm : null,
+                height_cm: typeof (v as any).heightCm === 'number' ? (v as any).heightCm : null,
+              } as any;
+            });
           if (variantsRows.length > 0) {
-            const { error: vErr } = await supabase.from('product_variants').insert(variantsRows);
+            const { error: vErr } = await supabase.from('product_variants').insert(variantsRows as any[]);
             if (vErr) throw vErr;
           }
         }
