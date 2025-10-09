@@ -23,6 +23,8 @@ export default async function AdminConsolePage() {
         { label: "Settings (Mode & Kill‑Switch)", href: "/admin/console/settings", desc: "Toggle Monitor/Copilot/Autopilot and kill‑switch" },
         { label: "Proposals (Review Queue)", href: "/admin/console/proposals", desc: "List, approve, reject, mark executed" },
         { label: "DB Setup (SQL)", href: "/admin/console/setup", desc: "SQL to create kv_settings, proposals, audit_logs" },
+        { label: "Scanner Settings (24/7)", href: "/admin/console/scanner", desc: "Enable/disable scanner and thresholds" },
+        { label: "Jobs Monitor", href: "/admin/jobs", desc: "View & manage finder/import/sync/scanner jobs" },
       ],
     },
     {
@@ -38,6 +40,11 @@ export default async function AdminConsolePage() {
     {
       title: "CJ Import (Automatic)",
       items: [
+        {
+          label: "Catalog Finder (Search & Select)",
+          href: "/admin/cj/finder",
+          desc: "Search CJ by category/keywords, review and select products",
+        },
         {
           label: "Auto‑Import 2 Products (women dress, women sneakers)",
           href: "/api/admin/cj/products/auto-import?keywords=women%20dress,women%20sneakers&limit=2",
