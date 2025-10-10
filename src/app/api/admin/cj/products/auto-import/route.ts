@@ -59,6 +59,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const keywordsParam = searchParams.get('keywords') || '';
     const limit = Math.max(1, Math.min(10, Number(searchParams.get('limit') || '2')));
+    const categoryParam = (searchParams.get('category') || 'General').trim();
 
     const keywords = keywordsParam
       .split(',')
@@ -137,7 +138,7 @@ export async function GET(req: Request) {
           description: '',
           price: defaultPrice,
           images: cj.images || [],
-          category: 'Women',
+          category: categoryParam,
           stock: totalStock,
           video_url: cj.videoUrl || null,
           processing_time_hours: null,

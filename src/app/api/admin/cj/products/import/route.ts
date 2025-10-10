@@ -59,6 +59,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const pid: string | undefined = body?.pid || undefined;
     const itemsIn: CjProductLike[] | undefined = body?.items || undefined;
+    const categoryParam: string = (body?.category || 'General').trim();
 
     let items: CjProductLike[] = [];
     if (Array.isArray(itemsIn) && itemsIn.length > 0) {
@@ -109,7 +110,7 @@ export async function POST(req: Request) {
           description: '',
           price: defaultPrice,
           images: cj.images || [],
-          category: 'Women',
+          category: categoryParam,
           stock: totalStock,
           video_url: cj.videoUrl || null,
           processing_time_hours: null,

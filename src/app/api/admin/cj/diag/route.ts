@@ -3,6 +3,7 @@ import { getAccessToken } from '@/lib/cj/v2';
 import { fetchWithMeta } from '@/lib/http';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { loggerForRequest } from '@/lib/log';
+import { hasTable } from '@/lib/db-features';
 
 export const runtime = 'nodejs';
 
@@ -36,6 +37,15 @@ export async function GET(req: Request) {
       out.tokenPreview = token ? token.slice(0, 6) + '...' + token.slice(-6) : null;
     } catch (e: any) {
       out.tokenObtained = false;
+      // Provide configuration hints to speed up setup
+      out.config = {
+        hasCJEmail: !!process.env.CJ_EMAIL,
+        hasCJApiKey: !!process.env.CJ_API_KEY,
+        hasManualAccessToken: !!process.env.CJ_ACCESS_TOKEN,
+        hasIntegrationTokensTable: await hasTable('integration_tokens').catch(() => false),
+        base: getBase(),
+      };
+      out.error = e?.message || String(e);
     }
 
     // If no token, stop early
