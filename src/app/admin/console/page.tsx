@@ -46,9 +46,9 @@ export default async function AdminConsolePage() {
           desc: "Search CJ by category/keywords, review and select products",
         },
         {
-          label: "Auto‑Import 2 Products (women dress, women sneakers)",
-          href: "/api/admin/cj/products/auto-import?keywords=women%20dress,women%20sneakers&limit=2",
-          desc: "Fetches top candidates, deduped by CJ product ID, then upserts",
+          label: "Auto‑Import 2 Products (women dress, women sneakers) → category=Women",
+          href: "/api/admin/cj/products/auto-import?keywords=women%20dress,women%20sneakers&limit=2&category=Women",
+          desc: "Fetches top candidates, deduped by CJ product ID, then upserts into the specified category",
         },
       ],
     },
