@@ -1,9 +1,26 @@
 import { createClient } from '@supabase/supabase-js';
 import { loadToken, saveToken } from '@/lib/integration/token-store';
 import { fetchJson } from '@/lib/http';
+import { getSetting } from '@/lib/settings';
 
 // CJ v2 client with token auth per docs:
 // - POST /authentication/getAccessToken { email, apiKey }
+
+type CjConfig = { email?: string | null; apiKey?: string | null; base?: string | null };
+
+async function getCjCreds(): Promise<{ email: string | null; apiKey: string | null }> {
+  // Prefer env; if missing, attempt kv_settings (key: 'cj_config')
+  const envEmail = process.env.CJ_EMAIL || null;
+  const envKey = process.env.CJ_API_KEY || null;
+  if (envEmail && envKey) return { email: envEmail, apiKey: envKey };
+  try {
+    const cfg = await getSetting<CjConfig>('cj_config', undefined);
+    const email = (cfg?.email || null) as string | null;
+    const apiKey = (cfg?.apiKey || null) as string | null;
+    if (email && apiKey) return { email, apiKey };
+  } catch {}
+  return { email: envEmail, apiKey: envKey };
+}
 
 export async function listCjProductsPage(params: { pageNum: number; pageSize?: number; keyword?: string }): Promise<any> {
   const pageNum = Math.max(1, Math.floor(params.pageNum || 1));
@@ -138,9 +155,20 @@ export type CjProductLike = {
   originCountryCode?: string | null;
 };
 
-function getBase(): string {
-  const b = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
-  return b.replace(/\/$/, '');
+let baseOverride: string | null = null;
+async function resolveBase(): Promise<string> {
+  if (baseOverride) return baseOverride;
+  const envBase = process.env.CJ_API_BASE || '';
+  if (envBase) return envBase.replace(/\/$/, '');
+  try {
+    const cfg = await getSetting<CjConfig>('cj_config', undefined);
+    const b = (cfg?.base || '').trim();
+    if (b) {
+      baseOverride = b.replace(/\/$/, '');
+      return baseOverride;
+    }
+  } catch {}
+  return 'https://developers.cjdropshipping.com/api2.0/v1';
 }
 
 function getSupabaseAdmin() {
@@ -176,7 +204,8 @@ function throttleOk(last: number): boolean {
 }
 
 async function authPost<T>(path: string, body: any): Promise<T> {
-  const url = `${getBase()}${path.startsWith('/') ? '' : '/'}${path}`;
+  const base = await resolveBase();
+  const url = `${base}${path.startsWith('/') ? '' : '/'}${path}`;
   return await fetchJson<T>(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -188,9 +217,10 @@ async function authPost<T>(path: string, body: any): Promise<T> {
 }
 
 async function fetchNewAccessToken(): Promise<TokenState> {
-  const email = process.env.CJ_EMAIL;
-  const apiKey = process.env.CJ_API_KEY;
-  if (!email || !apiKey) throw new Error('Missing CJ_EMAIL or CJ_API_KEY envs');
+  const creds = await getCjCreds();
+  const email = process.env.CJ_EMAIL || creds.email || '';
+  const apiKey = process.env.CJ_API_KEY || creds.apiKey || '';
+  if (!email || !apiKey) throw new Error('Missing CJ_EMAIL or CJ_API_KEY (env or admin settings)');
 
   const paths = [
     '/authentication/getAccessToken',
@@ -311,7 +341,8 @@ export async function getAccessToken(): Promise<string> {
 }
 
 async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const url = `${getBase()}${path.startsWith('/') ? '' : '/'}${path}`;
+  const base = await resolveBase();
+  const url = `${base}${path.startsWith('/') ? '' : '/'}${path}`;
   const attempt = async (tok: string) => {
     const headers = {
       'Content-Type': 'application/json',
@@ -333,7 +364,8 @@ async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
   } catch (e: any) {
     const msg = String(e?.message || e || '');
     const looksAuth = /HTTP\s*(401|403)/i.test(msg) || /token|auth/i.test(msg);
-    const canFetchFresh = !!process.env.CJ_EMAIL && !!process.env.CJ_API_KEY;
+    const freshCreds = await getCjCreds();
+    const canFetchFresh = !!(process.env.CJ_EMAIL || freshCreds.email) && !!(process.env.CJ_API_KEY || freshCreds.apiKey);
     if (looksAuth && canFetchFresh) {
       try {
         // Force-fetch a fresh token bypassing any bad manual override
