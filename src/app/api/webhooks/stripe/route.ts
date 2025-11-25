@@ -2,12 +2,12 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const revalidate = 0;
 
-const message = "Deprecated endpoint. Use /api/stripe/webhook";
+import { handleStripeWebhook } from "@/lib/webhooks/stripe-handler";
 
-export async function POST() {
-  return new Response(message, { status: 410 });
+export async function POST(req: Request) {
+  return handleStripeWebhook(req);
 }
 
 export async function GET() {
-  return new Response(message, { status: 410 });
+  return new Response('OK');
 }
