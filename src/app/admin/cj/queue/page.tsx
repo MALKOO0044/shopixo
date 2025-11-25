@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +20,7 @@ type QueuedProduct = {
   margin_percent: number;
   stock: number;
   category_path: string;
-  status: "pending" | "approved" | "rejected" | "imported";
+  status: "pending" | "approved" | "rejected" | "imported" | "skipped";
   created_at: string;
 };
 
@@ -38,23 +37,30 @@ type QueueStats = {
   approved: number;
   rejected: number;
   imported: number;
+  skipped: number;
   total: number;
 };
 
 export default function CJQueuePage() {
   const [products, setProducts] = useState<QueuedProduct[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
-  const [stats, setStats] = useState<QueueStats>({ pending: 0, approved: 0, rejected: 0, imported: 0, total: 0 });
+  const [stats, setStats] = useState<QueueStats>({ pending: 0, approved: 0, rejected: 0, imported: 0, skipped: 0, total: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set());
-  const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "approved" | "rejected">("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "approved" | "rejected" | "skipped">("all");
   const [filterBatch, setFilterBatch] = useState<string>("");
   const [actionLoading, setActionLoading] = useState(false);
 
   const [editingProduct, setEditingProduct] = useState<QueuedProduct | null>(null);
   const [editPrice, setEditPrice] = useState<number>(0);
+  
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    message: string;
+    stats?: { total: number; success: number; duplicates: number; errors: number };
+  } | null>(null);
 
   const loadQueue = useCallback(async () => {
     setLoading(true);
@@ -177,6 +183,36 @@ export default function CJQueuePage() {
     }
   }
 
+  async function handleImportAll() {
+    if (approvedProducts.length === 0) return;
+    if (!confirm(`Import ${approvedProducts.length} products to your store? This will create products that are visible to customers.`)) return;
+    
+    setImporting(true);
+    setImportResult(null);
+    setError(null);
+    
+    try {
+      const res = await fetch("/api/admin/cj/v2/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ importAll: true }),
+      });
+      
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      
+      setImportResult({
+        message: data.message,
+        stats: data.stats,
+      });
+      await loadQueue();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   const selectedCount = selectedProducts.size;
   const pendingProducts = filteredProducts.filter(p => p.status === "pending");
   const approvedProducts = filteredProducts.filter(p => p.status === "approved");
@@ -216,7 +252,32 @@ export default function CJQueuePage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {importResult && (
+        <div className="rounded-lg border border-green-300 bg-green-50 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-green-800">{importResult.message}</p>
+              {importResult.stats && (
+                <div className="flex gap-4 mt-2 text-sm text-green-700">
+                  <span>Imported: {importResult.stats.success}</span>
+                  <span>Duplicates: {importResult.stats.duplicates}</span>
+                  <span>Errors: {importResult.stats.errors}</span>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Link href="/admin/products" className="text-green-700 underline text-sm">
+                View Products
+              </Link>
+              <button onClick={() => setImportResult(null)} className="text-green-600 hover:text-green-800">
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="rounded-lg border bg-white p-4">
           <div className="text-3xl font-bold text-amber-600">{stats.pending}</div>
           <div className="text-sm text-gray-600">Pending Review</div>
@@ -224,6 +285,10 @@ export default function CJQueuePage() {
         <div className="rounded-lg border bg-white p-4">
           <div className="text-3xl font-bold text-green-600">{stats.approved}</div>
           <div className="text-sm text-gray-600">Ready to Import</div>
+        </div>
+        <div className="rounded-lg border bg-white p-4">
+          <div className="text-3xl font-bold text-blue-600">{stats.skipped}</div>
+          <div className="text-sm text-gray-600">Skipped (Duplicates)</div>
         </div>
         <div className="rounded-lg border bg-white p-4">
           <div className="text-3xl font-bold text-red-600">{stats.rejected}</div>
@@ -241,12 +306,13 @@ export default function CJQueuePage() {
             <label className="block text-xs text-gray-500 mb-1">Status</label>
             <select
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as "all" | "pending" | "approved" | "rejected")}
+              onChange={(e) => setFilterStatus(e.target.value as "all" | "pending" | "approved" | "rejected" | "skipped")}
               className="rounded border px-3 py-2 text-sm"
             >
               <option value="all">All ({products.length})</option>
               <option value="pending">Pending ({stats.pending})</option>
               <option value="approved">Approved ({stats.approved})</option>
+              <option value="skipped">Skipped ({stats.skipped})</option>
               <option value="rejected">Rejected ({stats.rejected})</option>
             </select>
           </div>
@@ -399,10 +465,11 @@ export default function CJQueuePage() {
                   Ready to Import ({approvedProducts.length})
                 </h2>
                 <button
-                  onClick={() => alert(`Ready to import ${approvedProducts.length} products. Import functionality coming next!`)}
-                  className="rounded bg-green-600 px-4 py-2 text-white font-medium hover:bg-green-700"
+                  onClick={handleImportAll}
+                  disabled={actionLoading || importing}
+                  className="rounded bg-green-600 px-4 py-2 text-white font-medium hover:bg-green-700 disabled:opacity-50"
                 >
-                  Import All Approved
+                  {importing ? "Importing..." : "Import All Approved"}
                 </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

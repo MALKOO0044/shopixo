@@ -23,7 +23,7 @@ interface QueuedProduct {
   stock: number;
   category_path: string;
   pricing_breakdown: Record<string, unknown>;
-  status: 'pending' | 'approved' | 'rejected' | 'imported';
+  status: 'pending' | 'approved' | 'rejected' | 'imported' | 'skipped';
 }
 
 export async function GET(request: NextRequest) {
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false });
     
     if (!includeAll) {
-      query = query.in('status', ['pending', 'approved', 'rejected']);
+      query = query.in('status', ['pending', 'approved', 'rejected', 'skipped']);
     }
     
     const { data: queuedProducts, error: queueError } = await query;
@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
       approved: queuedProducts?.filter(p => p.status === 'approved').length || 0,
       rejected: queuedProducts?.filter(p => p.status === 'rejected').length || 0,
       imported: queuedProducts?.filter(p => p.status === 'imported').length || 0,
+      skipped: queuedProducts?.filter(p => p.status === 'skipped').length || 0,
       total: queuedProducts?.length || 0,
     };
 
