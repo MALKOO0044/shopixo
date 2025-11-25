@@ -87,10 +87,43 @@ export default function CJImportPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
+  const [addingToQueue, setAddingToQueue] = useState(false);
+  const [queueSuccess, setQueueSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     checkConnection();
   }, []);
+
+  async function addToQueue() {
+    if (selectedProducts.size === 0) return;
+    
+    setAddingToQueue(true);
+    setError(null);
+    setQueueSuccess(null);
+    
+    try {
+      const selectedItems = products.filter(p => selectedProducts.has(p.id));
+      
+      const res = await fetch("/api/admin/cj/v2/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          products: selectedItems,
+          batchName: `${keyword || "CJ Products"} - ${new Date().toLocaleDateString()}`,
+        }),
+      });
+      
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      
+      setQueueSuccess(`Added ${data.addedCount} products to "${data.batchName}". Go to Review Queue to approve them.`);
+      setSelectedProducts(new Set());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to add to queue");
+    } finally {
+      setAddingToQueue(false);
+    }
+  }
 
   async function checkConnection() {
     setLoadingConnection(true);
@@ -393,8 +426,28 @@ export default function CJImportPage() {
           >
             {searching ? "Searching..." : "Search Products"}
           </button>
+          <Link
+            href="/admin/cj/queue"
+            className="rounded border border-gray-300 px-4 py-2 text-gray-700 font-medium hover:bg-gray-50"
+          >
+            Review Queue
+          </Link>
           {error && <span className="text-red-600 text-sm">{error}</span>}
         </div>
+        
+        {queueSuccess && (
+          <div className="rounded-lg border border-green-300 bg-green-50 p-3 text-green-800 text-sm flex items-center justify-between">
+            <span>{queueSuccess}</span>
+            <div className="flex items-center gap-2">
+              <Link href="/admin/cj/queue" className="text-green-700 underline font-medium">
+                Go to Queue
+              </Link>
+              <button onClick={() => setQueueSuccess(null)} className="text-green-600 hover:text-green-800">
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Results */}
@@ -495,16 +548,15 @@ export default function CJImportPage() {
               <div className="text-sm">
                 <strong>{selectedCount}</strong> products selected for import
               </div>
-              <button
-                className="rounded bg-green-600 px-4 py-2 text-white font-medium hover:bg-green-700"
-                onClick={() => {
-                  alert(
-                    `Ready to import ${selectedCount} products. This feature will be implemented next.`
-                  );
-                }}
-              >
-                Add to Import Queue
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  className="rounded bg-green-600 px-4 py-2 text-white font-medium hover:bg-green-700 disabled:opacity-50"
+                  disabled={addingToQueue}
+                  onClick={addToQueue}
+                >
+                  {addingToQueue ? "Adding..." : "Add to Import Queue"}
+                </button>
+              </div>
             </div>
           )}
         </div>
