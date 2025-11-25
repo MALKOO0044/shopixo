@@ -19,6 +19,11 @@ export async function ensureAdmin(): Promise<AdminGuard> {
       .map((s) => s.trim().toLowerCase().replace(/^@/, ''))
       .filter(Boolean);
 
+    // If no explicit allow lists are configured, allow any authenticated user (local dev default)
+    if (allowEmails.length === 0 && allowDomains.length === 0) {
+      return { ok: true, user };
+    }
+
     const appMeta = (user as any).app_metadata || {};
     const userMeta = (user as any).user_metadata || {};
     const roles = new Set<string>([
