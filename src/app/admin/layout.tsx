@@ -59,6 +59,11 @@ export default async function AdminLayout({ children }: { children: ReactNode })
               </Link>
             </li>
             <li className="mb-4">
+              <Link href={("/admin/cj/import" as Route)} className="hover:text-gray-300">
+                CJ Product Import
+              </Link>
+            </li>
+            <li className="mb-4">
               <Link href={("/admin/products/import" as Route)} className="hover:text-gray-300">
                 Import Products (CSV)
               </Link>
