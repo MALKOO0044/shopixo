@@ -4,3 +4,54 @@ expertMode = true
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+NEXT_PUBLIC_SUPABASE_URL = "https://lwqddoivcbqnadamczhl.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx3cWRkb2l2Y2JxbmFkYW1jemhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY2ODEyMjYsImV4cCI6MjA3MjI1NzIyNn0.T5Z5iv4F8P0pfWDesjnpC6WXIKMDCX3lbVv2Ff4dFFE"
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx3cWRkb2l2Y2JxbmFkYW1jemhsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjY4MTIyNiwiZXhwIjoyMDcyMjU3MjI2fQ.6nVTdiwU5FvQ6jgbba3HIMKnvk2tV0uh-MPQFIE9LRY"
+STRIPE_SECRET_KEY = "pk_test_51S2IciLQuW7zA8pFpePNAjBQEWXFqvk4MaNEMSEc6PZKIFyv4y5rM4c0PXCC6Vj0scfnZCihrd28WaUDspeSRnzf00fvQXONoG"
+STRIPE_WEBHOOK_SECRET = "whsec_02XCvgU6McJ53m2Lc30RyuTXJm8qlt5z"
+CLOUDINARY_CLOUD_NAME = "diznlpbew"
+CLOUDINARY_API_KEY = "591979622479926"
+CLOUDINARY_API_SECRET = "orucalmqtoDSmK5LYFc6EadxDnA"
+CLOUDINARY_UPLOAD_PRESET = "shopixo_signed"
+NEXT_PUBLIC_SITE_URL = "https://shopixo.net"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Next.js Dev Server"
+
+[[workflows.workflow]]
+name = "Next.js Dev Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 44895
+externalPort = 3000
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["npm", "run", "start"]
+build = ["npm", "run", "build"]
