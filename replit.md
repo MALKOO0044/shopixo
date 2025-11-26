@@ -6,6 +6,54 @@ Shopixo is a modern, professional e-commerce platform targeting the Saudi Arabia
 
 # Recent Changes (November 2025)
 
+## November 26, 2025 - Admin Dashboard & Automation Overhaul
+
+- **Main Admin Dashboard Redesign** - Created comprehensive dashboard with:
+  - CJ Dropshipping connection status widget with latency monitoring
+  - Import queue stats (pending, approved, imported)
+  - Stock alerts widget (out of stock, low stock)
+  - Daily sync changes widget with pending price/stock changes
+  - Recent orders and background jobs overview
+  
+- **Daily Sync Dashboard** (`/admin/sync`) - Complete sync change management:
+  - View all pending price/stock/shipping changes from CJ
+  - Bulk approve/reject changes
+  - Filter by type and status
+  - Auto-apply approved changes to products
+
+- **Inventory Dashboard** (`/admin/inventory`) - Full inventory management:
+  - Safety buffer system (display stock = actual stock - 5)
+  - Low stock / out of stock alerts
+  - Toggle product visibility
+  - CSV export functionality
+  - Search and filter capabilities
+
+- **Enhanced Scheduler/Cron System** (`/api/admin/cron/tick`) - Automated background jobs:
+  - Daily sync: Auto-hide out-of-stock products
+  - Inventory check: Alert notifications for low stock
+  - Job history tracking in admin_jobs table
+
+- **i18n/Arabic Support Foundation** - Created translation system:
+  - Complete English/Arabic translations
+  - RTL support context provider
+  - Language toggle component
+  - Formatted number/currency/date helpers
+
+- **Admin Navigation Overhaul** - Reorganized admin sidebar:
+  - Overview section (Dashboard, Orders)
+  - Products section (All Products, Inventory)
+  - CJ Dropshipping section (Discovery, Queue, Settings)
+  - Automation section (Daily Sync, Background Jobs, Pricing)
+  - Content section (Blog)
+  - Settings section
+
+- **API Routes Created**:
+  - `GET/PATCH /api/admin/sync/changes` - Sync change management
+  - `GET /api/admin/inventory` - Product inventory list
+  - `PATCH /api/admin/inventory/[id]` - Update product visibility
+
+## Previous Changes
+
 - **Migrated from Vercel to Replit** - Configured ports, environment variables, and workflows
 - **Fixed LSP/TypeScript errors** - Resolved server action type export issue in cart-actions.ts
 - **Improved admin security** - Admin guard now requires explicit ADMIN_EMAILS config in production
