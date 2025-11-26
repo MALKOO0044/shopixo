@@ -1,0 +1,157 @@
+Final Implementation Plan: Shopixo × CJDropshipping Automation System
+System Overview
+A complete automated product sourcing system with manual approval at every step - nothing goes live without admin confirmation.
+
+Database Schema (New Tables Needed)
+Table	Purpose
+pricing_rules	Category margins, VAT rates, smart rounding rules
+import_batches	Group search sessions (e.g., "Summer Dresses Batch #12")
+product_queue	Products discovered but not yet imported (pending/approved/rejected)
+import_logs	Full audit trail of all imports and updates
+daily_sync_changes	Store detected price/stock changes for morning review
+Phase 1: Admin Dashboard Enhancement
+Time: Day 1
+
+CJ Dropshipping API connection status widget (green/red indicator)
+Quick stats: Products imported, pending review, stock alerts
+Navigation to all import modules
+Last sync timestamp and connection test button
+Phase 2: Smart Product Discovery
+Time: Day 1-2
+
+Search Interface (/admin/import/discover):
+
+Category selector (from CJ categories)
+Keyword search
+Quantity to find (10, 50, 100, 250, 500)
+Advanced filters:
+Price range (min/max wholesale)
+Minimum rating (3★, 4★, 4.5★)
+Maximum shipping time to KSA
+Stock availability threshold
+Supplier rating
+Results Processing:
+
+Products ranked by Quality Score = (Rating × 0.4) + (Sales Volume × 0.3) + (Supplier Score × 0.3)
+Saved to import_batches with batch name
+All products go to product_queue with status: "pending"
+Nothing auto-publishes - ever
+Phase 3: KSA Pricing Engine
+Time: Day 2-3
+
+Pricing Formula:
+
+Base Cost          = CJ Product Price
++ DDP Shipping     = Shipping to Saudi Arabia
++ VAT              = 15% of (Base + Shipping)
++ Payment Fee      = 2.9% of total
++ Profit Margin    = Configurable % per category
+────────────────────────────────────────────────
+= Final Price      → Smart rounded to: 49/79/99/149/199/249/299 SAR
+
+Pricing Rules Page (/admin/import/pricing):
+
+Set margin % per category (Clothing: 50%, Electronics: 40%, Home: 60%)
+Minimum profit protection (e.g., minimum 35 SAR profit per item)
+Smart rounding configuration
+Products below minimum margin flagged as "needs review"
+Phase 4: Review & Approval Queue
+Time: Day 3
+
+Queue Interface (/admin/import/queue):
+
+Column	Data
+Image Gallery	All product photos
+Title	English (+ Arabic if available)
+CJ SKU	Original supplier code
+Base Cost	CJ price + shipping
+Final Price	After KSA pricing formula
+Rating	Star rating from CJ
+Stock	Available units
+Variants	Colors × Sizes available
+Actions per Product:
+
+✓ Approve - moves to import queue
+✗ Reject - removes permanently
+✏️ Edit - adjust title, price, description, Arabic translation
+📝 Notes - internal admin notes
+Bulk Actions:
+
+Select multiple → Approve All / Reject All
+Export to CSV for offline review
+Filter by: batch, status, price range, category
+Phase 5: Import to Shopixo
+Time: Day 4
+
+Import Process:
+
+Admin clicks "Import Approved Products"
+For each product, system:
+Fetches full variant details from CJ (all colors, all sizes)
+Applies KSA pricing to each variant
+Downloads and stores product images
+Generates unique Shopixo SKU: SPX-{CAT}-{SEQUENCE} (e.g., SPX-WBL-00142)
+Checks for duplicates by CJ SKU
+Creates product with all variants in Shopixo database
+Logs success/failure to import_logs
+Variant Data Captured:
+
+Color name + color code
+Size
+Individual stock level
+Variant-specific price if different
+Variant SKU from CJ
+Processing time (2-3 days)
+Delivery estimate to KSA (7-15 days)
+Phase 6: Daily Monitoring System
+Time: Day 5
+
+Automated Morning Check (8:00 AM KSA):
+For each imported product, check CJ API for:
+
+Price changes
+Shipping cost changes
+Stock level changes
+Product availability
+Image/description updates
+Daily Summary Dashboard (/admin/sync/daily):
+
+Product	Change Type	Old Value	New Value	Action
+Blue Dress XL	Price	$12.50	$14.00	Review
+Kitchen Set	Stock	45	0	Auto-hidden
+Sneakers	Shipping	$3.20	$4.10	Review
+Quick Actions:
+
+✓ Apply All Updates - accept all changes
+🔍 Review Individual - check one by one
+Products with 0 stock auto-hidden from store
+Phase 7: Inventory Management
+Time: Day 5
+
+Stock Features:
+
+Real-time sync every 4 hours
+Safety buffer: Display (Actual Stock - 5) to prevent overselling
+Low stock alerts at configurable threshold (default: 10 units)
+Auto-hide products when stock reaches 0
+Email notification when stock critical
+Inventory Dashboard (/admin/inventory):
+
+Products sorted by stock level
+Filter: In stock, Low stock, Out of stock
+One-click restock alerts
+Stock history graph per product
+Phase 8: Arabic/RTL Support
+Time: Day 6
+
+Full RTL layout for admin dashboard
+Arabic UI labels and navigation
+Bilingual product data:
+English title + Arabic title
+English description + Arabic description
+Arabic number/date formatting
+Arabic delivery time estimates ("7-15 يوم عمل")
+Phase 9: Monitoring & Alerts
+Time: Day 6-7
+
+Sy
