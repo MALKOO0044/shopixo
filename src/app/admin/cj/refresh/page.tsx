@@ -99,7 +99,7 @@ export default function CjRefreshPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-6 space-y-8">
-      <h1 className="text-2xl font-semibold">CJ Catalog Refresh</h1>
+      <h1 className="text-2xl font-semibold">Catalog Refresh</h1>
 
       <section className="space-y-3 border rounded p-4">
         <h2 className="text-lg font-medium">Quick Import: Women Dresses</h2>
@@ -137,9 +137,9 @@ export default function CjRefreshPage() {
       </section>
 
       <section className="space-y-3 border rounded p-4">
-        <h2 className="text-lg font-medium">Re-sync Single Product (by CJ PID)</h2>
+        <h2 className="text-lg font-medium">Re-sync Single Product (by Product ID)</h2>
         <form action={runProduct} className="grid grid-cols-2 gap-3">
-          <label className="col-span-2 flex flex-col text-sm">CJ PID<input name="pid" placeholder="e.g. GUID pid" className="border rounded px-2 py-1"/></label>
+          <label className="col-span-2 flex flex-col text-sm">Product ID<input name="pid" placeholder="e.g. GUID pid" className="border rounded px-2 py-1"/></label>
           <div className="col-span-2 flex items-center gap-6 text-sm">
             <label className="inline-flex items-center gap-2"><input name="p_updateImages" type="checkbox" defaultChecked/>Update Images</label>
             <label className="inline-flex items-center gap-2"><input name="p_updateVideo" type="checkbox" defaultChecked/>Update Video</label>

@@ -40,9 +40,10 @@ const navSections = [
   {
     title: "Supplier",
     items: [
-      { href: "/admin/supplier/discover", label: "Discover Products", icon: Download },
-      { href: "/admin/supplier/queue", label: "Import Queue", icon: ListChecks },
-      { href: "/admin/supplier/settings", label: "Supplier Settings", icon: Wifi },
+      { href: "/admin/cj/finder", label: "Discover Products", icon: Download },
+      { href: "/admin/cj", label: "Import Queue", icon: ListChecks },
+      { href: "/admin/cj/shipping", label: "Shipping Calculator", icon: Calculator },
+      { href: "/admin/cj/settings", label: "Supplier Settings", icon: Wifi },
     ]
   },
   {

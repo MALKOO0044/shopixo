@@ -37,11 +37,11 @@ export default function CjShippingPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">CJ Shipping Calculator</h1>
+      <h1 className="text-2xl font-semibold">Shipping Calculator</h1>
       <form action={onSubmit} className="grid grid-cols-2 gap-3 border rounded p-4">
         <label className="flex flex-col text-sm">Country Code<input name="countryCode" defaultValue="SA" className="border rounded px-2 py-1"/></label>
         <label className="flex flex-col text-sm">ZIP (optional)<input name="zipCode" className="border rounded px-2 py-1"/></label>
-        <label className="flex flex-col text-sm">CJ PID<input name="pid" placeholder="GUID pid" className="border rounded px-2 py-1"/></label>
+        <label className="flex flex-col text-sm">Product ID<input name="pid" placeholder="GUID pid" className="border rounded px-2 py-1"/></label>
         <label className="flex flex-col text-sm">Variant SKU<input name="sku" placeholder="cjSku" className="border rounded px-2 py-1"/></label>
         <label className="flex flex-col text-sm">Quantity<input name="quantity" type="number" defaultValue={1} min={1} className="border rounded px-2 py-1"/></label>
         <div className="col-span-2 grid grid-cols-3 gap-3">

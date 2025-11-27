@@ -48,7 +48,7 @@ export default function CjSettingsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold">CJ Settings</h1>
+        <h1 className="text-2xl font-semibold">Supplier Settings</h1>
         <div className="flex items-center gap-3 text-sm">
           <Link href="/admin/console" className="text-blue-600 hover:underline">Admin Console</Link>
           <Link href="/api/admin/cj/diag?kw=dress" className="text-blue-600 hover:underline">Run Diagnostics</Link>
@@ -58,19 +58,19 @@ export default function CjSettingsPage() {
       {error && <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
 
       <section className="rounded border bg-white p-4 space-y-4">
-        <div className="text-sm text-muted-foreground">Provide CJ API credentials. These are stored in kv_settings (server-side).</div>
+        <div className="text-sm text-muted-foreground">Provide supplier API credentials. These are stored in kv_settings (server-side).</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="text-sm">
-            <div className="text-gray-600 mb-1">CJ Account Email</div>
+            <div className="text-gray-600 mb-1">Supplier Account Email</div>
             <input value={email} onChange={e => setEmail(e.target.value)} className="w-full rounded border px-2 py-1" placeholder="you@example.com" />
           </label>
           <label className="text-sm">
-            <div className="text-gray-600 mb-1">CJ API Key</div>
+            <div className="text-gray-600 mb-1">Supplier API Key</div>
             <input value={apiKey} onChange={e => setApiKey(e.target.value)} className="w-full rounded border px-2 py-1" placeholder="••••••" />
           </label>
         </div>
         <label className="text-sm block">
-          <div className="text-gray-600 mb-1">CJ API Base (optional)</div>
+          <div className="text-gray-600 mb-1">Supplier API Base (optional)</div>
           <input value={base} onChange={e => setBase(e.target.value)} className="w-full rounded border px-2 py-1" placeholder="https://developers.cjdropshipping.com/api2.0/v1" />
         </label>
         <div className="flex items-center gap-3">
@@ -84,7 +84,7 @@ export default function CjSettingsPage() {
       <section className="rounded border bg-white p-4">
         <div className="font-medium mb-2">After saving</div>
         <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
-          <li>Run <Link href="/api/admin/cj/diag?kw=dress" className="underline text-blue-600">CJ Diagnostics</Link> to confirm token.</li>
+          <li>Run <Link href="/api/admin/cj/diag?kw=dress" className="underline text-blue-600">Diagnostics</Link> to confirm token.</li>
           <li>Use <Link href="/admin/cj/finder" className="underline text-blue-600">Catalog Finder</Link> or <code className="bg-slate-100 px-1">auto-import</code> endpoints with your target categories.</li>
         </ul>
       </section>
