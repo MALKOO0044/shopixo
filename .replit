@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web"]
+modules = ["nodejs-20", "web", "postgresql-16"]
 [agent]
 expertMode = true
 
@@ -18,6 +18,7 @@ CLOUDINARY_API_KEY = "591979622479926"
 CLOUDINARY_API_SECRET = "orucalmqtoDSmK5LYFc6EadxDnA"
 CLOUDINARY_UPLOAD_PRESET = "shopixo_signed"
 NEXT_PUBLIC_SITE_URL = "https://shopixo.net"
+ADMIN_EMAILS = "malk.t1287@gmail.com"
 
 [workflows]
 runButton = "Project"
@@ -46,6 +47,10 @@ outputType = "webview"
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[[ports]]
+localPort = 37603
+externalPort = 3000
 
 [deployment]
 deploymentTarget = "autoscale"

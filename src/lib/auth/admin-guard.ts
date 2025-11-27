@@ -19,8 +19,13 @@ export async function ensureAdmin(): Promise<AdminGuard> {
       .map((s) => s.trim().toLowerCase().replace(/^@/, ''))
       .filter(Boolean);
 
-    // If no explicit allow lists are configured, allow any authenticated user (local dev default)
+    // If no explicit allow lists are configured:
+    // - In development: allow any authenticated user (for local testing)
+    // - In production: deny access (security requirement - must configure ADMIN_EMAILS or ADMIN_EMAIL_DOMAINS)
     if (allowEmails.length === 0 && allowDomains.length === 0) {
+      if (process.env.NODE_ENV === 'production') {
+        return { ok: false, reason: 'Admin access not configured. Set ADMIN_EMAILS or ADMIN_EMAIL_DOMAINS.' };
+      }
       return { ok: true, user };
     }
 

@@ -4,6 +4,22 @@ Shopixo is a modern, professional e-commerce platform targeting the Saudi Arabia
 
 ---
 
+# Recent Changes (November 2025)
+
+- **Migrated from Vercel to Replit** - Configured ports, environment variables, and workflows
+- **Fixed LSP/TypeScript errors** - Resolved server action type export issue in cart-actions.ts
+- **Improved admin security** - Admin guard now requires explicit ADMIN_EMAILS config in production
+- **Added database migrations** - Created missing migrations for orders, product_variants, addresses, and reviews tables
+- **Removed deprecated code** - Cleaned up duplicate webhook routes and empty files
+- **Re-enabled Sentry instrumentation** - Works with optional SENTRY_DSN configuration
+- **Supplier Management System** - Replaced "CJ" branding with generic "Supplier" terminology throughout admin:
+  - `/admin/supplier/discover` - Product discovery and search
+  - `/admin/supplier/queue` - Approve/reject queue with import workflow
+  - `/admin/supplier/settings` - API configuration for supplier integration
+- **Fixed Product Import** - Import route now uses correct database schema (title, description, stock, category)
+
+---
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

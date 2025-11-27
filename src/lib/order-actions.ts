@@ -1,7 +1,8 @@
 "use server";
 
 import { createClient } from "@supabase/supabase-js";
-import { getCartItemsBySessionId, CartItem } from "./cart-actions";
+import { getCartItemsBySessionId } from "./cart-actions";
+import type { CartItem } from "./types";
 
 // IMPORTANT: Use a lazily initialized Supabase admin client to avoid
 // build-time env access. This is called in server actions/webhooks only.

@@ -1,10 +1,14 @@
 import Stripe from 'stripe'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '')
+function getStripe() {
+  return new Stripe(process.env.STRIPE_SECRET_KEY || '')
+}
 
 export async function handleStripeWebhook(req: Request): Promise<Response> {
   const secret = process.env.STRIPE_WEBHOOK_SECRET
   if (!secret || !process.env.STRIPE_SECRET_KEY) return new Response('Stripe not configured', { status: 501 })
+  
+  const stripe = getStripe()
   const sig = req.headers.get('stripe-signature') || ''
   const body = await req.text()
   let event: Stripe.Event
