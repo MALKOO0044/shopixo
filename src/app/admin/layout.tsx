@@ -38,11 +38,12 @@ const navSections = [
     ]
   },
   {
-    title: "CJ Dropshipping",
+    title: "Supplier",
     items: [
-      { href: "/admin/cj/import", label: "Product Discovery", icon: Download },
-      { href: "/admin/cj/queue", label: "Review Queue", icon: ListChecks },
-      { href: "/admin/cj/settings", label: "CJ Settings", icon: Wifi },
+      { href: "/admin/cj/finder", label: "Discover Products", icon: Download },
+      { href: "/admin/cj", label: "Import Queue", icon: ListChecks },
+      { href: "/admin/cj/shipping", label: "Shipping Calculator", icon: Calculator },
+      { href: "/admin/cj/settings", label: "Supplier Settings", icon: Wifi },
     ]
   },
   {
@@ -62,7 +63,7 @@ const navSections = [
   {
     title: "Settings",
     items: [
-      { href: "/admin/console/settings", label: "System Settings", icon: Settings },
+      { href: "/admin/settings", label: "System Settings", icon: Settings },
     ]
   }
 ];
