@@ -113,7 +113,7 @@ export default function ProductDiscoveryPage() {
     
     try {
       const params = new URLSearchParams({
-        keywords: keywords.trim(),
+        keyword: keywords.trim(),
         quantity: quantity.toString(),
         category: category,
         minPrice: minPrice.toString(),
@@ -130,7 +130,7 @@ export default function ProductDiscoveryPage() {
         throw new Error(data.error || `Search failed: ${res.status}`);
       }
       
-      const productsWithScore = (data.products || []).map((p: any) => ({
+      const productsWithScore = (data.items || []).map((p: any) => ({
         ...p,
         qualityScore: calculateQualityScore(p),
       })).sort((a: CjProduct, b: CjProduct) => (b.qualityScore || 0) - (a.qualityScore || 0));
