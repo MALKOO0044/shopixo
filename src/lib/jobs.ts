@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { hasTable } from '@/lib/db-features';
 
 export type JobKind = 'finder' | 'import' | 'sync' | 'scanner';
 export type JobStatus = 'pending' | 'running' | 'success' | 'error' | 'canceled';
@@ -9,6 +10,13 @@ function getAdmin(): SupabaseClient | null {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
   return createClient(url, key);
+}
+
+async function ensureJobsTables(): Promise<boolean> {
+  const hasJobs = await hasTable('admin_jobs');
+  if (!hasJobs) return false;
+  const hasItems = await hasTable('admin_job_items');
+  return hasItems;
 }
 
 export async function patchJob(id: number, patch: Partial<{ params: any; totals: any; status: JobStatus; started_at: string; finished_at: string; error_text: string }>): Promise<boolean> {
@@ -111,15 +119,17 @@ export async function getJob(id: number): Promise<any | null> {
   return { job, items: items || [] };
 }
 
-export async function listJobs(limit = 50): Promise<any[]> {
+export async function listJobs(limit = 50): Promise<{ jobs: any[]; tablesMissing?: boolean }> {
   const db = getAdmin();
-  if (!db) return [];
+  if (!db) return { jobs: [], tablesMissing: true };
+  const tablesExist = await ensureJobsTables();
+  if (!tablesExist) return { jobs: [], tablesMissing: true };
   const { data } = await db
     .from('admin_jobs')
     .select('id, created_at, kind, status, started_at, finished_at, totals, error_text')
     .order('created_at', { ascending: false })
     .limit(limit);
-  return data || [];
+  return { jobs: data || [] };
 }
 
 export async function upsertJobItemByPid(jobId: number, cj_product_id: string, input: Partial<{ status: JobItemStatus; step: string | null; result: any; error_text: string | null }>): Promise<{ id: number } | null> {

@@ -18,8 +18,17 @@ export async function GET(req: Request) {
     }
     const { searchParams } = new URL(req.url);
     const limit = Math.max(1, Math.min(200, Number(searchParams.get('limit') || '50')));
-    const jobs = await listJobs(limit);
-    const r = NextResponse.json({ ok: true, jobs });
+    const result = await listJobs(limit);
+    if (result.tablesMissing) {
+      const r = NextResponse.json({ 
+        ok: false, 
+        error: 'Database tables missing. Please run migrations: admin_jobs, admin_job_items tables required.',
+        tablesMissing: true 
+      }, { status: 503 });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
+    const r = NextResponse.json({ ok: true, jobs: result.jobs });
     r.headers.set('x-request-id', log.requestId);
     return r;
   } catch (e: any) {

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 
-type StartResp = { ok: boolean; jobId?: number; error?: string };
+type StartResp = { ok: boolean; jobId?: number; error?: string; tablesMissing?: boolean };
 
 type RunResp = { ok: boolean; done?: boolean; stepsRun?: number; candidatesAddedTotal?: number; error?: string };
 
@@ -30,6 +30,7 @@ export default function CjFinderPage() {
   const [jobId, setJobId] = useState<number | null>(null);
   const [items, setItems] = useState<JobItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [tablesMissing, setTablesMissing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [category, setCategory] = useState("General");
 
@@ -38,7 +39,7 @@ export default function CjFinderPage() {
   const [commitResult, setCommitResult] = useState<any[] | null>(null);
 
   async function start() {
-    setLoading(true); setError(null); setCommitResult(null);
+    setLoading(true); setError(null); setCommitResult(null); setTablesMissing(false);
     try {
       const r = await fetch('/api/admin/cj/finder/start', {
         method: 'POST',
@@ -54,6 +55,11 @@ export default function CjFinderPage() {
         }),
       });
       const j: StartResp = await r.json();
+      if (j.tablesMissing) {
+        setTablesMissing(true);
+        setError(j.error || 'Database tables missing');
+        return;
+      }
       if (!r.ok || !j.ok || !j.jobId) throw new Error(j.error || `HTTP ${r.status}`);
       setJobId(j.jobId);
       // run to completion
@@ -123,7 +129,25 @@ export default function CjFinderPage() {
         <Link href="/admin/console" className="text-sm text-blue-600 hover:underline">Back to Console</Link>
       </div>
 
-      {error && <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
+      {tablesMissing && (
+        <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-6">
+          <h2 className="text-lg font-semibold text-amber-800 mb-3">Database Setup Required</h2>
+          <p className="text-amber-700 mb-4">
+            The required database tables do not exist. Please run the migrations in your Supabase SQL Editor.
+          </p>
+          <div className="bg-white rounded border p-4 text-sm">
+            <p className="font-medium mb-2">Required tables:</p>
+            <ul className="list-disc pl-5 text-gray-700 space-y-1">
+              <li><code className="bg-slate-100 px-1">admin_jobs</code> - For background job tracking</li>
+              <li><code className="bg-slate-100 px-1">admin_job_items</code> - For job item details</li>
+              <li><code className="bg-slate-100 px-1">kv_settings</code> - For supplier settings</li>
+            </ul>
+            <p className="mt-3 text-gray-600">Go to Background Jobs page for the full SQL migration script.</p>
+          </div>
+        </div>
+      )}
+
+      {error && !tablesMissing && <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
 
       <section className="rounded border bg-white p-4 space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

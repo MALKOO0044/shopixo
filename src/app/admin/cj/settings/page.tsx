@@ -3,23 +3,29 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-type GetResp = { ok: boolean; configured?: boolean; emailPreview?: string | null; base?: string | null; error?: string };
-type SaveResp = { ok: boolean; error?: string };
+type GetResp = { ok: boolean; configured?: boolean; emailPreview?: string | null; base?: string | null; error?: string; tablesMissing?: boolean };
+type SaveResp = { ok: boolean; error?: string; tablesMissing?: boolean };
 
 export default function CjSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tablesMissing, setTablesMissing] = useState(false);
   const [configured, setConfigured] = useState(false);
   const [email, setEmail] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [base, setBase] = useState("");
 
   async function load() {
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setTablesMissing(false);
     try {
       const r = await fetch('/api/admin/cj/settings', { cache: 'no-store' });
       const j: GetResp = await r.json();
+      if (j.tablesMissing) {
+        setTablesMissing(true);
+        setError(j.error || 'Database tables missing');
+        return;
+      }
       if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
       setConfigured(!!j.configured);
       if (typeof j.base === 'string') setBase(j.base);
@@ -41,6 +47,41 @@ export default function CjSettingsPage() {
   }
 
   useEffect(() => { load(); }, []);
+
+  if (tablesMissing) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-baseline justify-between">
+          <h1 className="text-2xl font-semibold">Supplier Settings</h1>
+        </div>
+        <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-6">
+          <h2 className="text-lg font-semibold text-amber-800 mb-3">Database Setup Required</h2>
+          <p className="text-amber-700 mb-4">
+            The required database table <code className="bg-amber-100 px-1 rounded">kv_settings</code> does not exist.
+          </p>
+          <div className="bg-white rounded border p-4 text-sm">
+            <p className="font-medium mb-2">To fix this, run the following SQL in your Supabase SQL Editor:</p>
+            <pre className="bg-slate-100 p-3 rounded text-xs overflow-auto whitespace-pre-wrap">
+{`CREATE TABLE IF NOT EXISTS public.kv_settings (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.kv_settings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role can manage kv_settings" ON public.kv_settings
+  FOR ALL USING (auth.role() = 'service_role') 
+  WITH CHECK (auth.role() = 'service_role');`}
+            </pre>
+          </div>
+          <button onClick={load} className="mt-4 rounded bg-amber-600 px-4 py-2 text-white hover:bg-amber-700">
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

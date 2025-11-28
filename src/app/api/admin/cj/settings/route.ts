@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
-import { getSetting, setSetting } from '@/lib/settings'
+import { getSetting, setSetting, hasSettingsTable } from '@/lib/settings'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -21,6 +21,16 @@ export async function GET(req: Request) {
     const guard = await ensureAdmin()
     if (!guard.ok) {
       const r = NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+      r.headers.set('x-request-id', log.requestId)
+      return r
+    }
+    const tableExists = await hasSettingsTable()
+    if (!tableExists) {
+      const r = NextResponse.json({ 
+        ok: false, 
+        error: 'Database table missing. Please run migrations: kv_settings table required.',
+        tablesMissing: true 
+      }, { status: 503 })
       r.headers.set('x-request-id', log.requestId)
       return r
     }
@@ -47,6 +57,16 @@ export async function POST(req: Request) {
       r.headers.set('x-request-id', log.requestId)
       return r
     }
+    const tableExists = await hasSettingsTable()
+    if (!tableExists) {
+      const r = NextResponse.json({ 
+        ok: false, 
+        error: 'Database table missing. Please run migrations: kv_settings table required.',
+        tablesMissing: true 
+      }, { status: 503 })
+      r.headers.set('x-request-id', log.requestId)
+      return r
+    }
     let body: any = {}
     try { body = await req.json() } catch {}
     const next: CjConfig = {
@@ -54,7 +74,12 @@ export async function POST(req: Request) {
       apiKey: typeof body.apiKey === 'string' ? body.apiKey.trim() : null,
       base: typeof body.base === 'string' ? (body.base.trim() || null) : null,
     }
-    await setSetting(KEY, next)
+    const result = await setSetting(KEY, next)
+    if (!result.ok) {
+      const r = NextResponse.json({ ok: false, error: 'Failed to save settings' }, { status: 500 })
+      r.headers.set('x-request-id', log.requestId)
+      return r
+    }
     const r = NextResponse.json({ ok: true })
     r.headers.set('x-request-id', log.requestId)
     return r

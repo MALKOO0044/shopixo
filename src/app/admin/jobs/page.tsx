@@ -16,20 +16,28 @@ type JobRow = {
   error_text?: string | null;
 };
 
-type JobsResp = { ok: boolean; jobs?: JobRow[]; error?: string };
+type JobsResp = { ok: boolean; jobs?: JobRow[]; error?: string; tablesMissing?: boolean };
 
 export default function JobsPage() {
   const [rows, setRows] = useState<JobRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [tablesMissing, setTablesMissing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<number | null>(null);
 
   async function load() {
     setLoading(true);
     setError(null);
+    setTablesMissing(false);
     try {
       const r = await fetch(`/api/admin/jobs?limit=100`, { cache: "no-store" });
       const j: JobsResp = await r.json();
+      if (j.tablesMissing) {
+        setTablesMissing(true);
+        setError(j.error || 'Database tables missing');
+        setRows([]);
+        return;
+      }
       if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
       setRows(j.jobs || []);
     } catch (e: any) {
@@ -64,6 +72,60 @@ export default function JobsPage() {
     const t = setInterval(load, 10000);
     return () => clearInterval(t);
   }, []);
+
+  if (tablesMissing) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Link href="/admin" className="text-gray-500 hover:text-gray-700">
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+          <h1 className="text-2xl font-bold text-gray-900">Background Jobs</h1>
+        </div>
+        <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-6">
+          <h2 className="text-lg font-semibold text-amber-800 mb-3">Database Setup Required</h2>
+          <p className="text-amber-700 mb-4">
+            The required database tables <code className="bg-amber-100 px-1 rounded">admin_jobs</code> and <code className="bg-amber-100 px-1 rounded">admin_job_items</code> do not exist.
+          </p>
+          <div className="bg-white rounded border p-4 text-sm">
+            <p className="font-medium mb-2">To fix this, run the following SQL in your Supabase SQL Editor:</p>
+            <pre className="bg-slate-100 p-3 rounded text-xs overflow-auto whitespace-pre-wrap">
+{`CREATE TABLE IF NOT EXISTS public.admin_jobs (
+  id BIGSERIAL PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  kind TEXT NOT NULL CHECK (kind IN ('finder','import','sync','scanner')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','success','error','canceled')),
+  params JSONB,
+  totals JSONB,
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  error_text TEXT
+);
+
+CREATE TABLE IF NOT EXISTS public.admin_job_items (
+  id BIGSERIAL PRIMARY KEY,
+  job_id BIGINT NOT NULL REFERENCES public.admin_jobs(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','success','error','skipped','canceled')),
+  step TEXT,
+  cj_product_id TEXT,
+  cj_sku TEXT,
+  result JSONB,
+  error_text TEXT,
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_jobs_status_created ON public.admin_jobs(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_job_items_job ON public.admin_job_items(job_id);`}
+            </pre>
+          </div>
+          <button onClick={load} className="mt-4 rounded bg-amber-600 px-4 py-2 text-white hover:bg-amber-700">
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {

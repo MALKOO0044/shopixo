@@ -10,6 +10,10 @@ function getSupabaseAdmin() {
   return createClient(url, key)
 }
 
+export async function hasSettingsTable(): Promise<boolean> {
+  return await hasTable('kv_settings')
+}
+
 export async function getSetting<T = any>(key: string, fallback?: T): Promise<T | undefined> {
   const admin = getSupabaseAdmin()
   if (!admin) return fallback
@@ -21,16 +25,16 @@ export async function getSetting<T = any>(key: string, fallback?: T): Promise<T 
   return fallback
 }
 
-export async function setSetting<T = any>(key: string, value: T): Promise<boolean> {
+export async function setSetting<T = any>(key: string, value: T): Promise<{ ok: boolean; tablesMissing?: boolean }> {
   const admin = getSupabaseAdmin()
-  if (!admin) return false
-  if (!(await hasTable('kv_settings'))) return false
+  if (!admin) return { ok: false, tablesMissing: true }
+  if (!(await hasTable('kv_settings'))) return { ok: false, tablesMissing: true }
   try {
     const row = { key, value, updated_at: new Date().toISOString() }
     await admin.from('kv_settings').upsert(row, { onConflict: 'key' })
-    return true
+    return { ok: true }
   } catch {
-    return false
+    return { ok: false }
   }
 }
 
@@ -40,7 +44,8 @@ export async function getOperatingMode(): Promise<OperatingMode> {
 }
 
 export async function setOperatingMode(mode: OperatingMode): Promise<boolean> {
-  return await setSetting('operating_mode', mode)
+  const result = await setSetting('operating_mode', mode)
+  return result.ok
 }
 
 export async function isKillSwitchOn(): Promise<boolean> {
@@ -49,5 +54,6 @@ export async function isKillSwitchOn(): Promise<boolean> {
 }
 
 export async function setKillSwitch(on: boolean): Promise<boolean> {
-  return await setSetting('kill_switch', !!on)
+  const result = await setSetting('kill_switch', !!on)
+  return result.ok
 }

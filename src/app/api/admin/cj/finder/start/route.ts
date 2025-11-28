@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
 import { createJob } from '@/lib/jobs'
+import { hasTable } from '@/lib/db-features'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -16,6 +17,18 @@ export async function POST(req: Request) {
       r.headers.set('x-request-id', log.requestId)
       return r
     }
+    
+    const hasJobsTable = await hasTable('admin_jobs')
+    if (!hasJobsTable) {
+      const r = NextResponse.json({ 
+        ok: false, 
+        error: 'Database tables missing. Please run migrations: admin_jobs, admin_job_items tables required.',
+        tablesMissing: true 
+      }, { status: 503 })
+      r.headers.set('x-request-id', log.requestId)
+      return r
+    }
+    
     let body: any = {}
     try { body = await req.json() } catch {}
 
@@ -49,7 +62,7 @@ export async function POST(req: Request) {
 
     const job = await createJob('finder', params)
     if (!job) {
-      const r = NextResponse.json({ ok: false, error: 'Failed to create job' }, { status: 500 })
+      const r = NextResponse.json({ ok: false, error: 'Failed to create job. Ensure database tables exist.' }, { status: 500 })
       r.headers.set('x-request-id', log.requestId)
       return r
     }
