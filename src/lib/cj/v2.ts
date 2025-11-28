@@ -3,23 +3,30 @@ import { loadToken, saveToken } from '@/lib/integration/token-store';
 import { fetchJson } from '@/lib/http';
 import { getSetting } from '@/lib/settings';
 
-// CJ v2 client with token auth per docs:
-// - POST /authentication/getAccessToken { email, apiKey }
+// CJ v2 client with token auth per official docs:
+// - POST /authentication/getAccessToken { apiKey }
+// The apiKey format is: CJUserNum@api@xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+// Token lives 15 days; refresh token 180 days; getAccessToken limited to once/5 minutes.
 
 type CjConfig = { email?: string | null; apiKey?: string | null; base?: string | null };
 
-async function getCjCreds(): Promise<{ email: string | null; apiKey: string | null }> {
+async function getCjApiKey(): Promise<string | null> {
   // Prefer env; if missing, attempt kv_settings (key: 'cj_config')
-  const envEmail = process.env.CJ_EMAIL || null;
   const envKey = process.env.CJ_API_KEY || null;
-  if (envEmail && envKey) return { email: envEmail, apiKey: envKey };
+  if (envKey) return envKey;
   try {
     const cfg = await getSetting<CjConfig>('cj_config', undefined);
-    const email = (cfg?.email || null) as string | null;
     const apiKey = (cfg?.apiKey || null) as string | null;
-    if (email && apiKey) return { email, apiKey };
+    if (apiKey) return apiKey;
   } catch {}
-  return { email: envEmail, apiKey: envKey };
+  return envKey;
+}
+
+// Keep legacy function for backward compatibility
+async function getCjCreds(): Promise<{ email: string | null; apiKey: string | null }> {
+  const apiKey = await getCjApiKey();
+  const envEmail = process.env.CJ_EMAIL || null;
+  return { email: envEmail, apiKey };
 }
 
 export async function listCjProductsPage(params: { pageNum: number; pageSize?: number; keyword?: string }): Promise<any> {
@@ -217,52 +224,45 @@ async function authPost<T>(path: string, body: any): Promise<T> {
 }
 
 async function fetchNewAccessToken(): Promise<TokenState> {
-  const creds = await getCjCreds();
-  const email = process.env.CJ_EMAIL || creds.email || '';
-  const apiKey = process.env.CJ_API_KEY || creds.apiKey || '';
-  if (!email || !apiKey) throw new Error('Missing CJ_EMAIL or CJ_API_KEY (env or admin settings)');
+  // Per official CJ API docs: only apiKey is required (format: CJUserNum@api@xxx)
+  const apiKey = await getCjApiKey();
+  if (!apiKey) throw new Error('Missing CJ_API_KEY (env or admin settings)');
 
-  const paths = [
-    '/authentication/getAccessToken',
-    '/accessToken/get',
-    '/token/create',
-    '/token/get',
-    '/token/getAccessToken',
-  ];
-
-  let lastErr: any = null;
-  for (const p of paths) {
-    try {
-      const r = await authPost<any>(p, { email, apiKey });
-      const d = r?.data || r?.result || r || {};
-      const accessToken = String(
-        d?.accessToken || r?.accessToken || (d?.token && d.token.accessToken) || ''
-      );
-      if (accessToken) {
-        const out: TokenState = {
-          accessToken,
-          accessTokenExpiry: d?.accessTokenExpiryDate || d?.accessTokenExpireAt || null,
-          refreshToken: d?.refreshToken || null,
-          refreshTokenExpiry: d?.refreshTokenExpiryDate || d?.refreshTokenExpireAt || null,
-          lastAuthCallMs: ms(),
-        };
-        try {
-          await saveToken('cj', {
-            access_token: out.accessToken,
-            access_expiry: out.accessTokenExpiry || null,
-            refresh_token: out.refreshToken || null,
-            refresh_expiry: out.refreshTokenExpiry || null,
-            last_auth_call_at: new Date(out.lastAuthCallMs).toISOString(),
-          });
-        } catch {}
-        return out;
-      }
-      lastErr = new Error(`getAccessToken empty from ${p}`);
-    } catch (e: any) {
-      lastErr = e;
-    }
+  // Official endpoint per CJ docs
+  const r = await authPost<any>('/authentication/getAccessToken', { apiKey });
+  
+  // Check for success response
+  if (r?.code !== 200 || !r?.result) {
+    throw new Error(`CJ getAccessToken failed: ${r?.message || 'Unknown error'} (code: ${r?.code})`);
   }
-  throw new Error(`getAccessToken failed: ${lastErr?.message || 'Unknown error'}`);
+  
+  const d = r?.data || {};
+  const accessToken = String(d?.accessToken || '');
+  
+  if (!accessToken) {
+    throw new Error('CJ getAccessToken returned empty token');
+  }
+  
+  const out: TokenState = {
+    accessToken,
+    accessTokenExpiry: d?.accessTokenExpiryDate || null,
+    refreshToken: d?.refreshToken || null,
+    refreshTokenExpiry: d?.refreshTokenExpiryDate || null,
+    lastAuthCallMs: ms(),
+  };
+  
+  // Persist token to database for reuse across requests
+  try {
+    await saveToken('cj', {
+      access_token: out.accessToken,
+      access_expiry: out.accessTokenExpiry || null,
+      refresh_token: out.refreshToken || null,
+      refresh_expiry: out.refreshTokenExpiry || null,
+      last_auth_call_at: new Date(out.lastAuthCallMs).toISOString(),
+    });
+  } catch {}
+  
+  return out;
 }
 
 async function refreshAccessTokenState(state: TokenState): Promise<TokenState> {
