@@ -4,7 +4,6 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { LanguageProvider } from "@/lib/i18n";
 import { AdminLayoutClient } from "./AdminLayoutClient";
-import { navSections } from "./nav-config";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -35,7 +34,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   return (
     <LanguageProvider>
-      <AdminLayoutClient email={email} navSections={navSections}>
+      <AdminLayoutClient email={email}>
         {children}
       </AdminLayoutClient>
     </LanguageProvider>

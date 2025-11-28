@@ -3,9 +3,23 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { ReactNode } from "react";
-import { Languages } from "lucide-react";
+import {
+  Languages,
+  LayoutDashboard,
+  Package,
+  ShoppingCart,
+  FileText,
+  Settings,
+  Download,
+  Calculator,
+  RefreshCw,
+  Boxes,
+  ListChecks,
+  Clock,
+  Wifi,
+  LucideIcon
+} from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
-import { LucideIcon } from "lucide-react";
 
 type NavItem = {
   href: string;
@@ -20,13 +34,64 @@ type NavSection = {
   items: NavItem[];
 };
 
+const navSections: NavSection[] = [
+  {
+    titleEn: "Overview",
+    titleAr: "نظرة عامة",
+    items: [
+      { href: "/admin", labelEn: "Dashboard", labelAr: "لوحة التحكم", icon: LayoutDashboard },
+      { href: "/admin/orders", labelEn: "Orders", labelAr: "الطلبات", icon: ShoppingCart },
+    ]
+  },
+  {
+    titleEn: "Products",
+    titleAr: "المنتجات",
+    items: [
+      { href: "/admin/products", labelEn: "All Products", labelAr: "جميع المنتجات", icon: Package },
+      { href: "/admin/inventory", labelEn: "Inventory", labelAr: "المخزون", icon: Boxes },
+    ]
+  },
+  {
+    titleEn: "Product Import",
+    titleAr: "استيراد المنتجات",
+    items: [
+      { href: "/admin/import/discover", labelEn: "Discover Products", labelAr: "اكتشاف المنتجات", icon: Download },
+      { href: "/admin/import/queue", labelEn: "Import Queue", labelAr: "قائمة الاستيراد", icon: ListChecks },
+      { href: "/admin/import/pricing", labelEn: "Pricing Rules", labelAr: "قواعد التسعير", icon: Calculator },
+      { href: "/admin/cj/shipping", labelEn: "Shipping Calculator", labelAr: "حاسبة الشحن", icon: Calculator },
+      { href: "/admin/cj/settings", labelEn: "CJ Settings", labelAr: "إعدادات CJ", icon: Wifi },
+    ]
+  },
+  {
+    titleEn: "Automation",
+    titleAr: "الأتمتة",
+    items: [
+      { href: "/admin/sync", labelEn: "Daily Sync", labelAr: "المزامنة اليومية", icon: RefreshCw },
+      { href: "/admin/jobs", labelEn: "Background Jobs", labelAr: "المهام الخلفية", icon: Clock },
+    ]
+  },
+  {
+    titleEn: "Content",
+    titleAr: "المحتوى",
+    items: [
+      { href: "/admin/blog", labelEn: "Blog", labelAr: "المدونة", icon: FileText },
+    ]
+  },
+  {
+    titleEn: "Settings",
+    titleAr: "الإعدادات",
+    items: [
+      { href: "/admin/settings", labelEn: "System Settings", labelAr: "إعدادات النظام", icon: Settings },
+    ]
+  }
+];
+
 interface AdminLayoutClientProps {
   children: ReactNode;
   email: string;
-  navSections: NavSection[];
 }
 
-export function AdminLayoutClient({ children, email, navSections }: AdminLayoutClientProps) {
+export function AdminLayoutClient({ children, email }: AdminLayoutClientProps) {
   const { lang, setLang, isRtl, dir, t } = useLanguage();
 
   const toggleLang = () => {
