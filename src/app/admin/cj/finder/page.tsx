@@ -3,9 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
 type StartResp = { ok: boolean; jobId?: number; error?: string };
 
 type RunResp = { ok: boolean; done?: boolean; stepsRun?: number; candidatesAddedTotal?: number; error?: string };

@@ -3,9 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
 type GetResp = { ok: boolean; configured?: boolean; emailPreview?: string | null; base?: string | null; error?: string };
 type SaveResp = { ok: boolean; error?: string };
 
