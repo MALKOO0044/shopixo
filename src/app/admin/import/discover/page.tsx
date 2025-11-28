@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Search, Filter, Star, Package, TrendingUp, Clock, Loader2, CheckCircle, XCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { Package, Loader2, CheckCircle, ChevronDown } from "lucide-react";
 
 type CjProduct = {
   pid: string;
@@ -24,47 +24,84 @@ type CjProduct = {
   qualityScore?: number;
 };
 
-type SearchFilters = {
-  minPrice: number;
-  maxPrice: number;
-  minRating: number;
-  minStock: number;
-  maxShippingDays: number;
+type Category = {
+  categoryId: string;
+  categoryName: string;
 };
 
-const defaultFilters: SearchFilters = {
-  minPrice: 0,
-  maxPrice: 500,
-  minRating: 3,
-  minStock: 10,
-  maxShippingDays: 20,
-};
-
-const categories = [
-  { value: "all", label: "All Categories", labelAr: "جميع الفئات" },
-  { value: "clothing", label: "Clothing", labelAr: "ملابس" },
-  { value: "electronics", label: "Electronics", labelAr: "إلكترونيات" },
-  { value: "home", label: "Home & Garden", labelAr: "المنزل والحديقة" },
-  { value: "beauty", label: "Beauty", labelAr: "الجمال" },
-  { value: "sports", label: "Sports", labelAr: "رياضة" },
-  { value: "accessories", label: "Accessories", labelAr: "إكسسوارات" },
-];
-
-export default function DiscoverProductsPage() {
+export default function ProductDiscoveryPage() {
   const [keywords, setKeywords] = useState("");
   const [category, setCategory] = useState("all");
   const [quantity, setQuantity] = useState(50);
-  const [filters, setFilters] = useState<SearchFilters>(defaultFilters);
-  const [showFilters, setShowFilters] = useState(false);
+  const [minStock, setMinStock] = useState(10);
+  const [maxPrice, setMaxPrice] = useState(100);
+  const [minPrice, setMinPrice] = useState(0);
+  const [profitMargin, setProfitMargin] = useState(50);
+  const [freeShippingOnly, setFreeShippingOnly] = useState(false);
+  const [showQuantityDropdown, setShowQuantityDropdown] = useState(false);
   
   const [loading, setLoading] = useState(false);
+  const [loadingCategories, setLoadingCategories] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<CjProduct[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState<{
+    connected: boolean;
+    latency: number;
+    categoryCount: number;
+    message: string;
+  } | null>(null);
+  
   const [batchName, setBatchName] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedBatchId, setSavedBatchId] = useState<number | null>(null);
+
+  const quantityOptions = [10, 25, 50, 100, 250];
+
+  const testConnection = async () => {
+    const start = Date.now();
+    try {
+      const res = await fetch("/api/admin/cj/categories");
+      const data = await res.json();
+      const latency = Date.now() - start;
+      
+      if (data.ok && data.categories) {
+        setCategories(data.categories);
+        setConnectionStatus({
+          connected: true,
+          latency,
+          categoryCount: data.categories.length,
+          message: `Connected successfully. Found ${data.categories.length} category groups.`
+        });
+      } else {
+        setConnectionStatus({
+          connected: false,
+          latency,
+          categoryCount: 0,
+          message: data.error || "Connection failed"
+        });
+      }
+    } catch (e: any) {
+      setConnectionStatus({
+        connected: false,
+        latency: Date.now() - start,
+        categoryCount: 0,
+        message: e?.message || "Connection failed"
+      });
+    }
+  };
+
+  const loadCategories = async () => {
+    setLoadingCategories(true);
+    await testConnection();
+    setLoadingCategories(false);
+  };
+
+  useEffect(() => {
+    testConnection();
+  }, []);
 
   const calculateQualityScore = useCallback((product: any): number => {
     const rating = product.supplierRating || 4;
@@ -89,11 +126,11 @@ export default function DiscoverProductsPage() {
         keywords: keywords.trim(),
         quantity: quantity.toString(),
         category: category,
-        minPrice: filters.minPrice.toString(),
-        maxPrice: filters.maxPrice.toString(),
-        minRating: filters.minRating.toString(),
-        minStock: filters.minStock.toString(),
-        maxShippingDays: filters.maxShippingDays.toString(),
+        minPrice: minPrice.toString(),
+        maxPrice: maxPrice.toString(),
+        minStock: minStock.toString(),
+        profitMargin: profitMargin.toString(),
+        freeShippingOnly: freeShippingOnly ? "1" : "0",
       });
       
       const res = await fetch(`/api/admin/cj/products/query?${params}`);
@@ -155,7 +192,7 @@ export default function DiscoverProductsPage() {
           name: batchName || `${keywords} - ${new Date().toLocaleDateString()}`,
           keywords,
           category,
-          filters,
+          filters: { minStock, minPrice, maxPrice, profitMargin, freeShippingOnly },
           products: selectedProducts,
         }),
       });
@@ -176,139 +213,197 @@ export default function DiscoverProductsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Discover Products</h1>
-          <p className="text-sm text-gray-500 mt-1">اكتشاف المنتجات من CJ Dropshipping</p>
+      <div className="flex items-center justify-between border-b border-gray-200 pb-4">
+        <div className="flex items-center gap-6">
+          <Link href={"/admin" as Route} className="text-sm text-blue-600 hover:underline">CJ Dashboard</Link>
+          <Link href={"/admin/cj/finder" as Route} className="text-sm text-blue-600 hover:underline">Old Finder</Link>
         </div>
-        <Link href={"/admin/import/queue" as Route} className="text-sm text-blue-600 hover:underline">
-          View Queue →
-        </Link>
+        <h1 className="text-xl font-semibold text-gray-900">CJ Product Import</h1>
       </div>
 
-      <div className="bg-white rounded-xl border shadow-sm p-6 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Keywords</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={testConnection}
+            className="px-3 py-1.5 border border-gray-300 rounded bg-white text-sm hover:bg-gray-50"
+          >
+            Test Connection
+          </button>
+          <span className="text-sm text-gray-600">
+            {connectionStatus?.latency || 0}ms
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-gray-900">CJ Dropshipping API</span>
+          {connectionStatus?.connected ? (
+            <>
+              <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>
+              <span className="text-sm text-green-600">{connectionStatus.message}</span>
+            </>
+          ) : (
+            <>
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+              <span className="text-sm text-red-600">{connectionStatus?.message || "Not connected"}</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-6 text-right">Search Products</h2>
+        
+        <div className="grid grid-cols-3 gap-6 mb-6">
+          <div>
+            <label className="block text-sm text-gray-600 mb-2 text-right">Quantity to Find</label>
+            <div className="flex items-center gap-2">
               <input
-                type="text"
-                value={keywords}
-                onChange={(e) => setKeywords(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && searchProducts()}
-                placeholder="e.g., women dresses, men shirts, phone cases"
-                className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                type="number"
+                value={quantity}
+                onChange={(e) => setQuantity(Number(e.target.value))}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded text-right"
               />
+              <button
+                onClick={searchProducts}
+                disabled={loading}
+                className="px-4 py-2 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50 text-sm font-medium"
+              >
+                {loading ? "..." : "Load"}
+              </button>
+              <div className="relative">
+                <button 
+                  onClick={() => setShowQuantityDropdown(!showQuantityDropdown)}
+                  className="p-2 border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  <ChevronDown className="h-4 w-4 text-gray-500" />
+                </button>
+                {showQuantityDropdown && (
+                  <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-10">
+                    {quantityOptions.map(opt => (
+                      <button
+                        key={opt}
+                        onClick={() => {
+                          setQuantity(opt);
+                          setShowQuantityDropdown(false);
+                        }}
+                        className="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 text-right"
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+            <label className="block text-sm text-gray-600 mb-2 text-right">Category</label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded text-right"
             >
+              <option value="all">All Categories</option>
               {categories.map(cat => (
-                <option key={cat.value} value={cat.value}>{cat.label}</option>
+                <option key={cat.categoryId} value={cat.categoryId}>{cat.categoryName}</option>
               ))}
             </select>
           </div>
           
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
-            <select
-              value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
-              className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            >
-              <option value={10}>10 products</option>
-              <option value={25}>25 products</option>
-              <option value={50}>50 products</option>
-              <option value={100}>100 products</option>
-              <option value={250}>250 products</option>
-            </select>
+            <label className="block text-sm text-gray-600 mb-2 text-right">Keyword</label>
+            <input
+              type="text"
+              value={keywords}
+              onChange={(e) => setKeywords(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && searchProducts()}
+              placeholder="e.g., women blouse, men shirt"
+              className="w-full px-3 py-2 border border-gray-300 rounded"
+              dir="ltr"
+            />
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
+        <div className="grid grid-cols-3 gap-6 mb-6">
+          <div>
+            <label className="block text-sm text-gray-600 mb-2 text-right">Min Stock</label>
+            <input
+              type="number"
+              value={minStock}
+              onChange={(e) => setMinStock(Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-right"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm text-gray-600 mb-2 text-right">Max Price (USD)</label>
+            <input
+              type="number"
+              value={maxPrice}
+              onChange={(e) => setMaxPrice(Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-right"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm text-gray-600 mb-2 text-right">Min Price (USD)</label>
+            <input
+              type="number"
+              value={minPrice}
+              onChange={(e) => setMinPrice(Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-right"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-6 mb-6">
+          <div className="flex items-center justify-end gap-2">
+            <label className="text-sm text-gray-600">Free Shipping Only</label>
+            <input
+              type="checkbox"
+              checked={freeShippingOnly}
+              onChange={(e) => setFreeShippingOnly(e.target.checked)}
+              className="w-4 h-4 border-gray-300 rounded"
+            />
+          </div>
+          
+          <div></div>
+          
+          <div>
+            <label className="block text-sm text-gray-600 mb-2 text-right">% Profit Margin</label>
+            <input
+              type="number"
+              value={profitMargin}
+              onChange={(e) => setProfitMargin(Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-right"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
+          <Link
+            href={"/admin/import/queue" as Route}
+            className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 text-sm"
           >
-            <Filter className="h-4 w-4" />
-            Advanced Filters
-            {showFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </button>
-        </div>
-
-        {showFilters && (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Min Price (USD)</label>
-              <input
-                type="number"
-                value={filters.minPrice}
-                onChange={(e) => setFilters(f => ({ ...f, minPrice: Number(e.target.value) }))}
-                className="w-full px-3 py-2 rounded border text-sm"
-                min={0}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Max Price (USD)</label>
-              <input
-                type="number"
-                value={filters.maxPrice}
-                onChange={(e) => setFilters(f => ({ ...f, maxPrice: Number(e.target.value) }))}
-                className="w-full px-3 py-2 rounded border text-sm"
-                min={0}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Min Rating</label>
-              <select
-                value={filters.minRating}
-                onChange={(e) => setFilters(f => ({ ...f, minRating: Number(e.target.value) }))}
-                className="w-full px-3 py-2 rounded border text-sm"
-              >
-                <option value={3}>3+ Stars</option>
-                <option value={4}>4+ Stars</option>
-                <option value={4.5}>4.5+ Stars</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Min Stock</label>
-              <input
-                type="number"
-                value={filters.minStock}
-                onChange={(e) => setFilters(f => ({ ...f, minStock: Number(e.target.value) }))}
-                className="w-full px-3 py-2 rounded border text-sm"
-                min={0}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Max Shipping Days</label>
-              <input
-                type="number"
-                value={filters.maxShippingDays}
-                onChange={(e) => setFilters(f => ({ ...f, maxShippingDays: Number(e.target.value) }))}
-                className="w-full px-3 py-2 rounded border text-sm"
-                min={1}
-              />
-            </div>
-          </div>
-        )}
-
-        <div className="flex items-center gap-3 pt-2">
+            Review Queue
+          </Link>
           <button
             onClick={searchProducts}
             disabled={loading}
-            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             Search Products
           </button>
+        </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4 text-right">KSA Pricing Formula</h2>
+        <div className="text-sm text-gray-600 text-right space-y-1">
+          <p>Base Cost = CJ Product Price + Shipping to Saudi Arabia</p>
+          <p className="text-blue-600">VAT (15%) +</p>
+          <p className="text-blue-600">Payment Gateway Fee (2.9%) +</p>
         </div>
       </div>
 
@@ -385,14 +480,6 @@ export default function DiscoverProductsPage() {
                       <div className="flex items-center gap-1.5 text-gray-600">
                         <Package className="h-3.5 w-3.5" />
                         <span>{totalStock} in stock</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-gray-600">
-                        <Star className="h-3.5 w-3.5 text-amber-400" />
-                        <span>{product.supplierRating?.toFixed(1) || "4.0"}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-gray-600">
-                        <Clock className="h-3.5 w-3.5" />
-                        <span>{product.deliveryDaysMin || 7}-{product.deliveryDaysMax || 15} days</span>
                       </div>
                     </div>
                     
