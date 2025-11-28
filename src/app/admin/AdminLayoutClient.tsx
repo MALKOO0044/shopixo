@@ -3,85 +3,59 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import {
-  Languages,
   LayoutDashboard,
   Package,
   ShoppingCart,
-  FileText,
-  Settings,
   Download,
-  Calculator,
+  ListChecks,
   RefreshCw,
   Boxes,
-  ListChecks,
   Clock,
-  Wifi,
+  FileText,
   LucideIcon
 } from "lucide-react";
-import { useLanguage } from "@/lib/i18n";
 
 type NavItem = {
   href: string;
-  labelEn: string;
-  labelAr: string;
+  label: string;
   icon: LucideIcon;
 };
 
 type NavSection = {
-  titleEn: string;
-  titleAr: string;
+  title: string;
   items: NavItem[];
 };
 
 const navSections: NavSection[] = [
   {
-    titleEn: "Overview",
-    titleAr: "نظرة عامة",
+    title: "OVERVIEW",
     items: [
-      { href: "/admin", labelEn: "Dashboard", labelAr: "لوحة التحكم", icon: LayoutDashboard },
-      { href: "/admin/orders", labelEn: "Orders", labelAr: "الطلبات", icon: ShoppingCart },
+      { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
     ]
   },
   {
-    titleEn: "Products",
-    titleAr: "المنتجات",
+    title: "PRODUCTS",
     items: [
-      { href: "/admin/products", labelEn: "All Products", labelAr: "جميع المنتجات", icon: Package },
-      { href: "/admin/inventory", labelEn: "Inventory", labelAr: "المخزون", icon: Boxes },
+      { href: "/admin/products", label: "All Products", icon: Package },
+      { href: "/admin/inventory", label: "Inventory", icon: Boxes },
     ]
   },
   {
-    titleEn: "Product Import",
-    titleAr: "استيراد المنتجات",
+    title: "CJ DROPSHIPPING",
     items: [
-      { href: "/admin/import/discover", labelEn: "Discover Products", labelAr: "اكتشاف المنتجات", icon: Download },
-      { href: "/admin/import/queue", labelEn: "Import Queue", labelAr: "قائمة الاستيراد", icon: ListChecks },
-      { href: "/admin/import/pricing", labelEn: "Pricing Rules", labelAr: "قواعد التسعير", icon: Calculator },
-      { href: "/admin/cj/shipping", labelEn: "Shipping Calculator", labelAr: "حاسبة الشحن", icon: Calculator },
-      { href: "/admin/cj/settings", labelEn: "CJ Settings", labelAr: "إعدادات CJ", icon: Wifi },
+      { href: "/admin/import/discover", label: "Product Discovery", icon: Download },
+      { href: "/admin/import/queue", label: "Review Queue", icon: ListChecks },
     ]
   },
   {
-    titleEn: "Automation",
-    titleAr: "الأتمتة",
+    title: "AUTOMATION",
     items: [
-      { href: "/admin/sync", labelEn: "Daily Sync", labelAr: "المزامنة اليومية", icon: RefreshCw },
-      { href: "/admin/jobs", labelEn: "Background Jobs", labelAr: "المهام الخلفية", icon: Clock },
-    ]
-  },
-  {
-    titleEn: "Content",
-    titleAr: "المحتوى",
-    items: [
-      { href: "/admin/blog", labelEn: "Blog", labelAr: "المدونة", icon: FileText },
-    ]
-  },
-  {
-    titleEn: "Settings",
-    titleAr: "الإعدادات",
-    items: [
-      { href: "/admin/settings", labelEn: "System Settings", labelAr: "إعدادات النظام", icon: Settings },
+      { href: "/admin/sync", label: "Daily Sync", icon: RefreshCw },
+      { href: "/admin/jobs", label: "Background Jobs", icon: Clock },
+      { href: "/admin/import/pricing", label: "Pricing Rules", icon: FileText },
     ]
   }
 ];
@@ -92,48 +66,49 @@ interface AdminLayoutClientProps {
 }
 
 export function AdminLayoutClient({ children, email }: AdminLayoutClientProps) {
-  const { lang, setLang, isRtl, dir, t } = useLanguage();
-
-  const toggleLang = () => {
-    setLang(lang === 'en' ? 'ar' : 'en');
-  };
+  const pathname = usePathname();
 
   return (
-    <div className={`flex min-h-screen bg-gray-50 ${isRtl ? 'flex-row-reverse' : ''}`} dir={dir}>
-      <aside className={`w-64 bg-gray-900 text-white flex flex-col ${isRtl ? 'order-last' : ''}`}>
-        <div className="p-5 border-b border-gray-800 flex items-center justify-between">
-          <Link href="/admin" className={`flex items-center gap-2 ${isRtl ? 'flex-row-reverse' : ''}`}>
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center">
+    <div className="flex min-h-screen bg-gray-100">
+      <main className="flex-1 overflow-auto">
+        <div className="p-6">
+          {children}
+        </div>
+      </main>
+
+      <aside className="w-56 bg-white border-l border-gray-200 flex flex-col shadow-sm">
+        <div className="p-4 border-b border-gray-100">
+          <Link href="/admin" className="flex items-center gap-2 justify-end">
+            <span className="font-bold text-gray-800">Shopixo Admin</span>
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-amber-500 flex items-center justify-center">
               <span className="text-white font-bold text-sm">S</span>
             </div>
-            <span className="font-bold text-lg">{isRtl ? 'لوحة التحكم' : 'Shopixo Admin'}</span>
           </Link>
-          <button
-            onClick={toggleLang}
-            className="p-2 rounded-lg hover:bg-gray-800 transition-colors"
-            title={lang === 'en' ? 'Switch to Arabic' : 'التبديل إلى الإنجليزية'}
-          >
-            <Languages className="h-4 w-4" />
-          </button>
         </div>
         
         <nav className="flex-1 overflow-y-auto py-4">
           {navSections.map((section) => (
-            <div key={section.titleEn} className="mb-6">
-              <p className={`px-5 mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 ${isRtl ? 'text-right' : ''}`}>
-                {isRtl ? section.titleAr : section.titleEn}
+            <div key={section.title} className="mb-4">
+              <p className="px-4 mb-2 text-[10px] font-semibold tracking-wider text-gray-400 text-right">
+                {section.title}
               </p>
-              <ul className="space-y-1">
+              <ul className="space-y-0.5">
                 {section.items.map((item) => {
                   const Icon = item.icon;
+                  const isActive = pathname === item.href || 
+                    (item.href !== "/admin" && pathname?.startsWith(item.href));
                   return (
                     <li key={item.href}>
                       <Link
                         href={item.href as Route}
-                        className={`flex items-center gap-3 px-5 py-2.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors ${isRtl ? 'flex-row-reverse text-right' : ''}`}
+                        className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors justify-end ${
+                          isActive 
+                            ? "text-amber-600 bg-amber-50 font-medium" 
+                            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                        }`}
                       >
+                        {item.label}
                         <Icon className="h-4 w-4" />
-                        {isRtl ? item.labelAr : item.labelEn}
                       </Link>
                     </li>
                   );
@@ -143,26 +118,20 @@ export function AdminLayoutClient({ children, email }: AdminLayoutClientProps) {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-gray-800">
-          <div className={`flex items-center gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
-            <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
-              <span className="text-sm font-medium text-gray-300">
+        <div className="p-3 border-t border-gray-100">
+          <div className="flex items-center gap-2 justify-end">
+            <div className="text-right">
+              <p className="text-xs font-medium text-gray-700 truncate max-w-[120px]">{email}</p>
+              <p className="text-[10px] text-gray-400">Admin</p>
+            </div>
+            <div className="w-7 h-7 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+              <span className="text-xs font-medium text-amber-600">
                 {email ? email[0].toUpperCase() : "?"}
               </span>
-            </div>
-            <div className={`flex-1 min-w-0 ${isRtl ? 'text-right' : ''}`}>
-              <p className="text-sm font-medium text-gray-200 truncate">{email}</p>
-              <p className="text-xs text-gray-500">{isRtl ? 'مدير' : 'Admin'}</p>
             </div>
           </div>
         </div>
       </aside>
-
-      <main className="flex-1 overflow-auto">
-        <div className="p-6">
-          {children}
-        </div>
-      </main>
     </div>
   );
 }

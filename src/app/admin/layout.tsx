@@ -2,7 +2,6 @@ import { ReactNode } from "react";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { LanguageProvider } from "@/lib/i18n";
 import { AdminLayoutClient } from "./AdminLayoutClient";
 
 export const dynamic = "force-dynamic";
@@ -33,10 +32,8 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   }
 
   return (
-    <LanguageProvider>
-      <AdminLayoutClient email={email}>
-        {children}
-      </AdminLayoutClient>
-    </LanguageProvider>
+    <AdminLayoutClient email={email}>
+      {children}
+    </AdminLayoutClient>
   );
 }
