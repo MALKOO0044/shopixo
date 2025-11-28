@@ -14,6 +14,8 @@ const USD_TO_SAR = 3.75;
 const DEFAULT_VAT_PERCENT = 15;
 const DEFAULT_PAYMENT_FEE_PERCENT = 2.9;
 const DEFAULT_MARGIN_PERCENT = 40;
+const DEFAULT_MIN_PROFIT_SAR = 35;
+const DEFAULT_SHIPPING_USD = 5;
 
 async function recalculatePrice(costUsd: number, shippingUsd: number, category: string, admin: any): Promise<number> {
   const { data: categoryRule } = await admin
@@ -28,10 +30,18 @@ async function recalculatePrice(costUsd: number, shippingUsd: number, category: 
     .eq("is_default", true)
     .maybeSingle();
 
-  const rule = categoryRule || defaultRule || {};
+  const rule = categoryRule || defaultRule || {
+    margin_percent: DEFAULT_MARGIN_PERCENT,
+    min_profit_sar: DEFAULT_MIN_PROFIT_SAR,
+    vat_percent: DEFAULT_VAT_PERCENT,
+    payment_fee_percent: DEFAULT_PAYMENT_FEE_PERCENT,
+    smart_rounding_enabled: true,
+    rounding_targets: [49, 79, 99, 149, 199, 249, 299],
+  };
   const vatPercent = rule.vat_percent ?? DEFAULT_VAT_PERCENT;
   const paymentFeePercent = rule.payment_fee_percent ?? DEFAULT_PAYMENT_FEE_PERCENT;
   const marginPercent = rule.margin_percent ?? DEFAULT_MARGIN_PERCENT;
+  const minProfitSar = rule.min_profit_sar ?? DEFAULT_MIN_PROFIT_SAR;
 
   const baseSar = costUsd * USD_TO_SAR;
   const shippingSar = shippingUsd * USD_TO_SAR;
@@ -49,6 +59,16 @@ async function recalculatePrice(costUsd: number, shippingUsd: number, category: 
     retailSar = closest;
   } else {
     retailSar = Math.ceil(retailSar);
+  }
+
+  const profit = retailSar - landed;
+  if (profit < minProfitSar) {
+    retailSar = landed + minProfitSar;
+    if (rule.smart_rounding_enabled && rule.rounding_targets?.length > 0) {
+      const targets = (rule.rounding_targets as number[]).sort((a, b) => a - b);
+      const closest = targets.find(t => t >= retailSar) || targets[targets.length - 1];
+      retailSar = closest;
+    }
   }
 
   return Math.round(retailSar);
@@ -105,9 +125,9 @@ export async function POST(req: NextRequest) {
         const totalCjStock = mapped.variants.reduce((sum, v) => sum + (v.stock || 0), 0);
         const adjustedStock = Math.max(0, totalCjStock - SAFETY_BUFFER);
 
-        const currentPrice = product.price || 0;
-        const currentStock = product.stock || 0;
-        const shippingUsd = product.metadata?.shipping_usd || 5;
+        const currentPrice = product.price ?? 0;
+        const currentStock = product.stock ?? 0;
+        const shippingUsd = product.metadata?.shipping_usd ?? DEFAULT_SHIPPING_USD;
 
         if (avgCostUsd > 0) {
           const newRetailSar = await recalculatePrice(avgCostUsd, shippingUsd, product.category || "General", admin);
@@ -169,11 +189,12 @@ export async function POST(req: NextRequest) {
           });
 
           if (shouldAutoApply) {
+            const shouldReactivate = changeType === "stock_restored";
             await admin
               .from("products")
               .update({ 
                 stock: adjustedStock,
-                active: adjustedStock > 0 ? product.active : false,
+                active: adjustedStock === 0 ? false : (shouldReactivate ? true : product.active),
                 metadata: { ...product.metadata, last_stock_sync: new Date().toISOString() },
                 updated_at: new Date().toISOString(),
               })

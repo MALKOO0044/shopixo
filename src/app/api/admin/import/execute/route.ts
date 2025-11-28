@@ -142,8 +142,8 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        const avgPrice = qp.cj_price_usd || 0;
-        const shippingCost = qp.shipping_cost_usd || 5;
+        const avgPrice = qp.cj_price_usd ?? 0;
+        const shippingCost = qp.shipping_cost_usd ?? DEFAULT_SHIPPING_USD;
         const pricing = await calculateRetailPrice(avgPrice, shippingCost, qp.category || "General", admin);
 
         const variants = (qp.variants || []).map((v: any, i: number) => ({

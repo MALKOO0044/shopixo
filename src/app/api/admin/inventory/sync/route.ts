@@ -97,11 +97,12 @@ export async function POST(req: NextRequest) {
           cj_stock: v.stock,
         }));
 
+        const isStockRestored = adjustedStock > 0 && !product.active && (product.stock || 0) === 0;
         await admin
           .from("products")
           .update({
             stock: adjustedStock,
-            active: adjustedStock > 0 ? product.active : false,
+            active: adjustedStock === 0 ? false : (isStockRestored ? true : product.active),
             metadata: {
               ...product.metadata,
               last_stock_sync: new Date().toISOString(),

@@ -6,21 +6,37 @@ Shopixo is a modern, professional e-commerce platform targeting the Saudi Arabia
 
 # Recent Changes (November 2025)
 
+## Product Import Automation System (Latest)
+- **Smart Product Discovery** - Enhanced CJ catalog search with quality scoring, category filters, and batch saving
+- **KSA Pricing Engine** - Complete pricing rules system with:
+  - Category-based margins (configurable per category)
+  - 15% VAT calculation (mandatory for Saudi Arabia)
+  - 2.9% payment gateway fees
+  - Minimum profit protection (default 35 SAR)
+  - Smart rounding to psychological price points (49, 79, 99, 149, 199, 249, 299)
+- **Review & Approval Queue** - Full product approval workflow with bulk actions, CSV export, and reject functionality
+- **Import Execution** - Automated product import with SKU generation, variant handling, and duplicate detection
+- **Daily Sync System** - Automated price/stock monitoring with auto-apply:
+  - Recalculates retail prices when supplier costs change
+  - Applies 5-unit safety buffer on stock levels
+  - Auto-hides products when stock reaches 0
+  - Full audit logging for all changes
+- **Inventory Management** - Real-time stock sync with CJ Dropshipping, low stock alerts, and visibility controls
+- **Arabic/RTL Admin UI** - Full bilingual interface with language toggle:
+  - i18n translations system in `src/lib/i18n/`
+  - RTL layout support for Arabic
+  - Navigation, labels, and UI elements in both languages
+
+## Previous Changes
 - **Migrated from Vercel to Replit** - Configured ports, environment variables, and workflows
 - **Fixed LSP/TypeScript errors** - Resolved server action type export issue in cart-actions.ts
 - **Improved admin security** - Admin guard now requires explicit ADMIN_EMAILS config in production
 - **Added database migrations** - Created missing migrations for orders, product_variants, addresses, and reviews tables
 - **Removed deprecated code** - Cleaned up duplicate webhook routes and empty files
 - **Re-enabled Sentry instrumentation** - Works with optional SENTRY_DSN configuration
-- **Supplier Management System** - Replaced "CJ" branding with generic "Supplier" terminology throughout admin:
-  - `/admin/supplier/discover` - Product discovery and search
-  - `/admin/supplier/queue` - Approve/reject queue with import workflow
-  - `/admin/supplier/settings` - API configuration for supplier integration
-- **Fixed Product Import** - Import route now uses correct database schema (title, description, stock, category)
-- **Added graceful degradation for missing tables** - Admin pages now detect missing database tables and show helpful setup instructions instead of blank screens. Affected pages:
-  - `/admin/cj/settings` - Shows SQL migration for `kv_settings` table
-  - `/admin/jobs` - Shows SQL migration for `admin_jobs` and `admin_job_items` tables
-  - `/admin/cj/finder` - Blocks job creation if tables missing, shows guidance
+- **Supplier Management System** - Replaced "CJ" branding with generic "Supplier" terminology throughout admin
+- **Fixed Product Import** - Import route now uses correct database schema
+- **Added graceful degradation for missing tables** - Admin pages detect missing database tables and show setup instructions
 
 ---
 

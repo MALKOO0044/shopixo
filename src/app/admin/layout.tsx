@@ -18,52 +18,60 @@ import {
   Clock,
   Wifi
 } from "lucide-react";
+import { LanguageProvider } from "@/lib/i18n";
+import { AdminLayoutClient } from "./AdminLayoutClient";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const navSections = [
+export const navSections = [
   {
-    title: "Overview",
+    titleEn: "Overview",
+    titleAr: "نظرة عامة",
     items: [
-      { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
+      { href: "/admin", labelEn: "Dashboard", labelAr: "لوحة التحكم", icon: LayoutDashboard },
+      { href: "/admin/orders", labelEn: "Orders", labelAr: "الطلبات", icon: ShoppingCart },
     ]
   },
   {
-    title: "Products",
+    titleEn: "Products",
+    titleAr: "المنتجات",
     items: [
-      { href: "/admin/products", label: "All Products", icon: Package },
-      { href: "/admin/inventory", label: "Inventory", icon: Boxes },
+      { href: "/admin/products", labelEn: "All Products", labelAr: "جميع المنتجات", icon: Package },
+      { href: "/admin/inventory", labelEn: "Inventory", labelAr: "المخزون", icon: Boxes },
     ]
   },
   {
-    title: "Product Import",
+    titleEn: "Product Import",
+    titleAr: "استيراد المنتجات",
     items: [
-      { href: "/admin/import/discover", label: "Discover Products", icon: Download },
-      { href: "/admin/import/queue", label: "Import Queue", icon: ListChecks },
-      { href: "/admin/import/pricing", label: "Pricing Rules", icon: Calculator },
-      { href: "/admin/cj/shipping", label: "Shipping Calculator", icon: Calculator },
-      { href: "/admin/cj/settings", label: "CJ Settings", icon: Wifi },
+      { href: "/admin/import/discover", labelEn: "Discover Products", labelAr: "اكتشاف المنتجات", icon: Download },
+      { href: "/admin/import/queue", labelEn: "Import Queue", labelAr: "قائمة الاستيراد", icon: ListChecks },
+      { href: "/admin/import/pricing", labelEn: "Pricing Rules", labelAr: "قواعد التسعير", icon: Calculator },
+      { href: "/admin/cj/shipping", labelEn: "Shipping Calculator", labelAr: "حاسبة الشحن", icon: Calculator },
+      { href: "/admin/cj/settings", labelEn: "CJ Settings", labelAr: "إعدادات CJ", icon: Wifi },
     ]
   },
   {
-    title: "Automation",
+    titleEn: "Automation",
+    titleAr: "الأتمتة",
     items: [
-      { href: "/admin/sync", label: "Daily Sync", icon: RefreshCw },
-      { href: "/admin/jobs", label: "Background Jobs", icon: Clock },
+      { href: "/admin/sync", labelEn: "Daily Sync", labelAr: "المزامنة اليومية", icon: RefreshCw },
+      { href: "/admin/jobs", labelEn: "Background Jobs", labelAr: "المهام الخلفية", icon: Clock },
     ]
   },
   {
-    title: "Content",
+    titleEn: "Content",
+    titleAr: "المحتوى",
     items: [
-      { href: "/admin/blog", label: "Blog", icon: FileText },
+      { href: "/admin/blog", labelEn: "Blog", labelAr: "المدونة", icon: FileText },
     ]
   },
   {
-    title: "Settings",
+    titleEn: "Settings",
+    titleAr: "الإعدادات",
     items: [
-      { href: "/admin/settings", label: "System Settings", icon: Settings },
+      { href: "/admin/settings", labelEn: "System Settings", labelAr: "إعدادات النظام", icon: Settings },
     ]
   }
 ];
@@ -93,63 +101,10 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <aside className="w-64 bg-gray-900 text-white flex flex-col">
-        <div className="p-5 border-b border-gray-800">
-          <Link href="/admin" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center">
-              <span className="text-white font-bold text-sm">S</span>
-            </div>
-            <span className="font-bold text-lg">Shopixo Admin</span>
-          </Link>
-        </div>
-        
-        <nav className="flex-1 overflow-y-auto py-4">
-          {navSections.map((section) => (
-            <div key={section.title} className="mb-6">
-              <p className="px-5 mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                {section.title}
-              </p>
-              <ul className="space-y-1">
-                {section.items.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <li key={item.href}>
-                      <Link
-                        href={item.href as Route}
-                        className="flex items-center gap-3 px-5 py-2.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
-                      >
-                        <Icon className="h-4 w-4" />
-                        {item.label}
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
-        </nav>
-
-        <div className="p-4 border-t border-gray-800">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
-              <span className="text-sm font-medium text-gray-300">
-                {email ? email[0].toUpperCase() : "?"}
-              </span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-200 truncate">{email}</p>
-              <p className="text-xs text-gray-500">Admin</p>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      <main className="flex-1 overflow-auto">
-        <div className="p-6">
-          {children}
-        </div>
-      </main>
-    </div>
+    <LanguageProvider>
+      <AdminLayoutClient email={email} navSections={navSections}>
+        {children}
+      </AdminLayoutClient>
+    </LanguageProvider>
   );
 }
