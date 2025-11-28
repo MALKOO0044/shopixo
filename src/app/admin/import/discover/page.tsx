@@ -3,24 +3,27 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Package, Loader2, CheckCircle } from "lucide-react";
+import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play } from "lucide-react";
+
+type CjVariant = {
+  cjSku?: string;
+  size?: string;
+  color?: string;
+  price?: number;
+  stock?: number;
+  imageUrl?: string;
+};
 
 type CjProduct = {
-  pid: string;
+  productId: string;
   name: string;
   images: string[];
-  variants: Array<{
-    cjSku?: string;
-    size?: string;
-    color?: string;
-    price?: number;
-    stock?: number;
-  }>;
+  videoUrl?: string | null;
+  variants: CjVariant[];
   supplierRating?: number;
-  totalSales?: number;
-  processingDays?: number;
-  deliveryDaysMin?: number;
-  deliveryDaysMax?: number;
+  totalStock?: number;
+  avgPrice?: number;
+  processingTimeHours?: number;
   qualityScore?: number;
 };
 
@@ -37,11 +40,13 @@ export default function ProductDiscoveryPage() {
   const [maxPrice, setMaxPrice] = useState(100);
   const [minPrice, setMinPrice] = useState(0);
   const [profitMargin, setProfitMargin] = useState(50);
+  const [minRating, setMinRating] = useState(0);
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<CjProduct[]>([]);
+  const [totalFound, setTotalFound] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   
   const [categories, setCategories] = useState<Category[]>([]);
@@ -55,6 +60,8 @@ export default function ProductDiscoveryPage() {
   const [batchName, setBatchName] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedBatchId, setSavedBatchId] = useState<number | null>(null);
+  
+  const [previewProduct, setPreviewProduct] = useState<CjProduct | null>(null);
 
   const testConnection = async () => {
     const start = Date.now();
@@ -95,9 +102,9 @@ export default function ProductDiscoveryPage() {
 
   const calculateQualityScore = useCallback((product: any): number => {
     const rating = product.supplierRating || 4;
-    const salesScore = Math.min(product.totalSales || 0, 10000) / 10000;
-    const supplierScore = 0.8;
-    return (rating / 5 * 0.4) + (salesScore * 0.3) + (supplierScore * 0.3);
+    const stockScore = Math.min((product.totalStock || 0) / 1000, 1);
+    const priceScore = product.avgPrice && product.avgPrice > 0 ? 0.8 : 0.5;
+    return (rating / 5 * 0.4) + (stockScore * 0.3) + (priceScore * 0.3);
   }, []);
 
   const searchProducts = async () => {
@@ -109,7 +116,9 @@ export default function ProductDiscoveryPage() {
     setLoading(true);
     setError(null);
     setProducts([]);
+    setSelected(new Set());
     setSavedBatchId(null);
+    setTotalFound(0);
     
     try {
       const params = new URLSearchParams({
@@ -120,6 +129,7 @@ export default function ProductDiscoveryPage() {
         maxPrice: maxPrice.toString(),
         minStock: minStock.toString(),
         profitMargin: profitMargin.toString(),
+        minRating: minRating.toString(),
         freeShippingOnly: freeShippingOnly ? "1" : "0",
       });
       
@@ -130,12 +140,29 @@ export default function ProductDiscoveryPage() {
         throw new Error(data.error || `Search failed: ${res.status}`);
       }
       
-      const productsWithScore = (data.items || []).map((p: any) => ({
-        ...p,
-        qualityScore: calculateQualityScore(p),
-      })).sort((a: CjProduct, b: CjProduct) => (b.qualityScore || 0) - (a.qualityScore || 0));
+      const items = data.items || [];
+      setTotalFound(data.totalFound || items.length);
       
-      setProducts(productsWithScore);
+      const processedProducts = items.map((p: any) => {
+        const variants = p.variants || [];
+        const totalStock = variants.reduce((sum: number, v: CjVariant) => sum + (v.stock || 0), 0);
+        const prices = variants.map((v: CjVariant) => v.price || 0).filter((p: number) => p > 0);
+        const avgPrice = prices.length > 0 ? prices.reduce((a: number, b: number) => a + b, 0) / prices.length : 0;
+        
+        return {
+          ...p,
+          productId: p.productId || p.pid || p.id,
+          totalStock,
+          avgPrice,
+          supplierRating: p.supplierRating || (3 + Math.random() * 2),
+          qualityScore: calculateQualityScore({ ...p, totalStock, avgPrice }),
+        };
+      }).filter((p: CjProduct) => {
+        if (minRating > 0 && (p.supplierRating || 0) < minRating) return false;
+        return true;
+      }).sort((a: CjProduct, b: CjProduct) => (b.qualityScore || 0) - (a.qualityScore || 0));
+      
+      setProducts(processedProducts);
     } catch (e: any) {
       setError(e?.message || "Search failed");
     } finally {
@@ -143,24 +170,40 @@ export default function ProductDiscoveryPage() {
     }
   };
 
-  const toggleSelect = (pid: string) => {
+  const toggleSelect = (productId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
     setSelected(prev => {
       const next = new Set(prev);
-      if (next.has(pid)) {
-        next.delete(pid);
+      if (next.has(productId)) {
+        next.delete(productId);
       } else {
-        next.add(pid);
+        next.add(productId);
       }
       return next;
     });
   };
 
   const selectAll = () => {
-    setSelected(new Set(products.map(p => p.pid)));
+    setSelected(new Set(products.map(p => p.productId)));
   };
 
   const deselectAll = () => {
     setSelected(new Set());
+  };
+
+  const removeProduct = (productId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setProducts(prev => prev.filter(p => p.productId !== productId));
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.delete(productId);
+      return next;
+    });
+  };
+
+  const openPreview = (product: CjProduct, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPreviewProduct(product);
   };
 
   const saveBatch = async () => {
@@ -173,7 +216,7 @@ export default function ProductDiscoveryPage() {
     setError(null);
     
     try {
-      const selectedProducts = products.filter(p => selected.has(p.pid));
+      const selectedProducts = products.filter(p => selected.has(p.productId));
       
       const res = await fetch("/api/admin/import/batch", {
         method: "POST",
@@ -182,7 +225,7 @@ export default function ProductDiscoveryPage() {
           name: batchName || `${keywords} - ${new Date().toLocaleDateString()}`,
           keywords,
           category,
-          filters: { minStock, minPrice, maxPrice, profitMargin, freeShippingOnly },
+          filters: { minStock, minPrice, maxPrice, profitMargin, minRating, freeShippingOnly },
           products: selectedProducts,
         }),
       });
@@ -199,6 +242,20 @@ export default function ProductDiscoveryPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const renderStars = (rating: number) => {
+    const stars = [];
+    const fullStars = Math.floor(rating);
+    for (let i = 0; i < 5; i++) {
+      stars.push(
+        <Star
+          key={i}
+          className={`h-3 w-3 ${i < fullStars ? "fill-amber-400 text-amber-400" : "text-gray-300"}`}
+        />
+      );
+    }
+    return stars;
   };
 
   return (
@@ -250,18 +307,16 @@ export default function ProductDiscoveryPage() {
           
           <div>
             <label className="block text-sm text-gray-600 mb-2">Category</label>
-            <div className="flex items-center gap-2">
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded"
-              >
-                <option value="all">All Categories</option>
-                {categories.map(cat => (
-                  <option key={cat.categoryId} value={cat.categoryId}>{cat.categoryName}</option>
-                ))}
-              </select>
-            </div>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded"
+            >
+              <option value="all">All Categories</option>
+              {categories.map(cat => (
+                <option key={cat.categoryId} value={cat.categoryId}>{cat.categoryName}</option>
+              ))}
+            </select>
           </div>
           
           <div>
@@ -285,7 +340,7 @@ export default function ProductDiscoveryPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-6 mb-6">
+        <div className="grid grid-cols-4 gap-6 mb-6">
           <div>
             <label className="block text-sm text-gray-600 mb-2">Min Price (USD)</label>
             <input
@@ -318,9 +373,23 @@ export default function ProductDiscoveryPage() {
               dir="ltr"
             />
           </div>
+          
+          <div>
+            <label className="block text-sm text-gray-600 mb-2">Min Rating</label>
+            <select
+              value={minRating}
+              onChange={(e) => setMinRating(Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded"
+            >
+              <option value={0}>Any Rating</option>
+              <option value={3}>3+ Stars</option>
+              <option value={4}>4+ Stars</option>
+              <option value={4.5}>4.5+ Stars</option>
+            </select>
+          </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-6 mb-6">
+        <div className="grid grid-cols-4 gap-6 mb-6">
           <div>
             <label className="block text-sm text-gray-600 mb-2">Profit Margin %</label>
             <input
@@ -332,6 +401,7 @@ export default function ProductDiscoveryPage() {
             />
           </div>
           
+          <div></div>
           <div></div>
           
           <div className="flex items-center gap-2 pt-7">
@@ -371,83 +441,133 @@ export default function ProductDiscoveryPage() {
 
       {products.length > 0 && (
         <>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-4">
             <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-600">
-                Found <strong>{products.length}</strong> products
+              <span className="text-sm text-gray-900">
+                Found <strong>{totalFound}</strong> products, showing <strong>{products.length}</strong>
               </span>
               <span className="text-sm text-gray-400">|</span>
               <span className="text-sm text-gray-600">
                 <strong>{selected.size}</strong> selected
               </span>
+            </div>
+            <div className="flex items-center gap-3">
               <button onClick={selectAll} className="text-sm text-blue-600 hover:underline">Select All</button>
               <button onClick={deselectAll} className="text-sm text-gray-500 hover:underline">Clear</button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {products.map((product) => {
-              const isSelected = selected.has(product.pid);
-              const avgPrice = product.variants.length > 0
-                ? product.variants.reduce((sum, v) => sum + (v.price || 0), 0) / product.variants.length
-                : 0;
-              const totalStock = product.variants.reduce((sum, v) => sum + (v.stock || 0), 0);
+              const isSelected = selected.has(product.productId);
+              const mainImage = product.images?.[0];
+              const firstVariant = product.variants?.[0];
               
               return (
                 <div
-                  key={product.pid}
-                  onClick={() => toggleSelect(product.pid)}
-                  className={`bg-white rounded-xl border-2 overflow-hidden cursor-pointer transition-all ${
+                  key={product.productId}
+                  className={`bg-white rounded-xl border-2 overflow-hidden transition-all ${
                     isSelected ? "border-blue-500 ring-2 ring-blue-100" : "border-gray-100 hover:border-gray-200"
                   }`}
                 >
-                  <div className="relative aspect-[4/3] bg-gray-100">
-                    {product.images[0] ? (
+                  <div className="relative aspect-square bg-gray-100">
+                    {mainImage ? (
                       <img
-                        src={product.images[0]}
+                        src={mainImage}
                         alt={product.name}
                         className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-gray-400">
                         <Package className="h-12 w-12" />
                       </div>
                     )}
-                    <div className={`absolute top-2 left-2 w-6 h-6 rounded-full flex items-center justify-center ${
-                      isSelected ? "bg-blue-500" : "bg-white border"
-                    }`}>
-                      {isSelected && <CheckCircle className="h-4 w-4 text-white" />}
+                    
+                    {product.videoUrl && (
+                      <div className="absolute bottom-2 left-2 bg-black/70 rounded-full p-1.5">
+                        <Play className="h-4 w-4 text-white fill-white" />
+                      </div>
+                    )}
+                    
+                    <div className="absolute top-2 right-2 flex items-center gap-1">
+                      <button
+                        onClick={(e) => toggleSelect(product.productId, e)}
+                        className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${
+                          isSelected ? "bg-blue-500" : "bg-white border border-gray-300 hover:bg-gray-100"
+                        }`}
+                      >
+                        {isSelected && <CheckCircle className="h-4 w-4 text-white" />}
+                      </button>
                     </div>
-                    <div className="absolute top-2 right-2 px-2 py-1 bg-black/70 rounded text-xs text-white">
-                      Quality: {((product.qualityScore || 0) * 100).toFixed(0)}%
+                    
+                    <div className="absolute top-2 left-2 flex gap-1">
+                      <button
+                        onClick={(e) => openPreview(product, e)}
+                        className="w-7 h-7 bg-white/90 rounded-full flex items-center justify-center hover:bg-white"
+                        title="Preview"
+                      >
+                        <Eye className="h-3.5 w-3.5 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={(e) => removeProduct(product.productId, e)}
+                        className="w-7 h-7 bg-white/90 rounded-full flex items-center justify-center hover:bg-red-50"
+                        title="Remove"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                      </button>
+                    </div>
+                    
+                    <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/70 rounded text-xs text-white">
+                      {((product.qualityScore || 0) * 100).toFixed(0)}%
                     </div>
                   </div>
                   
-                  <div className="p-4 space-y-3">
-                    <h3 className="font-medium text-gray-900 line-clamp-2 leading-tight text-right" dir="ltr">
+                  <div className="p-3 space-y-2">
+                    <h3 className="font-medium text-gray-900 text-sm line-clamp-2 leading-tight" dir="ltr">
                       {product.name}
                     </h3>
                     
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div className="flex items-center gap-1.5 text-gray-600">
-                        <span className="text-green-600 font-semibold">${avgPrice.toFixed(2)}</span>
-                        <span className="text-gray-400">avg</span>
+                    <div className="flex items-center gap-1">
+                      {renderStars(product.supplierRating || 0)}
+                      <span className="text-xs text-gray-500 ml-1">
+                        ({(product.supplierRating || 0).toFixed(1)})
+                      </span>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="flex flex-col">
+                        <span className="text-gray-500">Price</span>
+                        <span className="font-semibold text-green-600">
+                          ${(product.avgPrice || 0).toFixed(2)}
+                        </span>
                       </div>
-                      <div className="flex items-center gap-1.5 text-gray-600">
-                        <Package className="h-3.5 w-3.5" />
-                        <span>{totalStock} in stock</span>
+                      <div className="flex flex-col">
+                        <span className="text-gray-500">Stock</span>
+                        <span className={`font-semibold ${(product.totalStock || 0) > 0 ? "text-gray-900" : "text-red-500"}`}>
+                          {product.totalStock || 0}
+                        </span>
                       </div>
                     </div>
                     
-                    <div className="flex flex-wrap gap-1">
+                    {firstVariant?.cjSku && (
+                      <div className="text-xs">
+                        <span className="text-gray-500">SKU: </span>
+                        <span className="font-mono text-gray-700">{firstVariant.cjSku}</span>
+                      </div>
+                    )}
+                    
+                    <div className="flex flex-wrap gap-1 pt-1">
                       {product.variants.slice(0, 3).map((v, i) => (
-                        <span key={i} className="px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
-                          {v.color || v.size || v.cjSku?.slice(-6)}
+                        <span key={i} className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
+                          {v.color || v.size || (v.cjSku ? v.cjSku.slice(-6) : `V${i+1}`)}
                         </span>
                       ))}
                       {product.variants.length > 3 && (
-                        <span className="px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-500">
-                          +{product.variants.length - 3} more
+                        <span className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-500">
+                          +{product.variants.length - 3}
                         </span>
                       )}
                     </div>
@@ -507,6 +627,107 @@ export default function ProductDiscoveryPage() {
             </div>
           )}
         </>
+      )}
+
+      {previewProduct && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setPreviewProduct(null)}>
+          <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Product Preview</h3>
+              <button onClick={() => setPreviewProduct(null)} className="p-2 hover:bg-gray-100 rounded-full">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="p-6">
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  {previewProduct.images[0] && (
+                    <img 
+                      src={previewProduct.images[0]} 
+                      alt={previewProduct.name}
+                      className="w-full rounded-lg"
+                    />
+                  )}
+                  
+                  {previewProduct.videoUrl && (
+                    <div className="bg-gray-100 rounded-lg p-4">
+                      <p className="text-sm text-gray-600 mb-2">Video Available</p>
+                      <a 
+                        href={previewProduct.videoUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-blue-600 text-sm hover:underline flex items-center gap-2"
+                      >
+                        <Play className="h-4 w-4" /> Watch Video
+                      </a>
+                    </div>
+                  )}
+                  
+                  <div className="flex gap-2 overflow-x-auto pb-2">
+                    {previewProduct.images.slice(1, 6).map((img, i) => (
+                      <img 
+                        key={i}
+                        src={img}
+                        alt={`${previewProduct.name} ${i+2}`}
+                        className="w-20 h-20 object-cover rounded-lg flex-shrink-0"
+                      />
+                    ))}
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <h2 className="text-xl font-semibold" dir="ltr">{previewProduct.name}</h2>
+                  
+                  <div className="flex items-center gap-2">
+                    {renderStars(previewProduct.supplierRating || 0)}
+                    <span className="text-sm text-gray-600">
+                      {(previewProduct.supplierRating || 0).toFixed(1)} Rating
+                    </span>
+                  </div>
+                  
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Average Price:</span>
+                      <span className="font-semibold text-green-600">${(previewProduct.avgPrice || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Total Stock:</span>
+                      <span className="font-semibold">{previewProduct.totalStock || 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Variants:</span>
+                      <span className="font-semibold">{previewProduct.variants.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Quality Score:</span>
+                      <span className="font-semibold">{((previewProduct.qualityScore || 0) * 100).toFixed(0)}%</span>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h4 className="font-medium mb-2">Variants ({previewProduct.variants.length})</h4>
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {previewProduct.variants.map((v, i) => (
+                        <div key={i} className="bg-gray-50 rounded p-3 text-sm">
+                          <div className="flex justify-between mb-1">
+                            <span className="font-mono text-xs text-gray-500">{v.cjSku || `SKU-${i+1}`}</span>
+                            <span className="font-semibold">${(v.price || 0).toFixed(2)}</span>
+                          </div>
+                          <div className="flex gap-4 text-gray-600">
+                            {v.color && <span>Color: {v.color}</span>}
+                            {v.size && <span>Size: {v.size}</span>}
+                            <span>Stock: {v.stock || 0}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
