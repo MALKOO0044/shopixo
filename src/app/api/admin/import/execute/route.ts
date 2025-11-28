@@ -9,37 +9,54 @@ function getSupabaseAdmin() {
 }
 
 const USD_TO_SAR = 3.75;
+const DEFAULT_SHIPPING_USD = 5;
+const DEFAULT_VAT_PERCENT = 15;
+const DEFAULT_PAYMENT_FEE_PERCENT = 2.9;
+const DEFAULT_MARGIN_PERCENT = 40;
+const DEFAULT_MIN_PROFIT_SAR = 35;
 
-async function calculateRetailPrice(costUsd: number, shippingUsd: number, category: string, admin: any): Promise<{
+async function calculateRetailPrice(costUsd: number, shippingUsd: number | null, category: string, admin: any): Promise<{
   retailSar: number;
   marginApplied: number;
   breakdown: Record<string, number>;
 }> {
-  const { data: rule } = await admin
+  const { data: categoryRule } = await admin
     .from("pricing_rules")
     .select("*")
-    .or(`category.eq.${category},is_default.eq.true`)
-    .order("is_default", { ascending: true })
-    .limit(1)
+    .eq("category", category)
     .maybeSingle();
 
-  const pricingRule = rule || {
-    margin_percent: 40,
-    min_profit_sar: 35,
-    vat_percent: 15,
-    payment_fee_percent: 2.9,
+  const { data: defaultRule } = await admin
+    .from("pricing_rules")
+    .select("*")
+    .eq("is_default", true)
+    .maybeSingle();
+
+  const pricingRule = categoryRule || defaultRule || {
+    margin_percent: DEFAULT_MARGIN_PERCENT,
+    min_profit_sar: DEFAULT_MIN_PROFIT_SAR,
+    vat_percent: DEFAULT_VAT_PERCENT,
+    payment_fee_percent: DEFAULT_PAYMENT_FEE_PERCENT,
     smart_rounding_enabled: true,
     rounding_targets: [49, 79, 99, 149, 199, 249, 299],
   };
 
+  const vatPercent = pricingRule.vat_percent ?? DEFAULT_VAT_PERCENT;
+  const paymentFeePercent = pricingRule.payment_fee_percent ?? DEFAULT_PAYMENT_FEE_PERCENT;
+  const marginPercent = pricingRule.margin_percent ?? DEFAULT_MARGIN_PERCENT;
+  const minProfitSar = pricingRule.min_profit_sar ?? DEFAULT_MIN_PROFIT_SAR;
+
+  const effectiveShippingUsd = shippingUsd ?? DEFAULT_SHIPPING_USD;
+
   const baseSar = costUsd * USD_TO_SAR;
-  const shippingSar = shippingUsd * USD_TO_SAR;
+  const shippingSar = effectiveShippingUsd * USD_TO_SAR;
   const subtotal = baseSar + shippingSar;
-  const vat = subtotal * (pricingRule.vat_percent / 100);
+  
+  const vat = subtotal * (vatPercent / 100);
   const afterVat = subtotal + vat;
-  const paymentFee = afterVat * (pricingRule.payment_fee_percent / 100);
+  const paymentFee = afterVat * (paymentFeePercent / 100);
   const landed = afterVat + paymentFee;
-  const margin = landed * (pricingRule.margin_percent / 100);
+  const margin = landed * (marginPercent / 100);
   let retailSar = landed + margin;
 
   if (pricingRule.smart_rounding_enabled && pricingRule.rounding_targets?.length > 0) {
@@ -51,8 +68,8 @@ async function calculateRetailPrice(costUsd: number, shippingUsd: number, catego
   }
 
   const profit = retailSar - landed;
-  if (profit < pricingRule.min_profit_sar) {
-    retailSar = landed + pricingRule.min_profit_sar;
+  if (profit < minProfitSar) {
+    retailSar = landed + minProfitSar;
     if (pricingRule.smart_rounding_enabled && pricingRule.rounding_targets?.length > 0) {
       const targets = (pricingRule.rounding_targets as number[]).sort((a, b) => a - b);
       const closest = targets.find(t => t >= retailSar) || targets[targets.length - 1];
@@ -62,13 +79,16 @@ async function calculateRetailPrice(costUsd: number, shippingUsd: number, catego
 
   return {
     retailSar: Math.round(retailSar),
-    marginApplied: pricingRule.margin_percent,
+    marginApplied: marginPercent,
     breakdown: {
       baseSar,
       shippingSar,
       vat,
       paymentFee,
       margin,
+      landed,
+      vatPercent,
+      paymentFeePercent,
     },
   };
 }
