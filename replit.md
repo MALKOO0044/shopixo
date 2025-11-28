@@ -17,6 +17,10 @@ Shopixo is a modern, professional e-commerce platform targeting the Saudi Arabia
   - `/admin/supplier/queue` - Approve/reject queue with import workflow
   - `/admin/supplier/settings` - API configuration for supplier integration
 - **Fixed Product Import** - Import route now uses correct database schema (title, description, stock, category)
+- **Added graceful degradation for missing tables** - Admin pages now detect missing database tables and show helpful setup instructions instead of blank screens. Affected pages:
+  - `/admin/cj/settings` - Shows SQL migration for `kv_settings` table
+  - `/admin/jobs` - Shows SQL migration for `admin_jobs` and `admin_job_items` tables
+  - `/admin/cj/finder` - Blocks job creation if tables missing, shows guidance
 
 ---
 
