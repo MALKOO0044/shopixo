@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Package, Loader2, CheckCircle, ChevronDown } from "lucide-react";
+import { Package, Loader2, CheckCircle } from "lucide-react";
 
 type CjProduct = {
   pid: string;
@@ -32,16 +32,14 @@ type Category = {
 export default function ProductDiscoveryPage() {
   const [keywords, setKeywords] = useState("");
   const [category, setCategory] = useState("all");
-  const [quantity, setQuantity] = useState(50);
+  const [quantity, setQuantity] = useState(25);
   const [minStock, setMinStock] = useState(10);
   const [maxPrice, setMaxPrice] = useState(100);
   const [minPrice, setMinPrice] = useState(0);
   const [profitMargin, setProfitMargin] = useState(50);
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
-  const [showQuantityDropdown, setShowQuantityDropdown] = useState(false);
   
   const [loading, setLoading] = useState(false);
-  const [loadingCategories, setLoadingCategories] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<CjProduct[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -57,8 +55,6 @@ export default function ProductDiscoveryPage() {
   const [batchName, setBatchName] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedBatchId, setSavedBatchId] = useState<number | null>(null);
-
-  const quantityOptions = [10, 25, 50, 100, 250];
 
   const testConnection = async () => {
     const start = Date.now();
@@ -91,12 +87,6 @@ export default function ProductDiscoveryPage() {
         message: e?.message || "Connection failed"
       });
     }
-  };
-
-  const loadCategories = async () => {
-    setLoadingCategories(true);
-    await testConnection();
-    setLoadingCategories(false);
   };
 
   useEffect(() => {
@@ -212,106 +202,41 @@ export default function ProductDiscoveryPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between border-b border-gray-200 pb-4">
-        <div className="flex items-center gap-6">
-          <Link href={"/admin" as Route} className="text-sm text-blue-600 hover:underline">CJ Dashboard</Link>
-          <Link href={"/admin/cj/finder" as Route} className="text-sm text-blue-600 hover:underline">Old Finder</Link>
-        </div>
-        <h1 className="text-xl font-semibold text-gray-900">CJ Product Import</h1>
-      </div>
-
+    <div className="space-y-6" dir="rtl">
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {connectionStatus?.connected ? (
+            <>
+              <span className="text-sm text-green-600">{connectionStatus.message}</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>
+            </>
+          ) : (
+            <>
+              <span className="text-sm text-red-600">{connectionStatus?.message || "Not connected"}</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+            </>
+          )}
+          <span className="text-sm font-medium text-gray-900">CJ Dropshipping API</span>
+        </div>
         <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-600">
+            {connectionStatus?.latency || 0}ms
+          </span>
           <button
             onClick={testConnection}
             className="px-3 py-1.5 border border-gray-300 rounded bg-white text-sm hover:bg-gray-50"
           >
             Test Connection
           </button>
-          <span className="text-sm text-gray-600">
-            {connectionStatus?.latency || 0}ms
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-900">CJ Dropshipping API</span>
-          {connectionStatus?.connected ? (
-            <>
-              <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>
-              <span className="text-sm text-green-600">{connectionStatus.message}</span>
-            </>
-          ) : (
-            <>
-              <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
-              <span className="text-sm text-red-600">{connectionStatus?.message || "Not connected"}</span>
-            </>
-          )}
         </div>
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-6 text-right">Search Products</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-6">Search Products</h2>
         
         <div className="grid grid-cols-3 gap-6 mb-6">
           <div>
-            <label className="block text-sm text-gray-600 mb-2 text-right">Quantity to Find</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                value={quantity}
-                onChange={(e) => setQuantity(Number(e.target.value))}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded text-right"
-              />
-              <button
-                onClick={searchProducts}
-                disabled={loading}
-                className="px-4 py-2 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50 text-sm font-medium"
-              >
-                {loading ? "..." : "Load"}
-              </button>
-              <div className="relative">
-                <button 
-                  onClick={() => setShowQuantityDropdown(!showQuantityDropdown)}
-                  className="p-2 border border-gray-300 rounded hover:bg-gray-50"
-                >
-                  <ChevronDown className="h-4 w-4 text-gray-500" />
-                </button>
-                {showQuantityDropdown && (
-                  <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-10">
-                    {quantityOptions.map(opt => (
-                      <button
-                        key={opt}
-                        onClick={() => {
-                          setQuantity(opt);
-                          setShowQuantityDropdown(false);
-                        }}
-                        className="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 text-right"
-                      >
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          <div>
-            <label className="block text-sm text-gray-600 mb-2 text-right">Category</label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-right"
-            >
-              <option value="all">All Categories</option>
-              {categories.map(cat => (
-                <option key={cat.categoryId} value={cat.categoryId}>{cat.categoryName}</option>
-              ))}
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-sm text-gray-600 mb-2 text-right">Keyword</label>
+            <label className="block text-sm text-gray-600 mb-2">Keyword</label>
             <input
               type="text"
               value={keywords}
@@ -322,71 +247,105 @@ export default function ProductDiscoveryPage() {
               dir="ltr"
             />
           </div>
+          
+          <div>
+            <label className="block text-sm text-gray-600 mb-2">Category</label>
+            <div className="flex items-center gap-2">
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded"
+              >
+                <option value="all">All Categories</option>
+                {categories.map(cat => (
+                  <option key={cat.categoryId} value={cat.categoryId}>{cat.categoryName}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          
+          <div>
+            <label className="block text-sm text-gray-600 mb-2">Quantity to Find</label>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={searchProducts}
+                disabled={loading}
+                className="px-4 py-2 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50 text-sm font-medium"
+              >
+                {loading ? "..." : "Load"}
+              </button>
+              <input
+                type="number"
+                value={quantity}
+                onChange={(e) => setQuantity(Number(e.target.value))}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded text-left"
+                dir="ltr"
+              />
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-3 gap-6 mb-6">
           <div>
-            <label className="block text-sm text-gray-600 mb-2 text-right">Min Stock</label>
-            <input
-              type="number"
-              value={minStock}
-              onChange={(e) => setMinStock(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-right"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm text-gray-600 mb-2 text-right">Max Price (USD)</label>
-            <input
-              type="number"
-              value={maxPrice}
-              onChange={(e) => setMaxPrice(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-right"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm text-gray-600 mb-2 text-right">Min Price (USD)</label>
+            <label className="block text-sm text-gray-600 mb-2">Min Price (USD)</label>
             <input
               type="number"
               value={minPrice}
               onChange={(e) => setMinPrice(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-right"
+              className="w-full px-3 py-2 border border-gray-300 rounded text-left"
+              dir="ltr"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm text-gray-600 mb-2">Max Price (USD)</label>
+            <input
+              type="number"
+              value={maxPrice}
+              onChange={(e) => setMaxPrice(Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-left"
+              dir="ltr"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm text-gray-600 mb-2">Min Stock</label>
+            <input
+              type="number"
+              value={minStock}
+              onChange={(e) => setMinStock(Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-left"
+              dir="ltr"
             />
           </div>
         </div>
 
         <div className="grid grid-cols-3 gap-6 mb-6">
-          <div className="flex items-center justify-end gap-2">
-            <label className="text-sm text-gray-600">Free Shipping Only</label>
+          <div>
+            <label className="block text-sm text-gray-600 mb-2">Profit Margin %</label>
+            <input
+              type="number"
+              value={profitMargin}
+              onChange={(e) => setProfitMargin(Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-left"
+              dir="ltr"
+            />
+          </div>
+          
+          <div></div>
+          
+          <div className="flex items-center gap-2 pt-7">
             <input
               type="checkbox"
               checked={freeShippingOnly}
               onChange={(e) => setFreeShippingOnly(e.target.checked)}
               className="w-4 h-4 border-gray-300 rounded"
             />
-          </div>
-          
-          <div></div>
-          
-          <div>
-            <label className="block text-sm text-gray-600 mb-2 text-right">% Profit Margin</label>
-            <input
-              type="number"
-              value={profitMargin}
-              onChange={(e) => setProfitMargin(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-right"
-            />
+            <label className="text-sm text-gray-600">Free Shipping Only</label>
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
-          <Link
-            href={"/admin/import/queue" as Route}
-            className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 text-sm"
-          >
-            Review Queue
-          </Link>
+        <div className="flex items-center gap-3 pt-4 border-t border-gray-200">
           <button
             onClick={searchProducts}
             disabled={loading}
@@ -395,15 +354,12 @@ export default function ProductDiscoveryPage() {
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             Search Products
           </button>
-        </div>
-      </div>
-
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4 text-right">KSA Pricing Formula</h2>
-        <div className="text-sm text-gray-600 text-right space-y-1">
-          <p>Base Cost = CJ Product Price + Shipping to Saudi Arabia</p>
-          <p className="text-blue-600">VAT (15%) +</p>
-          <p className="text-blue-600">Payment Gateway Fee (2.9%) +</p>
+          <Link
+            href={"/admin/import/queue" as Route}
+            className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 text-sm"
+          >
+            Review Queue
+          </Link>
         </div>
       </div>
 
@@ -457,18 +413,18 @@ export default function ProductDiscoveryPage() {
                         <Package className="h-12 w-12" />
                       </div>
                     )}
-                    <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center ${
+                    <div className={`absolute top-2 left-2 w-6 h-6 rounded-full flex items-center justify-center ${
                       isSelected ? "bg-blue-500" : "bg-white border"
                     }`}>
                       {isSelected && <CheckCircle className="h-4 w-4 text-white" />}
                     </div>
-                    <div className="absolute top-2 left-2 px-2 py-1 bg-black/70 rounded text-xs text-white">
+                    <div className="absolute top-2 right-2 px-2 py-1 bg-black/70 rounded text-xs text-white">
                       Quality: {((product.qualityScore || 0) * 100).toFixed(0)}%
                     </div>
                   </div>
                   
                   <div className="p-4 space-y-3">
-                    <h3 className="font-medium text-gray-900 line-clamp-2 leading-tight">
+                    <h3 className="font-medium text-gray-900 line-clamp-2 leading-tight text-right" dir="ltr">
                       {product.name}
                     </h3>
                     
@@ -520,6 +476,7 @@ export default function ProductDiscoveryPage() {
                   onChange={(e) => setBatchName(e.target.value)}
                   placeholder="Batch name (optional)"
                   className="px-3 py-2 border rounded-lg text-sm w-48"
+                  dir="ltr"
                 />
                 <button
                   onClick={saveBatch}
