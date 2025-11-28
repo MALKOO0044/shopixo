@@ -38,12 +38,13 @@ const navSections = [
     ]
   },
   {
-    title: "Supplier",
+    title: "Product Import",
     items: [
-      { href: "/admin/cj/finder", label: "Discover Products", icon: Download },
-      { href: "/admin/cj", label: "Import Queue", icon: ListChecks },
+      { href: "/admin/import/discover", label: "Discover Products", icon: Download },
+      { href: "/admin/import/queue", label: "Import Queue", icon: ListChecks },
+      { href: "/admin/import/pricing", label: "Pricing Rules", icon: Calculator },
       { href: "/admin/cj/shipping", label: "Shipping Calculator", icon: Calculator },
-      { href: "/admin/cj/settings", label: "Supplier Settings", icon: Wifi },
+      { href: "/admin/cj/settings", label: "CJ Settings", icon: Wifi },
     ]
   },
   {
@@ -51,7 +52,6 @@ const navSections = [
     items: [
       { href: "/admin/sync", label: "Daily Sync", icon: RefreshCw },
       { href: "/admin/jobs", label: "Background Jobs", icon: Clock },
-      { href: "/admin/pricing", label: "Pricing Rules", icon: Calculator },
     ]
   },
   {
