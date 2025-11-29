@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { queryProductByPidOrKeyword, mapCjItemToProductLike } from '@/lib/cj/v2';
+import { queryProductByPidOrKeyword, mapCjItemToProductLike, getAccessToken } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
-import { fetchWithMeta } from '@/lib/http';
+import { fetchWithMeta, fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,6 @@ function extractPidFromUrl(u?: string | null): string | undefined {
     const url = new URL(u);
     const cand = url.searchParams.get('pid') || url.searchParams.get('productId') || url.searchParams.get('id');
     if (cand) return cand;
-    // Fallback: find a long GUID/ID in the URL
     const m = url.href.match(/[0-9A-Fa-f-]{16,}/);
     return m?.[0];
   } catch {
@@ -37,10 +36,18 @@ async function extractGuidPidFromCjHtml(u?: string | null): Promise<string | und
       const m = html.match(re);
       if (m && m[1]) return m[1];
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
   return undefined;
+}
+
+function isRelevant(productName: string, keyword: string): boolean {
+  const name = productName.toLowerCase();
+  const kw = keyword.toLowerCase();
+  const keywords = kw.split(/\s+/).filter(w => w.length > 2);
+  if (keywords.length === 0) return true;
+  
+  const matchCount = keywords.filter(w => name.includes(w)).length;
+  return matchCount >= Math.ceil(keywords.length * 0.5);
 }
 
 export async function GET(req: Request) {
@@ -56,9 +63,11 @@ export async function GET(req: Request) {
     let pid = searchParams.get('pid') || undefined;
     const keyword = searchParams.get('keyword') || undefined;
     const urlParam = searchParams.get('url') || undefined;
+    const categoryId = searchParams.get('category') || undefined;
+    const quantity = Math.min(100, Math.max(10, Number(searchParams.get('quantity') || 25)));
+    
     if (!pid && urlParam) pid = extractPidFromUrl(urlParam);
     if (!pid && urlParam) {
-      // Try fetching CJ product page and extract GUID pid
       pid = await extractGuidPidFromCjHtml(urlParam);
     }
 
@@ -68,9 +77,36 @@ export async function GET(req: Request) {
       return r;
     }
 
-    const raw = await queryProductByPidOrKeyword({ pid, keyword });
+    let raw: any;
+    let totalFound = 0;
+    
+    if (pid) {
+      raw = await queryProductByPidOrKeyword({ pid, keyword });
+    } else if (keyword) {
+      const token = await getAccessToken();
+      const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
+      
+      const params = new URLSearchParams();
+      params.set('keyWords', keyword);
+      params.set('pageSize', String(Math.min(50, quantity)));
+      params.set('pageNum', '1');
+      if (categoryId && categoryId !== 'all') {
+        params.set('categoryId', categoryId);
+      }
+      
+      const listRes = await fetchJson<any>(`${base}/product/list?${params}`, {
+        headers: {
+          'CJ-Access-Token': token,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        timeoutMs: 15000,
+      });
+      
+      totalFound = listRes?.data?.total || 0;
+      raw = listRes;
+    }
 
-    // Normalize CJ response to an array: supports data.list, data.content, content, data (array), or single object
     const itemsRaw = Array.isArray(raw?.data?.list)
       ? raw.data.list
       : Array.isArray(raw?.data?.content)
@@ -83,11 +119,24 @@ export async function GET(req: Request) {
               ? raw
               : (raw?.data ? [raw.data] : []);
 
-    const items = (itemsRaw as any[])
+    let items = (itemsRaw as any[])
       .map((it) => mapCjItemToProductLike(it))
       .filter(Boolean);
 
-    const r = NextResponse.json({ ok: true, version: 'query-v2', count: items.length, items }, { headers: { 'Cache-Control': 'no-store' } });
+    if (keyword && items.length > 0) {
+      const filtered = items.filter((it: any) => isRelevant(it?.name || '', keyword));
+      if (filtered.length >= Math.min(5, items.length * 0.3)) {
+        items = filtered;
+      }
+    }
+
+    const r = NextResponse.json({ 
+      ok: true, 
+      version: 'query-v2', 
+      count: items.length, 
+      totalFound: totalFound || items.length,
+      items 
+    }, { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);
     return r;
   } catch (e: any) {

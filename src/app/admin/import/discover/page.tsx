@@ -11,7 +11,18 @@ type CjVariant = {
   color?: string;
   price?: number;
   stock?: number;
+  cjStock?: number;
+  factoryStock?: number;
   imageUrl?: string;
+};
+
+type VariantInventory = {
+  variantSku: string;
+  variantName?: string;
+  price: number;
+  cjStock: number;
+  factoryStock: number;
+  totalStock: number;
 };
 
 type CjProduct = {
@@ -62,6 +73,8 @@ export default function ProductDiscoveryPage() {
   const [savedBatchId, setSavedBatchId] = useState<number | null>(null);
   
   const [previewProduct, setPreviewProduct] = useState<CjProduct | null>(null);
+  const [variantInventory, setVariantInventory] = useState<VariantInventory[]>([]);
+  const [loadingInventory, setLoadingInventory] = useState(false);
 
   const testConnection = async () => {
     const start = Date.now();
@@ -201,9 +214,23 @@ export default function ProductDiscoveryPage() {
     });
   };
 
-  const openPreview = (product: CjProduct, e: React.MouseEvent) => {
+  const openPreview = async (product: CjProduct, e: React.MouseEvent) => {
     e.stopPropagation();
     setPreviewProduct(product);
+    setVariantInventory([]);
+    setLoadingInventory(true);
+    
+    try {
+      const res = await fetch(`/api/admin/cj/products/variants?pid=${encodeURIComponent(product.productId)}`);
+      const data = await res.json();
+      if (data.ok && data.variants) {
+        setVariantInventory(data.variants);
+      }
+    } catch (e) {
+      console.error("Failed to load variant inventory:", e);
+    } finally {
+      setLoadingInventory(false);
+    }
   };
 
   const saveBatch = async () => {
@@ -706,22 +733,78 @@ export default function ProductDiscoveryPage() {
                   </div>
                   
                   <div>
-                    <h4 className="font-medium mb-2">Variants ({previewProduct.variants.length})</h4>
-                    <div className="space-y-2 max-h-60 overflow-y-auto">
-                      {previewProduct.variants.map((v, i) => (
-                        <div key={i} className="bg-gray-50 rounded p-3 text-sm">
-                          <div className="flex justify-between mb-1">
-                            <span className="font-mono text-xs text-gray-500">{v.cjSku || `SKU-${i+1}`}</span>
-                            <span className="font-semibold">${(v.price || 0).toFixed(2)}</span>
+                    <h4 className="font-medium mb-2">
+                      Inventory Details ({variantInventory.length > 0 ? variantInventory.length : previewProduct.variants.length} variants)
+                      {loadingInventory && <Loader2 className="inline-block h-4 w-4 ml-2 animate-spin" />}
+                    </h4>
+                    
+                    {variantInventory.length > 0 ? (
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-100">
+                            <tr>
+                              <th className="text-left p-2 font-medium">Variant</th>
+                              <th className="text-right p-2 font-medium">Price</th>
+                              <th className="text-right p-2 font-medium">CJ Stock</th>
+                              <th className="text-right p-2 font-medium">Factory Stock</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {variantInventory.map((v, i) => (
+                              <tr key={i} className="hover:bg-gray-50">
+                                <td className="p-2">
+                                  <div className="font-mono text-xs text-gray-600">{v.variantSku}</div>
+                                  {v.variantName && (
+                                    <div className="text-gray-500 text-xs">{v.variantName}</div>
+                                  )}
+                                </td>
+                                <td className="p-2 text-right font-semibold text-green-600">
+                                  ${v.price.toFixed(2)}
+                                </td>
+                                <td className="p-2 text-right">
+                                  <span className={v.cjStock > 0 ? "text-blue-600 font-medium" : "text-gray-400"}>
+                                    {v.cjStock}
+                                  </span>
+                                </td>
+                                <td className="p-2 text-right">
+                                  <span className={v.factoryStock > 0 ? "text-orange-600 font-medium" : "text-gray-400"}>
+                                    {v.factoryStock.toLocaleString()}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-gray-50 font-medium">
+                            <tr>
+                              <td className="p-2">Total</td>
+                              <td className="p-2"></td>
+                              <td className="p-2 text-right text-blue-600">
+                                {variantInventory.reduce((sum, v) => sum + v.cjStock, 0)}
+                              </td>
+                              <td className="p-2 text-right text-orange-600">
+                                {variantInventory.reduce((sum, v) => sum + v.factoryStock, 0).toLocaleString()}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {previewProduct.variants.map((v, i) => (
+                          <div key={i} className="bg-gray-50 rounded p-3 text-sm">
+                            <div className="flex justify-between mb-1">
+                              <span className="font-mono text-xs text-gray-500">{v.cjSku || `SKU-${i+1}`}</span>
+                              <span className="font-semibold">${(v.price || 0).toFixed(2)}</span>
+                            </div>
+                            <div className="flex gap-4 text-gray-600">
+                              {v.color && <span>Color: {v.color}</span>}
+                              {v.size && <span>Size: {v.size}</span>}
+                              <span>Stock: {v.stock || 0}</span>
+                            </div>
                           </div>
-                          <div className="flex gap-4 text-gray-600">
-                            {v.color && <span>Color: {v.color}</span>}
-                            {v.size && <span>Size: {v.size}</span>}
-                            <span>Stock: {v.stock || 0}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

@@ -136,12 +136,99 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<{ o
 // - CJ_EMAIL (required if no CJ_ACCESS_TOKEN)
 // - CJ_API_KEY (required if no CJ_ACCESS_TOKEN)
 
+// --- Variant Inventory Query ---
+export type CjVariantInventory = {
+  variantSku: string;
+  variantName?: string;
+  price: number;
+  cjStock: number; // CJ warehouse stock
+  factoryStock: number; // Factory/supplier stock
+  totalStock: number;
+};
+
+export async function queryVariantInventory(pid: string, warehouse?: string): Promise<CjVariantInventory[]> {
+  const token = await getAccessToken();
+  const base = await resolveBase();
+  
+  const toSafeNumber = (val: any, fallback = 0): number => {
+    if (val === undefined || val === null || val === '') return fallback;
+    const num = typeof val === 'number' ? val : Number(val);
+    return isNaN(num) ? fallback : num;
+  };
+  
+  const endpoints = [
+    `/product/variant/query?pid=${encodeURIComponent(pid)}`,
+    `/inventory/queryVariantStock`,
+  ];
+  
+  let allVariants: CjVariantInventory[] = [];
+  
+  for (const ep of endpoints) {
+    try {
+      let res: any;
+      if (ep.includes('inventory')) {
+        const body: any = { pid };
+        if (warehouse) body.warehouseId = warehouse;
+        res = await fetchJson<any>(`${base}${ep}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'CJ-Access-Token': token,
+          },
+          body: JSON.stringify(body),
+          cache: 'no-store',
+          timeoutMs: 12000,
+        });
+      } else {
+        res = await fetchJson<any>(`${base}${ep}`, {
+          headers: {
+            'Content-Type': 'application/json',
+            'CJ-Access-Token': token,
+          },
+          cache: 'no-store',
+          timeoutMs: 12000,
+        });
+      }
+      
+      const variantList = res?.data || res?.data?.list || [];
+      if (!Array.isArray(variantList)) continue;
+      
+      for (const v of variantList) {
+        const variantSku = v.variantSku || v.vid || v.sku || v.skuId || '';
+        const variantName = v.variantKey || v.variantName || v.skuName || '';
+        const price = toSafeNumber(v.variantSellPrice || v.sellPrice || v.price, 0);
+        const cjStock = Math.floor(toSafeNumber(v.cjAvailableNum || v.cjStock || v.warehouseStock, 0));
+        const factoryStock = Math.floor(toSafeNumber(v.supplierAvailableNum || v.factoryStock || v.factoryAvailableNum || v.inventory, 0));
+        
+        if (variantSku) {
+          allVariants.push({
+            variantSku,
+            variantName: variantName || undefined,
+            price,
+            cjStock,
+            factoryStock,
+            totalStock: cjStock + factoryStock,
+          });
+        }
+      }
+      
+      if (allVariants.length > 0) break;
+    } catch (e) {
+      // Continue to next endpoint
+    }
+  }
+  
+  return allVariants;
+}
+
 export type CjVariantLike = {
   cjSku?: string;
   size?: string;
   color?: string;
   price?: number;
   stock?: number;
+  cjStock?: number; // CJ warehouse stock
+  factoryStock?: number; // Factory/supplier stock
   // Optional shipping metadata when provided by CJ
   weightGrams?: number; // unit grams if available; undefined if unknown
   lengthCm?: number;
