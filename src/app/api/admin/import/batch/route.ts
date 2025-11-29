@@ -12,8 +12,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: guard.reason }, { status: 401 });
     }
     
+    const dbUrl = process.env.DATABASE_URL;
+    console.log('[Import Batch] DATABASE_URL check:', dbUrl ? `exists (${dbUrl.substring(0, 20)}...)` : 'MISSING');
+    
     if (!isDatabaseConfigured()) {
       console.error('[Import Batch] DATABASE_URL environment variable is missing');
+      console.error('[Import Batch] Available env vars:', Object.keys(process.env).filter(k => k.includes('PG') || k.includes('DATABASE')).join(', '));
       return NextResponse.json({ ok: false, error: "Database not configured. Please contact support." }, { status: 500 });
     }
     
