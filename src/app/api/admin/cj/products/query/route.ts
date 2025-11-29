@@ -17,36 +17,30 @@ function tokenize(text: string): string[] {
   return normalizeText(text).split(' ').filter(w => w.length > 1);
 }
 
-function smartMatch(productName: string, rawQuery: string, relaxed: boolean = false): { matches: boolean; score: number; debug?: any } {
+function smartMatch(productName: string, rawQuery: string, relaxed: boolean = false): { matches: boolean; score: number; matchRatio: number; debug?: any } {
   const { requiredConcepts, genderExclusions } = classifyQuery(rawQuery);
   const result = matchProductName(productName, requiredConcepts, genderExclusions);
   
-  // In relaxed mode, accept partial matches (at least 50% of concepts) or keyword substring match
+  const matchRatio = requiredConcepts.size > 0 ? result.matchedConcepts.size / requiredConcepts.size : 1;
+  
   let matches = result.matches;
   if (relaxed && !matches && requiredConcepts.size > 0) {
-    const matchRatio = result.matchedConcepts.size / requiredConcepts.size;
     if (matchRatio >= 0.5) {
       matches = true;
-    } else {
-      // Fallback: check if the raw query keywords appear anywhere in the product name
-      const queryTokens = rawQuery.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(' ').filter(t => t.length > 2);
-      const nameLower = productName.toLowerCase();
-      const keywordMatches = queryTokens.filter(t => nameLower.includes(t)).length;
-      if (keywordMatches >= Math.ceil(queryTokens.length * 0.5)) {
-        matches = true;
-      }
     }
   }
   
   return { 
     matches, 
     score: result.score,
+    matchRatio,
     debug: {
       productName,
       requiredConcepts: Array.from(requiredConcepts),
       matchedConcepts: Array.from(result.matchedConcepts),
       genderExclusions,
       relaxed,
+      matchRatio,
     }
   };
 }
@@ -124,8 +118,9 @@ export async function GET(req: Request) {
     const keyword = searchParams.get('keyword') || undefined;
     const urlParam = searchParams.get('url') || undefined;
     const categoryId = searchParams.get('category') || undefined;
-    const quantity = Math.min(500, Math.max(1, Number(searchParams.get('quantity') || 25)));
+    const quantity = Math.min(2000, Math.max(1, Number(searchParams.get('quantity') || 25)));
     const strictMode = searchParams.get('strict') !== 'false';
+    const minRating = Number(searchParams.get('minRating') || 0);
     
     if (!pid && urlParam) pid = extractPidFromUrl(urlParam);
     if (!pid && urlParam) {
@@ -154,16 +149,22 @@ export async function GET(req: Request) {
       const searchTokens = tokenize(keyword);
       
       const { requiredConcepts, genderExclusions } = classifyQuery(keyword);
-      console.log(`[Search] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}`);
+      console.log(`[Search] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}, MinRating: ${minRating}`);
       
       const pageSize = 50;
-      const maxPages = Math.max(50, Math.ceil((quantity * 15) / pageSize));
+      const maxPages = Math.min(200, Math.max(50, Math.ceil((quantity * 15) / pageSize)));
       let allRawItems: any[] = [];
-      let allProcessedItems: any[] = [];
       let strictMatchedItems: any[] = [];
       let relaxedMatchedItems: any[] = [];
+      const startTime = Date.now();
+      const maxDurationMs = 90000;
       
       for (let page = 1; page <= maxPages; page++) {
+        if (Date.now() - startTime > maxDurationMs) {
+          console.log(`[Search] Timeout reached after ${page - 1} pages, ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed`);
+          break;
+        }
+        
         const pageResult = await fetchCjProductPage(token, base, keyword, categoryId, page, pageSize);
         pagesFetched++;
         
@@ -173,70 +174,76 @@ export async function GET(req: Request) {
           totalFound = pageResult.total;
         }
         
-        const pageItems = pageResult.list.map((it: any) => mapCjItemToProductLike(it)).filter(Boolean);
-        allRawItems.push(...pageResult.list);
-        allProcessedItems.push(...pageItems);
-        
-        if (strictMode && searchTokens.length > 0) {
-          let pageStrictMatched = 0;
-          let pageRelaxedMatched = 0;
+        for (const rawItem of pageResult.list) {
+          allRawItems.push(rawItem);
           
-          for (const it of pageItems) {
-            const strictResult = smartMatch(it?.name || '', keyword, false);
-            const relaxedResult = smartMatch(it?.name || '', keyword, true);
-            (it as any)._matchScore = strictResult.score;
-            
-            if (strictResult.matches) {
-              strictMatchedItems.push(it);
-              pageStrictMatched++;
-            } else if (relaxedResult.matches) {
-              relaxedMatchedItems.push(it);
-              pageRelaxedMatched++;
+          const supplierRating = Number(rawItem.supplierRating || rawItem.score || rawItem.rating || rawItem.productScore || 0);
+          
+          if (minRating > 0) {
+            if (supplierRating === 0 || supplierRating < minRating) {
+              continue;
             }
           }
           
-          console.log(`[Search] Page ${page}: ${pageStrictMatched} strict, ${pageRelaxedMatched} relaxed. Total strict: ${strictMatchedItems.length}, relaxed: ${relaxedMatchedItems.length}, target: ${quantity}`);
+          const mappedItem = mapCjItemToProductLike(rawItem);
+          if (!mappedItem) continue;
           
-          if (strictMatchedItems.length >= quantity) {
-            items = strictMatchedItems.slice(0, quantity);
-            console.log(`[Search] Found ${strictMatchedItems.length} strict matches after ${page} pages`);
-            break;
-          }
+          (mappedItem as any).supplierRating = supplierRating > 0 ? supplierRating : undefined;
           
-          const combinedCount = strictMatchedItems.length + relaxedMatchedItems.length;
-          if (combinedCount >= quantity * 1.5) {
-            console.log(`[Search] Have enough combined matches (${combinedCount}), stopping fetch`);
-            break;
-          }
-        } else {
-          strictMatchedItems.push(...pageItems);
-          if (strictMatchedItems.length >= quantity) {
-            items = strictMatchedItems.slice(0, quantity);
-            break;
+          if (strictMode && searchTokens.length > 0 && requiredConcepts.size > 0) {
+            const strictResult = smartMatch(mappedItem.name || '', keyword, false);
+            const relaxedResult = smartMatch(mappedItem.name || '', keyword, true);
+            (mappedItem as any)._matchScore = strictResult.score;
+            (mappedItem as any)._matchRatio = strictResult.matchRatio;
+            
+            if (strictResult.matches) {
+              strictMatchedItems.push(mappedItem);
+            } else if (relaxedResult.matches) {
+              relaxedMatchedItems.push(mappedItem);
+            }
+          } else {
+            strictMatchedItems.push(mappedItem);
           }
         }
         
-        if (items.length >= quantity) break;
+        if (page % 10 === 0) {
+          console.log(`[Search] Page ${page}: ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed, target: ${quantity}`);
+        }
+        
+        if (strictMatchedItems.length >= quantity) {
+          console.log(`[Search] Found ${strictMatchedItems.length} strict matches after ${page} pages`);
+          break;
+        }
+        
+        const combinedCount = strictMatchedItems.length + relaxedMatchedItems.length;
+        if (combinedCount >= quantity * 1.5) {
+          console.log(`[Search] Have enough combined matches (${combinedCount}), stopping fetch`);
+          break;
+        }
+        
         if (pageResult.list.length < pageSize) break;
       }
       
-      if (items.length === 0) {
-        if (strictMatchedItems.length >= quantity) {
-          items = strictMatchedItems.slice(0, quantity);
-          console.log(`[Search] Using ${items.length} strict matches`);
-        } else if (strictMatchedItems.length > 0 || relaxedMatchedItems.length > 0) {
-          const combined = [...strictMatchedItems, ...relaxedMatchedItems];
-          combined.sort((a, b) => ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0));
-          items = combined.slice(0, quantity);
-          console.log(`[Search] Using ${strictMatchedItems.length} strict + ${relaxedMatchedItems.length} relaxed = ${items.length} total matches from ${pagesFetched} pages`);
-        } else {
-          const mapped = allProcessedItems.slice(0, quantity);
-          items = mapped;
-          console.log(`[Search] No strict/relaxed matches, using ${items.length} raw products from ${pagesFetched} pages`);
-        }
+      if (strictMatchedItems.length >= quantity) {
+        strictMatchedItems.sort((a, b) => ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0));
+        items = strictMatchedItems.slice(0, quantity);
+        console.log(`[Search] Using ${items.length} strict matches`);
+      } else {
+        relaxedMatchedItems.sort((a, b) => {
+          const ratioA = (a as any)._matchRatio || 0;
+          const ratioB = (b as any)._matchRatio || 0;
+          if (ratioB !== ratioA) return ratioB - ratioA;
+          return ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0);
+        });
+        
+        strictMatchedItems.sort((a, b) => ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0));
+        
+        const combined = [...strictMatchedItems, ...relaxedMatchedItems];
+        items = combined.slice(0, quantity);
+        console.log(`[Search] Using ${strictMatchedItems.length} strict + ${Math.max(0, items.length - strictMatchedItems.length)} relaxed = ${items.length} total matches`);
       }
       
-      console.log(`[Search] Final: ${items.length} items from ${pagesFetched} pages (${allRawItems.length} raw, strict: ${strictMatchedItems.length}, relaxed: ${relaxedMatchedItems.length})`);
+      console.log(`[Search] Final: ${items.length} items from ${pagesFetched} pages in ${Date.now() - startTime}ms (${allRawItems.length} raw, strict: ${strictMatchedItems.length}, relaxed: ${relaxedMatchedItems.length})`);
     }
 
     const r = NextResponse.json({ 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureAdmin } from "@/lib/auth/admin-guard";
-import { query, queryOne, execute, isDatabaseConfigured } from "@/lib/db/replit-pg";
+import { query, queryOne, execute, isDatabaseConfigured, testConnection } from "@/lib/db/replit-pg";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,13 +12,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: guard.reason }, { status: 401 });
     }
     
-    const hasDbUrl = !!process.env.DATABASE_URL;
-    console.log(`[Import Batch] DATABASE_URL configured: ${hasDbUrl}`);
-    
-    if (!hasDbUrl) {
+    if (!isDatabaseConfigured()) {
       console.error('[Import Batch] DATABASE_URL environment variable is missing');
-      return NextResponse.json({ ok: false, error: "Database connection not available. Please try again." }, { status: 500 });
+      return NextResponse.json({ ok: false, error: "Database not configured. Please contact support." }, { status: 500 });
     }
+    
+    const connTest = await testConnection();
+    if (!connTest.ok) {
+      console.error('[Import Batch] Database connection test failed:', connTest.error);
+      return NextResponse.json({ ok: false, error: `Database connection failed: ${connTest.error}` }, { status: 500 });
+    }
+    
+    console.log('[Import Batch] Database connection verified');
     
     const body = await req.json();
     const { name, keywords, category, filters, products } = body;

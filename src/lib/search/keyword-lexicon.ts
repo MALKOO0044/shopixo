@@ -10,7 +10,8 @@ type ProductConcept = {
 
 const PRODUCT_CONCEPTS: ProductConcept[] = [
   { id: 'dress', canonical: 'dress', synonyms: ['dresses', 'gown', 'gowns', 'frock', 'frocks', 'maxi dress', 'midi dress', 'mini dress', 'evening dress', 'cocktail dress', 'sundress', 'sundresses', 'party dress', 'summer dress', 'casual dress', 'formal dress', 'long dress', 'short dress', 'bodycon', 'bodycon dress', 'wrap dress', 'shift dress', 'a line dress', 'a-line dress', 'sheath dress', 'slip dress', 'shirt dress', 'tunic dress', 'skater dress', 'fit and flare', 'mermaid dress', 'ball gown', 'prom dress', 'wedding dress', 'bridesmaid dress', 'maternity dress', 'beach dress', 'bohemian dress', 'boho dress', 'lace dress', 'floral dress', 'printed dress', 'solid dress', 'elegant dress', 'sexy dress', 'vintage dress', 'retro dress'], required: true, genderClass: 'neutral' },
-  { id: 'shirt', canonical: 'shirt', synonyms: ['shirts', 'blouse', 'blouses', 'button up', 'button down'], required: true, genderClass: 'neutral' },
+  { id: 'shirt', canonical: 'shirt', synonyms: ['shirts', 'button up', 'button down', 'dress shirt', 'oxford shirt', 'flannel shirt'], required: true, genderClass: 'neutral' },
+  { id: 'blouse', canonical: 'blouse', synonyms: ['blouses', 'womens blouse', 'chiffon blouse', 'silk blouse', 'satin blouse', 'office blouse', 'elegant blouse', 'casual blouse', 'ruffle blouse', 'wrap blouse', 'tie blouse', 'bow blouse'], required: true, genderClass: 'neutral' },
   { id: 'top', canonical: 'top', synonyms: ['tops', 'tee', 'tees', 't-shirt', 't-shirts', 'tshirt', 'tshirts', 'tank top', 'tank tops', 'camisole', 'cami'], required: true, genderClass: 'neutral' },
   { id: 'pants', canonical: 'pants', synonyms: ['pant', 'trousers', 'trouser', 'slacks', 'chinos'], required: true, genderClass: 'neutral' },
   { id: 'jeans', canonical: 'jeans', synonyms: ['jean', 'denim', 'denims', 'denim pants'], required: true, genderClass: 'neutral' },
