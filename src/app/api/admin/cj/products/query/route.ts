@@ -17,10 +17,20 @@ function tokenize(text: string): string[] {
   return normalizeText(text).split(' ').filter(w => w.length > 1);
 }
 
-function smartMatch(productName: string, rawQuery: string): { matches: boolean; score: number } {
+function smartMatch(productName: string, rawQuery: string): { matches: boolean; score: number; debug?: any } {
   const { requiredConcepts, genderExclusions } = classifyQuery(rawQuery);
   const result = matchProductName(productName, requiredConcepts, genderExclusions);
-  return { matches: result.matches, score: result.score };
+  
+  return { 
+    matches: result.matches, 
+    score: result.score,
+    debug: {
+      productName,
+      requiredConcepts: Array.from(requiredConcepts),
+      matchedConcepts: Array.from(result.matchedConcepts),
+      genderExclusions,
+    }
+  };
 }
 
 function extractPidFromUrl(u?: string | null): string | undefined {
@@ -125,7 +135,8 @@ export async function GET(req: Request) {
       const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
       const searchTokens = tokenize(keyword);
       
-      console.log(`[Search] Keyword: "${keyword}", Tokens: ${searchTokens.join(', ')}, Target: ${quantity}, Strict: ${strictMode}`);
+      const { requiredConcepts, genderExclusions } = classifyQuery(keyword);
+      console.log(`[Search] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}`);
       
       const pageSize = 50;
       const maxPages = Math.ceil((quantity * 3) / pageSize);
@@ -147,11 +158,23 @@ export async function GET(req: Request) {
         const mapped = allRawItems.map((it: any) => mapCjItemToProductLike(it)).filter(Boolean);
         
         if (strictMode && searchTokens.length > 0) {
+          let matchedCount = 0;
+          let rejectedCount = 0;
           const strictFiltered = mapped.filter((it: any) => {
-            const { matches, score } = smartMatch(it?.name || '', keyword);
+            const { matches, score, debug } = smartMatch(it?.name || '', keyword);
             (it as any)._matchScore = score;
+            if (matches) {
+              matchedCount++;
+            } else {
+              rejectedCount++;
+              if (rejectedCount <= 3) {
+                console.log(`[Strict] REJECTED: "${it?.name}" - Required: [${debug?.requiredConcepts?.join(', ')}], Found: [${debug?.matchedConcepts?.join(', ')}]`);
+              }
+            }
             return matches;
           });
+          
+          console.log(`[Search] Page ${page}: ${matchedCount} matched, ${rejectedCount} rejected out of ${mapped.length}`);
           
           if (strictFiltered.length >= quantity) {
             items = strictFiltered.slice(0, quantity);
@@ -168,20 +191,18 @@ export async function GET(req: Request) {
         
         if (strictMode && searchTokens.length > 0) {
           const scoredItems = mapped.map((it: any) => {
-            const { matches, score } = smartMatch(it?.name || '', keyword);
-            return { item: it, matches, score };
+            const { matches, score, debug } = smartMatch(it?.name || '', keyword);
+            return { item: it, matches, score, debug };
           });
           
-          const smartMatches = scoredItems.filter(s => s.matches).map(s => s.item);
+          const smartMatches = scoredItems.filter(s => s.matches);
+          console.log(`[Search] Final filtering: ${smartMatches.length} strict matches out of ${mapped.length} total products`);
           
           if (smartMatches.length > 0) {
-            items = smartMatches.slice(0, quantity);
+            items = smartMatches.map(s => s.item).slice(0, quantity);
           } else {
-            const partialMatches = scoredItems
-              .filter(s => s.score >= 0.3)
-              .sort((a, b) => b.score - a.score)
-              .map(s => s.item);
-            items = partialMatches.slice(0, quantity);
+            console.log(`[Search] STRICT MODE: No matches found for required concepts. Returning empty results.`);
+            items = [];
           }
         } else {
           items = mapped.slice(0, quantity);

@@ -6,7 +6,32 @@ Shopixo is a modern, professional e-commerce platform targeting the Saudi Arabia
 
 # Recent Changes (November 2025)
 
-## Product Import Automation System (Latest)
+## Product Discovery Search System (Latest - November 29, 2025)
+- **Keyword Lexicon Module** (`src/lib/search/keyword-lexicon.ts`):
+  - 35+ product concepts (dress, shirt, shoes, bags, jewelry, etc.)
+  - Each concept has canonical name + synonyms (e.g., dress includes gown, frock, maxi, bodycon, etc.)
+  - N-gram matching (3-grams, 2-grams, 1-grams) for multi-word phrases
+  - Gender classification (female/male/neutral) with exclusion rules
+  - Compound word splitting (smartwatch → smart watch, tshirt → t shirt, etc.)
+  
+- **Strict Mode Filtering**:
+  - Products MUST contain the required concept keywords to pass
+  - No fallback to partial matches - returns empty if no strict matches
+  - Gender exclusions filter cross-gender products automatically
+  
+- **CJ Categories Integration**:
+  - Fetches categories directly from CJ API (`/product/getCategory`)
+  - Hierarchical tree structure (Level 1 → 2 → 3)
+  - Categories appear as "Parent > Child > Grandchild" format
+
+- **Search Flow**:
+  1. User enters keywords (e.g., "Women's dress")
+  2. `classifyQuery()` identifies required concepts and gender
+  3. CJ API returns products matching the keywords
+  4. `matchProductName()` filters products that contain required concepts
+  5. Only products with ALL required concepts pass strict mode
+
+## Product Import Automation System
 - **Smart Product Discovery** - Enhanced CJ catalog search with quality scoring, category filters, and batch saving
 - **KSA Pricing Engine** - Complete pricing rules system with:
   - Category-based margins (configurable per category)
