@@ -156,68 +156,99 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
     return isNaN(num) ? fallback : num;
   };
   
-  const endpoints = [
-    `/product/variant/query?pid=${encodeURIComponent(pid)}`,
-    `/inventory/queryVariantStock`,
-  ];
-  
   let allVariants: CjVariantInventory[] = [];
+  const stockBySku: Map<string, { cjStock: number; factoryStock: number }> = new Map();
   
-  for (const ep of endpoints) {
-    try {
-      let res: any;
-      if (ep.includes('inventory')) {
-        const body: any = { pid };
-        if (warehouse) body.warehouseId = warehouse;
-        res = await fetchJson<any>(`${base}${ep}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'CJ-Access-Token': token,
-          },
-          body: JSON.stringify(body),
-          cache: 'no-store',
-          timeoutMs: 12000,
-        });
-      } else {
-        res = await fetchJson<any>(`${base}${ep}`, {
-          headers: {
-            'Content-Type': 'application/json',
-            'CJ-Access-Token': token,
-          },
-          cache: 'no-store',
-          timeoutMs: 12000,
+  try {
+    const inventoryBody: any = { pid };
+    if (warehouse) inventoryBody.warehouseId = warehouse;
+    
+    const stockRes = await fetchJson<any>(`${base}/inventory/queryVariantStock`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CJ-Access-Token': token,
+      },
+      body: JSON.stringify(inventoryBody),
+      cache: 'no-store',
+      timeoutMs: 15000,
+    });
+    
+    console.log(`[CJ Inventory] Response for ${pid}:`, JSON.stringify(stockRes).slice(0, 800));
+    
+    const stockData = stockRes?.data;
+    const stockList = Array.isArray(stockData) ? stockData : (stockData?.list || stockData?.variants || []);
+    
+    for (const v of stockList) {
+      const sku = v.variantSku || v.vid || v.sku || '';
+      if (sku) {
+        stockBySku.set(sku, {
+          cjStock: Math.floor(toSafeNumber(v.cjAvailableNum || v.cjStock || v.warehouseStock || 0)),
+          factoryStock: Math.floor(toSafeNumber(v.supplierAvailableNum || v.factoryStock || v.factoryAvailableNum || 0)),
         });
       }
-      
-      const variantList = res?.data || res?.data?.list || [];
-      if (!Array.isArray(variantList)) continue;
-      
-      for (const v of variantList) {
-        const variantSku = v.variantSku || v.vid || v.sku || v.skuId || '';
-        const variantName = v.variantKey || v.variantName || v.skuName || '';
-        const price = toSafeNumber(v.variantSellPrice || v.sellPrice || v.price, 0);
-        const cjStock = Math.floor(toSafeNumber(v.cjAvailableNum || v.cjStock || v.warehouseStock, 0));
-        const factoryStock = Math.floor(toSafeNumber(v.supplierAvailableNum || v.factoryStock || v.factoryAvailableNum || v.inventory, 0));
-        
-        if (variantSku) {
-          allVariants.push({
-            variantSku,
-            variantName: variantName || undefined,
-            price,
-            cjStock,
-            factoryStock,
-            totalStock: cjStock + factoryStock,
-          });
-        }
-      }
-      
-      if (allVariants.length > 0) break;
-    } catch (e) {
-      // Continue to next endpoint
     }
+    console.log(`[CJ Inventory] Parsed ${stockBySku.size} stock entries`);
+  } catch (e: any) {
+    console.error(`[CJ Inventory] Error fetching stock for ${pid}:`, e?.message);
   }
   
+  try {
+    const variantRes = await fetchJson<any>(`${base}/product/variant/query?pid=${encodeURIComponent(pid)}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'CJ-Access-Token': token,
+      },
+      cache: 'no-store',
+      timeoutMs: 15000,
+    });
+    
+    console.log(`[CJ Variants] Response for ${pid}:`, JSON.stringify(variantRes).slice(0, 800));
+    
+    const variantData = variantRes?.data;
+    const variantList = Array.isArray(variantData) ? variantData : (variantData?.list || []);
+    
+    if (Array.isArray(variantList) && variantList.length > 0) {
+      console.log(`[CJ Variants] First variant sample:`, JSON.stringify(variantList[0]));
+    }
+    
+    for (const v of variantList) {
+      const variantSku = v.variantSku || v.vid || v.sku || v.skuId || v.variantId || '';
+      const variantName = v.variantKey || v.variantName || v.skuName || v.variantNameEn || '';
+      const price = toSafeNumber(v.variantSellPrice || v.sellPrice || v.variantPrice || v.price, 0);
+      
+      const stockInfo = stockBySku.get(variantSku);
+      
+      let cjStock = stockInfo?.cjStock ?? Math.floor(toSafeNumber(
+        v.cjAvailableNum || v.cjStock || v.warehouseStock || v.cjQuantity || 0
+      ));
+      let factoryStock = stockInfo?.factoryStock ?? Math.floor(toSafeNumber(
+        v.supplierAvailableNum || v.factoryStock || v.factoryAvailableNum || 
+        v.inventory || v.supplierStock || v.availableStock || 0
+      ));
+      
+      const totalFromVariant = Math.floor(toSafeNumber(v.stock || v.totalStock || v.quantity || v.availableNum || 0));
+      
+      if (cjStock === 0 && factoryStock === 0 && totalFromVariant > 0) {
+        factoryStock = totalFromVariant;
+      }
+      
+      if (variantSku) {
+        allVariants.push({
+          variantSku,
+          variantName: variantName || undefined,
+          price,
+          cjStock,
+          factoryStock,
+          totalStock: cjStock + factoryStock,
+        });
+      }
+    }
+  } catch (e: any) {
+    console.error(`[CJ Variants] Error fetching variants for ${pid}:`, e?.message);
+  }
+  
+  console.log(`[CJ Variants] Final result: ${allVariants.length} variants for ${pid}`);
   return allVariants;
 }
 

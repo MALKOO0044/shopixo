@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureAdmin } from "@/lib/auth/admin-guard";
-import { query, queryOne, execute } from "@/lib/db/replit-pg";
+import { query, queryOne, execute, isDatabaseConfigured } from "@/lib/db/replit-pg";
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
     const guard = await ensureAdmin();
     if (!guard.ok) {
       return NextResponse.json({ ok: false, error: guard.reason }, { status: 401 });
+    }
+    
+    const hasDbUrl = !!process.env.DATABASE_URL;
+    console.log(`[Import Batch] DATABASE_URL configured: ${hasDbUrl}`);
+    
+    if (!hasDbUrl) {
+      console.error('[Import Batch] DATABASE_URL environment variable is missing');
+      return NextResponse.json({ ok: false, error: "Database connection not available. Please try again." }, { status: 500 });
     }
     
     const body = await req.json();
