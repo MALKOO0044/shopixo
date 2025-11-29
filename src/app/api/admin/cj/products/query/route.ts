@@ -139,72 +139,69 @@ export async function GET(req: Request) {
       console.log(`[Search] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}`);
       
       const pageSize = 50;
-      const maxPages = Math.ceil((quantity * 3) / pageSize);
+      const maxPages = strictMode ? Math.max(20, Math.ceil((quantity * 10) / pageSize)) : Math.ceil((quantity * 3) / pageSize);
       let allRawItems: any[] = [];
+      let matchedItems: any[] = [];
       
       for (let page = 1; page <= maxPages; page++) {
         const pageResult = await fetchCjProductPage(token, base, keyword, categoryId, page, pageSize);
         pagesFetched++;
         
         if (pageResult.list.length === 0) break;
-        allRawItems.push(...pageResult.list);
         
         if (page === 1) {
           totalFound = pageResult.total;
         }
         
-        if (pageResult.list.length < pageSize) break;
-        
-        const mapped = allRawItems.map((it: any) => mapCjItemToProductLike(it)).filter(Boolean);
+        const pageItems = pageResult.list.map((it: any) => mapCjItemToProductLike(it)).filter(Boolean);
+        allRawItems.push(...pageResult.list);
         
         if (strictMode && searchTokens.length > 0) {
-          let matchedCount = 0;
-          let rejectedCount = 0;
-          const strictFiltered = mapped.filter((it: any) => {
+          let pageMatched = 0;
+          let pageRejected = 0;
+          
+          for (const it of pageItems) {
             const { matches, score, debug } = smartMatch(it?.name || '', keyword);
             (it as any)._matchScore = score;
+            
             if (matches) {
-              matchedCount++;
+              matchedItems.push(it);
+              pageMatched++;
             } else {
-              rejectedCount++;
-              if (rejectedCount <= 3) {
-                console.log(`[Strict] REJECTED: "${it?.name}" - Required: [${debug?.requiredConcepts?.join(', ')}], Found: [${debug?.matchedConcepts?.join(', ')}]`);
+              pageRejected++;
+              if (pageRejected <= 2 && page <= 3) {
+                console.log(`[Strict] REJECTED: "${it?.name?.substring(0, 60)}..." - Required: [${debug?.requiredConcepts?.join(', ')}], Found: [${debug?.matchedConcepts?.join(', ')}]`);
               }
             }
-            return matches;
-          });
+          }
           
-          console.log(`[Search] Page ${page}: ${matchedCount} matched, ${rejectedCount} rejected out of ${mapped.length}`);
+          console.log(`[Search] Page ${page}: ${pageMatched} matched, ${pageRejected} rejected. Total matches: ${matchedItems.length}/${quantity}`);
           
-          if (strictFiltered.length >= quantity) {
-            items = strictFiltered.slice(0, quantity);
-            console.log(`[Search] Found ${strictFiltered.length} strict matches after ${page} pages`);
+          if (matchedItems.length >= quantity) {
+            items = matchedItems.slice(0, quantity);
+            console.log(`[Search] Found ${matchedItems.length} strict matches after ${page} pages`);
+            break;
+          }
+        } else {
+          matchedItems.push(...pageItems);
+          if (matchedItems.length >= quantity) {
+            items = matchedItems.slice(0, quantity);
             break;
           }
         }
         
-        if (allRawItems.length >= quantity * 4) break;
+        if (pageResult.list.length < pageSize) break;
       }
       
-      if (items.length === 0) {
-        const mapped = allRawItems.map((it: any) => mapCjItemToProductLike(it)).filter(Boolean);
-        
-        if (strictMode && searchTokens.length > 0) {
-          const scoredItems = mapped.map((it: any) => {
-            const { matches, score, debug } = smartMatch(it?.name || '', keyword);
-            return { item: it, matches, score, debug };
-          });
-          
-          const smartMatches = scoredItems.filter(s => s.matches);
-          console.log(`[Search] Final filtering: ${smartMatches.length} strict matches out of ${mapped.length} total products`);
-          
-          if (smartMatches.length > 0) {
-            items = smartMatches.map(s => s.item).slice(0, quantity);
-          } else {
-            console.log(`[Search] STRICT MODE: No matches found for required concepts. Returning empty results.`);
-            items = [];
-          }
+      if (items.length === 0 && matchedItems.length > 0) {
+        items = matchedItems.slice(0, quantity);
+        console.log(`[Search] Using ${items.length} matches from ${pagesFetched} pages`);
+      } else if (items.length === 0) {
+        if (strictMode) {
+          console.log(`[Search] STRICT MODE: No matches found after ${pagesFetched} pages (${allRawItems.length} raw products checked). Returning empty.`);
+          items = [];
         } else {
+          const mapped = allRawItems.map((it: any) => mapCjItemToProductLike(it)).filter(Boolean);
           items = mapped.slice(0, quantity);
         }
       }
