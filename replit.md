@@ -6,18 +6,25 @@ Shopixo is a modern, professional e-commerce platform targeting the Saudi Arabia
 
 # Recent Changes (November 2025)
 
-## Product Discovery Search System (Latest - November 29, 2025)
+## Product Discovery & Import Fixes (Latest - November 29, 2025)
+- **Fixed Database Issue**: Created PostgreSQL database with proper tables (import_batches, product_queue, import_logs)
+- **Fixed Quantity Issue**: 
+  - Increased max products limit from 100 to 500
+  - Increased page fetching from 20 to 50+ pages
+  - System now fetches enough pages to meet requested quantity
+- **Fixed Search Accuracy with Two-Phase Matching**:
+  - Phase 1: Strict matching (products must match ALL required concepts)
+  - Phase 2: Relaxed matching (accepts 50% concept match or keyword substring matches)
+  - Combined results sorted by match score for best quality
+- **Smart Fallback System**: If strict mode doesn't return enough products, relaxed matches fill the gap
+
+## Product Discovery Search System (November 2025)
 - **Keyword Lexicon Module** (`src/lib/search/keyword-lexicon.ts`):
   - 35+ product concepts (dress, shirt, shoes, bags, jewelry, etc.)
   - Each concept has canonical name + synonyms (e.g., dress includes gown, frock, maxi, bodycon, etc.)
   - N-gram matching (3-grams, 2-grams, 1-grams) for multi-word phrases
   - Gender classification (female/male/neutral) with exclusion rules
   - Compound word splitting (smartwatch → smart watch, tshirt → t shirt, etc.)
-  
-- **Strict Mode Filtering**:
-  - Products MUST contain the required concept keywords to pass
-  - No fallback to partial matches - returns empty if no strict matches
-  - Gender exclusions filter cross-gender products automatically
   
 - **CJ Categories Integration**:
   - Fetches categories directly from CJ API (`/product/getCategory`)
@@ -28,8 +35,8 @@ Shopixo is a modern, professional e-commerce platform targeting the Saudi Arabia
   1. User enters keywords (e.g., "Women's dress")
   2. `classifyQuery()` identifies required concepts and gender
   3. CJ API returns products matching the keywords
-  4. `matchProductName()` filters products that contain required concepts
-  5. Only products with ALL required concepts pass strict mode
+  4. Two-phase matching: strict first, then relaxed for remaining slots
+  5. Combined results sorted by relevance score
 
 ## Product Import Automation System
 - **Smart Product Discovery** - Enhanced CJ catalog search with quality scoring, category filters, and batch saving
