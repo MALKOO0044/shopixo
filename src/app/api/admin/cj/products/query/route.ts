@@ -190,6 +190,7 @@ export async function GET(req: Request) {
           }
         }
         
+        if (items.length >= quantity) break;
         if (pageResult.list.length < pageSize) break;
       }
       

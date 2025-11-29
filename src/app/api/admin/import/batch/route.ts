@@ -40,11 +40,15 @@ export async function POST(req: NextRequest) {
 
     // Insert products into queue
     let addedCount = 0;
+    let failedCount = 0;
+    const failedProducts: string[] = [];
+    
     for (const p of products) {
       const avgPrice = p.variants?.length > 0
         ? p.variants.reduce((sum: number, v: any) => sum + (v.price || 0), 0) / p.variants.length
         : 0;
       const totalStock = p.variants?.reduce((sum: number, v: any) => sum + (v.stock || 0), 0) || 0;
+      const productId = p.pid || p.productId;
 
       try {
         await execute(
@@ -67,7 +71,7 @@ export async function POST(req: NextRequest) {
             updated_at = NOW()`,
           [
             batch.id,
-            p.pid || p.productId,
+            productId,
             p.variants?.[0]?.cjSku || null,
             p.name || "Untitled",
             null, // name_ar
@@ -98,8 +102,19 @@ export async function POST(req: NextRequest) {
         );
         addedCount++;
       } catch (err: any) {
-        console.error("Failed to add product to queue:", p.pid, err?.message);
+        failedCount++;
+        failedProducts.push(productId);
+        console.error("Failed to add product to queue:", productId, err?.message);
       }
+    }
+    
+    // If all products failed, return error
+    if (addedCount === 0 && products.length > 0) {
+      return NextResponse.json({ 
+        ok: false, 
+        error: `Failed to add any products to queue. ${failedCount} products failed.`,
+        failedProducts: failedProducts.slice(0, 10)
+      }, { status: 500 });
     }
 
     // Log the action
@@ -122,6 +137,8 @@ export async function POST(req: NextRequest) {
       ok: true,
       batchId: batch.id,
       productsAdded: addedCount,
+      productsFailed: failedCount,
+      ...(failedCount > 0 && { warning: `${failedCount} products failed to add` }),
     });
   } catch (e: any) {
     console.error("Batch creation error:", e);
