@@ -17,15 +17,18 @@ function tokenize(text: string): string[] {
   return normalizeText(text).split(' ').filter(w => w.length > 1);
 }
 
-function smartMatch(productName: string, rawQuery: string, relaxed: boolean = false): { matches: boolean; score: number; matchRatio: number; debug?: any } {
+function smartMatch(productName: string, rawQuery: string, relaxed: boolean = false): { matches: boolean; score: number; matchRatio: number; hasProductMatch: boolean; debug?: any } {
   const { requiredConcepts, genderExclusions } = classifyQuery(rawQuery);
   const result = matchProductName(productName, requiredConcepts, genderExclusions);
+  
+  const hasProductMatch = result.matchedConcepts.size > 0 && 
+    Array.from(result.matchedConcepts).some(c => requiredConcepts.has(c));
   
   const matchRatio = requiredConcepts.size > 0 ? result.matchedConcepts.size / requiredConcepts.size : 1;
   
   let matches = result.matches;
   if (relaxed && !matches && requiredConcepts.size > 0) {
-    if (matchRatio >= 0.5) {
+    if (hasProductMatch && matchRatio >= 0.5) {
       matches = true;
     }
   }
@@ -34,6 +37,7 @@ function smartMatch(productName: string, rawQuery: string, relaxed: boolean = fa
     matches, 
     score: result.score,
     matchRatio,
+    hasProductMatch,
     debug: {
       productName,
       requiredConcepts: Array.from(requiredConcepts),
@@ -41,6 +45,7 @@ function smartMatch(productName: string, rawQuery: string, relaxed: boolean = fa
       genderExclusions,
       relaxed,
       matchRatio,
+      hasProductMatch,
     }
   };
 }

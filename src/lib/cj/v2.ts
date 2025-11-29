@@ -174,21 +174,83 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       timeoutMs: 15000,
     });
     
-    console.log(`[CJ Inventory] Response for ${pid}:`, JSON.stringify(stockRes).slice(0, 800));
+    console.log(`[CJ Inventory] Response for ${pid}:`, JSON.stringify(stockRes).slice(0, 1500));
     
     const stockData = stockRes?.data;
-    const stockList = Array.isArray(stockData) ? stockData : (stockData?.list || stockData?.variants || []);
+    
+    const parseNestedStocks = (item: any): { cjStock: number; factoryStock: number } => {
+      let cjTotal = 0;
+      let factoryTotal = 0;
+      
+      const variantStocks = item.variantStocks || [];
+      if (Array.isArray(variantStocks) && variantStocks.length > 0) {
+        for (const vs of variantStocks) {
+          const innerWarehouseStocks = vs.warehouseStocks || [];
+          if (Array.isArray(innerWarehouseStocks) && innerWarehouseStocks.length > 0) {
+            for (const ws of innerWarehouseStocks) {
+              const warehouseType = String(ws.warehouseType || ws.type || ws.warehouseName || '').toLowerCase();
+              const availNum = toSafeNumber(ws.availableNum || ws.availableStock || ws.quantity || ws.stock || 0);
+              
+              if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
+                cjTotal += availNum;
+              } else if (warehouseType.includes('factory') || warehouseType.includes('supplier') || warehouseType.includes('china')) {
+                factoryTotal += availNum;
+              } else {
+                factoryTotal += availNum;
+              }
+            }
+          } else {
+            const warehouseType = String(vs.warehouseType || vs.type || '').toLowerCase();
+            const availNum = toSafeNumber(vs.availableNum || vs.availableStock || vs.quantity || vs.stock || 0);
+            
+            if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
+              cjTotal += availNum;
+            } else {
+              factoryTotal += availNum;
+            }
+          }
+        }
+      }
+      
+      const warehouseStocks = item.warehouseStocks || [];
+      if (Array.isArray(warehouseStocks) && warehouseStocks.length > 0 && cjTotal === 0 && factoryTotal === 0) {
+        for (const ws of warehouseStocks) {
+          const warehouseType = String(ws.warehouseType || ws.type || ws.warehouseName || '').toLowerCase();
+          const availNum = toSafeNumber(ws.availableNum || ws.availableStock || ws.quantity || ws.stock || 0);
+          
+          if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
+            cjTotal += availNum;
+          } else {
+            factoryTotal += availNum;
+          }
+        }
+      }
+      
+      if (cjTotal === 0 && factoryTotal === 0) {
+        cjTotal = toSafeNumber(item.cjAvailableNum || item.cjStock || item.warehouseStock || 0);
+        factoryTotal = toSafeNumber(item.supplierAvailableNum || item.factoryStock || item.factoryAvailableNum || 0);
+      }
+      
+      if (cjTotal === 0 && factoryTotal === 0) {
+        const totalStock = toSafeNumber(item.stock || item.totalStock || item.availableNum || item.quantity || 0);
+        if (totalStock > 0) {
+          factoryTotal = totalStock;
+        }
+      }
+      
+      return { cjStock: Math.floor(cjTotal), factoryStock: Math.floor(factoryTotal) };
+    };
+    
+    const stockList = Array.isArray(stockData) ? stockData : (stockData?.list || stockData?.variants || stockData?.variantList || []);
     
     for (const v of stockList) {
-      const sku = v.variantSku || v.vid || v.sku || '';
+      const sku = v.variantSku || v.vid || v.sku || v.skuId || '';
       if (sku) {
-        stockBySku.set(sku, {
-          cjStock: Math.floor(toSafeNumber(v.cjAvailableNum || v.cjStock || v.warehouseStock || 0)),
-          factoryStock: Math.floor(toSafeNumber(v.supplierAvailableNum || v.factoryStock || v.factoryAvailableNum || 0)),
-        });
+        const stocks = parseNestedStocks(v);
+        stockBySku.set(sku, stocks);
       }
     }
-    console.log(`[CJ Inventory] Parsed ${stockBySku.size} stock entries`);
+    console.log(`[CJ Inventory] Parsed ${stockBySku.size} stock entries from inventory API`);
   } catch (e: any) {
     console.error(`[CJ Inventory] Error fetching stock for ${pid}:`, e?.message);
   }
@@ -203,10 +265,10 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       timeoutMs: 15000,
     });
     
-    console.log(`[CJ Variants] Response for ${pid}:`, JSON.stringify(variantRes).slice(0, 800));
+    console.log(`[CJ Variants] Response for ${pid}:`, JSON.stringify(variantRes).slice(0, 1500));
     
     const variantData = variantRes?.data;
-    const variantList = Array.isArray(variantData) ? variantData : (variantData?.list || []);
+    const variantList = Array.isArray(variantData) ? variantData : (variantData?.list || variantData?.variants || []);
     
     if (Array.isArray(variantList) && variantList.length > 0) {
       console.log(`[CJ Variants] First variant sample:`, JSON.stringify(variantList[0]));
@@ -219,18 +281,23 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       
       const stockInfo = stockBySku.get(variantSku);
       
-      let cjStock = stockInfo?.cjStock ?? Math.floor(toSafeNumber(
-        v.cjAvailableNum || v.cjStock || v.warehouseStock || v.cjQuantity || 0
-      ));
-      let factoryStock = stockInfo?.factoryStock ?? Math.floor(toSafeNumber(
-        v.supplierAvailableNum || v.factoryStock || v.factoryAvailableNum || 
-        v.inventory || v.supplierStock || v.availableStock || 0
-      ));
+      let cjStock = 0;
+      let factoryStock = 0;
       
-      const totalFromVariant = Math.floor(toSafeNumber(v.stock || v.totalStock || v.quantity || v.availableNum || 0));
-      
-      if (cjStock === 0 && factoryStock === 0 && totalFromVariant > 0) {
-        factoryStock = totalFromVariant;
+      if (stockInfo) {
+        cjStock = stockInfo.cjStock;
+        factoryStock = stockInfo.factoryStock;
+      } else {
+        cjStock = Math.floor(toSafeNumber(v.cjAvailableNum || v.cjStock || v.warehouseStock || v.cjQuantity || 0));
+        factoryStock = Math.floor(toSafeNumber(
+          v.supplierAvailableNum || v.factoryStock || v.factoryAvailableNum || 
+          v.inventory || v.supplierStock || v.availableStock || 0
+        ));
+        
+        const totalFromVariant = Math.floor(toSafeNumber(v.stock || v.totalStock || v.quantity || v.availableNum || 0));
+        if (cjStock === 0 && factoryStock === 0 && totalFromVariant > 0) {
+          factoryStock = totalFromVariant;
+        }
       }
       
       if (variantSku) {
