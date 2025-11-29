@@ -1,15 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { ensureAdmin } from "@/lib/auth/admin-guard";
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
-  return createClient(url, key);
+  return createClient(url, key, {
+    db: { schema: 'public' },
+    auth: { persistSession: false }
+  });
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const guard = await ensureAdmin();
+    if (!guard.ok) {
+      return NextResponse.json({ ok: false, error: guard.reason }, { status: 401 });
+    }
+    
     const body = await req.json();
     const { name, keywords, category, filters, products } = body;
     

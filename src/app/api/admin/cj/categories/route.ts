@@ -3,6 +3,31 @@ import { getAccessToken } from "@/lib/cj/v2";
 
 export const dynamic = "force-dynamic";
 
+type FlatCategory = { categoryId: string; categoryName: string };
+
+function flattenCategories(nodes: any[], parentName = ""): FlatCategory[] {
+  const result: FlatCategory[] = [];
+  
+  for (const node of nodes) {
+    const id = node.categoryId || node.id || "";
+    const name = node.categoryName || node.name || node.categoryFirstName || "";
+    const fullName = parentName ? `${parentName} > ${name}` : name;
+    
+    if (id && name) {
+      result.push({ categoryId: String(id), categoryName: fullName });
+    }
+    
+    if (Array.isArray(node.children) && node.children.length > 0) {
+      result.push(...flattenCategories(node.children, fullName));
+    }
+    if (Array.isArray(node.categorySecond) && node.categorySecond.length > 0) {
+      result.push(...flattenCategories(node.categorySecond, fullName));
+    }
+  }
+  
+  return result;
+}
+
 export async function GET() {
   try {
     const apiKey = process.env.CJ_API_KEY;
@@ -21,18 +46,19 @@ export async function GET() {
         "CJ-Access-Token": token,
         "Content-Type": "application/json",
       },
+      cache: "no-store",
     });
 
     const data = await res.json();
     
     if (data.code === 200 && data.data) {
-      const categories = Array.isArray(data.data) ? data.data : [];
+      const rawCategories = Array.isArray(data.data) ? data.data : [];
+      const categories = flattenCategories(rawCategories);
+      
       return NextResponse.json({ 
         ok: true, 
-        categories: categories.map((c: any) => ({
-          categoryId: c.categoryId || c.id,
-          categoryName: c.categoryName || c.name,
-        }))
+        categories,
+        total: categories.length,
       });
     }
 
