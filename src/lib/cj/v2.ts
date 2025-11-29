@@ -414,10 +414,10 @@ export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?
     }
   }
 
-  // Keyword search: try multiple endpoints
+  // Keyword search: try multiple endpoints (CJ requires min pageSize of 10)
   const term = String(keyword || pid);
-  const qsKeyword = `keyword=${encodeURIComponent(term)}&pageSize=10&pageNumber=1`;
-  const qsList = `keyWords=${encodeURIComponent(term)}&pageSize=10&pageNum=1`;
+  const qsKeyword = `keyword=${encodeURIComponent(term)}&pageSize=20&pageNumber=1`;
+  const qsList = `keyWords=${encodeURIComponent(term)}&pageSize=20&pageNum=1`;
   const endpoints = [
     `/product/myProduct/query?${qsKeyword}`,
     `/product/query?${qsKeyword}`,
@@ -512,7 +512,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
 
   // --- Image collection (robust across CJ shapes) ---
   const imageList: string[] = [];
-  const bigImage = (item.bigImage || item.image || item.mainImage || item.mainImageUrl || null) as string | null;
+  const bigImage = (item.productImage || item.bigImage || item.image || item.mainImage || item.mainImageUrl || null) as string | null;
   const pushUrl = (val: any) => { if (typeof val === 'string' && val.trim()) imageList.push(val.trim()); };
   if (bigImage) pushUrl(bigImage);
   // Arrays: strings or objects with common keys
@@ -732,6 +732,18 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
         }
       }
     }
+  }
+
+  // If no variants found, create one from product-level data
+  if (variants.length === 0) {
+    const productPrice = pickNum(item.sellPrice, item.price, item.salePrice, item.costPrice);
+    const productStock = pickNum(item.stock, item.inventory, item.listingCount, item.listedNum) ?? 100;
+    const productSku = item.productSku || item.sku || null;
+    variants.push({
+      cjSku: productSku || undefined,
+      price: productPrice,
+      stock: typeof productStock === 'number' ? productStock : undefined,
+    });
   }
 
   // Delivery/processing time (hours) if provided
