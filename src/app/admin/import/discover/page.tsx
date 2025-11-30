@@ -425,6 +425,23 @@ export default function ProductDiscoveryPage() {
                     const level2Features = availableFeatures.filter(f => f.level === 2);
                     const level3Features = availableFeatures.filter(f => f.level === 3);
                     
+                    if (level2Features.length === 0) {
+                      return availableFeatures.map(feature => (
+                        <label
+                          key={feature.featureId}
+                          className="flex items-center px-3 py-2 hover:bg-blue-50 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedFeatures.includes(feature.featureId)}
+                            onChange={() => toggleFeature(feature.featureId)}
+                            className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2"
+                          />
+                          <span className="text-sm text-gray-700">{feature.featureName}</span>
+                        </label>
+                      ));
+                    }
+                    
                     return level2Features.map(parent => {
                       const children = level3Features.filter(f => f.parentId === parent.featureId);
                       const childName = (name: string) => name.includes(' > ') ? name.split(' > ').pop() : name;
@@ -434,22 +451,21 @@ export default function ProductDiscoveryPage() {
                           <div className="px-3 py-2 bg-gray-50 border-b border-gray-100">
                             <span className="text-sm font-semibold text-gray-800">{parent.featureName}</span>
                           </div>
-                          {children.length > 0 ? (
-                            children.map(child => (
-                              <label
-                                key={child.featureId}
-                                className="flex items-center px-3 py-1.5 pr-6 hover:bg-blue-50 cursor-pointer"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={selectedFeatures.includes(child.featureId)}
-                                  onChange={() => toggleFeature(child.featureId)}
-                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2"
-                                />
-                                <span className="text-sm text-gray-700">{childName(child.featureName)}</span>
-                              </label>
-                            ))
-                          ) : (
+                          {children.map(child => (
+                            <label
+                              key={child.featureId}
+                              className="flex items-center px-3 py-1.5 pr-6 hover:bg-blue-50 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedFeatures.includes(child.featureId)}
+                                onChange={() => toggleFeature(child.featureId)}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2"
+                              />
+                              <span className="text-sm text-gray-700">{childName(child.featureName)}</span>
+                            </label>
+                          ))}
+                          {children.length === 0 && (
                             <label
                               className="flex items-center px-3 py-1.5 pr-6 hover:bg-blue-50 cursor-pointer"
                             >
