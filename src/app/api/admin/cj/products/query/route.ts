@@ -266,8 +266,10 @@ export async function GET(req: Request) {
           }
           
           // Apply stock filter from raw item before mapping
-          const itemStock = Number(rawItem.stock ?? rawItem.inventory ?? rawItem.listingCount ?? rawItem.listedNum ?? rawItem.quantity ?? 0);
-          if (minStock > 0 && itemStock < minStock) {
+          // Only filter if stock data is actually present in the response
+          const rawStock = rawItem.stock ?? rawItem.inventory ?? rawItem.listingCount ?? rawItem.listedNum ?? rawItem.quantity;
+          const itemStock = rawStock !== undefined ? Number(rawStock) : -1; // -1 means no stock data
+          if (minStock > 0 && itemStock >= 0 && itemStock < minStock) {
             skippedLowStock++;
             continue;
           }
@@ -288,8 +290,8 @@ export async function GET(req: Request) {
           
           (mappedItem as any).supplierRating = hasRating ? supplierRating : null;
           (mappedItem as any).hasRating = hasRating;
-          (mappedItem as any).totalStock = itemStock;
-          (mappedItem as any).avgPrice = itemPrice;
+          (mappedItem as any).totalStock = itemStock >= 0 ? itemStock : null;
+          (mappedItem as any).avgPrice = itemPrice > 0 ? itemPrice : null;
           
           if (strictMode && searchTokens.length > 0 && requiredConcepts.size > 0) {
             const strictResult = smartMatch(mappedItem.name || '', keyword, false);
@@ -428,9 +430,10 @@ export async function GET(req: Request) {
             }
             
             // Apply stock filter from raw item before mapping
-            // CJ uses various field names for stock: stock, inventory, listingCount, listedNum, quantity
-            const itemStock = Number(rawItem.stock ?? rawItem.inventory ?? rawItem.listingCount ?? rawItem.listedNum ?? rawItem.quantity ?? 0);
-            if (minStock > 0 && itemStock < minStock) {
+            // Only filter if stock data is actually present in the response
+            const rawStock = rawItem.stock ?? rawItem.inventory ?? rawItem.listingCount ?? rawItem.listedNum ?? rawItem.quantity;
+            const itemStock = rawStock !== undefined ? Number(rawStock) : -1; // -1 means no stock data
+            if (minStock > 0 && itemStock >= 0 && itemStock < minStock) {
               skippedLowStock++;
               continue;
             }
@@ -453,8 +456,8 @@ export async function GET(req: Request) {
             (mappedItem as any).supplierRating = hasRating ? supplierRating : null;
             (mappedItem as any).hasRating = hasRating;
             (mappedItem as any).categoryId = catId;
-            (mappedItem as any).totalStock = itemStock;
-            (mappedItem as any).avgPrice = itemPrice;
+            (mappedItem as any).totalStock = itemStock >= 0 ? itemStock : null;
+            (mappedItem as any).avgPrice = itemPrice > 0 ? itemPrice : null;
             
             allItems.push(mappedItem);
             categoryItems++;
