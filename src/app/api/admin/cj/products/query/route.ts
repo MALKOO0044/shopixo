@@ -4,6 +4,7 @@ import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchWithMeta, fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 import { classifyQuery, matchProductName } from '@/lib/search/keyword-lexicon';
+import { throttleCjRequest } from '@/lib/cj/rate-limit';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -92,14 +93,14 @@ async function fetchCjProductPage(token: string, base: string, keyword: string, 
   }
   
   try {
-    const res = await fetchJson<any>(`${base}/product/list?${params}`, {
+    const res = await throttleCjRequest(() => fetchJson<any>(`${base}/product/list?${params}`, {
       headers: {
         'CJ-Access-Token': token,
         'Content-Type': 'application/json',
       },
       cache: 'no-store',
       timeoutMs: 20000,
-    });
+    }));
     return {
       list: res?.data?.list || [],
       total: res?.data?.total || 0,
@@ -110,7 +111,6 @@ async function fetchCjProductPage(token: string, base: string, keyword: string, 
 }
 
 async function fetchCjProductsByCategoryId(token: string, base: string, categoryId: string, pageNum: number, pageSize: number): Promise<{ list: any[]; total: number }> {
-  // CJ API requires POST with JSON body for categoryId-based product listing
   const body = {
     categoryId: categoryId,
     pageNum: pageNum,
@@ -118,16 +118,18 @@ async function fetchCjProductsByCategoryId(token: string, base: string, category
   };
   
   try {
-    const res = await fetch(`${base}/product/list`, {
-      method: 'POST',
-      headers: {
-        'CJ-Access-Token': token,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-      cache: 'no-store',
+    const data = await throttleCjRequest(async () => {
+      const res = await fetch(`${base}/product/list`, {
+        method: 'POST',
+        headers: {
+          'CJ-Access-Token': token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      return res.json();
     });
-    const data = await res.json();
     console.log(`[CJ Category Fetch] categoryId=${categoryId}, page=${pageNum}, code=${data?.code}, result=${data?.result}, total=${data?.data?.total || 0}, items=${data?.data?.list?.length || 0}`);
     
     if (data?.code === 200 && data?.result && Array.isArray(data?.data?.list)) {
