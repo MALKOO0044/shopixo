@@ -6,8 +6,18 @@ Shopixo is a modern, professional e-commerce platform targeting the Saudi Arabia
 
 # Recent Changes (November 2025)
 
-## Product Discovery & Import Fixes (Latest - November 29, 2025)
-- **Fixed Database Issue**: Created PostgreSQL database with proper tables (import_batches, product_queue, import_logs)
+## Import System Migration to Supabase (Latest - November 30, 2025)
+- **Unified Database Architecture**: Migrated entire import system from Replit PostgreSQL to Supabase
+  - All import tables (import_batches, product_queue, import_logs) now in Supabase
+  - Eliminates two-database design for production/development parity
+  - SQL migration script: `supabase/migrations/20251130_import_tables.sql`
+- **Updated Import Routes**: All routes now use Supabase service role client
+  - `/api/admin/import/batch` - Discovery batch management
+  - `/api/admin/import/queue` - Product queue operations  
+  - `/api/admin/import/execute` - Import to store execution
+- **Unified Import Module**: `src/lib/db/import-db.ts` for consistent Supabase access
+
+## Product Discovery & Import Fixes (November 29, 2025)
 - **Fixed Quantity Issue**: 
   - Increased max products limit from 100 to 500
   - Increased page fetching from 20 to 50+ pages
