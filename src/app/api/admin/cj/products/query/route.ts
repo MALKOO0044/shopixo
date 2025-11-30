@@ -9,6 +9,7 @@ import { throttleCjRequest } from '@/lib/cj/rate-limit';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const runtime = 'nodejs';
+export const maxDuration = 60; // Allow up to 60 seconds for product queries
 
 function normalizeText(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -245,12 +246,21 @@ export async function GET(req: Request) {
       const seenPids = new Set<string>();
       const startTime = Date.now();
       const maxDurationMs = quantity > 1000 ? 180000 : (quantity > 500 ? 120000 : 90000);
+      // CRITICAL: Hard timeout to prevent Vercel function timeout
+      const hardTimeoutMs = 12000; // 12 seconds - well under Vercel's limit
+      let timedOut = false;
       
-      console.log(`[Search v5] Config: maxPages=${maxPages}, maxDuration=${maxDurationMs}ms, pageSize=${pageSize}`);
+      console.log(`[Search v5] Config: maxPages=${maxPages}, maxDuration=${maxDurationMs}ms, pageSize=${pageSize}, hardTimeout=${hardTimeoutMs}ms`);
       
       for (let page = 1; page <= maxPages; page++) {
+        if (Date.now() - startTime > hardTimeoutMs) {
+          console.log(`[Search v5] Hard timeout reached after ${page - 1} pages, ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed`);
+          timedOut = true;
+          break;
+        }
         if (Date.now() - startTime > maxDurationMs) {
           console.log(`[Search v5] Timeout reached after ${page - 1} pages, ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed`);
+          timedOut = true;
           break;
         }
         
@@ -379,9 +389,31 @@ export async function GET(req: Request) {
       items = combined.slice(0, quantity);
       
       const duration = Date.now() - startTime;
-      console.log(`[Search v5] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms`);
+      console.log(`[Search v5] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms, timedOut=${timedOut}`);
       console.log(`[Search v5] Stats: raw=${totalRawFetched}, unique=${seenPids.size}, strict=${strictMatchedItems.length}, relaxed=${relaxedMatchedItems.length}`);
       console.log(`[Search v5] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}, noMatch=${skippedNoMatch}, lowStock=${skippedLowStock}, price=${skippedPrice}`);
+      
+      // Return early for keyword search with timedOut indicator
+      const r = NextResponse.json({ 
+        ok: true, 
+        version: 'query-v5', 
+        count: items.length,
+        requested: quantity,
+        totalFound,
+        pagesFetched,
+        timedOut,
+        message: timedOut ? 'Search returned partial results due to time limit. Try a more specific keyword.' : undefined,
+        stats: {
+          rawFetched: totalRawFetched,
+          skippedNoRating,
+          skippedLowRating,
+          skippedNoMatch,
+          duration,
+        },
+        items 
+      }, { headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     } else if (categoryIds) {
       const categoryIdList = categoryIds.split(',').map(id => id.trim()).filter(Boolean);
       console.log(`[Search v5 Category] Category IDs: [${categoryIdList.join(', ')}], Target: ${quantity}, MinRating: ${minRating}, IncludeUnrated: ${includeUnrated}, MinStock: ${minStock}, MinPrice: ${minPrice}, MaxPrice: ${maxPrice}`);
@@ -410,11 +442,23 @@ export async function GET(req: Request) {
       const quantityPerCategory = Math.ceil(quantity / categoryIdList.length);
       const maxPagesPerCategory = Math.min(2000, Math.ceil(quantityPerCategory * 20 / pageSize));
       
-      console.log(`[Search v5 Category] Config: ${categoryIdList.length} categories, ~${quantityPerCategory} per category, maxPages=${maxPagesPerCategory}`);
+      // CRITICAL: Hard timeout to prevent Vercel function timeout
+      // Must return results before Vercel cuts off the function (default 10s, max 60s on Pro)
+      const hardTimeoutMs = 12000; // 12 seconds - well under Vercel's limit
+      
+      console.log(`[Search v5 Category] Config: ${categoryIdList.length} categories, ~${quantityPerCategory} per category, maxPages=${maxPagesPerCategory}, hardTimeout=${hardTimeoutMs}ms`);
+      
+      let timedOut = false;
       
       for (const catId of categoryIdList) {
+        if (Date.now() - startTime > hardTimeoutMs) {
+          console.log(`[Search v5 Category] Hard timeout reached after ${Date.now() - startTime}ms, stopping to prevent Vercel cutoff`);
+          timedOut = true;
+          break;
+        }
         if (Date.now() - startTime > maxDurationMs) {
-          console.log(`[Search v5 Category] Timeout reached, stopping`);
+          console.log(`[Search v5 Category] Soft timeout reached, stopping`);
+          timedOut = true;
           break;
         }
         
@@ -427,6 +471,10 @@ export async function GET(req: Request) {
         let categoryItems = 0;
         
         for (let page = 1; page <= maxPagesPerCategory; page++) {
+          if (Date.now() - startTime > hardTimeoutMs) {
+            timedOut = true;
+            break;
+          }
           if (Date.now() - startTime > maxDurationMs) break;
           if (allItems.length >= quantity) break;
           
@@ -513,8 +561,30 @@ export async function GET(req: Request) {
       items = allItems.slice(0, quantity);
       
       const duration = Date.now() - startTime;
-      console.log(`[Search v5 Category] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms`);
+      console.log(`[Search v5 Category] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms, timedOut=${timedOut}`);
       console.log(`[Search v5 Category] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}, lowStock=${skippedLowStock}, price=${skippedPrice}`);
+      
+      // Return early with timedOut indicator
+      const r = NextResponse.json({ 
+        ok: true, 
+        version: 'query-v5', 
+        count: items.length,
+        requested: quantity,
+        totalFound,
+        pagesFetched,
+        timedOut,
+        message: timedOut ? 'Search returned partial results due to time limit. Try selecting fewer features or reducing filters.' : undefined,
+        stats: {
+          rawFetched: totalRawFetched,
+          skippedNoRating,
+          skippedLowRating,
+          skippedNoMatch,
+          duration,
+        },
+        items 
+      }, { headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
     }
 
     const r = NextResponse.json({ 

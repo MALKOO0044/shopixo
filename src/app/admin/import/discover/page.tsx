@@ -99,6 +99,9 @@ export default function ProductDiscoveryPage() {
   const [totalFound, setTotalFound] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   
+  // Debug: Log button state changes
+  console.log('[Button State Debug] loading:', loading, 'selectedCategory:', selectedCategory, 'selectedFeatures:', selectedFeatures.length);
+  
   const [categories, setCategories] = useState<Category[]>([]);
   const [featuresDropdownOpen, setFeaturesDropdownOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<{
@@ -186,6 +189,11 @@ export default function ProductDiscoveryPage() {
   };
 
   const searchProducts = async () => {
+    console.log('[Product Search] Starting search...');
+    console.log('[Product Search] Category:', selectedCategory);
+    console.log('[Product Search] Features:', selectedFeatures);
+    console.log('[Product Search] MinRating:', minRating);
+    
     if (!selectedCategory) {
       setError("Please select a category");
       return;
@@ -202,6 +210,13 @@ export default function ProductDiscoveryPage() {
     setSavedBatchId(null);
     setTotalFound(0);
     
+    // Safety timeout to prevent button from being stuck
+    const safetyTimeout = setTimeout(() => {
+      console.log('[Product Search] Safety timeout triggered - resetting loading state');
+      setLoading(false);
+      setError("Search timed out. Please try again.");
+    }, 120000); // 2 minute timeout
+    
     try {
       const params = new URLSearchParams({
         categoryIds: selectedFeatures.join(","),
@@ -214,14 +229,34 @@ export default function ProductDiscoveryPage() {
         freeShippingOnly: freeShippingOnly ? "1" : "0",
       });
       
-      const res = await fetch(`/api/admin/cj/products/query?${params}`);
+      console.log('[Product Search] API URL:', `/api/admin/cj/products/query?${params}`);
+      
+      // Add abort controller for fetch timeout
+      const controller = new AbortController();
+      const fetchTimeout = setTimeout(() => controller.abort(), 90000); // 90 second timeout
+      
+      let res: Response;
+      try {
+        res = await fetch(`/api/admin/cj/products/query?${params}`, { signal: controller.signal });
+      } finally {
+        clearTimeout(fetchTimeout);
+      }
+      console.log('[Product Search] Response status:', res.status);
+      
       const data = await res.json();
+      console.log('[Product Search] Response data:', { ok: data.ok, count: data.count, error: data.error, timedOut: data.timedOut, message: data.message });
       
       if (!res.ok || !data.ok) {
         throw new Error(data.error || `Search failed: ${res.status}`);
       }
       
+      // Show warning if search timed out (partial results)
+      if (data.timedOut && data.message) {
+        setError(data.message);
+      }
+      
       const items = data.items || [];
+      console.log('[Product Search] Items found:', items.length);
       setTotalFound(data.totalFound || items.length);
       
       const processedProducts = items.map((p: any) => {
@@ -249,8 +284,13 @@ export default function ProductDiscoveryPage() {
       
       setProducts(processedProducts);
     } catch (e: any) {
+      console.error('[Product Search] Error:', e);
       setError(e?.message || "Search failed");
+      setLoading(false);
+      clearTimeout(safetyTimeout);
     } finally {
+      console.log('[Product Search] Finally block - setting loading to false');
+      clearTimeout(safetyTimeout);
       setLoading(false);
     }
   };
