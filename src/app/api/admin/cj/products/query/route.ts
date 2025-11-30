@@ -116,19 +116,46 @@ async function fetchCjProductsByCategoryId(token: string, base: string, category
   params.set('pageNum', String(pageNum));
   
   try {
-    const res = await fetchJson<any>(`${base}/product/list?${params}`, {
+    const res = await fetch(`${base}/product/list?${params}`, {
+      method: 'GET',
       headers: {
         'CJ-Access-Token': token,
         'Content-Type': 'application/json',
       },
       cache: 'no-store',
-      timeoutMs: 20000,
     });
+    const data = await res.json();
+    console.log(`[CJ Category Fetch] categoryId=${categoryId}, page=${pageNum}, code=${data?.code}, total=${data?.data?.total || 0}, items=${data?.data?.list?.length || 0}`);
+    
+    if (data?.code !== 200 || !data?.data?.list?.length) {
+      const paramsWithKey = new URLSearchParams();
+      paramsWithKey.set('keyWords', '');
+      paramsWithKey.set('categoryId', categoryId);
+      paramsWithKey.set('pageSize', String(pageSize));
+      paramsWithKey.set('pageNum', String(pageNum));
+      
+      const res2 = await fetch(`${base}/product/list?${paramsWithKey}`, {
+        method: 'GET',
+        headers: {
+          'CJ-Access-Token': token,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+      });
+      const data2 = await res2.json();
+      console.log(`[CJ Category Fetch Fallback] categoryId=${categoryId}, page=${pageNum}, code=${data2?.code}, total=${data2?.data?.total || 0}, items=${data2?.data?.list?.length || 0}`);
+      return {
+        list: data2?.data?.list || [],
+        total: data2?.data?.total || 0,
+      };
+    }
+    
     return {
-      list: res?.data?.list || [],
-      total: res?.data?.total || 0,
+      list: data?.data?.list || [],
+      total: data?.data?.total || 0,
     };
-  } catch {
+  } catch (e: any) {
+    console.log(`[CJ Category Fetch] Error for ${categoryId}: ${e?.message}`);
     return { list: [], total: 0 };
   }
 }
