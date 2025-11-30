@@ -174,10 +174,6 @@ export default function ProductDiscoveryPage() {
           hasRating,
           qualityScore: calculateQualityScore({ ...p, totalStock, avgPrice, supplierRating: p.supplierRating }),
         };
-      }).filter((p: any) => {
-        if (minRating > 0 && !p.hasRating) return false;
-        if (minRating > 0 && (p.supplierRating || 0) < minRating) return false;
-        return true;
       }).sort((a: CjProduct, b: CjProduct) => {
         const ratingA = (a as any).hasRating ? (a.supplierRating || 0) : -1;
         const ratingB = (b as any).hasRating ? (b.supplierRating || 0) : -1;
