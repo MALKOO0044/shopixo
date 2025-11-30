@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { query, queryOne, execute } from "@/lib/db/replit-pg";
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -113,11 +112,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Supabase not configured" }, { status: 500 });
     }
 
-    const placeholders = productIds.map((_, i) => `$${i + 1}`).join(', ');
-    const queueProducts = await query<any>(
-      `SELECT * FROM product_queue WHERE id IN (${placeholders}) AND status = 'approved'`,
-      productIds
-    );
+    const { data: queueProducts, error: queueError } = await admin
+      .from('product_queue')
+      .select('*')
+      .in('id', productIds)
+      .eq('status', 'approved');
+
+    if (queueError) {
+      console.error("[Import Execute] Queue query error:", queueError);
+      return NextResponse.json({ ok: false, error: queueError.message }, { status: 500 });
+    }
 
     if (!queueProducts || queueProducts.length === 0) {
       return NextResponse.json({ ok: false, error: "No approved products found in queue" }, { status: 400 });
@@ -134,10 +138,14 @@ export async function POST(req: NextRequest) {
           .maybeSingle();
 
         if (existing) {
-          await execute(
-            `UPDATE product_queue SET status = 'imported', shopixo_product_id = $1, imported_at = NOW() WHERE id = $2`,
-            [existing.id, qp.id]
-          );
+          await admin
+            .from('product_queue')
+            .update({
+              status: 'imported',
+              shopixo_product_id: existing.id,
+              imported_at: new Date().toISOString()
+            })
+            .eq('id', qp.id);
 
           results.push({ id: qp.id, success: true, shopixoId: existing.id, error: "Already imported" });
           continue;
@@ -199,16 +207,16 @@ export async function POST(req: NextRequest) {
           throw new Error(insertErr?.message || "Failed to create product");
         }
 
-        await execute(
-          `UPDATE product_queue SET 
-            status = 'imported', 
-            shopixo_product_id = $1, 
-            imported_at = NOW(),
-            calculated_retail_sar = $2,
-            margin_applied = $3
-          WHERE id = $4`,
-          [newProduct.id, pricing.retailSar, pricing.marginApplied, qp.id]
-        );
+        await admin
+          .from('product_queue')
+          .update({
+            status: 'imported',
+            shopixo_product_id: newProduct.id,
+            imported_at: new Date().toISOString(),
+            calculated_retail_sar: pricing.retailSar,
+            margin_applied: pricing.marginApplied
+          })
+          .eq('id', qp.id);
 
         results.push({ id: qp.id, success: true, shopixoId: newProduct.id });
 
@@ -222,19 +230,16 @@ export async function POST(req: NextRequest) {
     const failCount = results.filter(r => !r.success).length;
 
     try {
-      await execute(
-        `INSERT INTO import_logs (action, status, details) VALUES ($1, $2, $3)`,
-        [
-          "import_execute",
-          failCount === 0 ? "success" : "partial",
-          JSON.stringify({ 
-            requested: productIds.length, 
-            imported: successCount, 
-            failed: failCount,
-            results 
-          })
-        ]
-      );
+      await admin.from('import_logs').insert({
+        action: "import_execute",
+        status: failCount === 0 ? "success" : "partial",
+        details: { 
+          requested: productIds.length, 
+          imported: successCount, 
+          failed: failCount,
+          results 
+        }
+      });
     } catch (logErr) {
       console.error("Failed to log import:", logErr);
     }
@@ -253,12 +258,21 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
-    const products = await query<any>(
-      `SELECT id, name_en, cj_product_id FROM product_queue 
-       WHERE status = 'approved' 
-       ORDER BY quality_score DESC 
-       LIMIT 100`
-    );
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
+    }
+
+    const { data: products, error } = await admin
+      .from('product_queue')
+      .select('id, name_en, cj_product_id')
+      .eq('status', 'approved')
+      .order('quality_score', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json({
       ok: true,
