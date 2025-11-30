@@ -27,7 +27,13 @@ const nextConfig = {
   reactStrictMode: true,
   experimental: { typedRoutes: true },
   // Allow dev requests from Replit proxy domain to fix session cookie issues
-  allowedDevOrigins: ['*'],
+  allowedDevOrigins: [
+    '087de71f-a4d5-47eb-befe-4a08eba1d9db-00-dvasa290bxjj.kirk.replit.dev',
+    '*.kirk.replit.dev',
+    '*.replit.dev',
+    'localhost:5000',
+    '127.0.0.1:5000',
+  ],
   // Increase SSG timeout for heavy concurrent renders in CI
   staticPageGenerationTimeout: 180,
   eslint: {
