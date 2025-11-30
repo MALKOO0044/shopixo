@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { slugify } from "@/lib/utils/slug";
+import { hasColumn, hasTable } from "@/lib/db-features";
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -98,6 +100,33 @@ function generateSku(prefix: string, productId: string, variantIndex: number): s
   return `${prefix}-${productId.slice(-4).toUpperCase()}-${variantIndex + 1}-${random}`;
 }
 
+async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
+  const s = slugify(base);
+  let candidate = s;
+  for (let i = 2; i <= 50; i++) {
+    const { data } = await admin
+      .from('products')
+      .select('id')
+      .eq('slug', candidate)
+      .maybeSingle();
+    if (!data) return candidate;
+    candidate = `${s}-${i}`;
+  }
+  return `${s}-${Date.now()}`;
+}
+
+async function omitMissingColumns(payload: Record<string, any>, cols: string[]) {
+  for (const c of cols) {
+    if (!(c in payload)) continue;
+    try {
+      const exists = await hasColumn('products', c);
+      if (!exists) delete payload[c];
+    } catch {
+      delete payload[c];
+    }
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -127,15 +156,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "No approved products found in queue" }, { status: 400 });
     }
 
+    const hasCjProductIdColumn = await hasColumn('products', 'cj_product_id');
+    const hasVariantsTable = await hasTable('product_variants');
+
     const results: { id: number; success: boolean; shopixoId?: string; error?: string }[] = [];
 
     for (const qp of queueProducts) {
       try {
-        const { data: existing } = await admin
-          .from("products")
-          .select("id")
-          .eq("metadata->cj_product_id", qp.cj_product_id)
-          .maybeSingle();
+        let existing: any = null;
+        if (hasCjProductIdColumn) {
+          const { data } = await admin
+            .from("products")
+            .select("id")
+            .eq("cj_product_id", qp.cj_product_id)
+            .maybeSingle();
+          existing = data;
+        }
 
         if (existing) {
           await admin
@@ -168,57 +204,88 @@ export async function POST(req: NextRequest) {
         }));
 
         const totalStock = variants.reduce((sum: number, v: any) => sum + (v.stock || 0), 0);
-
         const rawImages = typeof qp.images === 'string' ? JSON.parse(qp.images) : (qp.images || []);
+        const baseSlug = await ensureUniqueSlug(admin, qp.name_en);
 
-        const { data: newProduct, error: insertErr } = await admin
-          .from("products")
-          .insert({
-            title: qp.name_en,
-            title_ar: qp.name_ar || null,
-            description: qp.description_en || null,
-            description_ar: qp.description_ar || null,
-            price: pricing.retailSar,
-            compare_at_price: null,
-            category: qp.category || "General",
-            stock: totalStock,
-            active: totalStock > 0,
-            images: rawImages,
-            video_url: qp.video_url || null,
-            metadata: {
-              cj_product_id: qp.cj_product_id,
-              cj_sku: qp.cj_sku,
-              variants: variants,
-              cost_usd: avgPrice,
-              shipping_usd: shippingCost,
-              pricing_breakdown: pricing.breakdown,
-              margin_applied: pricing.marginApplied,
-              supplier_rating: qp.supplier_rating,
-              processing_days: qp.processing_days,
-              delivery_days_min: qp.delivery_days_min,
-              delivery_days_max: qp.delivery_days_max,
-              imported_at: new Date().toISOString(),
-            },
-          })
-          .select("id")
-          .single();
+        const productPayload: Record<string, any> = {
+          title: qp.name_en,
+          slug: baseSlug,
+          price: pricing.retailSar,
+          category: qp.category || "General",
+          stock: totalStock,
+        };
 
-        if (insertErr || !newProduct) {
-          throw new Error(insertErr?.message || "Failed to create product");
+        const optionalFields: Record<string, any> = {
+          description: qp.description_en || '',
+          images: rawImages,
+          video_url: qp.video_url || null,
+          is_active: totalStock > 0,
+          cj_product_id: qp.cj_product_id,
+          free_shipping: true,
+          processing_time_hours: qp.processing_days ? qp.processing_days * 24 : null,
+          delivery_time_hours: qp.delivery_days_max ? qp.delivery_days_max * 24 : null,
+        };
+
+        await omitMissingColumns(optionalFields, [
+          'description', 'images', 'video_url', 'is_active', 'cj_product_id',
+          'free_shipping', 'processing_time_hours', 'delivery_time_hours'
+        ]);
+
+        const fullPayload = { ...productPayload, ...optionalFields };
+
+        let productId: number;
+        try {
+          const { data: newProduct, error: insertErr } = await admin
+            .from("products")
+            .insert(fullPayload)
+            .select("id")
+            .single();
+
+          if (insertErr || !newProduct) {
+            throw insertErr || new Error("Failed to create product");
+          }
+          productId = newProduct.id as number;
+        } catch (e: any) {
+          const msg = String(e?.message || e || '');
+          if (/duplicate key|unique constraint|unique violation|already exists/i.test(msg)) {
+            fullPayload.slug = await ensureUniqueSlug(admin, qp.name_en + '-' + Date.now());
+            const { data: newProduct2, error: err2 } = await admin
+              .from("products")
+              .insert(fullPayload)
+              .select("id")
+              .single();
+            if (err2 || !newProduct2) throw err2 || new Error("Failed to create product (retry)");
+            productId = newProduct2.id as number;
+          } else {
+            throw e;
+          }
+        }
+
+        if (hasVariantsTable && variants.length > 0) {
+          const variantRows = variants.map((v: any) => ({
+            product_id: productId,
+            option_name: v.size ? 'Size' : (v.color ? 'Color' : 'Default'),
+            option_value: v.size || v.color || 'Default',
+            cj_sku: v.cj_sku || null,
+            price: v.price_sar,
+            stock: v.stock,
+          }));
+
+          await admin.from('product_variants').insert(variantRows);
         }
 
         await admin
           .from('product_queue')
           .update({
             status: 'imported',
-            shopixo_product_id: newProduct.id,
+            shopixo_product_id: productId,
             imported_at: new Date().toISOString(),
             calculated_retail_sar: pricing.retailSar,
             margin_applied: pricing.marginApplied
           })
           .eq('id', qp.id);
 
-        results.push({ id: qp.id, success: true, shopixoId: newProduct.id });
+        results.push({ id: qp.id, success: true, shopixoId: String(productId) });
 
       } catch (e: any) {
         console.error(`Failed to import product ${qp.id}:`, e);
