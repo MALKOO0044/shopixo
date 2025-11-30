@@ -109,12 +109,36 @@ async function fetchCjProductPage(token: string, base: string, keyword: string, 
   }
 }
 
+async function fetchCjProductsByCategoryId(token: string, base: string, categoryId: string, pageNum: number, pageSize: number): Promise<{ list: any[]; total: number }> {
+  const params = new URLSearchParams();
+  params.set('categoryId', categoryId);
+  params.set('pageSize', String(pageSize));
+  params.set('pageNum', String(pageNum));
+  
+  try {
+    const res = await fetchJson<any>(`${base}/product/list?${params}`, {
+      headers: {
+        'CJ-Access-Token': token,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+      timeoutMs: 20000,
+    });
+    return {
+      list: res?.data?.list || [],
+      total: res?.data?.total || 0,
+    };
+  } catch {
+    return { list: [], total: 0 };
+  }
+}
+
 export async function GET(req: Request) {
   const log = loggerForRequest(req);
   try {
     const guard = await ensureAdmin();
     if (!guard.ok) {
-      const r = NextResponse.json({ ok: false, version: 'query-v4', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+      const r = NextResponse.json({ ok: false, version: 'query-v5', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
@@ -123,6 +147,7 @@ export async function GET(req: Request) {
     const keyword = searchParams.get('keyword') || undefined;
     const urlParam = searchParams.get('url') || undefined;
     const categoryId = searchParams.get('category') || undefined;
+    const categoryIds = searchParams.get('categoryIds') || undefined;
     const quantity = Math.max(1, Number(searchParams.get('quantity') || 25));
     const strictMode = searchParams.get('strict') !== 'false';
     const minRating = Number(searchParams.get('minRating') || 0);
@@ -134,8 +159,8 @@ export async function GET(req: Request) {
       pid = await extractGuidPidFromCjHtml(urlParam);
     }
 
-    if (!pid && !keyword) {
-      const r = NextResponse.json({ ok: false, error: 'Provide pid or keyword' }, { status: 400 });
+    if (!pid && !keyword && !categoryIds) {
+      const r = NextResponse.json({ ok: false, error: 'Provide pid, keyword, or categoryIds' }, { status: 400 });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
@@ -160,7 +185,7 @@ export async function GET(req: Request) {
       const searchTokens = tokenize(keyword);
       
       const { requiredConcepts, genderExclusions } = classifyQuery(keyword);
-      console.log(`[Search v4] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}, MinRating: ${minRating}, IncludeUnrated: ${includeUnrated}`);
+      console.log(`[Search v5] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}, MinRating: ${minRating}, IncludeUnrated: ${includeUnrated}`);
       
       const pageSize = 50;
       const maxPagesForQuantity = Math.ceil(quantity * 20 / pageSize);
@@ -173,11 +198,11 @@ export async function GET(req: Request) {
       const startTime = Date.now();
       const maxDurationMs = quantity > 1000 ? 180000 : (quantity > 500 ? 120000 : 90000);
       
-      console.log(`[Search v4] Config: maxPages=${maxPages}, maxDuration=${maxDurationMs}ms, pageSize=${pageSize}`);
+      console.log(`[Search v5] Config: maxPages=${maxPages}, maxDuration=${maxDurationMs}ms, pageSize=${pageSize}`);
       
       for (let page = 1; page <= maxPages; page++) {
         if (Date.now() - startTime > maxDurationMs) {
-          console.log(`[Search v4] Timeout reached after ${page - 1} pages, ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed`);
+          console.log(`[Search v5] Timeout reached after ${page - 1} pages, ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed`);
           break;
         }
         
@@ -186,13 +211,13 @@ export async function GET(req: Request) {
         totalRawFetched += pageResult.list.length;
         
         if (pageResult.list.length === 0) {
-          console.log(`[Search v4] Empty page at ${page}, stopping`);
+          console.log(`[Search v5] Empty page at ${page}, stopping`);
           break;
         }
         
         if (page === 1) {
           totalFound = pageResult.total;
-          console.log(`[Search v4] CJ reports ${totalFound} total products available`);
+          console.log(`[Search v5] CJ reports ${totalFound} total products available`);
         }
         
         for (const rawItem of pageResult.list) {
@@ -248,17 +273,17 @@ export async function GET(req: Request) {
         }
         
         if (page % 20 === 0 || page === 1) {
-          console.log(`[Search v4] Page ${page}/${maxPages}: ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed, target: ${quantity}, raw: ${totalRawFetched}`);
+          console.log(`[Search v5] Page ${page}/${maxPages}: ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed, target: ${quantity}, raw: ${totalRawFetched}`);
         }
         
         const totalMatched = strictMatchedItems.length + relaxedMatchedItems.length;
         if (totalMatched >= quantity) {
-          console.log(`[Search v4] Target reached with ${totalMatched} matches after ${page} pages`);
+          console.log(`[Search v5] Target reached with ${totalMatched} matches after ${page} pages`);
           break;
         }
         
         if (pageResult.list.length < pageSize) {
-          console.log(`[Search v4] Partial page at ${page} (${pageResult.list.length}/${pageSize}), stopping`);
+          console.log(`[Search v5] Partial page at ${page} (${pageResult.list.length}/${pageSize}), stopping`);
           break;
         }
       }
@@ -284,14 +309,112 @@ export async function GET(req: Request) {
       items = combined.slice(0, quantity);
       
       const duration = Date.now() - startTime;
-      console.log(`[Search v4] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms`);
-      console.log(`[Search v4] Stats: raw=${totalRawFetched}, unique=${seenPids.size}, strict=${strictMatchedItems.length}, relaxed=${relaxedMatchedItems.length}`);
-      console.log(`[Search v4] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}, noMatch=${skippedNoMatch}`);
+      console.log(`[Search v5] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms`);
+      console.log(`[Search v5] Stats: raw=${totalRawFetched}, unique=${seenPids.size}, strict=${strictMatchedItems.length}, relaxed=${relaxedMatchedItems.length}`);
+      console.log(`[Search v5] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}, noMatch=${skippedNoMatch}`);
+    } else if (categoryIds) {
+      const categoryIdList = categoryIds.split(',').map(id => id.trim()).filter(Boolean);
+      console.log(`[Search v5 Category] Category IDs: [${categoryIdList.join(', ')}], Target: ${quantity}, MinRating: ${minRating}, IncludeUnrated: ${includeUnrated}`);
+      
+      const token = await getAccessToken();
+      const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
+      
+      const pageSize = 50;
+      const seenPids = new Set<string>();
+      const allItems: any[] = [];
+      const startTime = Date.now();
+      const maxDurationMs = quantity > 1000 ? 180000 : (quantity > 500 ? 120000 : 90000);
+      
+      const quantityPerCategory = Math.ceil(quantity / categoryIdList.length);
+      const maxPagesPerCategory = Math.min(2000, Math.ceil(quantityPerCategory * 20 / pageSize));
+      
+      console.log(`[Search v5 Category] Config: ${categoryIdList.length} categories, ~${quantityPerCategory} per category, maxPages=${maxPagesPerCategory}`);
+      
+      for (const catId of categoryIdList) {
+        if (Date.now() - startTime > maxDurationMs) {
+          console.log(`[Search v5 Category] Timeout reached, stopping`);
+          break;
+        }
+        
+        if (allItems.length >= quantity) {
+          console.log(`[Search v5 Category] Target reached with ${allItems.length} items`);
+          break;
+        }
+        
+        let categoryTotal = 0;
+        let categoryItems = 0;
+        
+        for (let page = 1; page <= maxPagesPerCategory; page++) {
+          if (Date.now() - startTime > maxDurationMs) break;
+          if (allItems.length >= quantity) break;
+          
+          const pageResult = await fetchCjProductsByCategoryId(token, base, catId, page, pageSize);
+          pagesFetched++;
+          totalRawFetched += pageResult.list.length;
+          
+          if (page === 1) {
+            categoryTotal = pageResult.total;
+            console.log(`[Search v5 Category] Category ${catId}: ${categoryTotal} products available`);
+          }
+          
+          if (pageResult.list.length === 0) break;
+          
+          for (const rawItem of pageResult.list) {
+            if (allItems.length >= quantity) break;
+            
+            const itemPid = String(rawItem.pid || rawItem.productId || rawItem.id || '');
+            if (seenPids.has(itemPid)) continue;
+            seenPids.add(itemPid);
+            
+            const supplierRating = Number(rawItem.supplierRating || rawItem.score || rawItem.rating || rawItem.productScore || 0);
+            const hasRating = supplierRating > 0;
+            
+            if (minRating > 0) {
+              if (!hasRating) {
+                if (!includeUnrated) {
+                  skippedNoRating++;
+                  continue;
+                }
+              } else if (supplierRating < minRating) {
+                skippedLowRating++;
+                continue;
+              }
+            }
+            
+            const mappedItem = mapCjItemToProductLike(rawItem);
+            if (!mappedItem) continue;
+            
+            (mappedItem as any).supplierRating = hasRating ? supplierRating : null;
+            (mappedItem as any).hasRating = hasRating;
+            (mappedItem as any).categoryId = catId;
+            
+            allItems.push(mappedItem);
+            categoryItems++;
+          }
+          
+          if (pageResult.list.length < pageSize) break;
+        }
+        
+        console.log(`[Search v5 Category] Category ${catId}: fetched ${categoryItems} items`);
+        totalFound += categoryTotal;
+      }
+      
+      allItems.sort((a, b) => {
+        const ratingA = (a as any).hasRating ? ((a as any).supplierRating || 0) : -1;
+        const ratingB = (b as any).hasRating ? ((b as any).supplierRating || 0) : -1;
+        return ratingB - ratingA;
+      });
+      
+      items = allItems.slice(0, quantity);
+      
+      const duration = Date.now() - startTime;
+      console.log(`[Search v5 Category] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms`);
+      console.log(`[Search v5 Category] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}`);
     }
 
     const r = NextResponse.json({ 
       ok: true, 
-      version: 'query-v4', 
+      version: 'query-v5', 
       count: items.length,
       requested: quantity,
       totalFound,
@@ -307,8 +430,8 @@ export async function GET(req: Request) {
     r.headers.set('x-request-id', log.requestId);
     return r;
   } catch (e: any) {
-    console.error('[Search v4] Error:', e?.message);
-    const r = NextResponse.json({ ok: false, version: 'query-v4', error: e?.message || 'CJ query failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    console.error('[Search v5] Error:', e?.message);
+    const r = NextResponse.json({ ok: false, version: 'query-v5', error: e?.message || 'CJ query failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', loggerForRequest(req).requestId);
     return r;
   }

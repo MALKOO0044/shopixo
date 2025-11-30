@@ -38,14 +38,22 @@ type CjProduct = {
   qualityScore?: number;
 };
 
+type Feature = {
+  featureId: string;
+  featureName: string;
+  level: number;
+  parentId?: string;
+};
+
 type Category = {
   categoryId: string;
   categoryName: string;
+  features: Feature[];
 };
 
 export default function ProductDiscoveryPage() {
-  const [keywords, setKeywords] = useState("");
-  const [category, setCategory] = useState("all");
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
   const [quantity, setQuantity] = useState(25);
   const [minStock, setMinStock] = useState(10);
   const [maxPrice, setMaxPrice] = useState(100);
@@ -61,6 +69,7 @@ export default function ProductDiscoveryPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   
   const [categories, setCategories] = useState<Category[]>([]);
+  const [featuresDropdownOpen, setFeaturesDropdownOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<{
     connected: boolean;
     latency: number;
@@ -122,9 +131,31 @@ export default function ProductDiscoveryPage() {
     return (rating / 5 * ratingWeight) + (stockScore * 0.3) + (priceScore * (0.7 - ratingWeight));
   }, []);
 
+  const currentCategory = categories.find(c => c.categoryId === selectedCategory);
+  const availableFeatures = currentCategory?.features || [];
+
+  const handleCategoryChange = (categoryId: string) => {
+    setSelectedCategory(categoryId);
+    setSelectedFeatures([]);
+  };
+
+  const toggleFeature = (featureId: string) => {
+    setSelectedFeatures(prev => {
+      if (prev.includes(featureId)) {
+        return prev.filter(id => id !== featureId);
+      } else {
+        return [...prev, featureId];
+      }
+    });
+  };
+
   const searchProducts = async () => {
-    if (!keywords.trim()) {
-      setError("Please enter search keywords");
+    if (!selectedCategory) {
+      setError("Please select a category");
+      return;
+    }
+    if (selectedFeatures.length === 0) {
+      setError("Please select at least one feature");
       return;
     }
     
@@ -137,9 +168,8 @@ export default function ProductDiscoveryPage() {
     
     try {
       const params = new URLSearchParams({
-        keyword: keywords.trim(),
+        categoryIds: selectedFeatures.join(","),
         quantity: quantity.toString(),
-        category: category,
         minPrice: minPrice.toString(),
         maxPrice: maxPrice.toString(),
         minStock: minStock.toString(),
@@ -251,13 +281,20 @@ export default function ProductDiscoveryPage() {
     try {
       const selectedProducts = products.filter(p => selected.has(p.productId));
       
+      const categoryName = currentCategory?.categoryName || "Unknown";
+      const featureNames = selectedFeatures
+        .map(id => availableFeatures.find(f => f.featureId === id)?.featureName)
+        .filter(Boolean)
+        .join(", ");
+      
       const res = await fetch("/api/admin/import/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: batchName || `${keywords} - ${new Date().toLocaleDateString()}`,
-          keywords,
-          category,
+          name: batchName || `${categoryName} - ${featureNames} - ${new Date().toLocaleDateString()}`,
+          keywords: `${categoryName}: ${featureNames}`,
+          category: selectedCategory,
+          categoryIds: selectedFeatures,
           filters: { minStock, minPrice, maxPrice, profitMargin, minRating, freeShippingOnly },
           products: selectedProducts,
         }),
@@ -326,26 +363,13 @@ export default function ProductDiscoveryPage() {
         
         <div className="grid grid-cols-3 gap-6 mb-6">
           <div>
-            <label className="block text-sm text-gray-600 mb-2">Keyword</label>
-            <input
-              type="text"
-              value={keywords}
-              onChange={(e) => setKeywords(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && searchProducts()}
-              placeholder="e.g., women blouse, men shirt"
-              className="w-full px-3 py-2 border border-gray-300 rounded"
-              dir="ltr"
-            />
-          </div>
-          
-          <div>
             <label className="block text-sm text-gray-600 mb-2">Category</label>
             <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
+              value={selectedCategory}
+              onChange={(e) => handleCategoryChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded"
             >
-              <option value="all">All Categories</option>
+              <option value="">Select a Category</option>
               {categories.map(cat => (
                 <option key={cat.categoryId} value={cat.categoryId}>{cat.categoryName}</option>
               ))}
@@ -353,11 +377,72 @@ export default function ProductDiscoveryPage() {
           </div>
           
           <div>
+            <label className="block text-sm text-gray-600 mb-2">
+              Features {selectedFeatures.length > 0 && `(${selectedFeatures.length} selected)`}
+            </label>
+            <div className="relative">
+              <div 
+                onClick={() => selectedCategory && setFeaturesDropdownOpen(!featuresDropdownOpen)}
+                className={`w-full min-h-[42px] px-3 py-2 border border-gray-300 rounded bg-white ${
+                  !selectedCategory ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:border-gray-400"
+                }`}
+              >
+                {!selectedCategory ? (
+                  <span className="text-gray-400">Select category first</span>
+                ) : selectedFeatures.length === 0 ? (
+                  <span className="text-gray-400">Click to select features</span>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {selectedFeatures.slice(0, 3).map(id => {
+                      const feature = availableFeatures.find(f => f.featureId === id);
+                      return (
+                        <span key={id} className="inline-flex items-center px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded">
+                          {feature?.featureName?.split(" > ")[0] || id.slice(0, 8)}
+                        </span>
+                      );
+                    })}
+                    {selectedFeatures.length > 3 && (
+                      <span className="text-xs text-gray-500">+{selectedFeatures.length - 3} more</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              {featuresDropdownOpen && selectedCategory && availableFeatures.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 max-h-60 overflow-y-auto bg-white border border-gray-300 rounded shadow-lg">
+                  <div className="sticky top-0 bg-gray-100 px-3 py-2 border-b flex justify-between items-center">
+                    <span className="text-xs text-gray-600">{availableFeatures.length} features available</span>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setFeaturesDropdownOpen(false); }}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      Done
+                    </button>
+                  </div>
+                  {availableFeatures.map(feature => (
+                    <label
+                      key={feature.featureId}
+                      className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedFeatures.includes(feature.featureId)}
+                        onChange={() => toggleFeature(feature.featureId)}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2"
+                      />
+                      <span className="text-sm text-gray-700">{feature.featureName}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div>
             <label className="block text-sm text-gray-600 mb-2">Quantity to Find</label>
             <div className="flex items-center gap-2">
               <button
                 onClick={searchProducts}
-                disabled={loading}
+                disabled={loading || !selectedCategory || selectedFeatures.length === 0}
                 className="px-4 py-2 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50 text-sm font-medium"
               >
                 {loading ? "..." : "Load"}

@@ -3,15 +3,21 @@ import { getAccessToken } from "@/lib/cj/v2";
 
 export const dynamic = "force-dynamic";
 
-type FlatCategory = { 
-  categoryId: string; 
-  categoryName: string;
+type Feature = {
+  featureId: string;
+  featureName: string;
   level: number;
   parentId?: string;
 };
 
-function buildCategoryTree(nodes: any[]): FlatCategory[] {
-  const result: FlatCategory[] = [];
+type CategoryWithFeatures = { 
+  categoryId: string; 
+  categoryName: string;
+  features: Feature[];
+};
+
+function buildCategoryHierarchy(nodes: any[]): CategoryWithFeatures[] {
+  const result: CategoryWithFeatures[] = [];
   
   if (!Array.isArray(nodes)) return result;
   
@@ -22,13 +28,9 @@ function buildCategoryTree(nodes: any[]): FlatCategory[] {
     const firstName = firstLevel.categoryFirstName || firstLevel.categoryName || firstLevel.name;
     
     if (firstId && firstName) {
-      result.push({
-        categoryId: String(firstId),
-        categoryName: String(firstName),
-        level: 1,
-      });
+      const features: Feature[] = [];
       
-      const secondLevelArray = firstLevel.categorySecond || firstLevel.children || [];
+      const secondLevelArray = firstLevel.categoryFirstList || firstLevel.categorySecond || firstLevel.children || [];
       if (Array.isArray(secondLevelArray)) {
         for (const secondLevel of secondLevelArray) {
           if (!secondLevel || typeof secondLevel !== 'object') continue;
@@ -37,14 +39,16 @@ function buildCategoryTree(nodes: any[]): FlatCategory[] {
           const secondName = secondLevel.categorySecondName || secondLevel.categoryName || secondLevel.name;
           
           if (secondId && secondName) {
-            result.push({
-              categoryId: String(secondId),
-              categoryName: `${firstName} > ${secondName}`,
+            const cleanSecondName = String(secondName).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+            
+            features.push({
+              featureId: String(secondId),
+              featureName: cleanSecondName,
               level: 2,
               parentId: String(firstId),
             });
             
-            const thirdLevelArray = secondLevel.categoryThird || secondLevel.children || [];
+            const thirdLevelArray = secondLevel.categorySecondList || secondLevel.categoryThird || secondLevel.children || [];
             if (Array.isArray(thirdLevelArray)) {
               for (const thirdLevel of thirdLevelArray) {
                 if (!thirdLevel || typeof thirdLevel !== 'object') continue;
@@ -53,9 +57,11 @@ function buildCategoryTree(nodes: any[]): FlatCategory[] {
                 const thirdName = thirdLevel.categoryThirdName || thirdLevel.categoryName || thirdLevel.name;
                 
                 if (thirdId && thirdName) {
-                  result.push({
-                    categoryId: String(thirdId),
-                    categoryName: `${firstName} > ${secondName} > ${thirdName}`,
+                  const cleanThirdName = String(thirdName).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+                  
+                  features.push({
+                    featureId: String(thirdId),
+                    featureName: `${cleanSecondName} > ${cleanThirdName}`,
                     level: 3,
                     parentId: String(secondId),
                   });
@@ -65,6 +71,12 @@ function buildCategoryTree(nodes: any[]): FlatCategory[] {
           }
         }
       }
+      
+      result.push({
+        categoryId: String(firstId),
+        categoryName: String(firstName),
+        features,
+      });
     }
   }
   
@@ -102,8 +114,9 @@ export async function GET() {
         console.log("[CJ Categories] First category sample:", JSON.stringify(rawCategories[0]).slice(0, 500));
       }
       
-      const categories = buildCategoryTree(rawCategories);
-      console.log("[CJ Categories] Tree count:", categories.length, "First level:", categories.filter(c => c.level === 1).length);
+      const categories = buildCategoryHierarchy(rawCategories);
+      const totalFeatures = categories.reduce((sum, cat) => sum + cat.features.length, 0);
+      console.log("[CJ Categories] Categories count:", categories.length, "Total features:", totalFeatures);
       
       if (categories.length === 0 && rawCategories.length > 0) {
         console.log("[CJ Categories] WARNING: Raw data exists but parsing returned 0. Raw sample:", JSON.stringify(rawCategories.slice(0, 2)).slice(0, 1000));
@@ -113,6 +126,7 @@ export async function GET() {
         ok: true, 
         categories,
         total: categories.length,
+        totalFeatures,
         rawCount: rawCategories.length,
       });
     }
