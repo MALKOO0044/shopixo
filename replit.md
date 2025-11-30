@@ -6,7 +6,19 @@ Shopixo is a modern, professional e-commerce platform targeting the Saudi Arabia
 
 # Recent Changes (November 2025)
 
-## Import System Migration to Supabase (Latest - November 30, 2025)
+## Product Discovery Smart Matching Fix (Latest - November 30, 2025)
+- **Fixed Empty Results Issue**: Products were not displaying after search due to overly strict smart matching
+  - Root cause: Lexicon-based matcher was rejecting products when CJ product names didn't match concepts
+  - Fix: Added fallback to accept products when matcher can't identify any concepts
+  - Products with no concept match are now accepted with lowest priority
+- **Rating Filter Improvements**:
+  - `includeUnrated` now defaults to `false` when `minRating > 0`
+  - Eliminated random rating assignment for consistency
+  - Backend filters enforce rating constraints before returning results
+- **Quantity Scaling**: Removed 2000 product cap, supports up to 500,000 products
+- **Pagination**: Extended to 2000 pages with 3-minute timeout for large requests
+
+## Import System Migration to Supabase (November 30, 2025)
 - **Unified Database Architecture**: Migrated entire import system from Replit PostgreSQL to Supabase
   - All import tables (import_batches, product_queue, import_logs) now in Supabase
   - Eliminates two-database design for production/development parity

@@ -233,6 +233,12 @@ export async function GET(req: Request) {
               strictMatchedItems.push(mappedItem);
             } else if (relaxedResult.matches) {
               relaxedMatchedItems.push(mappedItem);
+            } else if (!strictResult.hasProductMatch) {
+              // Fallback: if matcher couldn't identify any product concepts, accept the item
+              // This handles cases where CJ product names don't match our lexicon
+              (mappedItem as any)._matchScore = 0;
+              (mappedItem as any)._matchRatio = 0;
+              relaxedMatchedItems.push(mappedItem);
             } else {
               skippedNoMatch++;
             }
