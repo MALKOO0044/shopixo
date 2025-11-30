@@ -168,7 +168,11 @@ export async function GET(req: Request) {
     const strictMode = searchParams.get('strict') !== 'false';
     const minRating = Number(searchParams.get('minRating') || 0);
     const includeUnratedParam = searchParams.get('includeUnrated');
-    const includeUnrated = includeUnratedParam === 'true' ? true : (includeUnratedParam === 'false' ? false : (minRating <= 0));
+    // Always include unrated products by default - only filter out products that HAVE a rating below threshold
+    const includeUnrated = includeUnratedParam === 'false' ? false : true;
+    const minStock = Number(searchParams.get('minStock') || 0);
+    const minPrice = Number(searchParams.get('minPrice') || 0);
+    const maxPrice = Number(searchParams.get('maxPrice') || 0);
     
     if (!pid && urlParam) pid = extractPidFromUrl(urlParam);
     if (!pid && urlParam) {
@@ -201,7 +205,10 @@ export async function GET(req: Request) {
       const searchTokens = tokenize(keyword);
       
       const { requiredConcepts, genderExclusions } = classifyQuery(keyword);
-      console.log(`[Search v5] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}, MinRating: ${minRating}, IncludeUnrated: ${includeUnrated}`);
+      console.log(`[Search v5] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}, MinRating: ${minRating}, IncludeUnrated: ${includeUnrated}, MinStock: ${minStock}, MinPrice: ${minPrice}, MaxPrice: ${maxPrice}`);
+      
+      let skippedLowStock = 0;
+      let skippedPrice = 0;
       
       const pageSize = 50;
       const maxPagesForQuantity = Math.ceil(quantity * 20 / pageSize);
@@ -258,11 +265,31 @@ export async function GET(req: Request) {
             }
           }
           
+          // Apply stock filter from raw item before mapping
+          const itemStock = Number(rawItem.stock ?? rawItem.inventory ?? rawItem.listingCount ?? rawItem.listedNum ?? rawItem.quantity ?? 0);
+          if (minStock > 0 && itemStock < minStock) {
+            skippedLowStock++;
+            continue;
+          }
+          
+          // Apply price filter from raw item before mapping
+          const itemPrice = Number(rawItem.sellPrice ?? rawItem.price ?? rawItem.salePrice ?? rawItem.costPrice ?? 0);
+          if (minPrice > 0 && itemPrice > 0 && itemPrice < minPrice) {
+            skippedPrice++;
+            continue;
+          }
+          if (maxPrice > 0 && itemPrice > 0 && itemPrice > maxPrice) {
+            skippedPrice++;
+            continue;
+          }
+          
           const mappedItem = mapCjItemToProductLike(rawItem);
           if (!mappedItem) continue;
           
           (mappedItem as any).supplierRating = hasRating ? supplierRating : null;
           (mappedItem as any).hasRating = hasRating;
+          (mappedItem as any).totalStock = itemStock;
+          (mappedItem as any).avgPrice = itemPrice;
           
           if (strictMode && searchTokens.length > 0 && requiredConcepts.size > 0) {
             const strictResult = smartMatch(mappedItem.name || '', keyword, false);
@@ -327,10 +354,13 @@ export async function GET(req: Request) {
       const duration = Date.now() - startTime;
       console.log(`[Search v5] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms`);
       console.log(`[Search v5] Stats: raw=${totalRawFetched}, unique=${seenPids.size}, strict=${strictMatchedItems.length}, relaxed=${relaxedMatchedItems.length}`);
-      console.log(`[Search v5] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}, noMatch=${skippedNoMatch}`);
+      console.log(`[Search v5] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}, noMatch=${skippedNoMatch}, lowStock=${skippedLowStock}, price=${skippedPrice}`);
     } else if (categoryIds) {
       const categoryIdList = categoryIds.split(',').map(id => id.trim()).filter(Boolean);
-      console.log(`[Search v5 Category] Category IDs: [${categoryIdList.join(', ')}], Target: ${quantity}, MinRating: ${minRating}, IncludeUnrated: ${includeUnrated}`);
+      console.log(`[Search v5 Category] Category IDs: [${categoryIdList.join(', ')}], Target: ${quantity}, MinRating: ${minRating}, IncludeUnrated: ${includeUnrated}, MinStock: ${minStock}, MinPrice: ${minPrice}, MaxPrice: ${maxPrice}`);
+      
+      let skippedLowStock = 0;
+      let skippedPrice = 0;
       
       const token = await getAccessToken();
       const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
@@ -397,12 +427,34 @@ export async function GET(req: Request) {
               }
             }
             
+            // Apply stock filter from raw item before mapping
+            // CJ uses various field names for stock: stock, inventory, listingCount, listedNum, quantity
+            const itemStock = Number(rawItem.stock ?? rawItem.inventory ?? rawItem.listingCount ?? rawItem.listedNum ?? rawItem.quantity ?? 0);
+            if (minStock > 0 && itemStock < minStock) {
+              skippedLowStock++;
+              continue;
+            }
+            
+            // Apply price filter from raw item before mapping
+            // CJ uses: sellPrice, price, salePrice, costPrice (numeric, not nested object)
+            const itemPrice = Number(rawItem.sellPrice ?? rawItem.price ?? rawItem.salePrice ?? rawItem.costPrice ?? 0);
+            if (minPrice > 0 && itemPrice > 0 && itemPrice < minPrice) {
+              skippedPrice++;
+              continue;
+            }
+            if (maxPrice > 0 && itemPrice > 0 && itemPrice > maxPrice) {
+              skippedPrice++;
+              continue;
+            }
+            
             const mappedItem = mapCjItemToProductLike(rawItem);
             if (!mappedItem) continue;
             
             (mappedItem as any).supplierRating = hasRating ? supplierRating : null;
             (mappedItem as any).hasRating = hasRating;
             (mappedItem as any).categoryId = catId;
+            (mappedItem as any).totalStock = itemStock;
+            (mappedItem as any).avgPrice = itemPrice;
             
             allItems.push(mappedItem);
             categoryItems++;
@@ -425,7 +477,7 @@ export async function GET(req: Request) {
       
       const duration = Date.now() - startTime;
       console.log(`[Search v5 Category] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms`);
-      console.log(`[Search v5 Category] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}`);
+      console.log(`[Search v5 Category] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}, lowStock=${skippedLowStock}, price=${skippedPrice}`);
     }
 
     const r = NextResponse.json({ 
