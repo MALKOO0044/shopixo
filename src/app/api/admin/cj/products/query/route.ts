@@ -243,7 +243,7 @@ export async function GET(req: Request) {
           
           allRawItems.push(rawItem);
           
-          const supplierRating = Number(rawItem.supplierRating || rawItem.score || rawItem.rating || rawItem.productScore || 0);
+          const supplierRating = Number(rawItem.supplierScore || rawItem.supplierRating || rawItem.score || rawItem.rating || rawItem.productScore || 0);
           const hasRating = supplierRating > 0;
           
           if (minRating > 0) {
@@ -382,7 +382,7 @@ export async function GET(req: Request) {
             if (seenPids.has(itemPid)) continue;
             seenPids.add(itemPid);
             
-            const supplierRating = Number(rawItem.supplierRating || rawItem.score || rawItem.rating || rawItem.productScore || 0);
+            const supplierRating = Number(rawItem.supplierScore || rawItem.supplierRating || rawItem.score || rawItem.rating || rawItem.productScore || 0);
             const hasRating = supplierRating > 0;
             
             if (minRating > 0) {
