@@ -25,6 +25,37 @@ type VariantInventory = {
   totalStock: number;
 };
 
+type EnrichedProduct = {
+  pid: string;
+  nameEn: string;
+  nameAr: string | null;
+  descriptionEn: string | null;
+  descriptionAr: string | null;
+  colors: string[];
+  sizes: string[];
+  variants: Array<{
+    sku: string;
+    color: string | null;
+    size: string | null;
+    price: number;
+    cjStock: number;
+    factoryStock: number;
+    totalStock: number;
+  }>;
+  totalCjStock: number;
+  totalFactoryStock: number;
+  totalStock: number;
+  processingTimeHours: number | null;
+  processingTimeDisplay: string | null;
+  shippingToSA: {
+    estimatedDays: { min?: number; max?: number } | null;
+    shippingCost: number | null;
+    shippingMethod: string | null;
+  } | null;
+  notes: string | null;
+  supplierRating: number;
+};
+
 type CjProduct = {
   productId: string;
   name: string;
@@ -84,6 +115,11 @@ export default function ProductDiscoveryPage() {
   const [previewProduct, setPreviewProduct] = useState<CjProduct | null>(null);
   const [variantInventory, setVariantInventory] = useState<VariantInventory[]>([]);
   const [loadingInventory, setLoadingInventory] = useState(false);
+  const [enrichedData, setEnrichedData] = useState<EnrichedProduct | null>(null);
+  const [loadingEnrichment, setLoadingEnrichment] = useState(false);
+  const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
+  const [enrichmentCache, setEnrichmentCache] = useState<Map<string, { data: EnrichedProduct; timestamp: number }>>(new Map());
+  const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache TTL
 
   const testConnection = async () => {
     const start = Date.now();
@@ -254,19 +290,52 @@ export default function ProductDiscoveryPage() {
     e.stopPropagation();
     setPreviewProduct(product);
     setVariantInventory([]);
+    setEnrichmentError(null);
+    
+    const cached = enrichmentCache.get(product.productId);
+    const isCacheValid = cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS;
+    
+    if (isCacheValid && cached) {
+      setEnrichedData(cached.data);
+      setLoadingEnrichment(false);
+    } else {
+      setEnrichedData(null);
+      setLoadingEnrichment(true);
+    }
+    
     setLoadingInventory(true);
     
-    try {
-      const res = await fetch(`/api/admin/cj/products/variants?pid=${encodeURIComponent(product.productId)}`);
-      const data = await res.json();
-      if (data.ok && data.variants) {
-        setVariantInventory(data.variants);
+    const pid = encodeURIComponent(product.productId);
+    
+    const variantsPromise = fetch(`/api/admin/cj/products/variants?pid=${pid}`)
+      .then(r => r.json())
+      .catch(() => ({ ok: false, error: 'Failed to load variants' }));
+    
+    const enrichPromise = isCacheValid && cached
+      ? Promise.resolve({ ok: true, data: cached.data })
+      : fetch(`/api/admin/cj/products/enrich?pid=${pid}`)
+          .then(r => r.json())
+          .catch(() => ({ ok: false, error: 'Failed to load product details' }));
+    
+    Promise.all([variantsPromise, enrichPromise]).then(([variantsData, enrichData]) => {
+      if (variantsData?.ok && variantsData?.variants) {
+        setVariantInventory(variantsData.variants);
       }
-    } catch (e) {
-      console.error("Failed to load variant inventory:", e);
-    } finally {
+      if (enrichData?.ok && enrichData?.data) {
+        setEnrichedData(enrichData.data);
+        if (!isCacheValid) {
+          setEnrichmentCache(prev => new Map(prev).set(product.productId, { data: enrichData.data, timestamp: Date.now() }));
+        }
+      } else if (!enrichData?.ok && enrichData?.error) {
+        setEnrichmentError(enrichData.error);
+      }
       setLoadingInventory(false);
-    }
+      setLoadingEnrichment(false);
+    }).catch((err) => {
+      setEnrichmentError('Failed to load product details');
+      setLoadingInventory(false);
+      setLoadingEnrichment(false);
+    });
   };
 
   const saveBatch = async () => {
@@ -864,17 +933,111 @@ export default function ProductDiscoveryPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Total Stock:</span>
-                      <span className="font-semibold">{previewProduct.totalStock || 0}</span>
+                      <span className="font-semibold">{enrichedData ? `${enrichedData.totalCjStock} CJ + ${enrichedData.totalFactoryStock} Factory` : (previewProduct.totalStock || 0)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Variants:</span>
-                      <span className="font-semibold">{previewProduct.variants.length}</span>
+                      <span className="font-semibold">{enrichedData?.variants.length || previewProduct.variants.length}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Quality Score:</span>
                       <span className="font-semibold">{((previewProduct.qualityScore || 0) * 100).toFixed(0)}%</span>
                     </div>
                   </div>
+                  
+                  {loadingEnrichment && (
+                    <div className="flex items-center gap-2 text-gray-500 text-sm">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading detailed product info...
+                    </div>
+                  )}
+                  
+                  {enrichmentError && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 flex items-center justify-between">
+                      <span>Could not load detailed product info: {enrichmentError}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEnrichmentError(null);
+                          setLoadingEnrichment(true);
+                          const pid = encodeURIComponent(previewProduct.productId);
+                          fetch(`/api/admin/cj/products/enrich?pid=${pid}`)
+                            .then(r => r.json())
+                            .then(data => {
+                              if (data?.ok && data?.data) {
+                                setEnrichedData(data.data);
+                                setEnrichmentCache(prev => new Map(prev).set(previewProduct.productId, { data: data.data, timestamp: Date.now() }));
+                              } else {
+                                setEnrichmentError(data?.error || 'Failed to load');
+                              }
+                            })
+                            .catch(() => setEnrichmentError('Failed to load'))
+                            .finally(() => setLoadingEnrichment(false));
+                        }}
+                        className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
+                  
+                  {enrichedData && (
+                    <div className="space-y-4">
+                      {enrichedData.colors.length > 0 && (
+                        <div>
+                          <h4 className="font-medium text-sm text-gray-700 mb-2">Colors ({enrichedData.colors.length})</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {enrichedData.colors.map((color, i) => (
+                              <span key={i} className="px-3 py-1 bg-gray-100 rounded-full text-sm">{color}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {enrichedData.sizes.length > 0 && (
+                        <div>
+                          <h4 className="font-medium text-sm text-gray-700 mb-2">Sizes ({enrichedData.sizes.length})</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {enrichedData.sizes.map((size, i) => (
+                              <span key={i} className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm font-medium">{size}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        {enrichedData.processingTimeDisplay && (
+                          <div className="bg-amber-50 rounded-lg p-3">
+                            <div className="text-xs text-amber-700 font-medium">Processing Time</div>
+                            <div className="text-sm font-semibold text-amber-900">{enrichedData.processingTimeDisplay}</div>
+                          </div>
+                        )}
+                        
+                        {enrichedData.shippingToSA && (
+                          <div className="bg-green-50 rounded-lg p-3">
+                            <div className="text-xs text-green-700 font-medium">Delivery to Saudi Arabia</div>
+                            <div className="text-sm font-semibold text-green-900">
+                              {enrichedData.shippingToSA.estimatedDays 
+                                ? `${enrichedData.shippingToSA.estimatedDays.min || '?'}-${enrichedData.shippingToSA.estimatedDays.max || '?'} days`
+                                : 'N/A'}
+                            </div>
+                            {enrichedData.shippingToSA.shippingCost !== null && (
+                              <div className="text-xs text-green-600">
+                                ~${enrichedData.shippingToSA.shippingCost?.toFixed(2)} via {enrichedData.shippingToSA.shippingMethod}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      
+                      {enrichedData.notes && (
+                        <div className="bg-gray-100 rounded-lg p-3">
+                          <div className="text-xs text-gray-600 font-medium mb-1">Product Notes</div>
+                          <div className="text-sm text-gray-800">{enrichedData.notes}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   
                   <div>
                     <h4 className="font-medium mb-2">
