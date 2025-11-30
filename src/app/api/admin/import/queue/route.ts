@@ -1,18 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { query, queryOne, execute, isDatabaseConfigured } from "@/lib/db/replit-pg";
 import { calculateRetailSar, usdToSar } from "@/lib/pricing";
 
-function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
-}
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    const admin = getSupabaseAdmin();
-    if (!admin) {
+    if (!isDatabaseConfigured()) {
       return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
     }
 
@@ -23,53 +18,60 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(100, Number(searchParams.get("limit") || 50));
     const offset = Number(searchParams.get("offset") || 0);
 
-    let query = admin
-      .from("product_queue")
-      .select("*", { count: "exact" })
-      .order("quality_score", { ascending: false })
-      .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1);
+    let sql = `SELECT * FROM product_queue WHERE 1=1`;
+    const params: any[] = [];
+    let paramIndex = 1;
 
     if (status !== "all") {
-      query = query.eq("status", status);
+      sql += ` AND status = $${paramIndex++}`;
+      params.push(status);
     }
     if (batchId) {
-      query = query.eq("batch_id", Number(batchId));
+      sql += ` AND batch_id = $${paramIndex++}`;
+      params.push(Number(batchId));
     }
     if (category && category !== "all") {
-      query = query.eq("category", category);
+      sql += ` AND category = $${paramIndex++}`;
+      params.push(category);
     }
 
-    const { data: products, error, count } = await query;
+    sql += ` ORDER BY quality_score DESC, created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+    params.push(limit, offset);
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    }
+    const products = await query<any>(sql, params);
 
-    const { data: stats } = await admin
-      .from("product_queue")
-      .select("status")
-      .then(res => {
-        const counts: Record<string, number> = { pending: 0, approved: 0, rejected: 0, imported: 0 };
-        (res.data || []).forEach((p: any) => {
-          counts[p.status] = (counts[p.status] || 0) + 1;
-        });
-        return { data: counts };
-      });
+    const countResult = await queryOne<{ count: number }>(
+      `SELECT COUNT(*) as count FROM product_queue WHERE status = $1`,
+      [status === "all" ? "pending" : status]
+    );
+
+    const statsResult = await query<{ status: string; count: number }>(
+      `SELECT status, COUNT(*) as count FROM product_queue GROUP BY status`
+    );
+    
+    const stats: Record<string, number> = { pending: 0, approved: 0, rejected: 0, imported: 0 };
+    statsResult.forEach((row) => {
+      stats[row.status] = Number(row.count);
+    });
 
     return NextResponse.json({
       ok: true,
       products: products || [],
-      total: count || 0,
+      total: countResult?.count || 0,
       stats,
     });
   } catch (e: any) {
+    console.error("[Queue GET] Error:", e);
     return NextResponse.json({ ok: false, error: e?.message || "Server error" }, { status: 500 });
   }
 }
 
 export async function PATCH(req: NextRequest) {
   try {
+    if (!isDatabaseConfigured()) {
+      return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
+    }
+
     const body = await req.json();
     const { ids, action, data } = body;
 
@@ -77,67 +79,91 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "No product IDs provided" }, { status: 400 });
     }
 
-    const admin = getSupabaseAdmin();
-    if (!admin) {
-      return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
-    }
-
-    let updateData: Record<string, any> = { updated_at: new Date().toISOString() };
+    let updateFields: string[] = ["updated_at = NOW()"];
+    const params: any[] = [];
+    let paramIndex = 1;
 
     switch (action) {
       case "approve":
-        updateData.status = "approved";
-        updateData.reviewed_at = new Date().toISOString();
+        updateFields.push(`status = 'approved'`);
+        updateFields.push(`reviewed_at = NOW()`);
         break;
       case "reject":
-        updateData.status = "rejected";
-        updateData.reviewed_at = new Date().toISOString();
+        updateFields.push(`status = 'rejected'`);
+        updateFields.push(`reviewed_at = NOW()`);
         break;
       case "pending":
-        updateData.status = "pending";
-        updateData.reviewed_at = null;
+        updateFields.push(`status = 'pending'`);
+        updateFields.push(`reviewed_at = NULL`);
         break;
       case "update":
         if (data) {
-          if (data.name_en) updateData.name_en = data.name_en;
-          if (data.name_ar) updateData.name_ar = data.name_ar;
-          if (data.description_en) updateData.description_en = data.description_en;
-          if (data.description_ar) updateData.description_ar = data.description_ar;
-          if (data.category) updateData.category = data.category;
-          if (data.admin_notes !== undefined) updateData.admin_notes = data.admin_notes;
-          if (data.calculated_retail_sar) updateData.calculated_retail_sar = data.calculated_retail_sar;
-          if (data.margin_applied) updateData.margin_applied = data.margin_applied;
+          if (data.name_en) {
+            updateFields.push(`name_en = $${paramIndex++}`);
+            params.push(data.name_en);
+          }
+          if (data.name_ar) {
+            updateFields.push(`name_ar = $${paramIndex++}`);
+            params.push(data.name_ar);
+          }
+          if (data.description_en) {
+            updateFields.push(`description_en = $${paramIndex++}`);
+            params.push(data.description_en);
+          }
+          if (data.description_ar) {
+            updateFields.push(`description_ar = $${paramIndex++}`);
+            params.push(data.description_ar);
+          }
+          if (data.category) {
+            updateFields.push(`category = $${paramIndex++}`);
+            params.push(data.category);
+          }
+          if (data.admin_notes !== undefined) {
+            updateFields.push(`admin_notes = $${paramIndex++}`);
+            params.push(data.admin_notes);
+          }
+          if (data.calculated_retail_sar) {
+            updateFields.push(`calculated_retail_sar = $${paramIndex++}`);
+            params.push(data.calculated_retail_sar);
+          }
+          if (data.margin_applied) {
+            updateFields.push(`margin_applied = $${paramIndex++}`);
+            params.push(data.margin_applied);
+          }
         }
         break;
       default:
         return NextResponse.json({ ok: false, error: "Invalid action" }, { status: 400 });
     }
 
-    const { error } = await admin
-      .from("product_queue")
-      .update(updateData)
-      .in("id", ids);
+    const placeholders = ids.map((_, i) => `$${paramIndex + i}`).join(', ');
+    params.push(...ids);
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    const sql = `UPDATE product_queue SET ${updateFields.join(', ')} WHERE id IN (${placeholders})`;
+    await execute(sql, params);
+
+    try {
+      await execute(
+        `INSERT INTO import_logs (action, status, details) VALUES ($1, $2, $3)`,
+        [`queue_${action}`, "success", JSON.stringify({ ids, action, data })]
+      );
+    } catch (logErr) {
+      console.error("[Queue PATCH] Log error:", logErr);
     }
-
-    await admin
-      .from("import_logs")
-      .insert({
-        action: `queue_${action}`,
-        status: "success",
-        details: { ids, action, data },
-      });
 
     return NextResponse.json({ ok: true, updated: ids.length });
   } catch (e: any) {
+    console.error("[Queue PATCH] Error:", e);
     return NextResponse.json({ ok: false, error: e?.message || "Server error" }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest) {
   try {
+    if (!isDatabaseConfigured()) {
+      return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
+    }
+
     const { searchParams } = new URL(req.url);
     const idsParam = searchParams.get("ids");
 
@@ -150,22 +176,12 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Invalid IDs" }, { status: 400 });
     }
 
-    const admin = getSupabaseAdmin();
-    if (!admin) {
-      return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
-    }
-
-    const { error } = await admin
-      .from("product_queue")
-      .delete()
-      .in("id", ids);
-
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    }
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
+    await execute(`DELETE FROM product_queue WHERE id IN (${placeholders})`, ids);
 
     return NextResponse.json({ ok: true, deleted: ids.length });
   } catch (e: any) {
+    console.error("[Queue DELETE] Error:", e);
     return NextResponse.json({ ok: false, error: e?.message || "Server error" }, { status: 500 });
   }
 }
