@@ -378,8 +378,17 @@ export async function GET(req: Request) {
       let skippedLowStock = 0;
       let skippedPrice = 0;
       
-      const token = await getAccessToken();
+      console.log('[Search v5 Category] Getting CJ access token...');
+      let token: string;
+      try {
+        token = await getAccessToken();
+        console.log('[Search v5 Category] Token obtained: ' + (token ? token.substring(0, 20) + '...' : 'EMPTY'));
+      } catch (tokenErr: any) {
+        console.error('[Search v5 Category] Token error:', tokenErr?.message);
+        throw new Error('Failed to get CJ access token: ' + (tokenErr?.message || 'Unknown error'));
+      }
       const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
+      console.log('[Search v5 Category] Using API base:', base);
       
       const pageSize = 50;
       const seenPids = new Set<string>();
