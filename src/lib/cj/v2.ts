@@ -420,12 +420,15 @@ async function authPost<T>(path: string, body: any): Promise<T> {
 }
 
 async function fetchNewAccessToken(): Promise<TokenState> {
-  // Per official CJ API docs: only apiKey is required (format: CJUserNum@api@xxx)
-  const apiKey = await getCjApiKey();
+  // CJ API requires BOTH email AND apiKey for authentication
+  const { email, apiKey } = await getCjCreds();
   if (!apiKey) throw new Error('Missing CJ_API_KEY (env or admin settings)');
+  if (!email) throw new Error('Missing CJ_EMAIL (env or admin settings)');
 
-  // Official endpoint per CJ docs
-  const r = await authPost<any>('/authentication/getAccessToken', { apiKey });
+  console.log('[CJ Auth] Requesting new token with email:', email);
+  
+  // Official endpoint per CJ docs - requires both email and apiKey
+  const r = await authPost<any>('/authentication/getAccessToken', { email, apiKey });
   
   // Check for success response
   if (r?.code !== 200 || !r?.result) {
