@@ -427,18 +427,19 @@ export default function ProductDiscoveryPage() {
                     
                     if (level2Features.length === 0) {
                       return availableFeatures.map(feature => (
-                        <label
+                        <div
                           key={feature.featureId}
+                          onClick={() => toggleFeature(feature.featureId)}
                           className="flex items-center px-3 py-2 hover:bg-blue-50 cursor-pointer"
                         >
                           <input
                             type="checkbox"
                             checked={selectedFeatures.includes(feature.featureId)}
-                            onChange={() => toggleFeature(feature.featureId)}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2"
+                            onChange={() => {}}
+                            className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2 pointer-events-none"
                           />
                           <span className="text-sm text-gray-700">{feature.featureName}</span>
-                        </label>
+                        </div>
                       ));
                     }
                     
@@ -452,31 +453,33 @@ export default function ProductDiscoveryPage() {
                             <span className="text-sm font-semibold text-gray-800">{parent.featureName}</span>
                           </div>
                           {children.map(child => (
-                            <label
+                            <div
                               key={child.featureId}
+                              onClick={() => toggleFeature(child.featureId)}
                               className="flex items-center px-3 py-1.5 pr-6 hover:bg-blue-50 cursor-pointer"
                             >
                               <input
                                 type="checkbox"
                                 checked={selectedFeatures.includes(child.featureId)}
-                                onChange={() => toggleFeature(child.featureId)}
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2"
+                                onChange={() => {}}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2 pointer-events-none"
                               />
                               <span className="text-sm text-gray-700">{childName(child.featureName)}</span>
-                            </label>
+                            </div>
                           ))}
                           {children.length === 0 && (
-                            <label
+                            <div
+                              onClick={() => toggleFeature(parent.featureId)}
                               className="flex items-center px-3 py-1.5 pr-6 hover:bg-blue-50 cursor-pointer"
                             >
                               <input
                                 type="checkbox"
                                 checked={selectedFeatures.includes(parent.featureId)}
-                                onChange={() => toggleFeature(parent.featureId)}
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2"
+                                onChange={() => {}}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2 pointer-events-none"
                               />
                               <span className="text-sm text-gray-700">{parent.featureName}</span>
-                            </label>
+                            </div>
                           )}
                         </div>
                       );
