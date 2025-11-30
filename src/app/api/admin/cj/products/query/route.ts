@@ -129,6 +129,11 @@ async function fetchCjProductsByCategoryId(token: string, base: string, category
     pageSize: pageSize,
   };
   
+  console.log(`[CJ Category Fetch] Starting request: categoryId=${categoryId}, page=${pageNum}, pageSize=${pageSize}`);
+  console.log(`[CJ Category Fetch] Token preview: ${token ? token.substring(0, 20) + '...' : 'EMPTY'}`);
+  console.log(`[CJ Category Fetch] URL: ${base}/product/list`);
+  console.log(`[CJ Category Fetch] Body: ${JSON.stringify(body)}`);
+  
   try {
     const data = await throttleCjRequest(async () => {
       const res = await fetch(`${base}/product/list`, {
@@ -140,9 +145,11 @@ async function fetchCjProductsByCategoryId(token: string, base: string, category
         body: JSON.stringify(body),
         cache: 'no-store',
       });
-      return res.json();
+      const jsonData = await res.json();
+      console.log(`[CJ Category Fetch] Raw response status: ${res.status}, ok: ${res.ok}`);
+      return jsonData;
     });
-    console.log(`[CJ Category Fetch] categoryId=${categoryId}, page=${pageNum}, code=${data?.code}, result=${data?.result}, total=${data?.data?.total || 0}, items=${data?.data?.list?.length || 0}`);
+    console.log(`[CJ Category Fetch] Response: categoryId=${categoryId}, page=${pageNum}, code=${data?.code}, result=${data?.result}, message=${data?.message || 'none'}, total=${data?.data?.total || 0}, items=${data?.data?.list?.length || 0}`);
     
     if (data?.code === 200 && data?.result && Array.isArray(data?.data?.list)) {
       return {
@@ -164,14 +171,18 @@ async function fetchCjProductsByCategoryId(token: string, base: string, category
 }
 
 export async function GET(req: Request) {
+  console.log('[Product Query] Request received');
   const log = loggerForRequest(req);
   try {
+    console.log('[Product Query] Checking admin auth...');
     const guard = await ensureAdmin();
     if (!guard.ok) {
+      console.log('[Product Query] Auth failed:', guard.reason);
       const r = NextResponse.json({ ok: false, version: 'query-v5', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
+    console.log('[Product Query] Auth passed for user:', (guard.user as any)?.email);
     const { searchParams } = new URL(req.url);
     let pid = searchParams.get('pid') || undefined;
     const keyword = searchParams.get('keyword') || undefined;

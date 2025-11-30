@@ -26,6 +26,8 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   experimental: { typedRoutes: true },
+  // Allow dev requests from Replit proxy domain to fix session cookie issues
+  allowedDevOrigins: ['*'],
   // Increase SSG timeout for heavy concurrent renders in CI
   staticPageGenerationTimeout: 180,
   eslint: {
