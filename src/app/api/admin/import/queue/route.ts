@@ -1,14 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { query, queryOne, execute, isDatabaseConfigured } from "@/lib/db/replit-pg";
+import { createClient } from "@supabase/supabase-js";
 import { calculateRetailSar, usdToSar } from "@/lib/pricing";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+
+function isDbConfigured(): boolean {
+  return !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
 export async function GET(req: NextRequest) {
   try {
-    if (!isDatabaseConfigured()) {
+    if (!isDbConfigured()) {
       return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
+    }
+
+    const supabase = getSupabaseAdmin();
+    if (!supabase) {
+      return NextResponse.json({ ok: false, error: "Database connection failed" }, { status: 500 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -18,46 +34,58 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(100, Number(searchParams.get("limit") || 50));
     const offset = Number(searchParams.get("offset") || 0);
 
-    let sql = `SELECT * FROM product_queue WHERE 1=1`;
-    const params: any[] = [];
-    let paramIndex = 1;
-
+    let query = supabase.from('product_queue').select('*');
+    
     if (status !== "all") {
-      sql += ` AND status = $${paramIndex++}`;
-      params.push(status);
+      query = query.eq('status', status);
     }
     if (batchId) {
-      sql += ` AND batch_id = $${paramIndex++}`;
-      params.push(Number(batchId));
+      query = query.eq('batch_id', Number(batchId));
     }
     if (category && category !== "all") {
-      sql += ` AND category = $${paramIndex++}`;
-      params.push(category);
+      query = query.eq('category', category);
     }
 
-    sql += ` ORDER BY quality_score DESC, created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-    params.push(limit, offset);
+    query = query.order('quality_score', { ascending: false })
+                 .order('created_at', { ascending: false })
+                 .range(offset, offset + limit - 1);
 
-    const products = await query<any>(sql, params);
+    const { data: products, error: queryError } = await query;
 
-    const countResult = await queryOne<{ count: number }>(
-      `SELECT COUNT(*) as count FROM product_queue WHERE status = $1`,
-      [status === "all" ? "pending" : status]
-    );
+    if (queryError) {
+      console.error("[Queue GET] Query error:", queryError);
+      if (queryError.message.includes('does not exist')) {
+        return NextResponse.json({ 
+          ok: false, 
+          error: "Import tables not found. Please run the database migration first." 
+        }, { status: 500 });
+      }
+      return NextResponse.json({ ok: false, error: queryError.message }, { status: 500 });
+    }
 
-    const statsResult = await query<{ status: string; count: number }>(
-      `SELECT status, COUNT(*) as count FROM product_queue GROUP BY status`
-    );
-    
-    const stats: Record<string, number> = { pending: 0, approved: 0, rejected: 0, imported: 0 };
-    statsResult.forEach((row) => {
-      stats[row.status] = Number(row.count);
-    });
+    const { count: totalCount } = await supabase
+      .from('product_queue')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', status === "all" ? "pending" : status);
+
+    const [pendingRes, approvedRes, rejectedRes, importedRes] = await Promise.all([
+      supabase.from('product_queue').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+      supabase.from('product_queue').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
+      supabase.from('product_queue').select('*', { count: 'exact', head: true }).eq('status', 'rejected'),
+      supabase.from('product_queue').select('*', { count: 'exact', head: true }).eq('status', 'imported'),
+    ]);
+
+    const stats = {
+      pending: pendingRes.count || 0,
+      approved: approvedRes.count || 0,
+      rejected: rejectedRes.count || 0,
+      imported: importedRes.count || 0,
+    };
 
     return NextResponse.json({
       ok: true,
       products: products || [],
-      total: countResult?.count || 0,
+      total: totalCount || 0,
       stats,
     });
   } catch (e: any) {
@@ -68,8 +96,13 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    if (!isDatabaseConfigured()) {
+    if (!isDbConfigured()) {
       return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
+    }
+
+    const supabase = getSupabaseAdmin();
+    if (!supabase) {
+      return NextResponse.json({ ok: false, error: "Database connection failed" }, { status: 500 });
     }
 
     const body = await req.json();
@@ -79,74 +112,53 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "No product IDs provided" }, { status: 400 });
     }
 
-    let updateFields: string[] = ["updated_at = NOW()"];
-    const params: any[] = [];
-    let paramIndex = 1;
+    let updateData: Record<string, any> = { updated_at: new Date().toISOString() };
 
     switch (action) {
       case "approve":
-        updateFields.push(`status = 'approved'`);
-        updateFields.push(`reviewed_at = NOW()`);
+        updateData.status = 'approved';
+        updateData.reviewed_at = new Date().toISOString();
         break;
       case "reject":
-        updateFields.push(`status = 'rejected'`);
-        updateFields.push(`reviewed_at = NOW()`);
+        updateData.status = 'rejected';
+        updateData.reviewed_at = new Date().toISOString();
         break;
       case "pending":
-        updateFields.push(`status = 'pending'`);
-        updateFields.push(`reviewed_at = NULL`);
+        updateData.status = 'pending';
+        updateData.reviewed_at = null;
         break;
       case "update":
         if (data) {
-          if (data.name_en) {
-            updateFields.push(`name_en = $${paramIndex++}`);
-            params.push(data.name_en);
-          }
-          if (data.name_ar) {
-            updateFields.push(`name_ar = $${paramIndex++}`);
-            params.push(data.name_ar);
-          }
-          if (data.description_en) {
-            updateFields.push(`description_en = $${paramIndex++}`);
-            params.push(data.description_en);
-          }
-          if (data.description_ar) {
-            updateFields.push(`description_ar = $${paramIndex++}`);
-            params.push(data.description_ar);
-          }
-          if (data.category) {
-            updateFields.push(`category = $${paramIndex++}`);
-            params.push(data.category);
-          }
-          if (data.admin_notes !== undefined) {
-            updateFields.push(`admin_notes = $${paramIndex++}`);
-            params.push(data.admin_notes);
-          }
-          if (data.calculated_retail_sar) {
-            updateFields.push(`calculated_retail_sar = $${paramIndex++}`);
-            params.push(data.calculated_retail_sar);
-          }
-          if (data.margin_applied) {
-            updateFields.push(`margin_applied = $${paramIndex++}`);
-            params.push(data.margin_applied);
-          }
+          if (data.name_en) updateData.name_en = data.name_en;
+          if (data.name_ar) updateData.name_ar = data.name_ar;
+          if (data.description_en) updateData.description_en = data.description_en;
+          if (data.description_ar) updateData.description_ar = data.description_ar;
+          if (data.category) updateData.category = data.category;
+          if (data.admin_notes !== undefined) updateData.admin_notes = data.admin_notes;
+          if (data.calculated_retail_sar) updateData.calculated_retail_sar = data.calculated_retail_sar;
+          if (data.margin_applied) updateData.margin_applied = data.margin_applied;
         }
         break;
       default:
         return NextResponse.json({ ok: false, error: "Invalid action" }, { status: 400 });
     }
 
-    const placeholders = ids.map((_, i) => `$${paramIndex + i}`).join(', ');
-    params.push(...ids);
+    const { error: updateError } = await supabase
+      .from('product_queue')
+      .update(updateData)
+      .in('id', ids);
 
-    const sql = `UPDATE product_queue SET ${updateFields.join(', ')} WHERE id IN (${placeholders})`;
-    await execute(sql, params);
+    if (updateError) {
+      console.error("[Queue PATCH] Update error:", updateError);
+      return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
+    }
 
     try {
-      await execute(
-        `INSERT INTO import_logs (action, status, details) VALUES ($1, $2, $3)`,
-        [`queue_${action}`, "success", JSON.stringify({ ids, action, data })]
-      );
+      await supabase.from('import_logs').insert({
+        action: `queue_${action}`,
+        status: 'success',
+        details: { ids, action, data }
+      });
     } catch (logErr) {
       console.error("[Queue PATCH] Log error:", logErr);
     }
@@ -160,8 +172,13 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    if (!isDatabaseConfigured()) {
+    if (!isDbConfigured()) {
       return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
+    }
+
+    const supabase = getSupabaseAdmin();
+    if (!supabase) {
+      return NextResponse.json({ ok: false, error: "Database connection failed" }, { status: 500 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -176,8 +193,15 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Invalid IDs" }, { status: 400 });
     }
 
-    const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
-    await execute(`DELETE FROM product_queue WHERE id IN (${placeholders})`, ids);
+    const { error: deleteError } = await supabase
+      .from('product_queue')
+      .delete()
+      .in('id', ids);
+
+    if (deleteError) {
+      console.error("[Queue DELETE] Delete error:", deleteError);
+      return NextResponse.json({ ok: false, error: deleteError.message }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, deleted: ids.length });
   } catch (e: any) {
