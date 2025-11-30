@@ -395,9 +395,12 @@ export default function ProductDiscoveryPage() {
                   <div className="flex flex-wrap gap-1">
                     {selectedFeatures.slice(0, 3).map(id => {
                       const feature = availableFeatures.find(f => f.featureId === id);
+                      const displayName = feature?.featureName?.includes(' > ') 
+                        ? feature.featureName.split(' > ').pop() 
+                        : feature?.featureName;
                       return (
                         <span key={id} className="inline-flex items-center px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded">
-                          {feature?.featureName?.split(" > ")[0] || id.slice(0, 8)}
+                          {displayName || id.slice(0, 8)}
                         </span>
                       );
                     })}
@@ -418,20 +421,51 @@ export default function ProductDiscoveryPage() {
                       Done
                     </button>
                   </div>
-                  {availableFeatures.map(feature => (
-                    <label
-                      key={feature.featureId}
-                      className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedFeatures.includes(feature.featureId)}
-                        onChange={() => toggleFeature(feature.featureId)}
-                        className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2"
-                      />
-                      <span className="text-sm text-gray-700">{feature.featureName}</span>
-                    </label>
-                  ))}
+                  {(() => {
+                    const level2Features = availableFeatures.filter(f => f.level === 2);
+                    const level3Features = availableFeatures.filter(f => f.level === 3);
+                    
+                    return level2Features.map(parent => {
+                      const children = level3Features.filter(f => f.parentId === parent.featureId);
+                      const childName = (name: string) => name.includes(' > ') ? name.split(' > ').pop() : name;
+                      
+                      return (
+                        <div key={parent.featureId}>
+                          <div className="px-3 py-2 bg-gray-50 border-b border-gray-100">
+                            <span className="text-sm font-semibold text-gray-800">{parent.featureName}</span>
+                          </div>
+                          {children.length > 0 ? (
+                            children.map(child => (
+                              <label
+                                key={child.featureId}
+                                className="flex items-center px-3 py-1.5 pr-6 hover:bg-blue-50 cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedFeatures.includes(child.featureId)}
+                                  onChange={() => toggleFeature(child.featureId)}
+                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2"
+                                />
+                                <span className="text-sm text-gray-700">{childName(child.featureName)}</span>
+                              </label>
+                            ))
+                          ) : (
+                            <label
+                              className="flex items-center px-3 py-1.5 pr-6 hover:bg-blue-50 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedFeatures.includes(parent.featureId)}
+                                onChange={() => toggleFeature(parent.featureId)}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2"
+                              />
+                              <span className="text-sm text-gray-700">{parent.featureName}</span>
+                            </label>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               )}
             </div>
