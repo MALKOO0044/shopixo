@@ -101,11 +101,23 @@ async function fetchCjProductPage(token: string, base: string, keyword: string, 
       cache: 'no-store',
       timeoutMs: 20000,
     }));
-    return {
-      list: res?.data?.list || [],
-      total: res?.data?.total || 0,
-    };
-  } catch {
+    
+    console.log(`[CJ Keyword Fetch] keyword="${keyword}", page=${pageNum}, code=${res?.code}, result=${res?.result}, total=${res?.data?.total || 0}, items=${res?.data?.list?.length || 0}`);
+    
+    if (res?.code === 200 && res?.result && Array.isArray(res?.data?.list)) {
+      return {
+        list: res.data.list,
+        total: res.data.total || 0,
+      };
+    }
+    
+    if (res?.message) {
+      console.log(`[CJ Keyword Fetch] Error message: ${res.message}`);
+    }
+    
+    return { list: [], total: 0 };
+  } catch (e: any) {
+    console.log(`[CJ Keyword Fetch] Error for "${keyword}": ${e?.message}`);
     return { list: [], total: 0 };
   }
 }

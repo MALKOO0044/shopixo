@@ -48,6 +48,15 @@ export async function listCjProductsPage(params: { pageNum: number; pageSize?: n
   for (const ep of endpoints) {
     try {
       const r = await cjFetch<any>(ep);
+      console.log(`[CJ ListPage] endpoint=${ep.split('?')[0]}, code=${r?.code}, result=${r?.result}, listLength=${r?.data?.list?.length || r?.data?.content?.length || 0}`);
+      
+      if (r?.code !== 200 || !r?.result) {
+        if (r?.message) {
+          console.log(`[CJ ListPage] Error message: ${r.message}`);
+        }
+        continue;
+      }
+      
       const arr = Array.isArray(r?.data?.list)
         ? r.data.list
         : Array.isArray(r?.data?.content)
@@ -66,10 +75,12 @@ export async function listCjProductsPage(params: { pageNum: number; pageSize?: n
         if (out.length >= pageSize) break;
       }
       if (out.length >= pageSize) break;
-    } catch (e) {
+    } catch (e: any) {
+      console.log(`[CJ ListPage] Error for endpoint ${ep.split('?')[0]}: ${e?.message}`);
       lastErr = e;
     }
   }
+  console.log(`[CJ ListPage] Final result for keyword="${kw}", page=${pageNum}: ${out.length} products found`);
   if (out.length === 0 && lastErr) throw lastErr;
   return { code: 200, data: { list: out } };
 }
@@ -479,10 +490,14 @@ async function refreshAccessTokenState(state: TokenState): Promise<TokenState> {
 export async function getAccessToken(): Promise<string> {
   // Manual override for emergencies
   const manual = process.env.CJ_ACCESS_TOKEN;
-  if (manual) return manual;
+  if (manual) {
+    console.log('[CJ Auth] Using manual CJ_ACCESS_TOKEN from env');
+    return manual;
+  }
 
   // Use cached if valid
   if (tokenState && isNotExpired(tokenState.accessTokenExpiry)) {
+    console.log('[CJ Auth] Using cached token (valid until: ' + tokenState.accessTokenExpiry + ')');
     return tokenState.accessToken;
   }
 
@@ -490,6 +505,7 @@ export async function getAccessToken(): Promise<string> {
   try {
     const row = await loadToken('cj');
     if (row?.access_token) {
+      console.log('[CJ Auth] Loaded token from DB, expiry: ' + row.access_expiry);
       const dbState: TokenState = {
         accessToken: row.access_token,
         accessTokenExpiry: row.access_expiry,
@@ -499,26 +515,41 @@ export async function getAccessToken(): Promise<string> {
       };
       tokenState = dbState;
       if (isNotExpired(dbState.accessTokenExpiry)) {
+        console.log('[CJ Auth] DB token is valid, using it');
         return dbState.accessToken;
+      } else {
+        console.log('[CJ Auth] DB token expired, will refresh');
       }
     }
-  } catch {}
+  } catch (e: any) {
+    console.log('[CJ Auth] Error loading token from DB: ' + e?.message);
+  }
 
   // Try to refresh if we have a refreshToken and respect 5-min throttle
   if (tokenState && tokenState.refreshToken) {
     if (!throttleOk(tokenState.lastAuthCallMs)) {
+      console.log('[CJ Auth] Token refresh throttled, using existing token');
       // If throttled but token expired, we still have to try using the old token (may fail downstream)
       return tokenState.accessToken;
     }
     try {
+      console.log('[CJ Auth] Attempting token refresh');
       tokenState = await refreshAccessTokenState(tokenState);
-      if (tokenState && isNotExpired(tokenState.accessTokenExpiry)) return tokenState.accessToken;
-    } catch {/* will fallback to new token */}
+      if (tokenState && isNotExpired(tokenState.accessTokenExpiry)) {
+        console.log('[CJ Auth] Token refreshed successfully');
+        return tokenState.accessToken;
+      }
+    } catch (e: any) {
+      console.log('[CJ Auth] Token refresh failed: ' + e?.message);
+      /* will fallback to new token */
+    }
   }
 
   // Fetch a new token with email/apiKey
   if (!tokenState || throttleOk(tokenState.lastAuthCallMs)) {
+    console.log('[CJ Auth] Fetching new access token');
     tokenState = await fetchNewAccessToken();
+    console.log('[CJ Auth] New token obtained, expiry: ' + tokenState.accessTokenExpiry);
     return tokenState.accessToken;
   }
 
@@ -577,24 +608,45 @@ export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?
       // Resolve PID generically: the input may be a numeric web id or a SKU like CJTZ...; search to find the product pid
       try {
         const lr = await cjFetch<any>(`/product/list?keyWords=${encodeURIComponent(pid)}&pageSize=5&pageNum=1`);
-        const cand = (Array.isArray(lr?.data?.list) ? lr.data.list : []) as any[];
-        if (cand.length > 0 && cand[0]?.pid) {
-          guidPid = String(cand[0].pid);
+        console.log(`[CJ PID Resolve] pid=${pid}, code=${lr?.code}, result=${lr?.result}, listLength=${lr?.data?.list?.length || 0}`);
+        
+        if (lr?.code === 200 && lr?.result) {
+          const cand = (Array.isArray(lr?.data?.list) ? lr.data.list : []) as any[];
+          if (cand.length > 0 && cand[0]?.pid) {
+            guidPid = String(cand[0].pid);
+          }
+        } else if (lr?.message) {
+          console.log(`[CJ PID Resolve] Error message: ${lr.message}`);
         }
-      } catch {}
+      } catch (e: any) {
+        console.log(`[CJ PID Resolve] Error for ${pid}: ${e?.message}`);
+      }
 
       // Fetch product details and variants using GUID pid
       const pr = await cjFetch<any>(`/product/query?pid=${encodeURIComponent(guidPid)}`);
+      console.log(`[CJ Product Query] pid=${guidPid}, code=${pr?.code}, result=${pr?.result}, hasData=${!!pr?.data}`);
+      
+      if (pr?.code !== 200 || !pr?.result) {
+        if (pr?.message) {
+          console.log(`[CJ Product Query] Error message: ${pr.message}`);
+        }
+        throw new Error(pr?.message || 'Product query failed');
+      }
+      
       let base = pr?.data || pr?.content || pr || null;
       try {
         const vr = await cjFetch<any>(`/product/variant/query?pid=${encodeURIComponent(guidPid)}`);
+        console.log(`[CJ Variant Query] pid=${guidPid}, code=${vr?.code}, result=${vr?.result}, variantsCount=${vr?.data?.length || 0}`);
         const vlist = Array.isArray(vr?.data) ? vr.data : [];
         if (base) base = { ...base, variantList: vlist };
-      } catch { /* ignore variant errors */ }
+      } catch (e: any) {
+        console.log(`[CJ Variant Query] Error for ${guidPid}: ${e?.message}`);
+      }
 
       const content = base ? [base] : [];
       return { code: 200, data: { content } };
-    } catch (e) {
+    } catch (e: any) {
+      console.log(`[CJ PID Search] Failed for ${pid}, falling back to keyword: ${e?.message}`);
       // Fall through to keyword mode as a last resort
     }
   }
@@ -614,6 +666,15 @@ export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?
   for (const ep of endpoints) {
     try {
       const r = await cjFetch<any>(ep);
+      console.log(`[CJ Keyword Search] endpoint=${ep.split('?')[0]}, code=${r?.code}, result=${r?.result}, listLength=${r?.data?.list?.length || r?.data?.content?.length || 0}`);
+      
+      if (r?.code !== 200 || !r?.result) {
+        if (r?.message) {
+          console.log(`[CJ Keyword Search] Error message: ${r.message}`);
+        }
+        continue;
+      }
+      
       const arr = Array.isArray(r?.data?.list)
         ? r.data.list
         : Array.isArray(r?.data?.content)
@@ -628,10 +689,12 @@ export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?
       for (const it of arr) collected.push(it);
       if (collected.length > 0) break;
     } catch (e: any) {
+      console.log(`[CJ Keyword Search] Error for endpoint ${ep.split('?')[0]}: ${e?.message}`);
       lastErr = e;
     }
   }
 
+  console.log(`[CJ Keyword Search] Final result for "${term}": ${collected.length} products found`);
   if (collected.length === 0 && lastErr) throw lastErr;
   return { code: 200, data: { content: collected } };
 }

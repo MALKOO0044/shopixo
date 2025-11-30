@@ -72,3 +72,24 @@ Preferred communication style: Simple, everyday language.
 **Payment Gateways (KSA Focus):** Stripe (primary). Documentation for Tap Payments and Moyasar is available.
 **Deployment & Hosting:** Vercel.
 **Analytics & Monitoring:** Plausible Analytics (optional), Sentry (optional).
+
+# Recent Changes
+
+## CJ API Product Search Fix (Nov 30, 2025)
+
+**Issue:** Product search was returning empty results because the CJ API response validation was missing.
+
+**Root Cause:** The `fetchCjProductPage` function in `src/app/api/admin/cj/products/query/route.ts` was not checking if the CJ API response was successful (checking for `code === 200` and `result === true`). When the API returned an error, the function silently returned empty results.
+
+**Fixes Applied:**
+1. `src/app/api/admin/cj/products/query/route.ts` - Added proper CJ API response validation and logging to `fetchCjProductPage` function
+2. `src/lib/cj/v2.ts` - Added logging and response validation to:
+   - `listCjProductsPage` function
+   - `queryProductByPidOrKeyword` function  
+   - `getAccessToken` function (for authentication flow tracking)
+
+**Key Files:**
+- `src/lib/cj/v2.ts` - CJ API client with token authentication
+- `src/app/api/admin/cj/products/query/route.ts` - Product search endpoint
+- `src/lib/cj/rate-limit.ts` - CJ API rate limiting (1.1s between requests)
+- `src/lib/integration/token-store.ts` - Token persistence in database
