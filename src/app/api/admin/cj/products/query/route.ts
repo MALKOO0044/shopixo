@@ -114,7 +114,7 @@ export async function GET(req: Request) {
   try {
     const guard = await ensureAdmin();
     if (!guard.ok) {
-      const r = NextResponse.json({ ok: false, version: 'query-v3', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+      const r = NextResponse.json({ ok: false, version: 'query-v4', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
@@ -123,9 +123,11 @@ export async function GET(req: Request) {
     const keyword = searchParams.get('keyword') || undefined;
     const urlParam = searchParams.get('url') || undefined;
     const categoryId = searchParams.get('category') || undefined;
-    const quantity = Math.min(2000, Math.max(1, Number(searchParams.get('quantity') || 25)));
+    const quantity = Math.max(1, Number(searchParams.get('quantity') || 25));
     const strictMode = searchParams.get('strict') !== 'false';
     const minRating = Number(searchParams.get('minRating') || 0);
+    const includeUnratedParam = searchParams.get('includeUnrated');
+    const includeUnrated = includeUnratedParam === 'true' ? true : (includeUnratedParam === 'false' ? false : (minRating <= 0));
     
     if (!pid && urlParam) pid = extractPidFromUrl(urlParam);
     if (!pid && urlParam) {
@@ -141,6 +143,10 @@ export async function GET(req: Request) {
     let items: any[] = [];
     let totalFound = 0;
     let pagesFetched = 0;
+    let totalRawFetched = 0;
+    let skippedNoRating = 0;
+    let skippedLowRating = 0;
+    let skippedNoMatch = 0;
     
     if (pid) {
       const raw = await queryProductByPidOrKeyword({ pid, keyword });
@@ -154,38 +160,59 @@ export async function GET(req: Request) {
       const searchTokens = tokenize(keyword);
       
       const { requiredConcepts, genderExclusions } = classifyQuery(keyword);
-      console.log(`[Search] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}, MinRating: ${minRating}`);
+      console.log(`[Search v4] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}, MinRating: ${minRating}, IncludeUnrated: ${includeUnrated}`);
       
       const pageSize = 50;
-      const maxPages = Math.min(200, Math.max(50, Math.ceil((quantity * 15) / pageSize)));
+      const maxPagesForQuantity = Math.ceil(quantity * 20 / pageSize);
+      const maxPages = Math.min(2000, Math.max(100, maxPagesForQuantity));
+      
       let allRawItems: any[] = [];
       let strictMatchedItems: any[] = [];
       let relaxedMatchedItems: any[] = [];
+      const seenPids = new Set<string>();
       const startTime = Date.now();
-      const maxDurationMs = 90000;
+      const maxDurationMs = quantity > 1000 ? 180000 : (quantity > 500 ? 120000 : 90000);
+      
+      console.log(`[Search v4] Config: maxPages=${maxPages}, maxDuration=${maxDurationMs}ms, pageSize=${pageSize}`);
       
       for (let page = 1; page <= maxPages; page++) {
         if (Date.now() - startTime > maxDurationMs) {
-          console.log(`[Search] Timeout reached after ${page - 1} pages, ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed`);
+          console.log(`[Search v4] Timeout reached after ${page - 1} pages, ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed`);
           break;
         }
         
         const pageResult = await fetchCjProductPage(token, base, keyword, categoryId, page, pageSize);
         pagesFetched++;
+        totalRawFetched += pageResult.list.length;
         
-        if (pageResult.list.length === 0) break;
+        if (pageResult.list.length === 0) {
+          console.log(`[Search v4] Empty page at ${page}, stopping`);
+          break;
+        }
         
         if (page === 1) {
           totalFound = pageResult.total;
+          console.log(`[Search v4] CJ reports ${totalFound} total products available`);
         }
         
         for (const rawItem of pageResult.list) {
+          const itemPid = String(rawItem.pid || rawItem.productId || rawItem.id || '');
+          if (seenPids.has(itemPid)) continue;
+          seenPids.add(itemPid);
+          
           allRawItems.push(rawItem);
           
           const supplierRating = Number(rawItem.supplierRating || rawItem.score || rawItem.rating || rawItem.productScore || 0);
+          const hasRating = supplierRating > 0;
           
           if (minRating > 0) {
-            if (supplierRating === 0 || supplierRating < minRating) {
+            if (!hasRating) {
+              if (!includeUnrated) {
+                skippedNoRating++;
+                continue;
+              }
+            } else if (supplierRating < minRating) {
+              skippedLowRating++;
               continue;
             }
           }
@@ -193,7 +220,8 @@ export async function GET(req: Request) {
           const mappedItem = mapCjItemToProductLike(rawItem);
           if (!mappedItem) continue;
           
-          (mappedItem as any).supplierRating = supplierRating > 0 ? supplierRating : undefined;
+          (mappedItem as any).supplierRating = hasRating ? supplierRating : null;
+          (mappedItem as any).hasRating = hasRating;
           
           if (strictMode && searchTokens.length > 0 && requiredConcepts.size > 0) {
             const strictResult = smartMatch(mappedItem.name || '', keyword, false);
@@ -205,65 +233,76 @@ export async function GET(req: Request) {
               strictMatchedItems.push(mappedItem);
             } else if (relaxedResult.matches) {
               relaxedMatchedItems.push(mappedItem);
+            } else {
+              skippedNoMatch++;
             }
           } else {
             strictMatchedItems.push(mappedItem);
           }
         }
         
-        if (page % 10 === 0) {
-          console.log(`[Search] Page ${page}: ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed, target: ${quantity}`);
+        if (page % 20 === 0 || page === 1) {
+          console.log(`[Search v4] Page ${page}/${maxPages}: ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed, target: ${quantity}, raw: ${totalRawFetched}`);
         }
         
-        if (strictMatchedItems.length >= quantity) {
-          console.log(`[Search] Found ${strictMatchedItems.length} strict matches after ${page} pages`);
+        const totalMatched = strictMatchedItems.length + relaxedMatchedItems.length;
+        if (totalMatched >= quantity) {
+          console.log(`[Search v4] Target reached with ${totalMatched} matches after ${page} pages`);
           break;
         }
         
-        const combinedCount = strictMatchedItems.length + relaxedMatchedItems.length;
-        if (combinedCount >= quantity * 1.5) {
-          console.log(`[Search] Have enough combined matches (${combinedCount}), stopping fetch`);
+        if (pageResult.list.length < pageSize) {
+          console.log(`[Search v4] Partial page at ${page} (${pageResult.list.length}/${pageSize}), stopping`);
           break;
         }
-        
-        if (pageResult.list.length < pageSize) break;
       }
       
-      if (strictMatchedItems.length >= quantity) {
-        strictMatchedItems.sort((a, b) => ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0));
-        items = strictMatchedItems.slice(0, quantity);
-        console.log(`[Search] Using ${items.length} strict matches`);
-      } else {
-        relaxedMatchedItems.sort((a, b) => {
-          const ratioA = (a as any)._matchRatio || 0;
-          const ratioB = (b as any)._matchRatio || 0;
-          if (ratioB !== ratioA) return ratioB - ratioA;
-          return ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0);
-        });
-        
-        strictMatchedItems.sort((a, b) => ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0));
-        
-        const combined = [...strictMatchedItems, ...relaxedMatchedItems];
-        items = combined.slice(0, quantity);
-        console.log(`[Search] Using ${strictMatchedItems.length} strict + ${Math.max(0, items.length - strictMatchedItems.length)} relaxed = ${items.length} total matches`);
-      }
+      strictMatchedItems.sort((a, b) => {
+        const ratingA = (a as any).hasRating ? ((a as any).supplierRating || 0) : -1;
+        const ratingB = (b as any).hasRating ? ((b as any).supplierRating || 0) : -1;
+        if (ratingB !== ratingA) return ratingB - ratingA;
+        return ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0);
+      });
       
-      console.log(`[Search] Final: ${items.length} items from ${pagesFetched} pages in ${Date.now() - startTime}ms (${allRawItems.length} raw, strict: ${strictMatchedItems.length}, relaxed: ${relaxedMatchedItems.length})`);
+      relaxedMatchedItems.sort((a, b) => {
+        const ratioA = (a as any)._matchRatio || 0;
+        const ratioB = (b as any)._matchRatio || 0;
+        if (ratioB !== ratioA) return ratioB - ratioA;
+        const ratingA = (a as any).hasRating ? ((a as any).supplierRating || 0) : -1;
+        const ratingB = (b as any).hasRating ? ((b as any).supplierRating || 0) : -1;
+        if (ratingB !== ratingA) return ratingB - ratingA;
+        return ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0);
+      });
+      
+      const combined = [...strictMatchedItems, ...relaxedMatchedItems];
+      items = combined.slice(0, quantity);
+      
+      const duration = Date.now() - startTime;
+      console.log(`[Search v4] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms`);
+      console.log(`[Search v4] Stats: raw=${totalRawFetched}, unique=${seenPids.size}, strict=${strictMatchedItems.length}, relaxed=${relaxedMatchedItems.length}`);
+      console.log(`[Search v4] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}, noMatch=${skippedNoMatch}`);
     }
 
     const r = NextResponse.json({ 
       ok: true, 
-      version: 'query-v3', 
-      count: items.length, 
+      version: 'query-v4', 
+      count: items.length,
+      requested: quantity,
       totalFound,
       pagesFetched,
+      stats: {
+        rawFetched: totalRawFetched,
+        skippedNoRating,
+        skippedLowRating,
+        skippedNoMatch,
+      },
       items 
     }, { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);
     return r;
   } catch (e: any) {
-    console.error('[Search] Error:', e?.message);
-    const r = NextResponse.json({ ok: false, version: 'query-v3', error: e?.message || 'CJ query failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    console.error('[Search v4] Error:', e?.message);
+    const r = NextResponse.json({ ok: false, version: 'query-v4', error: e?.message || 'CJ query failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', loggerForRequest(req).requestId);
     return r;
   }

@@ -114,10 +114,12 @@ export default function ProductDiscoveryPage() {
   }, []);
 
   const calculateQualityScore = useCallback((product: any): number => {
-    const rating = product.supplierRating || 4;
+    const hasRating = product.supplierRating != null && product.supplierRating > 0;
+    const rating = hasRating ? product.supplierRating : 3.5;
+    const ratingWeight = hasRating ? 0.4 : 0.2;
     const stockScore = Math.min((product.totalStock || 0) / 1000, 1);
     const priceScore = product.avgPrice && product.avgPrice > 0 ? 0.8 : 0.5;
-    return (rating / 5 * 0.4) + (stockScore * 0.3) + (priceScore * 0.3);
+    return (rating / 5 * ratingWeight) + (stockScore * 0.3) + (priceScore * (0.7 - ratingWeight));
   }, []);
 
   const searchProducts = async () => {
@@ -161,19 +163,27 @@ export default function ProductDiscoveryPage() {
         const totalStock = variants.reduce((sum: number, v: CjVariant) => sum + (v.stock || 0), 0);
         const prices = variants.map((v: CjVariant) => v.price || 0).filter((p: number) => p > 0);
         const avgPrice = prices.length > 0 ? prices.reduce((a: number, b: number) => a + b, 0) / prices.length : 0;
+        const hasRating = p.hasRating ?? (p.supplierRating != null && p.supplierRating > 0);
         
         return {
           ...p,
           productId: p.productId || p.pid || p.id,
           totalStock,
           avgPrice,
-          supplierRating: p.supplierRating || (3 + Math.random() * 2),
-          qualityScore: calculateQualityScore({ ...p, totalStock, avgPrice }),
+          supplierRating: hasRating ? p.supplierRating : null,
+          hasRating,
+          qualityScore: calculateQualityScore({ ...p, totalStock, avgPrice, supplierRating: p.supplierRating }),
         };
-      }).filter((p: CjProduct) => {
+      }).filter((p: any) => {
+        if (minRating > 0 && !p.hasRating) return false;
         if (minRating > 0 && (p.supplierRating || 0) < minRating) return false;
         return true;
-      }).sort((a: CjProduct, b: CjProduct) => (b.qualityScore || 0) - (a.qualityScore || 0));
+      }).sort((a: CjProduct, b: CjProduct) => {
+        const ratingA = (a as any).hasRating ? (a.supplierRating || 0) : -1;
+        const ratingB = (b as any).hasRating ? (b.supplierRating || 0) : -1;
+        if (ratingB !== ratingA) return ratingB - ratingA;
+        return (b.qualityScore || 0) - (a.qualityScore || 0);
+      });
       
       setProducts(processedProducts);
     } catch (e: any) {
