@@ -6,28 +6,33 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  console.log('[Import Batch] POST request received');
   try {
     const guard = await ensureAdmin();
+    console.log('[Import Batch] Admin guard result:', guard.ok ? 'authenticated' : guard.reason);
     if (!guard.ok) {
       return NextResponse.json({ ok: false, error: guard.reason }, { status: 401 });
     }
     
     const dbUrl = process.env.DATABASE_URL;
-    console.log('[Import Batch] DATABASE_URL check:', dbUrl ? `exists (${dbUrl.substring(0, 20)}...)` : 'MISSING');
+    const dbEnvVars = Object.keys(process.env).filter(k => k.includes('PG') || k.includes('DATABASE') || k.includes('POSTGRES'));
+    console.log('[Import Batch] DATABASE_URL check:', dbUrl ? `exists (length: ${dbUrl.length})` : 'MISSING');
+    console.log('[Import Batch] DB-related env vars:', dbEnvVars.join(', ') || 'NONE FOUND');
     
     if (!isDatabaseConfigured()) {
-      console.error('[Import Batch] DATABASE_URL environment variable is missing');
-      console.error('[Import Batch] Available env vars:', Object.keys(process.env).filter(k => k.includes('PG') || k.includes('DATABASE')).join(', '));
+      console.error('[Import Batch] isDatabaseConfigured() returned false');
+      console.error('[Import Batch] process.env.DATABASE_URL is:', typeof dbUrl, dbUrl ? 'truthy' : 'falsy');
       return NextResponse.json({ ok: false, error: "Database not configured. Please contact support." }, { status: 500 });
     }
     
+    console.log('[Import Batch] Database configured, testing connection...');
     const connTest = await testConnection();
     if (!connTest.ok) {
       console.error('[Import Batch] Database connection test failed:', connTest.error);
       return NextResponse.json({ ok: false, error: `Database connection failed: ${connTest.error}` }, { status: 500 });
     }
     
-    console.log('[Import Batch] Database connection verified');
+    console.log('[Import Batch] Database connection verified, processing batch...');
     
     const body = await req.json();
     const { name, keywords, category, filters, products } = body;
