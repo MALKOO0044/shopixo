@@ -99,9 +99,6 @@ export default function ProductDiscoveryPage() {
   const [totalFound, setTotalFound] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   
-  // Debug: Log button state changes
-  console.log('[Button State Debug] loading:', loading, 'selectedCategory:', selectedCategory, 'selectedFeatures:', selectedFeatures.length);
-  
   const [categories, setCategories] = useState<Category[]>([]);
   const [featuresDropdownOpen, setFeaturesDropdownOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<{

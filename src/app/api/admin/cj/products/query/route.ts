@@ -265,6 +265,14 @@ export async function GET(req: Request) {
         }
         
         const pageResult = await fetchCjProductPage(token, base, keyword, categoryId, page, pageSize);
+        
+        // Check timeout AFTER fetch completes
+        if (Date.now() - startTime > hardTimeoutMs) {
+          console.log(`[Search v5] Hard timeout (${Date.now() - startTime}ms) after fetch for page ${page}`);
+          timedOut = true;
+          // Process results from this page then exit
+        }
+        
         pagesFetched++;
         totalRawFetched += pageResult.list.length;
         
@@ -364,6 +372,12 @@ export async function GET(req: Request) {
         
         if (pageResult.list.length < pageSize) {
           console.log(`[Search v5] Partial page at ${page} (${pageResult.list.length}/${pageSize}), stopping`);
+          break;
+        }
+        
+        // Exit loop if timed out
+        if (timedOut) {
+          console.log(`[Search v5] Exiting after timeout with ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed`);
           break;
         }
       }
@@ -471,7 +485,9 @@ export async function GET(req: Request) {
         let categoryItems = 0;
         
         for (let page = 1; page <= maxPagesPerCategory; page++) {
+          // Check timeout BEFORE making the fetch call
           if (Date.now() - startTime > hardTimeoutMs) {
+            console.log(`[Search v5 Category] Hard timeout (${Date.now() - startTime}ms) before fetch for category ${catId} page ${page}`);
             timedOut = true;
             break;
           }
@@ -479,6 +495,13 @@ export async function GET(req: Request) {
           if (allItems.length >= quantity) break;
           
           const pageResult = await fetchCjProductsByCategoryId(token, base, catId, page, pageSize);
+          
+          // Check timeout AFTER fetch completes
+          if (Date.now() - startTime > hardTimeoutMs) {
+            console.log(`[Search v5 Category] Hard timeout (${Date.now() - startTime}ms) after fetch for category ${catId} page ${page}`);
+            timedOut = true;
+            // Still process results from this page before breaking
+          }
           pagesFetched++;
           totalRawFetched += pageResult.list.length;
           
@@ -546,9 +569,15 @@ export async function GET(req: Request) {
           }
           
           if (pageResult.list.length < pageSize) break;
+          
+          // Exit page loop if timed out
+          if (timedOut) break;
         }
         
         console.log(`[Search v5 Category] Category ${catId}: fetched ${categoryItems} items`);
+        
+        // Exit category loop if timed out
+        if (timedOut) break;
         totalFound += categoryTotal;
       }
       
