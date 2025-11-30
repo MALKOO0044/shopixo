@@ -6,7 +6,28 @@ Shopixo is a modern, professional e-commerce platform targeting the Saudi Arabia
 
 # Recent Changes (November 2025)
 
-## Product Discovery Smart Matching Fix (Latest - November 30, 2025)
+## Category-Based Product Discovery (Latest - November 30, 2025)
+- **Replaced Keyword Search with Category Selection**:
+  - Removed keyword text input for more accurate product discovery
+  - Added Category dropdown with all 14 CJ Dropshipping categories
+  - Added Features dropdown (subcategories) with multi-select support
+  - Features populate dynamically based on selected category
+- **Hierarchical Category Structure**:
+  - 14 main categories (Women's Clothing, Men's Clothing, etc.)
+  - 614 total features (subcategories) across all categories
+  - Level 2: Main subcategories (e.g., "Tops & Sets", "Bottoms")
+  - Level 3: Specific product types (e.g., "Tops & Sets > Blouses & Shirts")
+- **Deterministic Search**:
+  - Products fetched directly by CJ category IDs
+  - No keyword interpretation or smart matching needed
+  - Exact category filtering for precise results
+- **Multi-Select Features**:
+  - Select multiple features at once (e.g., "Blazers" AND "Basic Jackets")
+  - Quantity distributed evenly across selected features
+  - Up to 2000 pages per feature (100k items per feature)
+- **Preserved Filter Sections**: Quantity, Min/Max Price, Min Stock, Min Rating, Profit Margin unchanged
+
+## Product Discovery Smart Matching Fix (November 30, 2025)
 - **Fixed Empty Results Issue**: Products were not displaying after search due to overly strict smart matching
   - Root cause: Lexicon-based matcher was rejecting products when CJ product names didn't match concepts
   - Fix: Added fallback to accept products when matcher can't identify any concepts
