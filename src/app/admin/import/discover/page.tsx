@@ -3,9 +3,28 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play } from "lucide-react";
+import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, AlertTriangle } from "lucide-react";
+
+// Per-variant shipping/pricing data for 100% accurate pricing
+type VariantPricing = {
+  variantPriceUSD: number;
+  variantPriceSAR: number;
+  shippingPriceSAR: number;
+  totalCostSAR: number;
+  profitSAR: number;
+  sellPriceSAR: number;
+};
+
+type VariantShipping = {
+  available: boolean;
+  priceUSD: number;
+  priceSAR: number;
+  deliveryDays: string;
+  error?: string;
+};
 
 type CjVariant = {
+  vid?: string; // CJ variant ID - required for shipping calculation
   cjSku?: string;
   size?: string;
   color?: string;
@@ -14,6 +33,9 @@ type CjVariant = {
   cjStock?: number;
   factoryStock?: number;
   imageUrl?: string;
+  // Per-variant shipping and pricing (populated after Calculate Pricing)
+  shipping?: VariantShipping;
+  pricing?: VariantPricing | null; // null = shipping unavailable
 };
 
 type VariantInventory = {
@@ -67,6 +89,8 @@ type CjProduct = {
   avgPrice?: number;
   processingTimeHours?: number;
   qualityScore?: number;
+  // Per-variant pricing calculated - tracks which variants have been priced
+  variantsPriced?: boolean; // true after Calculate Pricing has been run
 };
 
 type Feature = {
@@ -120,6 +144,20 @@ export default function ProductDiscoveryPage() {
   const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
   const [enrichmentCache, setEnrichmentCache] = useState<Map<string, { data: EnrichedProduct; timestamp: number }>>(new Map());
   const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache TTL
+  
+  // Shipping calculation progress
+  const [shippingProgress, setShippingProgress] = useState<{
+    calculating: boolean;
+    current: number;
+    total: number;
+    message: string;
+  }>({ calculating: false, current: 0, total: 0, message: '' });
+  
+  // Track selected variant ID per product for variant selector UI (use vid, not index, for accuracy)
+  const [selectedVariantId, setSelectedVariantId] = useState<Record<string, string>>({});
+  
+  // Track which specific variants are being calculated (for individual variant pricing)
+  const [calculatingVariants, setCalculatingVariants] = useState<Set<string>>(new Set());
 
   const testConnection = async () => {
     const start = Date.now();
@@ -280,6 +318,11 @@ export default function ProductDiscoveryPage() {
       });
       
       setProducts(processedProducts);
+      
+      // Calculate shipping for first variant of all products (in background)
+      if (processedProducts.length > 0) {
+        calculateShippingForVariants(processedProducts, 0);
+      }
     } catch (e: any) {
       console.error('[Product Search] Error:', e);
       setError(e?.message || "Search failed");
@@ -291,6 +334,253 @@ export default function ProductDiscoveryPage() {
       setLoading(false);
     }
   };
+
+  // Calculate shipping for selected variants using CJ API (per-variant accuracy)
+  const calculateShippingForVariants = async (productsList: CjProduct[], variantIndex: number = 0) => {
+    // Collect all variants to price (one per product at the specified index)
+    const variantsToPrice: Array<{productId: string; variantId: string; variantPriceUSD: number}> = [];
+    
+    for (const product of productsList) {
+      const variant = product.variants?.[variantIndex];
+      // CRITICAL: Only include variants with valid vid AND price - no fallbacks
+      if (variant?.vid && variant?.price && variant.price > 0) {
+        variantsToPrice.push({
+          productId: product.productId,
+          variantId: variant.vid,
+          variantPriceUSD: variant.price
+        });
+      }
+    }
+    
+    const totalVariants = variantsToPrice.length;
+    const skippedCount = productsList.length - totalVariants;
+    
+    // Show initial progress message
+    setShippingProgress({
+      calculating: true,
+      current: 0,
+      total: totalVariants,
+      message: `Calculating shipping for ${totalVariants} variants via CJ API...${skippedCount > 0 ? ` (${skippedCount} skipped - missing price/vid)` : ''}`
+    });
+    
+    if (totalVariants === 0) {
+      setShippingProgress({
+        calculating: true,
+        current: 0,
+        total: 0,
+        message: 'No valid variants to price (missing vid or price)'
+      });
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      setShippingProgress({ calculating: false, current: 0, total: 0, message: '' });
+      return;
+    }
+    
+    try {
+      // Update progress to indicate we're waiting for API (rate limited to 1.2s per variant)
+      const estimatedSeconds = Math.ceil(totalVariants * 1.2);
+      setShippingProgress({
+        calculating: true,
+        current: 0,
+        total: totalVariants,
+        message: `Calculating shipping... (est. ${estimatedSeconds}s due to CJ API rate limits)`
+      });
+      
+      // Call shipping API with per-variant inputs
+      const res = await fetch('/api/admin/cj/shipping/calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          variants: variantsToPrice,
+          profitMarginPercent: profitMargin
+        })
+      });
+      
+      const data = await res.json();
+      
+      if (data.ok && data.results) {
+        // Show stats
+        const stats = data.stats || { success: 0, failed: 0, total: totalVariants };
+        setShippingProgress({
+          calculating: true,
+          current: totalVariants,
+          total: totalVariants,
+          message: `Completed! ${stats.success} variants with shipping, ${stats.failed} unavailable`
+        });
+        
+        // Update products with per-variant shipping/pricing data
+        // Use variantId for matching, not indices, to ensure accuracy
+        setProducts(prev => prev.map(product => {
+          // Check if any variant in this product has pricing data in results
+          const updatedVariants = product.variants.map(variant => {
+            if (!variant?.vid) return variant;
+            
+            const result = data.results[variant.vid];
+            if (!result) return variant;
+            
+            return {
+              ...variant,
+              shipping: result.shipping,
+              pricing: result.pricing
+            };
+          });
+          
+          // Check if any variant was updated
+          const hasUpdates = updatedVariants.some((v, i) => 
+            v.shipping !== product.variants[i].shipping || 
+            v.pricing !== product.variants[i].pricing
+          );
+          
+          if (!hasUpdates) return product;
+          
+          return {
+            ...product,
+            variants: updatedVariants,
+            variantsPriced: true
+          };
+        }));
+        
+        // Keep completion message visible for 2 seconds
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } else {
+        setShippingProgress({
+          calculating: true,
+          current: totalVariants,
+          total: totalVariants,
+          message: `Error: ${data.error || 'Failed to calculate shipping'}`
+        });
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+      
+    } catch (error: any) {
+      console.error('[Shipping Calc] Error:', error?.message);
+      setShippingProgress({
+        calculating: true,
+        current: 0,
+        total: totalVariants,
+        message: `Error: ${error?.message || 'Failed to calculate shipping'}`
+      });
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    } finally {
+      setShippingProgress({
+        calculating: false,
+        current: 0,
+        total: 0,
+        message: ''
+      });
+    }
+  };
+  
+  // Calculate pricing for a single specific variant on demand - uses variantId for accuracy
+  const calculatePricingForVariant = async (productId: string, variantId: string, variantPriceUSD: number) => {
+    if (!variantId || !variantPriceUSD || variantPriceUSD <= 0) {
+      console.warn(`[Variant Pricing] Cannot price variant ${variantId} - missing vid or price`);
+      return;
+    }
+    
+    const variantKey = `${productId}-${variantId}`;
+    
+    // Mark this variant as calculating
+    setCalculatingVariants(prev => new Set([...prev, variantKey]));
+    
+    try {
+      const res = await fetch('/api/admin/cj/shipping/calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          variants: [{
+            productId,
+            variantId,
+            variantPriceUSD
+          }],
+          profitMarginPercent: profitMargin
+        })
+      });
+      
+      const data = await res.json();
+      
+      if (data.ok && data.results && data.results[variantId]) {
+        const result = data.results[variantId];
+        
+        // Update the specific variant by variantId (NOT by index!)
+        setProducts(prev => prev.map(p => {
+          if (p.productId !== productId) return p;
+          
+          // Find variant by vid, not by index
+          const updatedVariants = p.variants.map(v => {
+            if (v.vid !== variantId) return v;
+            return {
+              ...v,
+              shipping: result.shipping,
+              pricing: result.pricing
+            };
+          });
+          
+          return {
+            ...p,
+            variants: updatedVariants,
+            variantsPriced: true
+          };
+        }));
+      }
+    } catch (error: any) {
+      console.error(`[Variant Pricing] Error for ${variantKey}:`, error?.message);
+    } finally {
+      setCalculatingVariants(prev => {
+        const next = new Set(prev);
+        next.delete(variantKey);
+        return next;
+      });
+    }
+  };
+
+  // Recalculate pricing when profit margin changes (without calling CJ API again)
+  // Only recalculates for variants with valid shipping data (CJPacket Ordinary available)
+  const recalculatePricing = useCallback(() => {
+    const USD_TO_SAR_RATE = 3.75;
+    
+    setProducts(prev => prev.map(product => {
+      // Check if any variant has pricing that needs recalculation
+      const updatedVariants = product.variants.map(variant => {
+        // Only recalculate if variant has valid shipping and pricing
+        if (!variant.shipping?.available || !variant.pricing) return variant;
+        if (!variant.price || variant.price <= 0) return variant;
+        
+        const variantPriceUSD = variant.price;
+        const shippingPriceUSD = variant.shipping.priceUSD || 0;
+        
+        // Convert to SAR
+        const variantPriceSAR = Math.round(variantPriceUSD * USD_TO_SAR_RATE * 100) / 100;
+        const shippingPriceSAR = Math.round(shippingPriceUSD * USD_TO_SAR_RATE * 100) / 100;
+        const totalCostSAR = Math.round((variantPriceSAR + shippingPriceSAR) * 100) / 100;
+        const profitSAR = Math.round(totalCostSAR * (profitMargin / 100) * 100) / 100;
+        const sellPriceSAR = Math.round((totalCostSAR + profitSAR) * 100) / 100;
+        
+        return {
+          ...variant,
+          pricing: {
+            variantPriceUSD,
+            variantPriceSAR,
+            shippingPriceSAR,
+            totalCostSAR,
+            profitSAR,
+            sellPriceSAR
+          }
+        };
+      });
+      
+      return {
+        ...product,
+        variants: updatedVariants
+      };
+    }));
+  }, [profitMargin]);
+
+  // Recalculate when profit margin changes (only for products with priced variants)
+  useEffect(() => {
+    if (products.some(p => p.variantsPriced)) {
+      recalculatePricing();
+    }
+  }, [profitMargin, recalculatePricing]);
 
   const toggleSelect = (productId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -667,18 +957,45 @@ export default function ProductDiscoveryPage() {
         </div>
 
         <div className="grid grid-cols-4 gap-6 mb-6">
-          <div>
-            <label className="block text-sm text-gray-600 mb-2">Profit Margin %</label>
-            <input
-              type="number"
-              value={profitMargin}
-              onChange={(e) => setProfitMargin(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-left"
-              dir="ltr"
-            />
+          <div className="col-span-2">
+            <label className="block text-sm text-gray-600 mb-2">
+              Profit Margin % <span className="text-amber-600 font-medium">({profitMargin}%)</span>
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                min={1}
+                max={999}
+                value={profitMargin}
+                onChange={(e) => {
+                  const val = Math.max(1, Math.min(999, Number(e.target.value) || 1));
+                  setProfitMargin(val);
+                }}
+                className="w-24 px-3 py-2 border border-gray-300 rounded text-left text-center font-semibold"
+                dir="ltr"
+              />
+              <span className="text-gray-500">%</span>
+              <div className="flex gap-1">
+                {[10, 20, 30, 50, 100].map((pct) => (
+                  <button
+                    key={pct}
+                    onClick={() => setProfitMargin(pct)}
+                    className={`px-2 py-1 text-xs rounded ${
+                      profitMargin === pct 
+                        ? 'bg-amber-500 text-white' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {pct}%
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              Prices will be shown in SAR (Saudi Riyal)
+            </p>
           </div>
           
-          <div></div>
           <div></div>
           
           <div className="flex items-center gap-2 pt-7">
@@ -716,6 +1033,39 @@ export default function ProductDiscoveryPage() {
         </div>
       )}
 
+      {/* Shipping Calculation Progress Indicator */}
+      {shippingProgress.calculating && (
+        <div className={`rounded-lg p-4 ${
+          shippingProgress.message.startsWith('Completed') 
+            ? 'bg-green-50 border border-green-200' 
+            : shippingProgress.message.startsWith('Error')
+              ? 'bg-red-50 border border-red-200'
+              : 'bg-blue-50 border border-blue-200'
+        }`}>
+          <div className="flex items-center gap-3">
+            {shippingProgress.message.startsWith('Completed') ? (
+              <CheckCircle className="h-5 w-5 text-green-600" />
+            ) : shippingProgress.message.startsWith('Error') ? (
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+            ) : (
+              <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />
+            )}
+            <span className={`font-medium ${
+              shippingProgress.message.startsWith('Completed')
+                ? 'text-green-800'
+                : shippingProgress.message.startsWith('Error')
+                  ? 'text-red-800'
+                  : 'text-blue-800'
+            }`}>{shippingProgress.message}</span>
+          </div>
+          {!shippingProgress.message.startsWith('Completed') && !shippingProgress.message.startsWith('Error') && (
+            <p className="text-xs text-blue-600 mt-2">
+              Processing {shippingProgress.total} products via CJ API (rate limited to 1 request per 1.2 seconds)
+            </p>
+          )}
+        </div>
+      )}
+
       {products.length > 0 && (
         <>
           <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-4">
@@ -738,7 +1088,12 @@ export default function ProductDiscoveryPage() {
             {products.map((product) => {
               const isSelected = selected.has(product.productId);
               const mainImage = product.images?.[0];
-              const firstVariant = product.variants?.[0];
+              // Get the currently selected variant by vid (not index) for accuracy
+              const currentVariantVid = selectedVariantId[product.productId];
+              const selectedVariant = currentVariantVid 
+                ? product.variants?.find(v => v.vid === currentVariantVid) || product.variants?.[0]
+                : product.variants?.[0];
+              const isCalculatingVariant = selectedVariant?.vid ? calculatingVariants.has(`${product.productId}-${selectedVariant.vid}`) : false;
               
               return (
                 <div
@@ -814,38 +1169,140 @@ export default function ProductDiscoveryPage() {
                       </span>
                     </div>
                     
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="flex flex-col">
-                        <span className="text-gray-500">Price</span>
-                        <span className="font-semibold text-green-600">
-                          ${(product.avgPrice || 0).toFixed(2)}
-                        </span>
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-gray-500">Stock</span>
-                        <span className={`font-semibold ${(product.totalStock || 0) > 0 ? "text-gray-900" : "text-red-500"}`}>
-                          {product.totalStock || 0}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    {firstVariant?.cjSku && (
-                      <div className="text-xs">
-                        <span className="text-gray-500">SKU: </span>
-                        <span className="font-mono text-gray-700">{firstVariant.cjSku}</span>
+                    {/* Variant Selector - Click to select different variants */}
+                    {product.variants.length > 1 && (
+                      <div className="flex flex-wrap gap-1 pt-1 border-t border-gray-100">
+                        <span className="text-[10px] text-gray-400 w-full mb-1">Select variant:</span>
+                        {product.variants.map((v, i) => {
+                          const isPriced = v.pricing && v.shipping?.available;
+                          const isUnavailable = v.shipping && !v.shipping.available;
+                          // Check if this variant is selected by comparing vid
+                          const isCurrentlySelected = v.vid ? v.vid === selectedVariant?.vid : i === 0;
+                          return (
+                            <button
+                              key={v.vid || i}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Store vid, not index, for accuracy
+                                if (v.vid) {
+                                  setSelectedVariantId(prev => ({ ...prev, [product.productId]: v.vid! }));
+                                }
+                              }}
+                              className={`px-1.5 py-0.5 rounded text-xs transition-colors ${
+                                isCurrentlySelected 
+                                  ? 'bg-blue-500 text-white' 
+                                  : isPriced 
+                                    ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                                    : isUnavailable
+                                      ? 'bg-red-100 text-red-500 hover:bg-red-200'
+                                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                              }`}
+                              title={isPriced ? 'Priced' : isUnavailable ? 'Unavailable' : 'Not calculated'}
+                            >
+                              {v.color || v.size || (v.cjSku ? v.cjSku.slice(-6) : `V${i+1}`)}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                     
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      {product.variants.slice(0, 3).map((v, i) => (
-                        <span key={i} className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
-                          {v.color || v.size || (v.cjSku ? v.cjSku.slice(-6) : `V${i+1}`)}
-                        </span>
-                      ))}
-                      {product.variants.length > 3 && (
-                        <span className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-500">
-                          +{product.variants.length - 3}
-                        </span>
+                    {/* Pricing Section - Per-Variant SAR Pricing */}
+                    {isCalculatingVariant ? (
+                      // Currently calculating pricing for this variant
+                      <div className="bg-blue-50 rounded-lg p-2 text-xs">
+                        <div className="flex items-center gap-2 text-blue-600">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <span>Calculating shipping...</span>
+                        </div>
+                      </div>
+                    ) : selectedVariant?.pricing && selectedVariant?.shipping?.available ? (
+                      // ONLY show full SAR breakdown when CJPacket Ordinary shipping is available for this variant
+                      <div className="bg-gray-50 rounded-lg p-2 space-y-1 text-xs">
+                        <div className="text-[10px] text-gray-400 mb-1 text-center">
+                          Variant: {selectedVariant.color || selectedVariant.size || 'Default'}
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">CJ Price:</span>
+                          <span className="text-gray-700">{selectedVariant.pricing.variantPriceSAR.toFixed(2)} SAR</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Shipping:</span>
+                          <span className="text-gray-700">{selectedVariant.pricing.shippingPriceSAR.toFixed(2)} SAR</span>
+                        </div>
+                        <div className="flex justify-between border-t border-gray-200 pt-1">
+                          <span className="text-gray-600 font-medium">Your Cost:</span>
+                          <span className="text-gray-800 font-medium">{selectedVariant.pricing.totalCostSAR.toFixed(2)} SAR</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-amber-600">Profit ({profitMargin}%):</span>
+                          <span className="text-amber-600 font-medium">+{selectedVariant.pricing.profitSAR.toFixed(2)} SAR</span>
+                        </div>
+                        <div className="flex justify-between border-t border-gray-300 pt-1">
+                          <span className="text-green-700 font-bold">Sell Price:</span>
+                          <span className="text-green-700 font-bold">{selectedVariant.pricing.sellPriceSAR.toFixed(2)} SAR</span>
+                        </div>
+                      </div>
+                    ) : selectedVariant?.shipping && !selectedVariant?.shipping?.available ? (
+                      // Shipping unavailable for this variant
+                      <div className="bg-red-50 rounded-lg p-2 text-xs">
+                        <div className="flex items-center gap-2 text-red-600 font-medium mb-1">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          <span>Shipping Unavailable</span>
+                        </div>
+                        <p className="text-red-500 text-[10px]">{selectedVariant.shipping.error || 'CJPacket Ordinary not available'}</p>
+                        <div className="text-gray-500 mt-1">
+                          <span>CJ Price: </span>
+                          <span className="font-medium">${(selectedVariant.price || product.avgPrice || 0).toFixed(2)} USD</span>
+                        </div>
+                      </div>
+                    ) : (
+                      // No shipping data yet - show Calculate button
+                      <div className="bg-gray-50 rounded-lg p-2 text-xs space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="flex flex-col">
+                            <span className="text-gray-500">Price (USD)</span>
+                            <span className="font-semibold text-green-600">
+                              ${(selectedVariant?.price || product.avgPrice || 0).toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-gray-500">Stock</span>
+                            <span className={`font-semibold ${(selectedVariant?.stock || 0) > 0 ? "text-gray-900" : "text-red-500"}`}>
+                              {selectedVariant?.stock || 0}
+                            </span>
+                          </div>
+                        </div>
+                        {/* Calculate Pricing Button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (selectedVariant?.vid && selectedVariant?.price) {
+                              calculatePricingForVariant(product.productId, selectedVariant.vid, selectedVariant.price);
+                            }
+                          }}
+                          disabled={!selectedVariant?.vid || !selectedVariant?.price}
+                          className="w-full px-2 py-1.5 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Calculate SAR Pricing
+                        </button>
+                        {(!selectedVariant?.vid || !selectedVariant?.price) && (
+                          <p className="text-[10px] text-gray-400 text-center">Missing variant ID or price</p>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Delivery Days */}
+                    {selectedVariant?.shipping?.available && selectedVariant?.shipping.deliveryDays && (
+                      <div className="text-xs text-gray-500 flex items-center gap-1">
+                        <span>Delivery: {selectedVariant.shipping.deliveryDays} days</span>
+                      </div>
+                    )}
+                    
+                    {/* Stock info */}
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-500">Stock: <span className={`font-medium ${(product.totalStock || 0) > 0 ? "text-gray-700" : "text-red-500"}`}>{product.totalStock || 0}</span></span>
+                      {selectedVariant?.cjSku && (
+                        <span className="text-gray-400 font-mono text-[10px]">{selectedVariant.cjSku.slice(-8)}</span>
                       )}
                     </div>
                   </div>

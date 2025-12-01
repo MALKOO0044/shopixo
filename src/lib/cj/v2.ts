@@ -139,6 +139,235 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<{ o
   }
   return { options: out };
 }
+
+// --- CJPacket Ordinary Shipping Calculation (EXACT from CJ API) ---
+// This function calculates shipping cost using the OFFICIAL CJ API endpoint
+// Returns the EXACT shipping price from CJ - no estimates, no calculations
+export type CjShippingResult = {
+  shippingPriceUSD: number;     // Exact shipping price in USD from CJ API
+  shippingPriceSAR: number;     // Converted to SAR (using fixed rate 3.75)
+  logisticName: string;          // e.g., "CJPacket Ordinary"
+  deliveryDays: string;          // e.g., "15-25"
+  available: boolean;            // Whether CJPacket Ordinary is available for this product
+  error?: string;                // Error message if calculation failed
+};
+
+// USD to SAR exchange rate (fixed rate for stability - update as needed)
+const USD_TO_SAR_RATE = 3.75;
+
+/**
+ * Calculate shipping cost for a product variant to Saudi Arabia via CJPacket Ordinary
+ * This calls the official CJ freightCalculate API and returns EXACT prices
+ * 
+ * @param vid - Variant ID from CJ product data
+ * @param quantity - Number of items (default 1)
+ * @returns Exact shipping price from CJ API
+ */
+export async function calculateShippingToSA(vid: string, quantity: number = 1): Promise<CjShippingResult> {
+  // CRITICAL: Only accept EXACT "CJPacket Ordinary" - no fallbacks or alternatives
+  // This ensures 100% accurate pricing as per user requirements
+  const CJPACKET_ORDINARY_EXACT = "cjpacket ordinary"; // lowercase for comparison
+  
+  try {
+    const token = await getAccessToken();
+    const base = await resolveBase();
+    
+    // Official CJ API endpoint for freight calculation
+    const body = {
+      startCountryCode: "CN",    // Origin: China
+      endCountryCode: "SA",       // Destination: Saudi Arabia
+      products: [{ vid, quantity }]
+    };
+    
+    console.log(`[CJ Shipping] Calculating shipping for vid=${vid}, qty=${quantity}`);
+    
+    const response = await fetchJson<any>(`${base}/logistic/freightCalculate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CJ-Access-Token': token,
+      },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+      timeoutMs: 15000,
+    });
+    
+    // Log raw response structure for debugging
+    console.log(`[CJ Shipping] Raw response structure:`, JSON.stringify({
+      code: response?.code,
+      result: response?.result,
+      dataType: typeof response?.data,
+      dataKeys: response?.data ? Object.keys(response.data) : 'null',
+      hasFreightList: !!response?.data?.freightList,
+    }));
+    
+    // Check for API success
+    if (response?.code !== 200 || !response?.result) {
+      console.log(`[CJ Shipping] API error for vid=${vid}: ${response?.message || 'Unknown error'}`);
+      return {
+        shippingPriceUSD: 0,
+        shippingPriceSAR: 0,
+        logisticName: '',
+        deliveryDays: '',
+        available: false,
+        error: response?.message || 'CJ API error'
+      };
+    }
+    
+    // Handle multiple possible response structures from CJ API:
+    // Structure 1: response.data is an array directly
+    // Structure 2: response.data.freightList is an array
+    // Structure 3: response.data contains shipping options nested
+    let shippingOptions: any[] = [];
+    const data = response?.data;
+    
+    if (Array.isArray(data)) {
+      // Structure 1: Direct array
+      shippingOptions = data;
+    } else if (data?.freightList && Array.isArray(data.freightList)) {
+      // Structure 2: Nested in freightList
+      shippingOptions = data.freightList;
+    } else if (data && typeof data === 'object') {
+      // Structure 3: Try to find array in any property
+      for (const key of Object.keys(data)) {
+        if (Array.isArray(data[key]) && data[key].length > 0) {
+          const first = data[key][0];
+          if (first && (first.logisticName || first.logisticsName || first.name)) {
+            shippingOptions = data[key];
+            console.log(`[CJ Shipping] Found shipping array in data.${key}`);
+            break;
+          }
+        }
+      }
+    }
+    
+    if (shippingOptions.length === 0) {
+      console.log(`[CJ Shipping] No shipping options found for vid=${vid}. Data structure:`, JSON.stringify(data).slice(0, 500));
+      return {
+        shippingPriceUSD: 0,
+        shippingPriceSAR: 0,
+        logisticName: '',
+        deliveryDays: '',
+        available: false,
+        error: 'No shipping options available to Saudi Arabia'
+      };
+    }
+    
+    // Log available options for debugging
+    const optionNames = shippingOptions.map((o: any) => 
+      o.logisticName || o.logisticsName || o.name || 'unnamed'
+    ).join(', ');
+    console.log(`[CJ Shipping] Available shipping options for vid=${vid}: ${optionNames}`);
+    
+    // Find EXACT "CJPacket Ordinary" - no other shipping methods accepted
+    const cjPacketOrdinary = shippingOptions.find((opt: any) => {
+      const name = (opt.logisticName || opt.logisticsName || opt.name || '').toLowerCase().trim();
+      return name === CJPACKET_ORDINARY_EXACT;
+    });
+    
+    if (!cjPacketOrdinary) {
+      // CJPacket Ordinary is REQUIRED - do not fall back to other options
+      // This ensures 100% accurate pricing as per user requirements
+      console.log(`[CJ Shipping] CRITICAL: CJPacket Ordinary not found for vid=${vid}. Available options: ${optionNames}`);
+      return {
+        shippingPriceUSD: 0,
+        shippingPriceSAR: 0,
+        logisticName: '',
+        deliveryDays: '',
+        available: false,
+        error: `CJPacket Ordinary not available for this product. Other options: ${optionNames}`
+      };
+    }
+    
+    // Extract EXACT price from CJ API response - try multiple field names
+    const shippingPriceUSD = Number(
+      cjPacketOrdinary.logisticPrice || 
+      cjPacketOrdinary.logisticsPrice || 
+      cjPacketOrdinary.totalFreight || 
+      cjPacketOrdinary.price || 
+      0
+    );
+    const shippingPriceSAR = Math.round(shippingPriceUSD * USD_TO_SAR_RATE * 100) / 100;
+    const deliveryDays = cjPacketOrdinary.logisticAging || cjPacketOrdinary.aging || cjPacketOrdinary.deliveryDays || '';
+    const logisticName = cjPacketOrdinary.logisticName || cjPacketOrdinary.logisticsName || cjPacketOrdinary.name || 'CJPacket Ordinary';
+    
+    console.log(`[CJ Shipping] Found for vid=${vid}: $${shippingPriceUSD} USD = ${shippingPriceSAR} SAR, delivery: ${deliveryDays} days`);
+    
+    if (shippingPriceUSD <= 0) {
+      console.log(`[CJ Shipping] Warning: Zero or invalid price for vid=${vid}. Raw option:`, JSON.stringify(cjPacketOrdinary).slice(0, 300));
+      return {
+        shippingPriceUSD: 0,
+        shippingPriceSAR: 0,
+        logisticName: '',
+        deliveryDays: '',
+        available: false,
+        error: 'Invalid shipping price returned from CJ API'
+      };
+    }
+    
+    return {
+      shippingPriceUSD,
+      shippingPriceSAR,
+      logisticName,
+      deliveryDays,
+      available: true
+    };
+    
+  } catch (error: any) {
+    console.error(`[CJ Shipping] Error calculating shipping for vid=${vid}:`, error?.message);
+    return {
+      shippingPriceUSD: 0,
+      shippingPriceSAR: 0,
+      logisticName: '',
+      deliveryDays: '',
+      available: false,
+      error: error?.message || 'Failed to calculate shipping'
+    };
+  }
+}
+
+/**
+ * Calculate complete pricing for a product including shipping and profit margin
+ * All prices are in SAR (Saudi Riyal)
+ * 
+ * @param productPriceUSD - CJ product price in USD
+ * @param shippingPriceUSD - CJ shipping price in USD (from calculateShippingToSA)
+ * @param profitMarginPercent - User's desired profit margin (e.g., 25 for 25%)
+ * @returns Complete pricing breakdown in SAR
+ */
+export function calculateFinalPricingSAR(
+  productPriceUSD: number,
+  shippingPriceUSD: number,
+  profitMarginPercent: number
+): {
+  productPriceSAR: number;    // Product cost in SAR
+  shippingPriceSAR: number;   // Shipping cost in SAR
+  totalCostSAR: number;       // Product + Shipping in SAR
+  profitSAR: number;          // Your profit in SAR
+  sellPriceSAR: number;       // Final price to sell at in SAR
+} {
+  // Convert USD to SAR
+  const productPriceSAR = Math.round(productPriceUSD * USD_TO_SAR_RATE * 100) / 100;
+  const shippingPriceSAR = Math.round(shippingPriceUSD * USD_TO_SAR_RATE * 100) / 100;
+  
+  // Calculate total cost
+  const totalCostSAR = Math.round((productPriceSAR + shippingPriceSAR) * 100) / 100;
+  
+  // Calculate profit based on user's chosen percentage
+  const profitSAR = Math.round(totalCostSAR * (profitMarginPercent / 100) * 100) / 100;
+  
+  // Calculate final sell price
+  const sellPriceSAR = Math.round((totalCostSAR + profitSAR) * 100) / 100;
+  
+  return {
+    productPriceSAR,
+    shippingPriceSAR,
+    totalCostSAR,
+    profitSAR,
+    sellPriceSAR
+  };
+}
+
 // - POST /authentication/refreshAccessToken { refreshToken }
 // Token lives 15 days; refresh token 180 days; getAccessToken limited to once/5 minutes.
 // Env vars supported:

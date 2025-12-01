@@ -75,6 +75,36 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
+## Shipping Calculator & SAR Pricing Display (Dec 1, 2025)
+
+**Feature:** Added real-time shipping calculation with complete SAR pricing breakdown in Product Discovery.
+
+**Implementation:**
+1. Created shipping calculation API endpoint: `src/app/api/admin/cj/shipping/calculate/route.ts`
+   - Calls CJ freightCalculate API for exact shipping costs
+   - Uses CJPacket Ordinary shipping method (China to Saudi Arabia)
+   - Calculates complete pricing with customizable profit margin
+
+2. Updated Product Discovery UI: `src/app/admin/import/discover/page.tsx`
+   - Added customizable profit margin input with quick-select buttons (10%, 20%, 30%, 50%, 100%)
+   - Added shipping calculation progress indicator
+   - Updated product cards to show complete SAR pricing breakdown:
+     - CJ Price (product cost in SAR)
+     - Shipping (from CJ API in SAR)
+     - Your Cost (product + shipping)
+     - Profit (based on % margin)
+     - Sell Price (final customer price)
+   - Automatic recalculation when profit margin changes (without re-calling CJ API)
+
+**Pricing Formula:**
+- USD to SAR rate: 3.75 (fixed)
+- Sell Price = (Product Price + Shipping) × (1 + Profit Margin %)
+
+**Key Files:**
+- `src/lib/cj/v2.ts` - Contains `calculateShippingToSA()` and `calculateFinalPricingSAR()` functions
+- `src/app/api/admin/cj/shipping/calculate/route.ts` - Shipping calculation API
+- `src/app/admin/import/discover/page.tsx` - Product Discovery UI with pricing display
+
 ## CJ API Product Search Fix (Nov 30, 2025)
 
 **Issue:** Product search was returning empty results because the CJ API response validation was missing.
