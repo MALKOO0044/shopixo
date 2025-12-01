@@ -75,35 +75,41 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
-## Shipping Calculator & SAR Pricing Display (Dec 1, 2025)
+## Per-Variant Pricing Architecture (Dec 1, 2025)
 
-**Feature:** Added real-time shipping calculation with complete SAR pricing breakdown in Product Discovery.
+**Critical Mandate:** Zero tolerance for pricing errors - each variant must have 100% accurate SAR pricing.
+
+**Architecture:**
+- Pricing is stored and keyed by `variantId` (never by array index) to prevent mismatch when variant arrays reorder
+- Each variant has its own `shipping` and `pricing` properties
+- UI uses `selectedVariantId` map to track which variant is being viewed per product
+- All state updates use `variant.vid` matching, never positional indices
 
 **Implementation:**
-1. Created shipping calculation API endpoint: `src/app/api/admin/cj/shipping/calculate/route.ts`
-   - Calls CJ freightCalculate API for exact shipping costs
-   - Uses CJPacket Ordinary shipping method (China to Saudi Arabia)
-   - Calculates complete pricing with customizable profit margin
+1. Shipping API (`src/app/api/admin/cj/shipping/calculate/route.ts`):
+   - Accepts per-variant inputs: `{productId, variantId, variantPriceUSD}[]`
+   - Returns results keyed by `variantId`: `{[variantId]: {shipping, pricing}}`
+   - Uses CJPacket Ordinary shipping method only (China to Saudi Arabia)
 
-2. Updated Product Discovery UI: `src/app/admin/import/discover/page.tsx`
-   - Added customizable profit margin input with quick-select buttons (10%, 20%, 30%, 50%, 100%)
-   - Added shipping calculation progress indicator
-   - Updated product cards to show complete SAR pricing breakdown:
-     - CJ Price (product cost in SAR)
-     - Shipping (from CJ API in SAR)
-     - Your Cost (product + shipping)
-     - Profit (based on % margin)
-     - Sell Price (final customer price)
-   - Automatic recalculation when profit margin changes (without re-calling CJ API)
+2. Product Discovery UI (`src/app/admin/import/discover/page.tsx`):
+   - Variant selector allows clicking to view different variants
+   - "Calculate SAR Pricing" button triggers on-demand pricing for selected variant
+   - Pricing display shows: CJ Price, Shipping, Your Cost, Profit, Sell Price
+   - Profit margin adjustment recalculates locally without re-calling CJ API
+
+3. Type Extensions (`CjVariant` type):
+   - `shipping?: { available: boolean; costUSD?: number; costSAR?: number; ... }`
+   - `pricing?: { variantPriceSAR: number; shippingSAR: number; sellPriceSAR: number; profitSAR: number }`
 
 **Pricing Formula:**
 - USD to SAR rate: 3.75 (fixed)
-- Sell Price = (Product Price + Shipping) × (1 + Profit Margin %)
+- Sell Price = (Variant Price + Shipping) × (1 + Profit Margin %)
+- Variants without CJPacket Ordinary shipping show "Shipping unavailable"
 
 **Key Files:**
-- `src/lib/cj/v2.ts` - Contains `calculateShippingToSA()` and `calculateFinalPricingSAR()` functions
-- `src/app/api/admin/cj/shipping/calculate/route.ts` - Shipping calculation API
-- `src/app/admin/import/discover/page.tsx` - Product Discovery UI with pricing display
+- `src/lib/cj/v2.ts` - CJ API client with `calculateShippingToSA()` and `calculateFinalPricingSAR()`
+- `src/app/api/admin/cj/shipping/calculate/route.ts` - Per-variant shipping/pricing API
+- `src/app/admin/import/discover/page.tsx` - Product Discovery with variant selector and pricing display
 
 ## CJ API Product Search Fix (Nov 30, 2025)
 
