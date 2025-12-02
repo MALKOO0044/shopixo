@@ -27,13 +27,14 @@ type VariantShipping = {
 type CjVariant = {
   vid?: string; // CJ variant ID - required for shipping calculation
   cjSku?: string;
+  variantSku?: string; // Variant SKU from V2 API
   size?: string;
   color?: string;
   price?: number;
   stock?: number;
   cjStock?: number;
   factoryStock?: number;
-  imageUrl?: string;
+  imageUrl?: string; // Variant-specific image (for color swatches)
   // Per-variant shipping and pricing (populated after Calculate Pricing)
   shipping?: VariantShipping;
   pricing?: VariantPricing | null; // null = shipping unavailable
@@ -85,10 +86,17 @@ type CjProduct = {
   images: string[];
   videoUrl?: string | null;
   variants: CjVariant[];
-  supplierRating?: number;
-  totalStock?: number;
+  // V2 API fields
+  productSku?: string;          // Product SKU code
+  listedNum?: number;           // Popularity count (higher = more popular)
+  totalStock?: number;          // From warehouseInventoryNum
+  cjInventory?: number;         // Stock in CJ warehouses
+  factoryInventory?: number;    // Stock in factory/supplier warehouses
   avgPrice?: number;
-  processingTimeHours?: number;
+  deliveryCycle?: string | null; // e.g., "3-5" days
+  supplierName?: string;         // Supplier name
+  addMarkStatus?: number;        // 1 = free shipping
+  // Computed
   qualityScore?: number;
   // Per-variant pricing calculated - tracks which variants have been priced
   variantsPriced?: boolean; // true after Calculate Pricing has been run
@@ -119,7 +127,7 @@ export default function ProductDiscoveryPage() {
   const [maxPrice, setMaxPrice] = useState(100);
   const [minPrice, setMinPrice] = useState(0);
   const [profitMargin, setProfitMargin] = useState(50);
-  const [minRating, setMinRating] = useState(0);
+  const [minPopularity, setMinPopularity] = useState(0); // listedNum threshold
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
   
   const [loading, setLoading] = useState(false);
@@ -252,7 +260,7 @@ export default function ProductDiscoveryPage() {
     console.log('[Product Search] Starting search...');
     console.log('[Product Search] Category:', selectedCategory);
     console.log('[Product Search] Features:', selectedFeatures);
-    console.log('[Product Search] MinRating:', minRating);
+    console.log('[Product Search] MinPopularity:', minPopularity);
     
     if (!selectedCategory) {
       showError("Please select a category", "search");
@@ -322,7 +330,7 @@ export default function ProductDiscoveryPage() {
         maxPrice: maxPrice.toString(),
         minStock: minStock.toString(),
         profitMargin: profitMargin.toString(),
-        minRating: minRating.toString(),
+        minPopularity: minPopularity.toString(),
         freeShippingOnly: freeShippingOnly ? "1" : "0",
       });
       
@@ -393,21 +401,21 @@ export default function ProductDiscoveryPage() {
         const totalStock = variants.reduce((sum: number, v: CjVariant) => sum + (v.stock || 0), 0);
         const prices = variants.map((v: CjVariant) => v.price || 0).filter((p: number) => p > 0);
         const avgPrice = prices.length > 0 ? prices.reduce((a: number, b: number) => a + b, 0) / prices.length : 0;
-        const hasRating = p.hasRating ?? (p.supplierRating != null && p.supplierRating > 0);
+        const listedNum = p.listedNum || 0;
         
         return {
           ...p,
           productId: p.productId || p.pid || p.id,
           totalStock,
           avgPrice,
-          supplierRating: hasRating ? p.supplierRating : null,
-          hasRating,
-          qualityScore: calculateQualityScore({ ...p, totalStock, avgPrice, supplierRating: p.supplierRating }),
+          listedNum,
+          hasPopularityData: listedNum > 0,
+          qualityScore: calculateQualityScore({ ...p, totalStock, avgPrice, listedNum }),
         };
       }).sort((a: CjProduct, b: CjProduct) => {
-        const ratingA = (a as any).hasRating ? (a.supplierRating || 0) : -1;
-        const ratingB = (b as any).hasRating ? (b.supplierRating || 0) : -1;
-        if (ratingB !== ratingA) return ratingB - ratingA;
+        const popA = (a as any).listedNum || 0;
+        const popB = (b as any).listedNum || 0;
+        if (popB !== popA) return popB - popA;
         return (b.qualityScore || 0) - (a.qualityScore || 0);
       });
       
@@ -815,7 +823,7 @@ export default function ProductDiscoveryPage() {
           keywords: `${categoryName}: ${featureNames}`,
           category: selectedCategory,
           categoryIds: selectedFeatures,
-          filters: { minStock, minPrice, maxPrice, profitMargin, minRating, freeShippingOnly },
+          filters: { minStock, minPrice, maxPrice, profitMargin, minPopularity, freeShippingOnly },
           products: selectedProducts,
         }),
       });
@@ -834,14 +842,22 @@ export default function ProductDiscoveryPage() {
     }
   };
 
-  const renderStars = (rating: number) => {
+  // Render popularity as a visual indicator (based on listedNum)
+  const renderPopularity = (listedNum: number) => {
+    // Convert listedNum to a 0-5 scale based on typical ranges
+    let level = 0;
+    if (listedNum >= 500) level = 5;
+    else if (listedNum >= 200) level = 4;
+    else if (listedNum >= 100) level = 3;
+    else if (listedNum >= 50) level = 2;
+    else if (listedNum >= 10) level = 1;
+    
     const stars = [];
-    const fullStars = Math.floor(rating);
     for (let i = 0; i < 5; i++) {
       stars.push(
         <Star
           key={i}
-          className={`h-3 w-3 ${i < fullStars ? "fill-amber-400 text-amber-400" : "text-gray-300"}`}
+          className={`h-3 w-3 ${i < level ? "fill-amber-400 text-amber-400" : "text-gray-300"}`}
         />
       );
     }
@@ -1086,16 +1102,17 @@ export default function ProductDiscoveryPage() {
           </div>
           
           <div>
-            <label className="block text-sm text-gray-600 mb-2">Min Rating</label>
+            <label className="block text-sm text-gray-600 mb-2">Popularity</label>
             <select
-              value={minRating}
-              onChange={(e) => setMinRating(Number(e.target.value))}
+              value={minPopularity}
+              onChange={(e) => setMinPopularity(Number(e.target.value))}
               className="w-full px-3 py-2 border border-gray-300 rounded"
             >
-              <option value={0}>Any Rating</option>
-              <option value={3}>3+ Stars</option>
-              <option value={4}>4+ Stars</option>
-              <option value={4.5}>4.5+ Stars</option>
+              <option value={0}>Any Popularity</option>
+              <option value={10}>10+ listings</option>
+              <option value={50}>50+ listings</option>
+              <option value={100}>100+ listings</option>
+              <option value={500}>500+ listings</option>
             </select>
           </div>
         </div>
@@ -1306,14 +1323,22 @@ export default function ProductDiscoveryPage() {
                       {product.name}
                     </h3>
                     
+                    {/* SKU Display */}
+                    {product.productSku && (
+                      <div className="text-[10px] text-gray-400 font-mono truncate" title={product.productSku}>
+                        SKU: {product.productSku}
+                      </div>
+                    )}
+                    
+                    {/* Popularity Display (based on listedNum) */}
                     <div className="flex items-center gap-1">
-                      {renderStars(product.supplierRating || 0)}
+                      {renderPopularity(product.listedNum || 0)}
                       <span className="text-xs text-gray-500 ml-1">
-                        ({(product.supplierRating || 0).toFixed(1)})
+                        ({product.listedNum || 0} listings)
                       </span>
                     </div>
                     
-                    {/* Variant Selector - Click to select different variants */}
+                    {/* Variant Selector - Click to select different variants with color images */}
                     {product.variants.length > 1 && (
                       <div className="flex flex-wrap gap-1 pt-1 border-t border-gray-100">
                         <span className="text-[10px] text-gray-400 w-full mb-1">Select variant:</span>
@@ -1322,6 +1347,7 @@ export default function ProductDiscoveryPage() {
                           const isUnavailable = v.shipping && !v.shipping.available;
                           // Check if this variant is selected by comparing vid
                           const isCurrentlySelected = v.vid ? v.vid === selectedVariant?.vid : i === 0;
+                          const hasImage = !!v.imageUrl;
                           return (
                             <button
                               key={v.vid || i}
@@ -1332,18 +1358,29 @@ export default function ProductDiscoveryPage() {
                                   setSelectedVariantId(prev => ({ ...prev, [product.productId]: v.vid! }));
                                 }
                               }}
-                              className={`px-1.5 py-0.5 rounded text-xs transition-colors ${
+                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${
                                 isCurrentlySelected 
-                                  ? 'bg-blue-500 text-white' 
+                                  ? 'bg-blue-500 text-white ring-2 ring-blue-300' 
                                   : isPriced 
                                     ? 'bg-green-100 text-green-700 hover:bg-green-200'
                                     : isUnavailable
                                       ? 'bg-red-100 text-red-500 hover:bg-red-200'
                                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                               }`}
-                              title={isPriced ? 'Priced' : isUnavailable ? 'Unavailable' : 'Not calculated'}
+                              title={`${v.color || v.size || 'Variant'} - ${isPriced ? 'Priced' : isUnavailable ? 'Unavailable' : 'Not calculated'}`}
                             >
-                              {v.color || v.size || (v.cjSku ? v.cjSku.slice(-6) : `V${i+1}`)}
+                              {/* Color swatch image if available */}
+                              {hasImage && (
+                                <img 
+                                  src={v.imageUrl} 
+                                  alt={v.color || ''} 
+                                  className="w-4 h-4 rounded object-cover border border-gray-200"
+                                  onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
+                                />
+                              )}
+                              <span className="truncate max-w-[60px]">
+                                {v.color || v.size || (v.cjSku ? v.cjSku.slice(-6) : `V${i+1}`)}
+                              </span>
                             </button>
                           );
                         })}
@@ -1442,9 +1479,25 @@ export default function ProductDiscoveryPage() {
                       </div>
                     )}
                     
-                    {/* Stock info */}
+                    {/* Delivery Time from V2 API */}
+                    {product.deliveryCycle && (
+                      <div className="text-xs text-gray-500 flex items-center gap-1">
+                        <span>Est. Delivery: {product.deliveryCycle} days</span>
+                      </div>
+                    )}
+                    
+                    {/* Stock info with CJ + Factory breakdown */}
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-gray-500">Stock: <span className={`font-medium ${(product.totalStock || 0) > 0 ? "text-gray-700" : "text-red-500"}`}>{product.totalStock || 0}</span></span>
+                      <span className="text-gray-500">
+                        Stock: <span className={`font-medium ${(product.totalStock || 0) > 0 ? "text-gray-700" : "text-red-500"}`}>
+                          {product.totalStock || 0}
+                        </span>
+                        {(product.cjInventory || product.factoryInventory) && (
+                          <span className="text-gray-400 text-[10px] ml-1">
+                            (CJ: {product.cjInventory || 0} + Factory: {product.factoryInventory || 0})
+                          </span>
+                        )}
+                      </span>
                       {selectedVariant?.cjSku && (
                         <span className="text-gray-400 font-mono text-[10px]">{selectedVariant.cjSku.slice(-8)}</span>
                       )}
@@ -1558,9 +1611,9 @@ export default function ProductDiscoveryPage() {
                   <h2 className="text-xl font-semibold" dir="ltr">{previewProduct.name}</h2>
                   
                   <div className="flex items-center gap-2">
-                    {renderStars(previewProduct.supplierRating || 0)}
+                    <TrendingUp className="h-4 w-4 text-blue-500" />
                     <span className="text-sm text-gray-600">
-                      {(previewProduct.supplierRating || 0).toFixed(1)} Rating
+                      Listed {(previewProduct as any).listedNum || 0} times
                     </span>
                   </div>
                   

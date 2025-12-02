@@ -125,17 +125,18 @@ async function fetchCjProductPage(token: string, base: string, keyword: string, 
 }
 
 async function fetchCjProductsByCategoryId(token: string, base: string, categoryId: string, pageNum: number, pageSize: number): Promise<{ list: any[]; total: number }> {
-  // CJ API /product/list requires GET with query parameters, NOT POST
+  // USE V2 API for better data: warehouseInventoryNum, sku, deliveryCycle, listedNum
+  // V2 uses 'page' and 'size' instead of 'pageNum' and 'pageSize'
+  // V2 uses 'lv3categoryList' array instead of 'categoryId'
   const params = new URLSearchParams();
-  params.set('categoryId', categoryId);
-  params.set('pageNum', String(pageNum));
-  params.set('pageSize', String(pageSize));
+  params.set('page', String(pageNum));
+  params.set('size', String(Math.min(pageSize, 100))); // V2 max is 100
+  params.set('lv3categoryList', categoryId); // Use lv3categoryList for third-level categories
   
-  const url = `${base}/product/list?${params}`;
+  const url = `${base}/product/listV2?${params}`;
   
-  console.log(`[CJ Category Fetch] Starting request: categoryId=${categoryId}, page=${pageNum}, pageSize=${pageSize}`);
-  console.log(`[CJ Category Fetch] Token preview: ${token ? token.substring(0, 20) + '...' : 'EMPTY'}`);
-  console.log(`[CJ Category Fetch] URL: ${url}`);
+  console.log(`[CJ V2 Fetch] Starting request: categoryId=${categoryId}, page=${pageNum}, size=${pageSize}`);
+  console.log(`[CJ V2 Fetch] URL: ${url}`);
   
   try {
     const data = await throttleCjRequest(async () => {
@@ -148,10 +149,97 @@ async function fetchCjProductsByCategoryId(token: string, base: string, category
         cache: 'no-store',
       });
       const jsonData = await res.json();
-      console.log(`[CJ Category Fetch] Raw response status: ${res.status}, ok: ${res.ok}`);
+      console.log(`[CJ V2 Fetch] Raw response status: ${res.status}, ok: ${res.ok}`);
       return jsonData;
     });
-    console.log(`[CJ Category Fetch] Response: categoryId=${categoryId}, page=${pageNum}, code=${data?.code}, result=${data?.result}, message=${data?.message || 'none'}, total=${data?.data?.total || 0}, items=${data?.data?.list?.length || 0}`);
+    
+    // V2 API has different response structure: data.content[].productList[]
+    const totalRecords = data?.data?.totalRecords || 0;
+    const contentList = data?.data?.content || [];
+    
+    // Flatten productList from all content items
+    let allProducts: any[] = [];
+    for (const content of contentList) {
+      if (Array.isArray(content?.productList)) {
+        allProducts = allProducts.concat(content.productList);
+      }
+    }
+    
+    console.log(`[CJ V2 Fetch] Response: categoryId=${categoryId}, page=${pageNum}, code=${data?.code}, result=${data?.result}, totalRecords=${totalRecords}, products=${allProducts.length}`);
+    
+    if (data?.code === 200 && data?.result) {
+      // Map V2 fields to expected format
+      const mappedProducts = allProducts.map(p => ({
+        ...p,
+        // Map V2 field names to our expected names
+        pid: p.id || p.pid,
+        productId: p.id || p.pid,
+        productNameEn: p.nameEn || p.productNameEn,
+        name: p.nameEn || p.productNameEn,
+        productImage: p.bigImage || p.productImage,
+        // Stock: V2 uses warehouseInventoryNum for total inventory
+        stock: p.warehouseInventoryNum || p.totalVerifiedInventory || p.totalUnVerifiedInventory || 0,
+        warehouseInventoryNum: p.warehouseInventoryNum || 0,
+        cjInventory: p.totalVerifiedInventory || 0,
+        factoryInventory: p.totalUnVerifiedInventory || 0,
+        // Price
+        sellPrice: parseFloat(p.sellPrice || p.nowPrice || p.discountPrice || '0'),
+        price: parseFloat(p.sellPrice || p.nowPrice || p.discountPrice || '0'),
+        // SKU
+        sku: p.sku || p.spu || '',
+        productSku: p.sku || p.spu || '',
+        // Popularity (listedNum = how many times this product was listed)
+        listedNum: p.listedNum || 0,
+        // Delivery time
+        deliveryCycle: p.deliveryCycle || null, // e.g., "3-5" days
+        // Free shipping
+        addMarkStatus: p.addMarkStatus || 0, // 1 = free shipping
+        // Supplier
+        supplierName: p.supplierName || '',
+      }));
+      
+      return {
+        list: mappedProducts,
+        total: totalRecords,
+      };
+    }
+    
+    // Log the error message if failed
+    if (data?.message) {
+      console.log(`[CJ V2 Fetch] Error message: ${data.message}`);
+    }
+    
+    // Fallback to old API if V2 fails
+    console.log(`[CJ V2 Fetch] V2 failed, trying legacy /product/list...`);
+    return await fetchCjProductsByCategoryIdLegacy(token, base, categoryId, pageNum, pageSize);
+  } catch (e: any) {
+    console.log(`[CJ V2 Fetch] Error for ${categoryId}: ${e?.message}`);
+    // Fallback to old API on error
+    return await fetchCjProductsByCategoryIdLegacy(token, base, categoryId, pageNum, pageSize);
+  }
+}
+
+// Legacy fallback function for older /product/list endpoint
+async function fetchCjProductsByCategoryIdLegacy(token: string, base: string, categoryId: string, pageNum: number, pageSize: number): Promise<{ list: any[]; total: number }> {
+  const params = new URLSearchParams();
+  params.set('categoryId', categoryId);
+  params.set('pageNum', String(pageNum));
+  params.set('pageSize', String(pageSize));
+  
+  const url = `${base}/product/list?${params}`;
+  
+  try {
+    const data = await throttleCjRequest(async () => {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'CJ-Access-Token': token,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+      });
+      return await res.json();
+    });
     
     if (data?.code === 200 && data?.result && Array.isArray(data?.data?.list)) {
       return {
@@ -160,14 +248,9 @@ async function fetchCjProductsByCategoryId(token: string, base: string, category
       };
     }
     
-    // Log the error message if failed
-    if (data?.message) {
-      console.log(`[CJ Category Fetch] Error message: ${data.message}`);
-    }
-    
     return { list: [], total: 0 };
   } catch (e: any) {
-    console.log(`[CJ Category Fetch] Error for ${categoryId}: ${e?.message}`);
+    console.log(`[CJ Legacy Fetch] Error for ${categoryId}: ${e?.message}`);
     return { list: [], total: 0 };
   }
 }
@@ -193,10 +276,8 @@ export async function GET(req: Request) {
     const categoryIds = searchParams.get('categoryIds') || undefined;
     const quantity = Math.max(1, Number(searchParams.get('quantity') || 25));
     const strictMode = searchParams.get('strict') !== 'false';
-    const minRating = Number(searchParams.get('minRating') || 0);
-    const includeUnratedParam = searchParams.get('includeUnrated');
-    // Always include unrated products by default - only filter out products that HAVE a rating below threshold
-    const includeUnrated = includeUnratedParam === 'false' ? false : true;
+    // V2 API: Use minPopularity (listedNum threshold) instead of minRating (CJ has no rating field)
+    const minPopularity = Number(searchParams.get('minPopularity') || 0);
     const minStock = Number(searchParams.get('minStock') || 0);
     const minPrice = Number(searchParams.get('minPrice') || 0);
     const maxPrice = Number(searchParams.get('maxPrice') || 0);
@@ -216,8 +297,7 @@ export async function GET(req: Request) {
     let totalFound = 0;
     let pagesFetched = 0;
     let totalRawFetched = 0;
-    let skippedNoRating = 0;
-    let skippedLowRating = 0;
+    let skippedLowPopularity = 0;
     let skippedNoMatch = 0;
     
     if (pid) {
@@ -232,7 +312,7 @@ export async function GET(req: Request) {
       const searchTokens = tokenize(keyword);
       
       const { requiredConcepts, genderExclusions } = classifyQuery(keyword);
-      console.log(`[Search v5] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}, MinRating: ${minRating}, IncludeUnrated: ${includeUnrated}, MinStock: ${minStock}, MinPrice: ${minPrice}, MaxPrice: ${maxPrice}`);
+      console.log(`[Search v5] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}, MinPopularity: ${minPopularity}, MinStock: ${minStock}, MinPrice: ${minPrice}, MaxPrice: ${maxPrice}`);
       
       let skippedLowStock = 0;
       let skippedPrice = 0;
@@ -294,19 +374,12 @@ export async function GET(req: Request) {
           
           allRawItems.push(rawItem);
           
-          const supplierRating = Number(rawItem.supplierScore || rawItem.supplierRating || rawItem.score || rawItem.rating || rawItem.productScore || 0);
-          const hasRating = supplierRating > 0;
+          // V2 API: Use listedNum as popularity indicator
+          const listedNum = Number(rawItem.listedNum || 0);
           
-          if (minRating > 0) {
-            if (!hasRating) {
-              if (!includeUnrated) {
-                skippedNoRating++;
-                continue;
-              }
-            } else if (supplierRating < minRating) {
-              skippedLowRating++;
-              continue;
-            }
+          if (minPopularity > 0 && listedNum < minPopularity) {
+            skippedLowPopularity++;
+            continue;
           }
           
           // Apply stock filter from raw item before mapping
@@ -332,10 +405,14 @@ export async function GET(req: Request) {
           const mappedItem = mapCjItemToProductLike(rawItem);
           if (!mappedItem) continue;
           
-          (mappedItem as any).supplierRating = hasRating ? supplierRating : null;
-          (mappedItem as any).hasRating = hasRating;
+          // Add V2 API fields
+          (mappedItem as any).listedNum = listedNum;
+          (mappedItem as any).hasPopularityData = listedNum > 0;
           (mappedItem as any).totalStock = itemStock >= 0 ? itemStock : null;
           (mappedItem as any).avgPrice = itemPrice > 0 ? itemPrice : null;
+          (mappedItem as any).productSku = rawItem.sku || rawItem.productSku || '';
+          (mappedItem as any).deliveryCycle = rawItem.deliveryCycle || null;
+          (mappedItem as any).supplierName = rawItem.supplierName || '';
           
           if (strictMode && searchTokens.length > 0 && requiredConcepts.size > 0) {
             const strictResult = smartMatch(mappedItem.name || '', keyword, false);
@@ -383,10 +460,11 @@ export async function GET(req: Request) {
         }
       }
       
+      // Sort by popularity (listedNum) - higher = more popular
       strictMatchedItems.sort((a, b) => {
-        const ratingA = (a as any).hasRating ? ((a as any).supplierRating || 0) : -1;
-        const ratingB = (b as any).hasRating ? ((b as any).supplierRating || 0) : -1;
-        if (ratingB !== ratingA) return ratingB - ratingA;
+        const popA = (a as any).listedNum || 0;
+        const popB = (b as any).listedNum || 0;
+        if (popB !== popA) return popB - popA;
         return ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0);
       });
       
@@ -394,9 +472,9 @@ export async function GET(req: Request) {
         const ratioA = (a as any)._matchRatio || 0;
         const ratioB = (b as any)._matchRatio || 0;
         if (ratioB !== ratioA) return ratioB - ratioA;
-        const ratingA = (a as any).hasRating ? ((a as any).supplierRating || 0) : -1;
-        const ratingB = (b as any).hasRating ? ((b as any).supplierRating || 0) : -1;
-        if (ratingB !== ratingA) return ratingB - ratingA;
+        const popA = (a as any).listedNum || 0;
+        const popB = (b as any).listedNum || 0;
+        if (popB !== popA) return popB - popA;
         return ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0);
       });
       
@@ -406,7 +484,7 @@ export async function GET(req: Request) {
       const duration = Date.now() - startTime;
       console.log(`[Search v5] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms, timedOut=${timedOut}`);
       console.log(`[Search v5] Stats: raw=${totalRawFetched}, unique=${seenPids.size}, strict=${strictMatchedItems.length}, relaxed=${relaxedMatchedItems.length}`);
-      console.log(`[Search v5] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}, noMatch=${skippedNoMatch}, lowStock=${skippedLowStock}, price=${skippedPrice}`);
+      console.log(`[Search v5] Skipped: lowPopularity=${skippedLowPopularity}, noMatch=${skippedNoMatch}, lowStock=${skippedLowStock}, price=${skippedPrice}`);
       
       // Return early for keyword search with timedOut indicator
       const r = NextResponse.json({ 
@@ -420,8 +498,7 @@ export async function GET(req: Request) {
         message: timedOut ? 'Search returned partial results due to time limit. Try a more specific keyword.' : undefined,
         stats: {
           rawFetched: totalRawFetched,
-          skippedNoRating,
-          skippedLowRating,
+          skippedLowPopularity,
           skippedNoMatch,
           duration,
         },
@@ -431,7 +508,7 @@ export async function GET(req: Request) {
       return r;
     } else if (categoryIds) {
       const categoryIdList = categoryIds.split(',').map(id => id.trim()).filter(Boolean);
-      console.log(`[Search v5 Category] Category IDs: [${categoryIdList.join(', ')}], Target: ${quantity}, MinRating: ${minRating}, IncludeUnrated: ${includeUnrated}, MinStock: ${minStock}, MinPrice: ${minPrice}, MaxPrice: ${maxPrice}`);
+      console.log(`[Search v5 Category] Category IDs: [${categoryIdList.join(', ')}], Target: ${quantity}, MinPopularity: ${minPopularity}, MinStock: ${minStock}, MinPrice: ${minPrice}, MaxPrice: ${maxPrice}`);
       
       let skippedLowStock = 0;
       let skippedPrice = 0;
@@ -520,33 +597,20 @@ export async function GET(req: Request) {
             if (seenPids.has(itemPid)) continue;
             seenPids.add(itemPid);
             
-            const supplierRating = Number(rawItem.supplierScore || rawItem.supplierRating || rawItem.score || rawItem.rating || rawItem.productScore || 0);
-            const hasRating = supplierRating > 0;
+            // V2 API: Use listedNum as popularity indicator (CJ has NO supplier rating field)
+            const listedNum = Number(rawItem.listedNum || 0);
+            const hasPopularityData = listedNum > 0;
             
-            if (minRating > 0) {
-              if (!hasRating) {
-                if (!includeUnrated) {
-                  skippedNoRating++;
-                  continue;
-                }
-              } else if (supplierRating < minRating) {
-                skippedLowRating++;
-                continue;
-              }
-            }
-            
-            // Apply stock filter from raw item before mapping
-            // Only filter if stock data is actually present in the response
-            const rawStock = rawItem.stock ?? rawItem.inventory ?? rawItem.listingCount ?? rawItem.listedNum ?? rawItem.quantity;
-            const itemStock = rawStock !== undefined ? Number(rawStock) : -1; // -1 means no stock data
-            if (minStock > 0 && itemStock >= 0 && itemStock < minStock) {
+            // V2 API: Use warehouseInventoryNum for accurate stock
+            const rawStock = rawItem.warehouseInventoryNum ?? rawItem.stock ?? rawItem.inventory ?? 0;
+            const itemStock = Number(rawStock);
+            if (minStock > 0 && itemStock < minStock) {
               skippedLowStock++;
               continue;
             }
             
             // Apply price filter from raw item before mapping
-            // CJ uses: sellPrice, price, salePrice, costPrice (numeric, not nested object)
-            const itemPrice = Number(rawItem.sellPrice ?? rawItem.price ?? rawItem.salePrice ?? rawItem.costPrice ?? 0);
+            const itemPrice = Number(rawItem.sellPrice ?? rawItem.price ?? 0);
             if (minPrice > 0 && itemPrice > 0 && itemPrice < minPrice) {
               skippedPrice++;
               continue;
@@ -559,11 +623,18 @@ export async function GET(req: Request) {
             const mappedItem = mapCjItemToProductLike(rawItem);
             if (!mappedItem) continue;
             
-            (mappedItem as any).supplierRating = hasRating ? supplierRating : null;
-            (mappedItem as any).hasRating = hasRating;
+            // Add V2 API fields for display
+            (mappedItem as any).listedNum = listedNum;                                    // Popularity count
+            (mappedItem as any).hasPopularityData = hasPopularityData;
             (mappedItem as any).categoryId = catId;
-            (mappedItem as any).totalStock = itemStock >= 0 ? itemStock : null;
+            (mappedItem as any).totalStock = itemStock;                                    // From warehouseInventoryNum
+            (mappedItem as any).cjInventory = Number(rawItem.cjInventory || rawItem.totalVerifiedInventory || 0);
+            (mappedItem as any).factoryInventory = Number(rawItem.factoryInventory || rawItem.totalUnVerifiedInventory || 0);
             (mappedItem as any).avgPrice = itemPrice > 0 ? itemPrice : null;
+            (mappedItem as any).productSku = rawItem.sku || rawItem.productSku || '';      // Product SKU
+            (mappedItem as any).deliveryCycle = rawItem.deliveryCycle || null;             // Delivery time e.g., "3-5"
+            (mappedItem as any).supplierName = rawItem.supplierName || '';                 // Supplier name
+            (mappedItem as any).addMarkStatus = rawItem.addMarkStatus || 0;                // 1 = free shipping
             
             allItems.push(mappedItem);
             categoryItems++;
@@ -582,17 +653,18 @@ export async function GET(req: Request) {
         totalFound += categoryTotal;
       }
       
+      // Sort by popularity (listedNum) - higher = more popular
       allItems.sort((a, b) => {
-        const ratingA = (a as any).hasRating ? ((a as any).supplierRating || 0) : -1;
-        const ratingB = (b as any).hasRating ? ((b as any).supplierRating || 0) : -1;
-        return ratingB - ratingA;
+        const popA = (a as any).listedNum || 0;
+        const popB = (b as any).listedNum || 0;
+        return popB - popA;
       });
       
       items = allItems.slice(0, quantity);
       
       const duration = Date.now() - startTime;
       console.log(`[Search v5 Category] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms, timedOut=${timedOut}`);
-      console.log(`[Search v5 Category] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}, lowStock=${skippedLowStock}, price=${skippedPrice}`);
+      console.log(`[Search v5 Category] Skipped: lowPopularity=${skippedLowPopularity}, lowStock=${skippedLowStock}, price=${skippedPrice}`);
       
       // Return early with timedOut indicator
       const r = NextResponse.json({ 
@@ -606,8 +678,7 @@ export async function GET(req: Request) {
         message: timedOut ? 'Search returned partial results due to time limit. Try selecting fewer features or reducing filters.' : undefined,
         stats: {
           rawFetched: totalRawFetched,
-          skippedNoRating,
-          skippedLowRating,
+          skippedLowPopularity,
           skippedNoMatch,
           duration,
         },
@@ -626,8 +697,7 @@ export async function GET(req: Request) {
       pagesFetched,
       stats: {
         rawFetched: totalRawFetched,
-        skippedNoRating,
-        skippedLowRating,
+        skippedLowPopularity,
         skippedNoMatch,
       },
       items 
