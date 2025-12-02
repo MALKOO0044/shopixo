@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { calculateShippingToSA, calculateFinalPricingSAR } from '@/lib/cj/v2';
+import { logError } from '@/lib/error-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -186,6 +187,16 @@ export async function POST(request: NextRequest) {
     
   } catch (error: any) {
     console.error('[Shipping API] Fatal error:', error?.message);
+    
+    await logError({
+      error_type: 'shipping',
+      message: error?.message || 'Failed to calculate shipping',
+      details: {
+        stack: error?.stack,
+      },
+      page: '/api/admin/cj/shipping/calculate',
+    });
+    
     return NextResponse.json(
       { ok: false, error: error?.message || 'Failed to calculate shipping' },
       { status: 500 }

@@ -497,22 +497,26 @@ export default function ProductDiscoveryPage() {
         // Keep completion message visible for 2 seconds
         await new Promise(resolve => setTimeout(resolve, 2000));
       } else {
+        const errorMessage = data.error || 'Failed to calculate shipping';
+        showError(errorMessage, "shipping", { response: data, variantsCount: totalVariants });
         setShippingProgress({
           calculating: true,
           current: totalVariants,
           total: totalVariants,
-          message: `Error: ${data.error || 'Failed to calculate shipping'}`
+          message: `Error: ${errorMessage}`
         });
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
       
     } catch (error: any) {
       console.error('[Shipping Calc] Error:', error?.message);
+      const errorMessage = error?.message || 'Failed to calculate shipping';
+      showError(errorMessage, "shipping", { error: error?.toString(), variantsCount: totalVariants });
       setShippingProgress({
         calculating: true,
         current: 0,
         total: totalVariants,
-        message: `Error: ${error?.message || 'Failed to calculate shipping'}`
+        message: `Error: ${errorMessage}`
       });
       await new Promise(resolve => setTimeout(resolve, 3000));
     } finally {
@@ -529,6 +533,7 @@ export default function ProductDiscoveryPage() {
   const calculatePricingForVariant = async (productId: string, variantId: string, variantPriceUSD: number) => {
     if (!variantId || !variantPriceUSD || variantPriceUSD <= 0) {
       console.warn(`[Variant Pricing] Cannot price variant ${variantId} - missing vid or price`);
+      showError(`Cannot calculate pricing - variant data is incomplete`, "pricing", { variantId });
       return;
     }
     
@@ -553,8 +558,30 @@ export default function ProductDiscoveryPage() {
       
       const data = await res.json();
       
-      if (data.ok && data.results && data.results[variantId]) {
+      if (!res.ok || !data.ok) {
+        const errorMessage = data.error || `Failed to calculate pricing (status ${res.status})`;
+        showError(errorMessage, "shipping", { variantId, productId, response: data });
+        return;
+      }
+      
+      if (data.results && data.results[variantId]) {
         const result = data.results[variantId];
+        
+        if (!result.shipping?.available) {
+          toast({
+            title: "Shipping Unavailable",
+            description: "CJPacket Ordinary not available for this variant",
+            variant: "warning",
+            duration: 4000,
+          });
+        } else {
+          toast({
+            title: "Pricing Calculated",
+            description: `Sell price: ${result.pricing?.sellPriceSAR?.toFixed(2)} SAR`,
+            variant: "success",
+            duration: 3000,
+          });
+        }
         
         // Update the specific variant by variantId (NOT by index!)
         setProducts(prev => prev.map(p => {
@@ -576,9 +603,12 @@ export default function ProductDiscoveryPage() {
             variantsPriced: true
           };
         }));
+      } else {
+        showError(`No pricing result returned for variant`, "pricing", { variantId, productId });
       }
     } catch (error: any) {
       console.error(`[Variant Pricing] Error for ${variantKey}:`, error?.message);
+      showError(`Failed to calculate pricing: ${error?.message || 'Network error'}`, "pricing", { variantId, productId, error: error?.toString() });
     } finally {
       setCalculatingVariants(prev => {
         const next = new Set(prev);

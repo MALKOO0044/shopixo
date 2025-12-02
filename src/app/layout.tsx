@@ -9,6 +9,7 @@ import CookieConsent from "@/components/cookie-consent";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Suspense } from "react";
 import { ToastProvider } from "@/components/ui/toast-provider";
+import { ErrorProvider } from "@/components/error-provider";
 import { getSiteUrl } from "@/lib/site";
 import Script from "next/script";
 import { headers } from "next/headers";
@@ -95,63 +96,65 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         })()}
         <ThemeProvider>
           <ToastProvider>
-            {/* Skip to content for accessibility */}
-            <a href="#main-content" className="skip-link">تخطي إلى المحتوى</a>
-            {/* Announcement Bar */}
-            <AnnouncementBar />
-            {/* Site-wide Structured Data: Organization + WebSite with SearchAction */}
-            <script
-              nonce={nonce}
-              type="application/ld+json"
-              dangerouslySetInnerHTML={{
-                __html: JSON.stringify({
-                  "@context": "https://schema.org",
-                  "@type": "Organization",
-                  name: process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo",
-                  url: getSiteUrl(),
-                  logo: absoluteBrandLogo,
-                  sameAs: [
-                    process.env.NEXT_PUBLIC_SOCIAL_FACEBOOK,
-                    process.env.NEXT_PUBLIC_SOCIAL_INSTAGRAM,
-                    process.env.NEXT_PUBLIC_SOCIAL_TWITTER,
-                    process.env.NEXT_PUBLIC_SOCIAL_YOUTUBE,
-                  ].filter(Boolean),
-                }),
-              }}
-            />
-            <script
-              nonce={nonce}
-              type="application/ld+json"
-              dangerouslySetInnerHTML={{
-                __html: JSON.stringify({
-                  "@context": "https://schema.org",
-                  "@type": "WebSite",
-                  name: process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo",
-                  url: getSiteUrl(),
-                  potentialAction: {
-                    "@type": "SearchAction",
-                    target: `${getSiteUrl()}/search?q={search_term_string}`,
-                    "query-input": "required name=search_term_string",
-                  },
-                }),
-              }}
-            />
-            <Suspense fallback={null}>
-              <Header />
-            </Suspense>
-            <Suspense fallback={null}>
-              <NavigationBar />
-            </Suspense>
-            <Suspense fallback={null}>
-              <main id="main-content" className="flex-1">{children}</main>
-            </Suspense>
-            <Suspense fallback={null}>
-              <Footer />
-            </Suspense>
-            <Suspense fallback={null}>
-              <ChatWidget />
-            </Suspense>
-            <CookieConsent />
+            <ErrorProvider>
+              {/* Skip to content for accessibility */}
+              <a href="#main-content" className="skip-link">تخطي إلى المحتوى</a>
+              {/* Announcement Bar */}
+              <AnnouncementBar />
+              {/* Site-wide Structured Data: Organization + WebSite with SearchAction */}
+              <script
+                nonce={nonce}
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{
+                  __html: JSON.stringify({
+                    "@context": "https://schema.org",
+                    "@type": "Organization",
+                    name: process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo",
+                    url: getSiteUrl(),
+                    logo: absoluteBrandLogo,
+                    sameAs: [
+                      process.env.NEXT_PUBLIC_SOCIAL_FACEBOOK,
+                      process.env.NEXT_PUBLIC_SOCIAL_INSTAGRAM,
+                      process.env.NEXT_PUBLIC_SOCIAL_TWITTER,
+                      process.env.NEXT_PUBLIC_SOCIAL_YOUTUBE,
+                    ].filter(Boolean),
+                  }),
+                }}
+              />
+              <script
+                nonce={nonce}
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{
+                  __html: JSON.stringify({
+                    "@context": "https://schema.org",
+                    "@type": "WebSite",
+                    name: process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo",
+                    url: getSiteUrl(),
+                    potentialAction: {
+                      "@type": "SearchAction",
+                      target: `${getSiteUrl()}/search?q={search_term_string}`,
+                      "query-input": "required name=search_term_string",
+                    },
+                  }),
+                }}
+              />
+              <Suspense fallback={null}>
+                <Header />
+              </Suspense>
+              <Suspense fallback={null}>
+                <NavigationBar />
+              </Suspense>
+              <Suspense fallback={null}>
+                <main id="main-content" className="flex-1">{children}</main>
+              </Suspense>
+              <Suspense fallback={null}>
+                <Footer />
+              </Suspense>
+              <Suspense fallback={null}>
+                <ChatWidget />
+              </Suspense>
+              <CookieConsent />
+            </ErrorProvider>
           </ToastProvider>
         </ThemeProvider>
       </body>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { ReactNode } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -14,6 +14,7 @@ import {
   Boxes,
   Clock,
   FileText,
+  AlertCircle,
   LucideIcon
 } from "lucide-react";
 
@@ -57,6 +58,12 @@ const navSections: NavSection[] = [
       { href: "/admin/jobs", label: "Background Jobs", icon: Clock },
       { href: "/admin/import/pricing", label: "Pricing Rules", icon: FileText },
     ]
+  },
+  {
+    title: "SYSTEM",
+    items: [
+      { href: "/admin/errors", label: "Error Dashboard", icon: AlertCircle },
+    ]
   }
 ];
 
@@ -67,6 +74,23 @@ interface AdminLayoutClientProps {
 
 export function AdminLayoutClient({ children, email }: AdminLayoutClientProps) {
   const pathname = usePathname();
+  const [healthStatus, setHealthStatus] = useState<'ok' | 'error' | 'checking'>('checking');
+  
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const res = await fetch('/api/admin/health');
+        const data = await res.json();
+        setHealthStatus(data.status === 'ok' ? 'ok' : 'error');
+      } catch {
+        setHealthStatus('error');
+      }
+    };
+    
+    checkHealth();
+    const interval = setInterval(checkHealth, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="flex min-h-screen bg-gray-100">
@@ -79,6 +103,10 @@ export function AdminLayoutClient({ children, email }: AdminLayoutClientProps) {
       <aside className="w-56 bg-white border-l border-gray-200 flex flex-col shadow-sm">
         <div className="p-4 border-b border-gray-100">
           <Link href="/admin" className="flex items-center gap-2 justify-end">
+            <div className={`w-2 h-2 rounded-full ${
+              healthStatus === 'checking' ? 'bg-yellow-400 animate-pulse' :
+              healthStatus === 'ok' ? 'bg-green-500' : 'bg-red-500'
+            }`} title={healthStatus === 'ok' ? 'All systems operational' : healthStatus === 'error' ? 'System issues detected' : 'Checking...'} />
             <span className="font-bold text-gray-800">Shopixo Admin</span>
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-amber-500 flex items-center justify-center">
               <span className="text-white font-bold text-sm">S</span>

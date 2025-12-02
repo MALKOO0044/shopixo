@@ -5,6 +5,7 @@ import { fetchWithMeta, fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 import { classifyQuery, matchProductName } from '@/lib/search/keyword-lexicon';
 import { throttleCjRequest } from '@/lib/cj/rate-limit';
+import { logError } from '@/lib/error-logger';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -635,6 +636,17 @@ export async function GET(req: Request) {
     return r;
   } catch (e: any) {
     console.error('[Search v5] Error:', e?.message);
+    
+    await logError({
+      error_type: 'cj_api',
+      message: e?.message || 'CJ product query failed',
+      details: {
+        stack: e?.stack,
+        url: req.url,
+      },
+      page: '/api/admin/cj/products/query',
+    });
+    
     const r = NextResponse.json({ ok: false, version: 'query-v5', error: e?.message || 'CJ query failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', loggerForRequest(req).requestId);
     return r;

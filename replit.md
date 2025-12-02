@@ -129,3 +129,53 @@ Preferred communication style: Simple, everyday language.
 - `src/app/api/admin/cj/products/query/route.ts` - Product search endpoint
 - `src/lib/cj/rate-limit.ts` - CJ API rate limiting (1.1s between requests)
 - `src/lib/integration/token-store.ts` - Token persistence in database
+
+## Comprehensive Error Detection System (Dec 2, 2025)
+
+**Critical Mandate:** All errors must be visible by default. Silent mode is an optional toggle for admin users.
+
+**Architecture:**
+- Global `ErrorProvider` wraps the entire app and respects notification mode settings
+- Notification mode defaults to "visible" (shows toast notifications for all errors)
+- Admin can toggle to "silent" mode to suppress UI notifications while still logging
+- All errors are logged to database regardless of notification mode
+
+**Implementation:**
+
+1. Error Logging (`src/lib/error-logger.ts`):
+   - Server-side utility for persistent error storage
+   - Supports error types: `cj_api`, `search`, `shipping`, `pricing`, `database`, `auth`, `payment`, `general`
+   - Captures: error_type, message, stack, page, user_email, details, timestamp
+
+2. Error Provider (`src/components/error-provider.tsx`):
+   - Global context that wraps the entire app
+   - Fetches notification mode from admin settings on mount
+   - Provides `showError`, `showWarning`, `showSuccess` functions
+   - Respects silent mode for error notifications while always logging
+
+3. Health Check API (`src/app/api/admin/health/route.ts`):
+   - Monitors CJ Dropshipping API connectivity
+   - Monitors database connectivity
+   - Monitors Stripe configuration
+   - Returns status for each service with latency metrics
+
+4. Admin Error Dashboard (`src/app/admin/errors/page.tsx`):
+   - Displays system health status for all services
+   - Shows recent errors with filtering by type
+   - Toggle between visible/silent notification modes
+   - Real-time refresh capability
+
+5. Admin Navigation Health Indicator (`src/app/admin/AdminLayoutClient.tsx`):
+   - Green dot: All systems operational
+   - Yellow dot (pulsing): Checking status
+   - Red dot: System issues detected
+   - Auto-refreshes every 60 seconds
+
+**Key Files:**
+- `src/lib/error-logger.ts` - Server-side error logging utility
+- `src/components/error-provider.tsx` - Global error context provider
+- `src/app/api/admin/errors/route.ts` - Error fetching and settings API
+- `src/app/api/admin/errors/log/route.ts` - Client-side error logging endpoint
+- `src/app/api/admin/health/route.ts` - System health check API
+- `src/app/admin/errors/page.tsx` - Admin error dashboard
+- `src/app/admin/AdminLayoutClient.tsx` - Admin navigation with health indicator
