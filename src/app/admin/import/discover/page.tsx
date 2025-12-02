@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, AlertTriangle } from "lucide-react";
+import { useToast } from "@/components/ui/toast-provider";
 
 // Per-variant shipping/pricing data for 100% accurate pricing
 type VariantPricing = {
@@ -107,6 +108,8 @@ type Category = {
 };
 
 export default function ProductDiscoveryPage() {
+  const { toast } = useToast();
+  
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
   const [quantity, setQuantity] = useState(25);
@@ -119,6 +122,26 @@ export default function ProductDiscoveryPage() {
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  const showError = useCallback((message: string, errorType: string = 'general', details?: any) => {
+    setError(message);
+    toast({
+      title: "Error",
+      description: message,
+      variant: "error",
+      duration: 8000,
+    });
+    fetch('/api/admin/errors/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        error_type: errorType,
+        message,
+        details,
+        page: '/admin/import/discover',
+      }),
+    }).catch(() => {});
+  }, [toast]);
   const [products, setProducts] = useState<CjProduct[]>([]);
   const [totalFound, setTotalFound] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -230,11 +253,11 @@ export default function ProductDiscoveryPage() {
     console.log('[Product Search] MinRating:', minRating);
     
     if (!selectedCategory) {
-      setError("Please select a category");
+      showError("Please select a category", "search");
       return;
     }
     if (selectedFeatures.length === 0) {
-      setError("Please select at least one feature");
+      showError("Please select at least one feature", "search");
       return;
     }
     
@@ -249,7 +272,7 @@ export default function ProductDiscoveryPage() {
     const safetyTimeout = setTimeout(() => {
       console.log('[Product Search] Safety timeout triggered - resetting loading state');
       setLoading(false);
-      setError("Search timed out. Please try again.");
+      showError("Search timed out after 2 minutes. CJ API may be slow. Please try again.", "search", { timeout: 120000 });
     }, 120000); // 2 minute timeout
     
     try {
@@ -273,6 +296,12 @@ export default function ProductDiscoveryPage() {
       let res: Response;
       try {
         res = await fetch(`/api/admin/cj/products/query?${params}`, { signal: controller.signal });
+      } catch (fetchError: any) {
+        clearTimeout(fetchTimeout);
+        if (fetchError.name === 'AbortError') {
+          throw new Error("Search request timed out after 90 seconds. CJ API may be experiencing issues.");
+        }
+        throw fetchError;
       } finally {
         clearTimeout(fetchTimeout);
       }
@@ -282,17 +311,43 @@ export default function ProductDiscoveryPage() {
       console.log('[Product Search] Response data:', { ok: data.ok, count: data.count, error: data.error, timedOut: data.timedOut, message: data.message });
       
       if (!res.ok || !data.ok) {
-        throw new Error(data.error || `Search failed: ${res.status}`);
+        const errorMessage = data.error || `Search failed with status ${res.status}`;
+        showError(errorMessage, "cj_api", { status: res.status, response: data });
+        setLoading(false);
+        clearTimeout(safetyTimeout);
+        return;
       }
       
       // Show warning if search timed out (partial results)
       if (data.timedOut && data.message) {
-        setError(data.message);
+        toast({
+          title: "Warning",
+          description: data.message,
+          variant: "warning",
+          duration: 6000,
+        });
       }
       
       const items = data.items || [];
       console.log('[Product Search] Items found:', items.length);
       setTotalFound(data.totalFound || items.length);
+      
+      // Show message if no products found
+      if (items.length === 0) {
+        toast({
+          title: "No Products Found",
+          description: "Try different filters or select more features",
+          variant: "info",
+          duration: 5000,
+        });
+      } else {
+        toast({
+          title: "Search Complete",
+          description: `Found ${items.length} products`,
+          variant: "success",
+          duration: 3000,
+        });
+      }
       
       const processedProducts = items.map((p: any) => {
         const variants = p.variants || [];
@@ -325,7 +380,7 @@ export default function ProductDiscoveryPage() {
       }
     } catch (e: any) {
       console.error('[Product Search] Error:', e);
-      setError(e?.message || "Search failed");
+      showError(e?.message || "Search failed unexpectedly", "search", { error: e?.toString() });
       setLoading(false);
       clearTimeout(safetyTimeout);
     } finally {
