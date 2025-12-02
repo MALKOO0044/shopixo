@@ -8,6 +8,8 @@ type Feature = {
   featureName: string;
   level: number;
   parentId?: string;
+  isProductCategory: boolean; // true = can be used for product search, false = grouping only
+  childCategoryIds?: string[]; // Level 2 features include their Level 3 child IDs
 };
 
 type CategoryWithFeatures = { 
@@ -41,12 +43,8 @@ function buildCategoryHierarchy(nodes: any[]): CategoryWithFeatures[] {
           if (secondId && secondName) {
             const cleanSecondName = String(secondName).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
             
-            features.push({
-              featureId: String(secondId),
-              featureName: cleanSecondName,
-              level: 2,
-              parentId: String(firstId),
-            });
+            // Collect all Level 3 (leaf) category IDs under this Level 2 grouping
+            const childCategoryIds: string[] = [];
             
             const thirdLevelArray = secondLevel.categorySecondList || secondLevel.categoryThird || secondLevel.children || [];
             if (Array.isArray(thirdLevelArray)) {
@@ -58,16 +56,29 @@ function buildCategoryHierarchy(nodes: any[]): CategoryWithFeatures[] {
                 
                 if (thirdId && thirdName) {
                   const cleanThirdName = String(thirdName).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+                  childCategoryIds.push(String(thirdId));
                   
+                  // Level 3 = actual product category (can be used for search)
                   features.push({
                     featureId: String(thirdId),
                     featureName: `${cleanSecondName} > ${cleanThirdName}`,
                     level: 3,
                     parentId: String(secondId),
+                    isProductCategory: true,
                   });
                 }
               }
             }
+            
+            // Level 2 = grouping only (NOT a product category, but includes child IDs)
+            features.push({
+              featureId: String(secondId),
+              featureName: cleanSecondName,
+              level: 2,
+              parentId: String(firstId),
+              isProductCategory: false,
+              childCategoryIds: childCategoryIds.length > 0 ? childCategoryIds : undefined,
+            });
           }
         }
       }

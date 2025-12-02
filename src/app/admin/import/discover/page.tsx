@@ -99,6 +99,8 @@ type Feature = {
   featureName: string;
   level: number;
   parentId?: string;
+  isProductCategory?: boolean; // true = can be used for product search
+  childCategoryIds?: string[]; // Level 2 features include their Level 3 child IDs
 };
 
 type Category = {
@@ -276,8 +278,45 @@ export default function ProductDiscoveryPage() {
     }, 120000); // 2 minute timeout
     
     try {
+      // CRITICAL: Expand Level 2 features to their Level 3 child category IDs
+      // Level 2 features are groupings and don't work for product search
+      // Only Level 3 (isProductCategory=true) IDs are valid for the CJ API
+      const validCategoryIds: string[] = [];
+      
+      for (const featureId of selectedFeatures) {
+        const feature = availableFeatures.find(f => f.featureId === featureId);
+        if (!feature) {
+          // Unknown feature, try using it directly
+          validCategoryIds.push(featureId);
+          continue;
+        }
+        
+        if (feature.isProductCategory) {
+          // Level 3 - valid product category
+          validCategoryIds.push(featureId);
+        } else if (feature.childCategoryIds && feature.childCategoryIds.length > 0) {
+          // Level 2 - expand to all child Level 3 category IDs
+          validCategoryIds.push(...feature.childCategoryIds);
+          console.log(`[Product Search] Expanded Level 2 "${feature.featureName}" to ${feature.childCategoryIds.length} child categories`);
+        } else {
+          // Level 2 without children - skip (won't return results anyway)
+          console.log(`[Product Search] Skipping Level 2 "${feature.featureName}" - no child categories`);
+        }
+      }
+      
+      // Remove duplicates
+      const uniqueCategoryIds = [...new Set(validCategoryIds)];
+      console.log('[Product Search] Valid category IDs:', uniqueCategoryIds.length, uniqueCategoryIds.slice(0, 5));
+      
+      if (uniqueCategoryIds.length === 0) {
+        showError("No valid product categories selected. Please select specific product types (Level 3 features).", "search");
+        setLoading(false);
+        clearTimeout(safetyTimeout);
+        return;
+      }
+      
       const params = new URLSearchParams({
-        categoryIds: selectedFeatures.join(","),
+        categoryIds: uniqueCategoryIds.join(","),
         quantity: quantity.toString(),
         minPrice: minPrice.toString(),
         maxPrice: maxPrice.toString(),
