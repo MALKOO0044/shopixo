@@ -182,14 +182,15 @@ Preferred communication style: Simple, everyday language.
 
 ## CJ API Key Update (Dec 2, 2025)
 
-**Change:** Updated CJ Dropshipping API key to new credentials.
+**Change:** Created brand new CJ Dropshipping account to isolate potential account-related issues.
 
 **API Key Format:** `CJ{UserNum}@api@{32-character-hex}`
 
 **Configuration:**
 - API key stored as secret: `CJ_API_KEY`
-- Email stored in env: `CJ_EMAIL=Malk.t1287@gmail.com`
+- Email stored in env: `CJ_EMAIL=malk.t12387@gmail.com` (NEW ACCOUNT)
 - API Base: `https://developers.cjdropshipping.com/api2.0/v1`
+- Old account (deprecated): `Malk.t1287@gmail.com`
 
 **Token Management:**
 - Tokens stored in Supabase `integration_tokens` table
