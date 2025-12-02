@@ -182,15 +182,12 @@ Preferred communication style: Simple, everyday language.
 
 ## CJ API Key Update (Dec 2, 2025)
 
-**Change:** Created brand new CJ Dropshipping account to isolate potential account-related issues.
-
 **API Key Format:** `CJ{UserNum}@api@{32-character-hex}`
 
 **Configuration:**
 - API key stored as secret: `CJ_API_KEY`
-- Email stored in env: `CJ_EMAIL=malk.t12387@gmail.com` (NEW ACCOUNT)
+- Email: `malk.t1287@gmail.com` (original account restored)
 - API Base: `https://developers.cjdropshipping.com/api2.0/v1`
-- Old account (deprecated): `Malk.t1287@gmail.com`
 
 **Token Management:**
 - Tokens stored in Supabase `integration_tokens` table
@@ -203,3 +200,41 @@ Preferred communication style: Simple, everyday language.
 - `src/lib/cj/v2.ts` - CJ API client with token authentication
 - `src/lib/integration/token-store.ts` - Token persistence in Supabase
 - `src/app/api/admin/cj/clear-token/route.ts` - Token cache clear endpoint
+
+## CJ Category Hierarchy Fix (Dec 2, 2025)
+
+**Issue:** Product search was returning zero results when selecting features in Product Discovery.
+
+**Root Cause:** CJ categories have a 3-level hierarchy:
+- **Level 1 (categoryFirstId):** Top-level category (e.g., "Women's Clothing")
+- **Level 2 (categorySecondId):** Feature grouping (e.g., "Accessories") - NOT valid for product search
+- **Level 3 (categoryId):** Actual product category (e.g., "Scarves & Wraps") - VALID for product search
+
+The frontend was sending Level 2 IDs directly to the CJ product search API, but Level 2 IDs are only groupings and always return 0 products.
+
+**Fix Applied:**
+1. Categories API (`src/app/api/admin/cj/categories/route.ts`):
+   - Added `isProductCategory: boolean` flag to each feature
+   - Level 3 features have `isProductCategory: true`
+   - Level 2 features have `isProductCategory: false` and include `childCategoryIds` array with all valid Level 3 children
+
+2. Frontend (`src/app/admin/import/discover/page.tsx`):
+   - `searchProducts()` now expands Level 2 selections to their child Level 3 category IDs
+   - Deduplicates category IDs before API call
+   - Shows error if no valid product categories are selected
+
+**Type Updates:**
+```typescript
+type Feature = {
+  featureId: string;
+  featureName: string;
+  level: number;
+  parentId?: string;
+  isProductCategory?: boolean; // true = valid for product search
+  childCategoryIds?: string[]; // Level 2 includes Level 3 children
+};
+```
+
+**Key Files:**
+- `src/app/api/admin/cj/categories/route.ts` - Categories endpoint with hierarchy metadata
+- `src/app/admin/import/discover/page.tsx` - Frontend with category expansion logic
