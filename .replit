@@ -19,7 +19,7 @@ CLOUDINARY_API_SECRET = "orucalmqtoDSmK5LYFc6EadxDnA"
 CLOUDINARY_UPLOAD_PRESET = "shopixo_signed"
 NEXT_PUBLIC_SITE_URL = "https://shopixo.net"
 ADMIN_EMAILS = "malk.t1287@gmail.com"
-CJ_EMAIL = "malk.t12387@gmail.com"
+CJ_EMAIL = "malk.t1287@gmail.com"
 CJ_API_BASE = "https://developers.cjdropshipping.com/api2.0/v1"
 
 [workflows]
