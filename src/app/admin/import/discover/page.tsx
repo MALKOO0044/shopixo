@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, AlertTriangle } from "lucide-react";
+import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, AlertTriangle, TrendingUp } from "lucide-react";
 import { useToast } from "@/components/ui/toast-provider";
 
 // Per-variant shipping/pricing data for 100% accurate pricing
