@@ -620,6 +620,12 @@ type TokenState = {
 
 let tokenState: TokenState | null = null;
 
+// Clear token cache - use when API key changes
+export function clearTokenCache(): void {
+  console.log('[CJ Auth] Clearing token cache');
+  tokenState = null;
+}
+
 function ms() { return Date.now(); }
 
 function isNotExpired(iso?: string | null): boolean {

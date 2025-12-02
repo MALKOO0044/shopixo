@@ -179,3 +179,26 @@ Preferred communication style: Simple, everyday language.
 - `src/app/api/admin/health/route.ts` - System health check API
 - `src/app/admin/errors/page.tsx` - Admin error dashboard
 - `src/app/admin/AdminLayoutClient.tsx` - Admin navigation with health indicator
+
+## CJ API Key Update (Dec 2, 2025)
+
+**Change:** Updated CJ Dropshipping API key to new credentials.
+
+**API Key Format:** `CJ{UserNum}@api@{32-character-hex}`
+
+**Configuration:**
+- API key stored as secret: `CJ_API_KEY`
+- Email stored in env: `CJ_EMAIL=Malk.t1287@gmail.com`
+- API Base: `https://developers.cjdropshipping.com/api2.0/v1`
+
+**Token Management:**
+- Tokens stored in Supabase `integration_tokens` table
+- Access tokens valid for 15 days
+- Refresh tokens valid for 180 days
+- In-memory caching with `clearTokenCache()` function for forced refresh
+- Clear token endpoint: `POST /api/admin/cj/clear-token`
+
+**Key Files:**
+- `src/lib/cj/v2.ts` - CJ API client with token authentication
+- `src/lib/integration/token-store.ts` - Token persistence in Supabase
+- `src/app/api/admin/cj/clear-token/route.ts` - Token cache clear endpoint
