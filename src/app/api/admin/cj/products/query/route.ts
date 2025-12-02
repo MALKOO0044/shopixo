@@ -125,26 +125,26 @@ async function fetchCjProductPage(token: string, base: string, keyword: string, 
 }
 
 async function fetchCjProductsByCategoryId(token: string, base: string, categoryId: string, pageNum: number, pageSize: number): Promise<{ list: any[]; total: number }> {
-  const body = {
-    categoryId: categoryId,
-    pageNum: pageNum,
-    pageSize: pageSize,
-  };
+  // CJ API /product/list requires GET with query parameters, NOT POST
+  const params = new URLSearchParams();
+  params.set('categoryId', categoryId);
+  params.set('pageNum', String(pageNum));
+  params.set('pageSize', String(pageSize));
+  
+  const url = `${base}/product/list?${params}`;
   
   console.log(`[CJ Category Fetch] Starting request: categoryId=${categoryId}, page=${pageNum}, pageSize=${pageSize}`);
   console.log(`[CJ Category Fetch] Token preview: ${token ? token.substring(0, 20) + '...' : 'EMPTY'}`);
-  console.log(`[CJ Category Fetch] URL: ${base}/product/list`);
-  console.log(`[CJ Category Fetch] Body: ${JSON.stringify(body)}`);
+  console.log(`[CJ Category Fetch] URL: ${url}`);
   
   try {
     const data = await throttleCjRequest(async () => {
-      const res = await fetch(`${base}/product/list`, {
-        method: 'POST',
+      const res = await fetch(url, {
+        method: 'GET',
         headers: {
           'CJ-Access-Token': token,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(body),
         cache: 'no-store',
       });
       const jsonData = await res.json();

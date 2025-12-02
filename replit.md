@@ -238,3 +238,45 @@ type Feature = {
 **Key Files:**
 - `src/app/api/admin/cj/categories/route.ts` - Categories endpoint with hierarchy metadata
 - `src/app/admin/import/discover/page.tsx` - Frontend with category expansion logic
+
+## CJ Product List API Method Fix (Dec 3, 2025)
+
+**Issue:** Product search was still returning zero results even after the category hierarchy fix was applied.
+
+**Root Cause:** The CJ API `/product/list` endpoint only accepts **GET** requests with query parameters, but the code was using **POST** with a JSON body for category-based searches.
+
+**CJ API Response:**
+```
+code: 16900202
+message: "Request method 'POST' not supported"
+```
+
+**Fix Applied:**
+Changed `fetchCjProductsByCategoryId()` in `src/app/api/admin/cj/products/query/route.ts` from:
+```typescript
+// WRONG - POST with body
+const res = await fetch(`${base}/product/list`, {
+  method: 'POST',
+  body: JSON.stringify({ categoryId, pageNum, pageSize }),
+});
+```
+To:
+```typescript
+// CORRECT - GET with query parameters
+const params = new URLSearchParams();
+params.set('categoryId', categoryId);
+params.set('pageNum', String(pageNum));
+params.set('pageSize', String(pageSize));
+
+const res = await fetch(`${base}/product/list?${params}`, {
+  method: 'GET',
+});
+```
+
+**Verification:**
+- Tested with Level 3 category ID `0DC4DF6F-4EC5-47DF-B20D-863ADF69319F` (Scarves & Wraps)
+- GET request returns products correctly
+- POST request returns error code `16900202`
+
+**Key Files:**
+- `src/app/api/admin/cj/products/query/route.ts` - Product query endpoint with fixed HTTP method
