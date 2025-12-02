@@ -888,21 +888,41 @@ export default function ProductDiscoveryPage() {
           
           <div>
             <label className="block text-sm text-gray-600 mb-2">Quantity to Find</label>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={searchProducts}
-                disabled={loading || !selectedCategory || selectedFeatures.length === 0}
-                className="px-4 py-2 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50 text-sm font-medium"
-              >
-                {loading ? "..." : "Load"}
-              </button>
-              <input
-                type="number"
-                value={quantity}
-                onChange={(e) => setQuantity(Number(e.target.value))}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded text-left"
-                dir="ltr"
-              />
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap gap-1">
+                {[10, 25, 50, 100, 250, 500, 1000].map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => setQuantity(q)}
+                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                      quantity === q 
+                        ? 'bg-blue-500 text-white' 
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={2000}
+                  value={quantity}
+                  onChange={(e) => setQuantity(Math.min(2000, Math.max(1, Number(e.target.value))))}
+                  className="w-24 px-3 py-2 border border-gray-300 rounded text-left text-sm"
+                  dir="ltr"
+                  placeholder="Custom"
+                />
+                <button
+                  onClick={searchProducts}
+                  disabled={loading || !selectedCategory || selectedFeatures.length === 0}
+                  className="flex-1 px-4 py-2 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50 text-sm font-medium"
+                >
+                  {loading ? "Searching..." : "Search Products"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
