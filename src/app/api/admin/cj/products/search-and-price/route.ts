@@ -13,7 +13,13 @@ export const maxDuration = 300; // 5 minutes max for unified search+pricing
 const CJ_BASE = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
 const USD_TO_SAR_RATE = 3.75;
 
-async function lookupVariantVid(token: string, productId: string, variantSku: string): Promise<string | null> {
+// Returns { vid, variantSku, price } for the best matching variant, or all variants if returnAll=true
+async function lookupVariantVid(
+  token: string, 
+  productId: string, 
+  inputSku: string,
+  returnAll: boolean = false
+): Promise<{ vid: string; variantSku: string; price: number }[] | null> {
   try {
     const response = await fetchJson<any>(`${CJ_BASE}/product/variant/query?pid=${encodeURIComponent(productId)}`, {
       headers: {
@@ -25,22 +31,77 @@ async function lookupVariantVid(token: string, productId: string, variantSku: st
     });
     
     if (response?.code !== 200 || !response?.data) {
+      console.log(`[Search+Price] Variant query failed for pid=${productId}: code=${response?.code}, message=${response?.message}`);
       return null;
     }
     
     const variants = Array.isArray(response.data) ? response.data : (response.data?.list || response.data?.variants || []);
-    const normalizedInputSku = variantSku.trim().toUpperCase();
     
+    if (variants.length === 0) {
+      console.log(`[Search+Price] No variants returned for pid=${productId}`);
+      return null;
+    }
+    
+    console.log(`[Search+Price] Found ${variants.length} variants for pid=${productId}`);
+    
+    // If returnAll, return all variants with their vid, sku, and price
+    if (returnAll) {
+      return variants
+        .filter((v: any) => v.vid || v.variantId)
+        .map((v: any) => ({
+          vid: String(v.vid || v.variantId),
+          variantSku: String(v.variantSku || v.sku || ''),
+          price: parseFloat(v.variantSellPrice) || 0,
+        }));
+    }
+    
+    const normalizedInputSku = inputSku.trim().toUpperCase();
+    
+    // Try exact match first
     for (const v of variants) {
       const sku = String(v.variantSku || v.sku || '').trim().toUpperCase();
       if (sku === normalizedInputSku) {
         const vid = v.vid || v.variantId || null;
-        if (vid) return String(vid);
+        if (vid) {
+          return [{
+            vid: String(vid),
+            variantSku: String(v.variantSku || v.sku || ''),
+            price: parseFloat(v.variantSellPrice) || 0,
+          }];
+        }
       }
     }
     
+    // Try partial match: variant SKU starts with product SKU (e.g., "CJXXX-XS" starts with "CJXXX")
+    for (const v of variants) {
+      const sku = String(v.variantSku || v.sku || '').trim().toUpperCase();
+      if (sku.startsWith(normalizedInputSku) || normalizedInputSku.startsWith(sku)) {
+        const vid = v.vid || v.variantId || null;
+        if (vid) {
+          console.log(`[Search+Price] Partial SKU match: input=${inputSku} matched variant=${v.variantSku}`);
+          return [{
+            vid: String(vid),
+            variantSku: String(v.variantSku || v.sku || ''),
+            price: parseFloat(v.variantSellPrice) || 0,
+          }];
+        }
+      }
+    }
+    
+    // Last resort: return first variant if available (for products with only one variant)
+    const firstVariant = variants[0];
+    if (firstVariant && (firstVariant.vid || firstVariant.variantId)) {
+      console.log(`[Search+Price] Using first variant as fallback for pid=${productId}`);
+      return [{
+        vid: String(firstVariant.vid || firstVariant.variantId),
+        variantSku: String(firstVariant.variantSku || firstVariant.sku || ''),
+        price: parseFloat(firstVariant.variantSellPrice) || 0,
+      }];
+    }
+    
     return null;
-  } catch {
+  } catch (err: any) {
+    console.error(`[Search+Price] Variant lookup error for pid=${productId}: ${err?.message}`);
     return null;
   }
 }
@@ -326,12 +387,12 @@ export async function POST(request: NextRequest) {
         const basePriceUSD = product.minPrice || product.price || 0;
         const productSku = product.productSku || product.sku || '';
         
-        if (basePriceUSD > 0 && productSku) {
-          variantsProcessed++;
+        if (productSku) {
+          // Get ALL variants for this product from CJ API
+          const resolvedVariants = await lookupVariantVid(token, productId, productSku, true);
           
-          const actualVid = await lookupVariantVid(token, productId, productSku);
-          
-          if (!actualVid) {
+          if (!resolvedVariants || resolvedVariants.length === 0) {
+            variantsProcessed++;
             variantsFailed++;
             pricedVariants.push({
               variantId: productSku,
@@ -347,41 +408,65 @@ export async function POST(request: NextRequest) {
               error: 'Could not resolve variant ID',
             });
           } else {
-            await new Promise(resolve => setTimeout(resolve, 1200));
-            
-            const shippingResult = await calculateShippingToSA(actualVid, 1);
-            
-            if (shippingResult.available && shippingResult.shippingPriceUSD > 0) {
-              const pricing = calculateFinalPricingSAR(basePriceUSD, shippingResult.shippingPriceUSD, profitMarginPercent);
-              variantsSuccess++;
-              pricedVariants.push({
-                variantId: actualVid,
-                variantSku: productSku,
-                variantPriceUSD: basePriceUSD,
-                shippingAvailable: true,
-                shippingPriceUSD: shippingResult.shippingPriceUSD,
-                shippingPriceSAR: shippingResult.shippingPriceSAR,
-                deliveryDays: shippingResult.deliveryDays,
-                logisticName: shippingResult.logisticName,
-                sellPriceSAR: pricing.sellPriceSAR,
-                totalCostSAR: pricing.totalCostSAR,
-                profitSAR: pricing.profitSAR,
-              });
-            } else {
-              variantsFailed++;
-              pricedVariants.push({
-                variantId: actualVid,
-                variantSku: productSku,
-                variantPriceUSD: basePriceUSD,
-                shippingAvailable: false,
-                shippingPriceUSD: 0,
-                shippingPriceSAR: 0,
-                deliveryDays: '',
-                sellPriceSAR: 0,
-                totalCostSAR: 0,
-                profitSAR: 0,
-                error: shippingResult.error || 'Shipping not available',
-              });
+            // Process each resolved variant
+            for (const rv of resolvedVariants) {
+              variantsProcessed++;
+              
+              // Rate limit between variant calls
+              await new Promise(resolve => setTimeout(resolve, 1200));
+              
+              try {
+                const shippingResult = await calculateShippingToSA(rv.vid, 1);
+                const variantPrice = rv.price > 0 ? rv.price : basePriceUSD;
+                
+                if (shippingResult.available && shippingResult.shippingPriceUSD > 0) {
+                  const pricing = calculateFinalPricingSAR(variantPrice, shippingResult.shippingPriceUSD, profitMarginPercent);
+                  variantsSuccess++;
+                  pricedVariants.push({
+                    variantId: rv.vid,
+                    variantSku: rv.variantSku,
+                    variantPriceUSD: variantPrice,
+                    shippingAvailable: true,
+                    shippingPriceUSD: shippingResult.shippingPriceUSD,
+                    shippingPriceSAR: shippingResult.shippingPriceSAR,
+                    deliveryDays: shippingResult.deliveryDays,
+                    logisticName: shippingResult.logisticName,
+                    sellPriceSAR: pricing.sellPriceSAR,
+                    totalCostSAR: pricing.totalCostSAR,
+                    profitSAR: pricing.profitSAR,
+                  });
+                } else {
+                  variantsFailed++;
+                  pricedVariants.push({
+                    variantId: rv.vid,
+                    variantSku: rv.variantSku,
+                    variantPriceUSD: variantPrice,
+                    shippingAvailable: false,
+                    shippingPriceUSD: 0,
+                    shippingPriceSAR: 0,
+                    deliveryDays: '',
+                    sellPriceSAR: 0,
+                    totalCostSAR: 0,
+                    profitSAR: 0,
+                    error: shippingResult.error || 'Shipping not available',
+                  });
+                }
+              } catch (err: any) {
+                variantsFailed++;
+                pricedVariants.push({
+                  variantId: rv.vid,
+                  variantSku: rv.variantSku,
+                  variantPriceUSD: rv.price > 0 ? rv.price : basePriceUSD,
+                  shippingAvailable: false,
+                  shippingPriceUSD: 0,
+                  shippingPriceSAR: 0,
+                  deliveryDays: '',
+                  sellPriceSAR: 0,
+                  totalCostSAR: 0,
+                  profitSAR: 0,
+                  error: err?.message || 'Shipping calculation failed',
+                });
+              }
             }
           }
         }
@@ -398,7 +483,9 @@ export async function POST(request: NextRequest) {
           
           variantsProcessed++;
           
-          const actualVid = await lookupVariantVid(token, productId, variantSku);
+          // lookupVariantVid now returns array - get first match
+          const resolvedVariants = await lookupVariantVid(token, productId, variantSku);
+          const actualVid = resolvedVariants && resolvedVariants.length > 0 ? resolvedVariants[0].vid : null;
           
           if (!actualVid) {
             variantsFailed++;
