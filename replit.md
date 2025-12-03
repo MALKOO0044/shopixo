@@ -51,8 +51,20 @@ Preferred communication style: Simple, everyday language.
 - CJ product list/search API returns variant SKUs (e.g., "CJNSFSW301136") not actual variant IDs (e.g., "1796078021431009280")
 - The freight calculate API requires the actual `vid` (numeric/UUID format), not the SKU
 - The `/api/admin/cj/products/search-and-price` endpoint handles the complete flow: search → vid resolution → freight calculation → pricing
-- Rate limiting: 1.2 seconds between CJ freight API calls to comply with CJ API limits
+- Rate limiting: 1.2 seconds between ALL CJ API calls (search, add, variant query, shipping)
 - If vid lookup fails, variant is marked as unavailable (no fallbacks to preserve accuracy)
+**Variant Caching System (Two-Phase Approach):**
+- CJ `/product/variant/query` API only works for products added to "My Products"
+- Solution: Database cache table `cj_variant_cache` stores (pid, vid, sku, price, weight)
+- Two-phase flow: 1) Add product to "My Products" 2) Query variants 3) Cache in database
+- Subsequent requests use cached data, avoiding repeated CJ API calls
+- SKU matching: Build lookup map by SKU for correct vid→variant mapping
+- Migration: `supabase/migrations/20251203_cj_variant_cache.sql`
+**Blocking Flow (Strict Success-Only):**
+- Products only returned when ALL variants are 100% successfully priced
+- Products with ANY failed variants are filtered out before response
+- Timeout triggers HTTP 408 failure (not partial results)
+- No progressive price updates - complete pricing or no display
 **Error Detection System:** A global `ErrorProvider` ensures all errors are visible by default via toast notifications, with an optional "silent" mode for admin users (errors are always logged to the database). Includes server-side error logging, a health check API for external services (CJ, DB, Stripe), and an admin dashboard for error monitoring and system health status.
 
 # External Dependencies
