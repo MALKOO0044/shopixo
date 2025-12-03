@@ -257,10 +257,10 @@ export default function ProductDiscoveryPage() {
   };
 
   const searchProducts = async () => {
-    console.log('[Product Search] Starting search...');
-    console.log('[Product Search] Category:', selectedCategory);
-    console.log('[Product Search] Features:', selectedFeatures);
-    console.log('[Product Search] MinPopularity:', minPopularity);
+    console.log('[Search+Price] Starting unified search with pricing...');
+    console.log('[Search+Price] Category:', selectedCategory);
+    console.log('[Search+Price] Features:', selectedFeatures);
+    console.log('[Search+Price] Profit Margin:', profitMargin, '%');
     
     if (!selectedCategory) {
       showError("Please select a category", "search");
@@ -268,6 +268,10 @@ export default function ProductDiscoveryPage() {
     }
     if (selectedFeatures.length === 0) {
       showError("Please select at least one feature", "search");
+      return;
+    }
+    if (profitMargin < 1) {
+      showError("Please set a profit margin before searching", "search");
       return;
     }
     
@@ -278,161 +282,177 @@ export default function ProductDiscoveryPage() {
     setSavedBatchId(null);
     setTotalFound(0);
     
-    // Safety timeout to prevent button from being stuck
-    const safetyTimeout = setTimeout(() => {
-      console.log('[Product Search] Safety timeout triggered - resetting loading state');
+    // CRITICAL: Expand Level 2 features to their Level 3 child category IDs
+    const validCategoryIds: string[] = [];
+    
+    for (const featureId of selectedFeatures) {
+      const feature = availableFeatures.find(f => f.featureId === featureId);
+      if (!feature) {
+        validCategoryIds.push(featureId);
+        continue;
+      }
+      
+      if (feature.isProductCategory) {
+        validCategoryIds.push(featureId);
+      } else if (feature.childCategoryIds && feature.childCategoryIds.length > 0) {
+        validCategoryIds.push(...feature.childCategoryIds);
+        console.log(`[Search+Price] Expanded Level 2 "${feature.featureName}" to ${feature.childCategoryIds.length} child categories`);
+      }
+    }
+    
+    const uniqueCategoryIds = [...new Set(validCategoryIds)];
+    console.log('[Search+Price] Valid category IDs:', uniqueCategoryIds.length);
+    
+    if (uniqueCategoryIds.length === 0) {
+      showError("No valid product categories selected. Please select specific product types.", "search");
       setLoading(false);
-      showError("Search timed out after 2 minutes. CJ API may be slow. Please try again.", "search", { timeout: 120000 });
-    }, 120000); // 2 minute timeout
+      return;
+    }
+    
+    // Estimate wait time: ~1.2s per variant, assume ~2 variants per product
+    const estimatedVariants = quantity * 2;
+    const estimatedWaitSeconds = Math.ceil(estimatedVariants * 1.2);
+    
+    // Show initial progress - searching products
+    setShippingProgress({
+      calculating: true,
+      current: 0,
+      total: quantity,
+      message: `Searching products and calculating prices (estimated ${Math.ceil(estimatedWaitSeconds / 60)} min)...`
+    });
     
     try {
-      // CRITICAL: Expand Level 2 features to their Level 3 child category IDs
-      // Level 2 features are groupings and don't work for product search
-      // Only Level 3 (isProductCategory=true) IDs are valid for the CJ API
-      const validCategoryIds: string[] = [];
-      
-      for (const featureId of selectedFeatures) {
-        const feature = availableFeatures.find(f => f.featureId === featureId);
-        if (!feature) {
-          // Unknown feature, try using it directly
-          validCategoryIds.push(featureId);
-          continue;
-        }
-        
-        if (feature.isProductCategory) {
-          // Level 3 - valid product category
-          validCategoryIds.push(featureId);
-        } else if (feature.childCategoryIds && feature.childCategoryIds.length > 0) {
-          // Level 2 - expand to all child Level 3 category IDs
-          validCategoryIds.push(...feature.childCategoryIds);
-          console.log(`[Product Search] Expanded Level 2 "${feature.featureName}" to ${feature.childCategoryIds.length} child categories`);
-        } else {
-          // Level 2 without children - skip (won't return results anyway)
-          console.log(`[Product Search] Skipping Level 2 "${feature.featureName}" - no child categories`);
-        }
-      }
-      
-      // Remove duplicates
-      const uniqueCategoryIds = [...new Set(validCategoryIds)];
-      console.log('[Product Search] Valid category IDs:', uniqueCategoryIds.length, uniqueCategoryIds.slice(0, 5));
-      
-      if (uniqueCategoryIds.length === 0) {
-        showError("No valid product categories selected. Please select specific product types (Level 3 features).", "search");
-        setLoading(false);
-        clearTimeout(safetyTimeout);
-        return;
-      }
-      
-      const params = new URLSearchParams({
-        categoryIds: uniqueCategoryIds.join(","),
-        quantity: quantity.toString(),
-        minPrice: minPrice.toString(),
-        maxPrice: maxPrice.toString(),
-        minStock: minStock.toString(),
-        profitMargin: profitMargin.toString(),
-        minPopularity: minPopularity.toString(),
-        freeShippingOnly: freeShippingOnly ? "1" : "0",
+      // Use unified search-and-price endpoint
+      const res = await fetch('/api/admin/cj/products/search-and-price', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          categoryIds: uniqueCategoryIds,
+          quantity,
+          profitMarginPercent: profitMargin,
+          minStock,
+          minPopularity,
+          minPrice,
+          maxPrice,
+          freeShippingOnly,
+        })
       });
       
-      console.log('[Product Search] API URL:', `/api/admin/cj/products/query?${params}`);
-      
-      // Add abort controller for fetch timeout
-      const controller = new AbortController();
-      const fetchTimeout = setTimeout(() => controller.abort(), 90000); // 90 second timeout
-      
-      let res: Response;
-      try {
-        res = await fetch(`/api/admin/cj/products/query?${params}`, { signal: controller.signal });
-      } catch (fetchError: any) {
-        clearTimeout(fetchTimeout);
-        if (fetchError.name === 'AbortError') {
-          throw new Error("Search request timed out after 90 seconds. CJ API may be experiencing issues.");
-        }
-        throw fetchError;
-      } finally {
-        clearTimeout(fetchTimeout);
-      }
-      console.log('[Product Search] Response status:', res.status);
-      
       const data = await res.json();
-      console.log('[Product Search] Response data:', { ok: data.ok, count: data.count, error: data.error, timedOut: data.timedOut, message: data.message });
+      console.log('[Search+Price] Response:', { 
+        ok: data.ok, 
+        products: data.products?.length,
+        stats: data.stats 
+      });
       
       if (!res.ok || !data.ok) {
         const errorMessage = data.error || `Search failed with status ${res.status}`;
         showError(errorMessage, "cj_api", { status: res.status, response: data });
+        setShippingProgress({ calculating: false, current: 0, total: 0, message: '' });
         setLoading(false);
-        clearTimeout(safetyTimeout);
         return;
       }
       
-      // Show warning if search timed out (partial results)
-      if (data.timedOut && data.message) {
-        toast({
-          title: "Warning",
-          description: data.message,
-          variant: "warning",
-          duration: 6000,
-        });
-      }
+      const products = data.products || [];
+      const stats = data.stats || {};
       
-      const items = data.items || [];
-      console.log('[Product Search] Items found:', items.length);
-      setTotalFound(data.totalFound || items.length);
+      setTotalFound(stats.totalFound || products.length);
       
-      // Show message if no products found
-      if (items.length === 0) {
+      if (products.length === 0) {
         toast({
           title: "No Products Found",
           description: "Try different filters or select more features",
           variant: "info",
           duration: 5000,
         });
+        setShippingProgress({ calculating: false, current: 0, total: 0, message: '' });
       } else {
+        // Show completion stats
+        setShippingProgress({
+          calculating: true,
+          current: stats.variantsSuccess || 0,
+          total: stats.variantsProcessed || 0,
+          message: `Completed! ${stats.productsWithPricing}/${products.length} products have SAR pricing`
+        });
+        
         toast({
           title: "Search Complete",
-          description: `Found ${items.length} products`,
+          description: `Found ${products.length} products with ${stats.variantsSuccess} priced variants`,
           variant: "success",
-          duration: 3000,
+          duration: 4000,
         });
       }
       
-      const processedProducts = items.map((p: any) => {
-        const variants = p.variants || [];
-        const totalStock = variants.reduce((sum: number, v: CjVariant) => sum + (v.stock || 0), 0);
-        const prices = variants.map((v: CjVariant) => v.price || 0).filter((p: number) => p > 0);
-        const avgPrice = prices.length > 0 ? prices.reduce((a: number, b: number) => a + b, 0) / prices.length : 0;
-        const listedNum = p.listedNum || 0;
+      // Map unified response to CjProduct format with pre-calculated pricing
+      const processedProducts: CjProduct[] = products.map((p: any) => {
+        const variants: CjVariant[] = (p.variants || []).map((v: any) => ({
+          vid: v.variantId,
+          variantSku: v.variantSku,
+          cjSku: v.variantSku,
+          price: v.variantPriceUSD,
+          stock: 0,
+          shipping: v.shippingAvailable ? {
+            available: true,
+            priceUSD: v.shippingPriceUSD,
+            priceSAR: v.shippingPriceSAR,
+            deliveryDays: v.deliveryDays,
+          } : {
+            available: false,
+            priceUSD: 0,
+            priceSAR: 0,
+            deliveryDays: '',
+            error: v.error || 'Shipping not available',
+          },
+          pricing: v.shippingAvailable ? {
+            variantPriceUSD: v.variantPriceUSD,
+            variantPriceSAR: v.variantPriceUSD * 3.75,
+            shippingPriceSAR: v.shippingPriceSAR,
+            totalCostSAR: v.totalCostSAR,
+            profitSAR: v.profitSAR,
+            sellPriceSAR: v.sellPriceSAR,
+          } : null,
+        }));
+        
+        const avgPrice = variants.length > 0 
+          ? variants.reduce((sum, v) => sum + (v.price || 0), 0) / variants.length 
+          : 0;
         
         return {
-          ...p,
-          productId: p.productId || p.pid || p.id,
-          totalStock,
+          productId: p.pid,
+          name: p.name,
+          images: [p.image].filter(Boolean),
+          variants,
+          productSku: p.productSku,
+          listedNum: p.listedNum,
+          totalStock: p.stock,
           avgPrice,
-          listedNum,
-          hasPopularityData: listedNum > 0,
-          qualityScore: calculateQualityScore({ ...p, totalStock, avgPrice, listedNum }),
+          deliveryCycle: p.deliveryCycle,
+          supplierName: p.supplierName,
+          addMarkStatus: p.freeShipping ? 1 : 0,
+          qualityScore: calculateQualityScore({ totalStock: p.stock, avgPrice, listedNum: p.listedNum }),
+          variantsPriced: true,
         };
-      }).sort((a: CjProduct, b: CjProduct) => {
-        const popA = (a as any).listedNum || 0;
-        const popB = (b as any).listedNum || 0;
+      });
+      
+      // Sort by popularity
+      processedProducts.sort((a, b) => {
+        const popA = a.listedNum || 0;
+        const popB = b.listedNum || 0;
         if (popB !== popA) return popB - popA;
         return (b.qualityScore || 0) - (a.qualityScore || 0);
       });
       
       setProducts(processedProducts);
       
-      // Calculate shipping for first variant of all products (in background)
-      if (processedProducts.length > 0) {
-        calculateShippingForVariants(processedProducts, 0);
-      }
+      // Keep completion message visible briefly
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      setShippingProgress({ calculating: false, current: 0, total: 0, message: '' });
+      
     } catch (e: any) {
-      console.error('[Product Search] Error:', e);
+      console.error('[Search+Price] Error:', e);
       showError(e?.message || "Search failed unexpectedly", "search", { error: e?.toString() });
-      setLoading(false);
-      clearTimeout(safetyTimeout);
+      setShippingProgress({ calculating: false, current: 0, total: 0, message: '' });
     } finally {
-      console.log('[Product Search] Finally block - setting loading to false');
-      clearTimeout(safetyTimeout);
       setLoading(false);
     }
   };
@@ -1117,57 +1137,56 @@ export default function ProductDiscoveryPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-6 mb-6">
-          <div className="col-span-2">
-            <label className="block text-sm text-gray-600 mb-2">
-              Profit Margin % <span className="text-amber-600 font-medium">({profitMargin}%)</span>
+        <div className="bg-amber-50 border-2 border-amber-200 rounded-lg p-4 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <TrendingUp className="h-5 w-5 text-amber-600" />
+            <label className="text-sm font-semibold text-amber-800">
+              Profit Margin % <span className="text-amber-600 font-bold">({profitMargin}%)</span>
+              <span className="text-red-500 ml-1">*</span>
             </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="number"
-                min={1}
-                max={999}
-                value={profitMargin}
-                onChange={(e) => {
-                  const val = Math.max(1, Math.min(999, Number(e.target.value) || 1));
-                  setProfitMargin(val);
-                }}
-                className="w-24 px-3 py-2 border border-gray-300 rounded text-left text-center font-semibold"
-                dir="ltr"
-              />
-              <span className="text-gray-500">%</span>
-              <div className="flex gap-1">
-                {[10, 20, 30, 50, 100].map((pct) => (
-                  <button
-                    key={pct}
-                    onClick={() => setProfitMargin(pct)}
-                    className={`px-2 py-1 text-xs rounded ${
-                      profitMargin === pct 
-                        ? 'bg-amber-500 text-white' 
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {pct}%
-                  </button>
-                ))}
-              </div>
-            </div>
-            <p className="text-xs text-gray-400 mt-1">
-              Prices will be shown in SAR (Saudi Riyal)
-            </p>
           </div>
-          
-          <div></div>
-          
-          <div className="flex items-center gap-2 pt-7">
+          <div className="flex items-center gap-3 flex-wrap">
             <input
-              type="checkbox"
-              checked={freeShippingOnly}
-              onChange={(e) => setFreeShippingOnly(e.target.checked)}
-              className="w-4 h-4 border-gray-300 rounded"
+              type="number"
+              min={1}
+              max={999}
+              value={profitMargin}
+              onChange={(e) => {
+                const val = Math.max(1, Math.min(999, Number(e.target.value) || 1));
+                setProfitMargin(val);
+              }}
+              className="w-20 px-3 py-2 border-2 border-amber-300 rounded text-center font-bold text-amber-800 bg-white"
+              dir="ltr"
             />
-            <label className="text-sm text-gray-600">Free Shipping Only</label>
+            <span className="text-amber-700 font-medium">%</span>
+            <div className="flex gap-1">
+              {[8, 15, 25, 50, 100].map((pct) => (
+                <button
+                  key={pct}
+                  onClick={() => setProfitMargin(pct)}
+                  className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${
+                    profitMargin === pct 
+                      ? 'bg-amber-500 text-white shadow-md' 
+                      : 'bg-white text-amber-700 border border-amber-300 hover:bg-amber-100'
+                  }`}
+                >
+                  {pct}%
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 ml-auto">
+              <input
+                type="checkbox"
+                checked={freeShippingOnly}
+                onChange={(e) => setFreeShippingOnly(e.target.checked)}
+                className="w-4 h-4 border-gray-300 rounded"
+              />
+              <label className="text-sm text-gray-600">Free Shipping Only</label>
+            </div>
           </div>
+          <p className="text-xs text-amber-700 mt-2">
+            Set your desired profit margin. Products will display final SAR sell prices including shipping + profit when search completes.
+          </p>
         </div>
 
         <div className="flex items-center gap-3 pt-4 border-t border-gray-200">
@@ -1194,14 +1213,14 @@ export default function ProductDiscoveryPage() {
         </div>
       )}
 
-      {/* Shipping Calculation Progress Indicator */}
+      {/* Unified Search+Price Progress Indicator */}
       {shippingProgress.calculating && (
         <div className={`rounded-lg p-4 ${
           shippingProgress.message.startsWith('Completed') 
             ? 'bg-green-50 border border-green-200' 
             : shippingProgress.message.startsWith('Error')
               ? 'bg-red-50 border border-red-200'
-              : 'bg-blue-50 border border-blue-200'
+              : 'bg-amber-50 border border-amber-200'
         }`}>
           <div className="flex items-center gap-3">
             {shippingProgress.message.startsWith('Completed') ? (
@@ -1209,20 +1228,26 @@ export default function ProductDiscoveryPage() {
             ) : shippingProgress.message.startsWith('Error') ? (
               <AlertTriangle className="h-5 w-5 text-red-600" />
             ) : (
-              <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />
+              <Loader2 className="h-5 w-5 text-amber-600 animate-spin" />
             )}
             <span className={`font-medium ${
               shippingProgress.message.startsWith('Completed')
                 ? 'text-green-800'
                 : shippingProgress.message.startsWith('Error')
                   ? 'text-red-800'
-                  : 'text-blue-800'
+                  : 'text-amber-800'
             }`}>{shippingProgress.message}</span>
           </div>
           {!shippingProgress.message.startsWith('Completed') && !shippingProgress.message.startsWith('Error') && (
-            <p className="text-xs text-blue-600 mt-2">
-              Processing {shippingProgress.total} products via CJ API (rate limited to 1 request per 1.2 seconds)
-            </p>
+            <div className="mt-3 space-y-2">
+              <div className="bg-amber-100 rounded-full h-2 overflow-hidden">
+                <div className="bg-amber-500 h-full animate-pulse" style={{ width: '100%' }} />
+              </div>
+              <p className="text-xs text-amber-700">
+                Searching products, calculating shipping costs, and applying {profitMargin}% profit margin.
+                Products will only appear when all pricing is final.
+              </p>
+            </div>
           )}
         </div>
       )}

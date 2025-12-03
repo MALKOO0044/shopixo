@@ -45,12 +45,14 @@ Preferred communication style: Simple, everyday language.
 **Product Discovery:** Category and multi-select feature dropdowns replace keyword search, leveraging CJ category IDs for precise results with hierarchical and multi-selection support.
 **Product Import Automation:** Includes smart product discovery with quality scoring, a KSA-specific pricing engine (VAT, fees, profit protection, smart rounding), an approval queue, automated import, and daily price/stock sync.
 **Search System:** Utilizes a keyword lexicon, CJ categories, and a two-phase (strict then relaxed) matching search with relevance scoring.
-**Per-Variant Pricing:** Ensures 100% accurate SAR pricing per variant, keyed by `variantId` to prevent mismatches. Includes variant-specific shipping and pricing properties, and dynamic UI updates for pricing display and profit margin adjustments.
+**Per-Variant Pricing:** Ensures 100% accurate SAR pricing per variant, keyed by `variantId` to prevent mismatches. Includes variant-specific shipping and pricing properties.
+**Unified Search+Price Flow:** Single-step product discovery where user sets profit margin before search, then backend orchestrates: search products → resolve variant IDs → calculate shipping (rate-limited) → apply profit margin → return products with final SAR prices. Products only display when ALL pricing is complete - no progressive price updates.
 **CJ API Integration Notes:**
 - CJ product list/search API returns variant SKUs (e.g., "CJNSFSW301136") not actual variant IDs (e.g., "1796078021431009280")
 - The freight calculate API requires the actual `vid` (numeric/UUID format), not the SKU
-- The shipping calculate route implements a two-step lookup: first call `/product/variant/query?pid={productId}` to map SKU → actual vid, then call freight calculate with the actual vid
-- Automatic shipping calculation triggers after product search completes
+- The `/api/admin/cj/products/search-and-price` endpoint handles the complete flow: search → vid resolution → freight calculation → pricing
+- Rate limiting: 1.2 seconds between CJ freight API calls to comply with CJ API limits
+- If vid lookup fails, variant is marked as unavailable (no fallbacks to preserve accuracy)
 **Error Detection System:** A global `ErrorProvider` ensures all errors are visible by default via toast notifications, with an optional "silent" mode for admin users (errors are always logged to the database). Includes server-side error logging, a health check API for external services (CJ, DB, Stripe), and an admin dashboard for error monitoring and system health status.
 
 # External Dependencies
