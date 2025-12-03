@@ -107,14 +107,22 @@ function extractColorAndSize(variant: any): { color: string | null; size: string
     }
   }
   
-  const variantKey = variant.variantKey || variant.variantName || variant.skuName || '';
+  const variantKey = variant.variantKey || variant.variantName || variant.skuName || variant.variantNameEn || '';
   if (typeof variantKey === 'string' && variantKey && (!color || !size)) {
-    const parts = variantKey.split(/[\-\/|,;]+/).map(s => s.trim()).filter(Boolean);
-    const sizeTokens = new Set(['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '2XL', '3XL', '4XL', '5XL', 'ONE SIZE', 'FREE SIZE']);
+    const parts = variantKey.split(/[\-\/|,;:&]+/).map(s => s.trim()).filter(Boolean);
+    const sizeTokens = new Set(['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '2XL', '3XL', '4XL', '5XL', 'ONE SIZE', 'FREE SIZE', 'OS', 'ONESIZE']);
+    const sizePatterns = [
+      /^\d+(\.\d+)?$/, // numeric sizes like "38", "42.5"
+      /^\d+[A-Z]?$/, // sizes like "32A", "36B"
+      /^\d+[-x]\d+$/i, // ranges like "32-34", "10x12"
+      /^(EU|US|UK)\s*\d+/i, // EU38, US7, UK5
+    ];
     for (const p of parts) {
-      if (!size && (sizeTokens.has(p.toUpperCase()) || /^\d{2}$/.test(p))) {
+      const upper = p.toUpperCase();
+      const isSize = sizeTokens.has(upper) || sizePatterns.some(pat => pat.test(p));
+      if (!size && isSize) {
         size = p;
-      } else if (!color && p.length > 1) {
+      } else if (!color && p.length > 1 && !isSize) {
         color = p;
       }
     }
