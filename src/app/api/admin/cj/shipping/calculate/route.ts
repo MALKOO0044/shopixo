@@ -43,16 +43,9 @@ async function lookupVariantVid(productId: string, variantSku: string): Promise<
       }
     }
     
-    // If no exact match, try first variant with valid vid
-    for (const v of variants) {
-      const vid = v.vid || v.variantId;
-      if (vid) {
-        console.log(`[Vid Lookup] No exact SKU match, using first valid variant vid=${vid}`);
-        return String(vid);
-      }
-    }
-    
-    console.log(`[Vid Lookup] No vid found for product ${productId}, SKU ${variantSku}`);
+    // CRITICAL: Do NOT fallback to first variant - this violates per-variant accuracy
+    // Return null to mark this variant as unavailable rather than pricing the wrong variant
+    console.warn(`[Vid Lookup] No exact SKU match found for ${variantSku} in product ${productId}. Returning null to preserve accuracy.`);
     return null;
   } catch (e: any) {
     console.error(`[Vid Lookup] Error for ${productId}/${variantSku}:`, e?.message);
@@ -176,7 +169,22 @@ export async function POST(request: NextRequest) {
             actualVid = lookedUpVid;
             console.log(`[Shipping API] Using looked-up vid: ${actualVid}`);
           } else {
-            console.log(`[Shipping API] Could not find vid, trying with original: ${variantId}`);
+            // CRITICAL: Vid lookup failed - mark as unavailable to preserve accuracy
+            console.warn(`[Shipping API] Could not find vid for SKU ${variantId}, marking as unavailable`);
+            results[variantId] = {
+              productId,
+              variantId,
+              shipping: {
+                available: false,
+                priceUSD: 0,
+                priceSAR: 0,
+                deliveryDays: '',
+                error: 'Could not resolve variant ID - SKU not found in variant query'
+              },
+              pricing: null
+            };
+            failCount++;
+            continue;
           }
         } else if (isValidVidFormat) {
           console.log(`[Shipping API] variantId ${variantId} looks like valid vid format, using directly`);
