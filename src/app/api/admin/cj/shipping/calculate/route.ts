@@ -1,10 +1,64 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { calculateShippingToSA, calculateFinalPricingSAR } from '@/lib/cj/v2';
+import { calculateShippingToSA, calculateFinalPricingSAR, getAccessToken } from '@/lib/cj/v2';
+import { fetchJson } from '@/lib/http';
 import { logError } from '@/lib/error-logger';
 
 export const dynamic = 'force-dynamic';
 
 const USD_TO_SAR_RATE = 3.75;
+const CJ_BASE = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
+
+// Look up actual vid from variantSku using variant query API
+async function lookupVariantVid(productId: string, variantSku: string): Promise<string | null> {
+  try {
+    const token = await getAccessToken();
+    const response = await fetchJson<any>(`${CJ_BASE}/product/variant/query?pid=${encodeURIComponent(productId)}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'CJ-Access-Token': token,
+      },
+      cache: 'no-store',
+      timeoutMs: 10000,
+    });
+    
+    if (response?.code !== 200 || !response?.data) {
+      console.log(`[Vid Lookup] Failed to get variants for product ${productId}`);
+      return null;
+    }
+    
+    const variants = Array.isArray(response.data) ? response.data : (response.data?.list || response.data?.variants || []);
+    
+    // Normalize the input SKU for comparison (trim + uppercase)
+    const normalizedInputSku = variantSku.trim().toUpperCase();
+    
+    // Find the variant matching our SKU (case-insensitive, trimmed)
+    for (const v of variants) {
+      const sku = String(v.variantSku || v.sku || '').trim().toUpperCase();
+      if (sku === normalizedInputSku) {
+        const vid = v.vid || v.variantId || null;
+        if (vid) {
+          console.log(`[Vid Lookup] Found vid=${vid} for SKU=${variantSku}`);
+          return String(vid);
+        }
+      }
+    }
+    
+    // If no exact match, try first variant with valid vid
+    for (const v of variants) {
+      const vid = v.vid || v.variantId;
+      if (vid) {
+        console.log(`[Vid Lookup] No exact SKU match, using first valid variant vid=${vid}`);
+        return String(vid);
+      }
+    }
+    
+    console.log(`[Vid Lookup] No vid found for product ${productId}, SKU ${variantSku}`);
+    return null;
+  } catch (e: any) {
+    console.error(`[Vid Lookup] Error for ${productId}/${variantSku}:`, e?.message);
+    return null;
+  }
+}
 
 // Per-variant input for accurate pricing
 type VariantInput = {
@@ -103,7 +157,32 @@ export async function POST(request: NextRequest) {
       }
       
       try {
-        const shippingResult = await calculateShippingToSA(variantId, 1);
+        // CRITICAL: The variantId we receive might be a SKU, not an actual vid
+        // First, try to look up the actual vid from the variant query API
+        let actualVid = variantId;
+        const normalizedVariantId = variantId.trim().toUpperCase();
+        
+        // Detect if variantId looks like a valid vid (long numeric or UUID format)
+        // Valid vid formats: "1796078021431009280" (19 digits) or "1D72A20A-D113-4FAB-B4BA-6FE1A6A14A3A" (UUID)
+        const isValidVidFormat = 
+          /^\d{10,}$/.test(normalizedVariantId) || 
+          /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i.test(normalizedVariantId);
+        
+        // If it doesn't look like a valid vid, attempt lookup
+        if (!isValidVidFormat && productId) {
+          console.log(`[Shipping API] variantId ${variantId} doesn't look like valid vid format, looking up actual vid...`);
+          const lookedUpVid = await lookupVariantVid(productId, variantId);
+          if (lookedUpVid) {
+            actualVid = lookedUpVid;
+            console.log(`[Shipping API] Using looked-up vid: ${actualVid}`);
+          } else {
+            console.log(`[Shipping API] Could not find vid, trying with original: ${variantId}`);
+          }
+        } else if (isValidVidFormat) {
+          console.log(`[Shipping API] variantId ${variantId} looks like valid vid format, using directly`);
+        }
+        
+        const shippingResult = await calculateShippingToSA(actualVid, 1);
         
         if (shippingResult.available && shippingResult.shippingPriceUSD > 0) {
           const pricing = calculateFinalPricingSAR(

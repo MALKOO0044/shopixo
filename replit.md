@@ -46,6 +46,11 @@ Preferred communication style: Simple, everyday language.
 **Product Import Automation:** Includes smart product discovery with quality scoring, a KSA-specific pricing engine (VAT, fees, profit protection, smart rounding), an approval queue, automated import, and daily price/stock sync.
 **Search System:** Utilizes a keyword lexicon, CJ categories, and a two-phase (strict then relaxed) matching search with relevance scoring.
 **Per-Variant Pricing:** Ensures 100% accurate SAR pricing per variant, keyed by `variantId` to prevent mismatches. Includes variant-specific shipping and pricing properties, and dynamic UI updates for pricing display and profit margin adjustments.
+**CJ API Integration Notes:**
+- CJ product list/search API returns variant SKUs (e.g., "CJNSFSW301136") not actual variant IDs (e.g., "1796078021431009280")
+- The freight calculate API requires the actual `vid` (numeric/UUID format), not the SKU
+- The shipping calculate route implements a two-step lookup: first call `/product/variant/query?pid={productId}` to map SKU → actual vid, then call freight calculate with the actual vid
+- Automatic shipping calculation triggers after product search completes
 **Error Detection System:** A global `ErrorProvider` ensures all errors are visible by default via toast notifications, with an optional "silent" mode for admin users (errors are always logged to the database). Includes server-side error logging, a health check API for external services (CJ, DB, Stripe), and an admin dashboard for error monitoring and system health status.
 
 # External Dependencies
