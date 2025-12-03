@@ -560,6 +560,7 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
 }
 
 export type CjVariantLike = {
+  vid?: string; // CRITICAL: variant ID required for shipping calculation
   cjSku?: string;
   size?: string;
   color?: string;
@@ -1189,7 +1190,11 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
       const widthCm = pickNum(v.width, v.widthCm, v.w) as number | undefined;
       const heightCm = pickNum(v.height, v.heightCm, v.h) as number | undefined;
 
+      // CRITICAL: vid is required for shipping calculation
+      const vid = v.vid || v.variantId || v.variantSku || v.skuId || cjSku || null;
+      
       variants.push({
+        vid: vid || undefined,
         cjSku: cjSku || undefined,
         size: size || undefined,
         color: color || undefined,
@@ -1225,7 +1230,10 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     const productPrice = pickNum(item.sellPrice, item.price, item.salePrice, item.costPrice);
     const productStock = pickNum(item.stock, item.inventory, item.listingCount, item.listedNum) ?? 100;
     const productSku = item.productSku || item.sku || null;
+    // Use product SKU or productId as fallback vid for shipping calculation
+    const fallbackVid = productSku || productId || null;
     variants.push({
+      vid: fallbackVid || undefined,
       cjSku: productSku || undefined,
       price: productPrice,
       stock: typeof productStock === 'number' ? productStock : undefined,
