@@ -1268,3 +1268,255 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     // (keeping CjProductLike strict; we will pass via casting if used)
   };
 }
+
+// ============================================================================
+// CJ "My Products" Management & Variant Cache
+// The variant/query endpoint ONLY works for products in "My Products"
+// So we must first add products, then query variants, then cache them
+// ============================================================================
+
+export type CachedVariant = {
+  cj_product_id: string;
+  cj_variant_id: string;
+  variant_sku: string | null;
+  variant_name: string | null;
+  variant_sell_price: number | null;
+  weight_grams: number | null;
+  added_to_my_products: boolean;
+  last_shipping_price_sar: number | null;
+  last_shipping_fetch_at: Date | null;
+};
+
+// Add a product to "My Products" in CJ account
+export async function addProductToMyProducts(productId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const token = await getAccessToken();
+    if (!token) {
+      return { success: false, message: 'Failed to get CJ access token' };
+    }
+
+    const base = await resolveBase();
+    
+    // CJ API: POST /product/addMyProducts
+    // Body: { productId: "xxx" } or { pid: "xxx" }
+    const response = await fetchJson<any>(`${base}/product/addMyProducts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CJ-Access-Token': token,
+      },
+      body: JSON.stringify({ pid: productId }),
+      cache: 'no-store',
+      timeoutMs: 15000,
+    });
+
+    console.log(`[CJ AddMyProducts] pid=${productId}, code=${response?.code}, result=${response?.result}, message=${response?.message}`);
+
+    // Some success codes: 200 = added, or product already exists
+    if (response?.code === 200 && response?.result === true) {
+      return { success: true, message: 'Product added to My Products' };
+    }
+
+    // Product may already be in "My Products"
+    if (response?.message?.toLowerCase().includes('already') || 
+        response?.message?.toLowerCase().includes('exist')) {
+      return { success: true, message: 'Product already in My Products' };
+    }
+
+    return { success: false, message: response?.message || 'Failed to add product' };
+  } catch (err: any) {
+    console.error(`[CJ AddMyProducts] Error for pid=${productId}:`, err?.message);
+    return { success: false, message: err?.message || 'Unknown error' };
+  }
+}
+
+// Fetch variants for a product that's already in "My Products"
+export async function fetchVariantsFromMyProducts(productId: string): Promise<{
+  success: boolean;
+  variants: { vid: string; sku: string; name?: string; price?: number; weight?: number }[];
+  message?: string;
+}> {
+  try {
+    const token = await getAccessToken();
+    if (!token) {
+      return { success: false, variants: [], message: 'Failed to get CJ access token' };
+    }
+
+    const base = await resolveBase();
+    
+    // Now that product is in "My Products", variant/query should work
+    const url = `${base}/product/variant/query?pid=${encodeURIComponent(productId)}`;
+    
+    console.log(`[CJ FetchVariants] Fetching variants for pid=${productId}`);
+    
+    const response = await fetchJson<any>(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'CJ-Access-Token': token,
+      },
+      cache: 'no-store',
+      timeoutMs: 15000,
+    });
+
+    console.log(`[CJ FetchVariants] Response: code=${response?.code}, result=${response?.result}, dataType=${typeof response?.data}, isArray=${Array.isArray(response?.data)}, length=${Array.isArray(response?.data) ? response.data.length : 'N/A'}`);
+
+    if (response?.code !== 200 || !response?.result) {
+      return { 
+        success: false, 
+        variants: [], 
+        message: response?.message || 'Variant query failed' 
+      };
+    }
+
+    // Variants are returned directly in data as an array
+    const rawVariants = Array.isArray(response.data) ? response.data : [];
+    
+    if (rawVariants.length === 0) {
+      return { success: false, variants: [], message: 'No variants returned' };
+    }
+
+    // Log first variant structure
+    if (rawVariants[0]) {
+      console.log(`[CJ FetchVariants] Sample variant keys:`, Object.keys(rawVariants[0]).join(', '));
+    }
+
+    const variants = rawVariants.map((v: any) => ({
+      vid: String(v.vid || v.variantId || ''),
+      sku: String(v.variantSku || v.sku || ''),
+      name: v.variantName || v.name || undefined,
+      price: parseFloat(v.variantSellPrice || v.sellPrice) || undefined,
+      weight: parseInt(v.variantWeight || v.weight) || undefined,
+    })).filter((v: any) => v.vid);
+
+    console.log(`[CJ FetchVariants] Extracted ${variants.length} variants with VIDs for pid=${productId}`);
+
+    return { success: true, variants };
+  } catch (err: any) {
+    console.error(`[CJ FetchVariants] Error for pid=${productId}:`, err?.message);
+    return { success: false, variants: [], message: err?.message || 'Unknown error' };
+  }
+}
+
+// Cache variants in database for a product
+// Returns cached variants or null if caching failed
+export async function cacheVariantsForProduct(productId: string, supabase: any): Promise<CachedVariant[] | null> {
+  try {
+    // Step 1: Check if variants are already cached
+    const { data: existingVariants, error: selectError } = await supabase
+      .from('cj_variant_cache')
+      .select('*')
+      .eq('cj_product_id', productId);
+
+    if (selectError) {
+      console.error(`[CJ Cache] Error checking existing variants for pid=${productId}:`, selectError.message);
+    }
+
+    if (existingVariants && existingVariants.length > 0) {
+      console.log(`[CJ Cache] Found ${existingVariants.length} cached variants for pid=${productId}`);
+      return existingVariants;
+    }
+
+    // Step 2: Add product to "My Products"
+    console.log(`[CJ Cache] Adding product ${productId} to My Products...`);
+    const addResult = await addProductToMyProducts(productId);
+    
+    if (!addResult.success) {
+      console.error(`[CJ Cache] Failed to add product ${productId} to My Products: ${addResult.message}`);
+      // Continue anyway - it might already be added
+    }
+
+    // Small delay to allow CJ system to process
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Step 3: Fetch variants from "My Products"
+    console.log(`[CJ Cache] Fetching variants for ${productId}...`);
+    const variantResult = await fetchVariantsFromMyProducts(productId);
+
+    if (!variantResult.success || variantResult.variants.length === 0) {
+      console.error(`[CJ Cache] Failed to fetch variants for ${productId}: ${variantResult.message}`);
+      return null;
+    }
+
+    // Step 4: Store variants in database
+    const variantsToInsert = variantResult.variants.map(v => ({
+      cj_product_id: productId,
+      cj_variant_id: v.vid,
+      variant_sku: v.sku || null,
+      variant_name: v.name || null,
+      variant_sell_price: v.price || null,
+      weight_grams: v.weight || null,
+      added_to_my_products: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { data: insertedVariants, error: insertError } = await supabase
+      .from('cj_variant_cache')
+      .upsert(variantsToInsert, { 
+        onConflict: 'cj_variant_id',
+        ignoreDuplicates: false 
+      })
+      .select();
+
+    if (insertError) {
+      console.error(`[CJ Cache] Error inserting variants for pid=${productId}:`, insertError.message);
+      return null;
+    }
+
+    console.log(`[CJ Cache] Successfully cached ${insertedVariants?.length || 0} variants for pid=${productId}`);
+    return insertedVariants || variantsToInsert.map(v => ({...v, added_to_my_products: true, last_shipping_price_sar: null, last_shipping_fetch_at: null})) as CachedVariant[];
+
+  } catch (err: any) {
+    console.error(`[CJ Cache] Error caching variants for pid=${productId}:`, err?.message);
+    return null;
+  }
+}
+
+// Get cached variants from database
+export async function getCachedVariants(productId: string, supabase: any): Promise<CachedVariant[]> {
+  try {
+    const { data, error } = await supabase
+      .from('cj_variant_cache')
+      .select('*')
+      .eq('cj_product_id', productId);
+
+    if (error) {
+      console.error(`[CJ Cache] Error fetching cached variants for pid=${productId}:`, error.message);
+      return [];
+    }
+
+    return data || [];
+  } catch (err: any) {
+    console.error(`[CJ Cache] Error fetching cached variants for pid=${productId}:`, err?.message);
+    return [];
+  }
+}
+
+// Update cached variant with shipping price
+export async function updateCachedVariantShipping(
+  variantId: string, 
+  shippingPriceSar: number, 
+  supabase: any
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('cj_variant_cache')
+      .update({
+        last_shipping_price_sar: shippingPriceSar,
+        last_shipping_fetch_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('cj_variant_id', variantId);
+
+    if (error) {
+      console.error(`[CJ Cache] Error updating shipping for vid=${variantId}:`, error.message);
+      return false;
+    }
+
+    return true;
+  } catch (err: any) {
+    console.error(`[CJ Cache] Error updating shipping for vid=${variantId}:`, err?.message);
+    return false;
+  }
+}
