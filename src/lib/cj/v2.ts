@@ -1400,6 +1400,7 @@ export async function fetchVariantsFromMyProducts(productId: string): Promise<{
 
 // Cache variants in database for a product
 // Returns cached variants or null if caching failed
+// IMPORTANT: This function includes rate limiting (1.2s delay) for CJ API calls
 export async function cacheVariantsForProduct(productId: string, supabase: any): Promise<CachedVariant[] | null> {
   try {
     // Step 1: Check if variants are already cached
@@ -1417,8 +1418,9 @@ export async function cacheVariantsForProduct(productId: string, supabase: any):
       return existingVariants;
     }
 
-    // Step 2: Add product to "My Products"
+    // Step 2: Add product to "My Products" (with rate limiting)
     console.log(`[CJ Cache] Adding product ${productId} to My Products...`);
+    await new Promise(resolve => setTimeout(resolve, 1200)); // Rate limit
     const addResult = await addProductToMyProducts(productId);
     
     if (!addResult.success) {
@@ -1426,11 +1428,9 @@ export async function cacheVariantsForProduct(productId: string, supabase: any):
       // Continue anyway - it might already be added
     }
 
-    // Small delay to allow CJ system to process
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Step 3: Fetch variants from "My Products"
+    // Step 3: Fetch variants from "My Products" (with rate limiting)
     console.log(`[CJ Cache] Fetching variants for ${productId}...`);
+    await new Promise(resolve => setTimeout(resolve, 1200)); // Rate limit
     const variantResult = await fetchVariantsFromMyProducts(productId);
 
     if (!variantResult.success || variantResult.variants.length === 0) {

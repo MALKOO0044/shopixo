@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAccessToken, calculateShippingToSA, calculateFinalPricingSAR, mapCjItemToProductLike } from '@/lib/cj/v2';
+import { getAccessToken, calculateShippingToSA, calculateFinalPricingSAR, mapCjItemToProductLike, cacheVariantsForProduct, getCachedVariants, updateCachedVariantShipping, CachedVariant } from '@/lib/cj/v2';
 import { fetchJson } from '@/lib/http';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { loggerForRequest } from '@/lib/log';
 import { logError } from '@/lib/error-logger';
 import { throttleCjRequest } from '@/lib/cj/rate-limit';
+import { createClient } from '@supabase/supabase-js';
+
+// Get Supabase admin client for caching
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    console.error('[Search+Price] Missing Supabase credentials for caching');
+    return null;
+  }
+  return createClient(url, key);
+}
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -13,107 +25,52 @@ export const maxDuration = 300; // 5 minutes max for unified search+pricing
 const CJ_BASE = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
 const USD_TO_SAR_RATE = 3.75;
 
-// Fetches product details with variants using /product/query endpoint
-// IMPORTANT: /product/variant/query ONLY works for products added to "My Products"
-// /product/query works for ANY product and includes variants in the response
-async function fetchProductWithVariants(
-  token: string, 
-  productId: string
+// Resolves variants for a product using the TWO-PHASE CACHING approach:
+// 1. First check if variants are cached in database
+// 2. If not cached: add product to "My Products" -> query variants -> cache them
+// This works because /product/variant/query ONLY works for products in "My Products"
+async function resolveVariantsWithCache(
+  productId: string,
+  supabase: any
 ): Promise<{ vid: string; variantSku: string; price: number }[] | null> {
+  if (!supabase) {
+    console.error(`[Search+Price] No Supabase client available for caching`);
+    return null;
+  }
+  
   try {
-    // Use /product/query which works for ALL products (not just "My Products")
-    const url = `${CJ_BASE}/product/query?pid=${encodeURIComponent(productId)}`;
+    console.log(`[Search+Price] Resolving variants for pid=${productId} using cache...`);
     
-    console.log(`[Search+Price] Fetching product details for pid=${productId}`);
+    // Step 1: Check cache first
+    const cachedVariants = await getCachedVariants(productId, supabase);
     
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'CJ-Access-Token': token,
-      },
-      cache: 'no-store',
-    });
-    
-    const response = await res.json();
-    
-    // Log response structure
-    console.log(`[Search+Price] Product query response: code=${response?.code}, result=${response?.result}, hasData=${!!response?.data}`);
-    
-    if (response?.code !== 200 || response?.result !== true || !response?.data) {
-      console.log(`[Search+Price] Product query failed for pid=${productId}: code=${response?.code}, message=${response?.message}`);
-      return null;
-    }
-    
-    const productData = response.data;
-    
-    // Log available keys in product data
-    console.log(`[Search+Price] Product data keys:`, Object.keys(productData).join(', '));
-    
-    // Try to find variants in different possible locations
-    let variants: any[] = [];
-    
-    if (Array.isArray(productData.variants)) {
-      variants = productData.variants;
-      console.log(`[Search+Price] Found variants in 'variants' field: ${variants.length}`);
-    } else if (Array.isArray(productData.variantList)) {
-      variants = productData.variantList;
-      console.log(`[Search+Price] Found variants in 'variantList' field: ${variants.length}`);
-    } else if (Array.isArray(productData.skuList)) {
-      variants = productData.skuList;
-      console.log(`[Search+Price] Found variants in 'skuList' field: ${variants.length}`);
-    }
-    
-    // If no variants array found, check if product itself has variant-like properties
-    if (variants.length === 0) {
-      // Single-variant product: use product-level vid if available
-      const productVid = productData.vid || productData.variantId || productData.defaultVid;
-      if (productVid) {
-        console.log(`[Search+Price] Using product-level vid as single variant: ${productVid}`);
-        return [{
-          vid: String(productVid),
-          variantSku: String(productData.productSku || productData.sku || ''),
-          price: parseFloat(productData.sellPrice || productData.productSellPrice || productData.salePrice) || 0,
-        }];
-      }
-      
-      console.log(`[Search+Price] No variants found in product data for pid=${productId}`);
-      return null;
-    }
-    
-    // Log first variant structure
-    if (variants[0]) {
-      console.log(`[Search+Price] Sample variant keys:`, Object.keys(variants[0]).join(', '));
-      console.log(`[Search+Price] Sample variant:`, JSON.stringify({
-        vid: variants[0].vid,
-        variantId: variants[0].variantId,
-        variantSku: variants[0].variantSku,
-        variantSellPrice: variants[0].variantSellPrice,
+    if (cachedVariants && cachedVariants.length > 0) {
+      console.log(`[Search+Price] Found ${cachedVariants.length} cached variants for pid=${productId}`);
+      return cachedVariants.map((v: CachedVariant) => ({
+        vid: v.cj_variant_id,
+        variantSku: v.variant_sku || '',
+        price: v.variant_sell_price || 0,
       }));
     }
     
-    // Extract variant info
-    const result = variants
-      .filter((v: any) => {
-        const hasVid = v.vid || v.variantId;
-        return hasVid;
-      })
-      .map((v: any) => ({
-        vid: String(v.vid || v.variantId),
-        variantSku: String(v.variantSku || v.sku || ''),
-        price: parseFloat(v.variantSellPrice || v.sellPrice || v.salePrice) || 0,
-      }));
+    // Step 2: Not cached - use the two-phase approach
+    console.log(`[Search+Price] No cache for pid=${productId}, starting two-phase resolution...`);
+    const newlyCache = await cacheVariantsForProduct(productId, supabase);
     
-    if (result.length === 0) {
-      console.log(`[Search+Price] No valid variants with VID found for pid=${productId}`);
+    if (!newlyCache || newlyCache.length === 0) {
+      console.log(`[Search+Price] Failed to cache variants for pid=${productId}`);
       return null;
     }
     
-    console.log(`[Search+Price] Successfully extracted ${result.length} variants with VIDs for pid=${productId}`);
-    return result;
+    console.log(`[Search+Price] Successfully cached ${newlyCache.length} variants for pid=${productId}`);
+    return newlyCache.map((v: CachedVariant) => ({
+      vid: v.cj_variant_id,
+      variantSku: v.variant_sku || '',
+      price: v.variant_sell_price || 0,
+    }));
     
   } catch (err: any) {
-    console.error(`[Search+Price] Product query error for pid=${productId}: ${err?.message}`);
+    console.error(`[Search+Price] Variant resolution error for pid=${productId}: ${err?.message}`);
     return null;
   }
 }
@@ -348,6 +305,12 @@ export async function POST(request: NextRequest) {
     console.log(`[Search+Price] Phase 2: Calculating shipping and pricing...`);
     const phase2Start = Date.now();
     
+    // Initialize Supabase client for caching variants
+    const supabase = getSupabaseAdmin();
+    if (!supabase) {
+      console.warn('[Search+Price] Supabase client not available - variant caching disabled');
+    }
+    
     const pricedProducts: PricedProduct[] = [];
     let variantsProcessed = 0;
     let variantsSuccess = 0;
@@ -371,10 +334,19 @@ export async function POST(request: NextRequest) {
     
     for (let pIdx = 0; pIdx < allProducts.length; pIdx++) {
       // Runtime timeout check - exit if approaching limit
+      // BLOCKING REQUIREMENT: If timeout, fail rather than return partial results
       const elapsedMs = Date.now() - startTime;
       if (elapsedMs > maxAllowedMs) {
-        console.warn(`[Search+Price] Timeout reached at product ${pIdx + 1}/${allProducts.length}. Returning partial results.`);
-        break;
+        console.error(`[Search+Price] Timeout reached at product ${pIdx + 1}/${allProducts.length}. Failing request per blocking requirement.`);
+        return NextResponse.json({
+          ok: false,
+          error: `Request timeout: Only processed ${pIdx}/${allProducts.length} products. Try reducing quantity or categories.`,
+          partialStats: {
+            productsProcessed: pIdx,
+            totalProducts: allProducts.length,
+            elapsedMs,
+          },
+        }, { status: 408 });
       }
       
       const product = allProducts[pIdx];
@@ -399,9 +371,9 @@ export async function POST(request: NextRequest) {
         const basePriceUSD = product.minPrice || product.price || 0;
         const productSku = product.productSku || product.sku || '';
         
-        if (productSku) {
-          // Get ALL variants for this product from CJ API using product/query endpoint
-          const resolvedVariants = await fetchProductWithVariants(token, productId);
+        if (productSku && supabase) {
+          // Get ALL variants using TWO-PHASE CACHING: add to My Products -> query variants -> cache
+          const resolvedVariants = await resolveVariantsWithCache(productId, supabase);
           
           if (!resolvedVariants || resolvedVariants.length === 0) {
             variantsProcessed++;
@@ -483,6 +455,20 @@ export async function POST(request: NextRequest) {
           }
         }
       } else {
+        // Resolve ALL variants ONCE before processing (with SKU matching)
+        const resolvedVariants = supabase ? await resolveVariantsWithCache(productId, supabase) : null;
+        
+        // Build a lookup map by SKU for efficient matching
+        const vidBySku = new Map<string, { vid: string; price: number }>();
+        if (resolvedVariants) {
+          for (const rv of resolvedVariants) {
+            if (rv.variantSku) {
+              vidBySku.set(rv.variantSku.toLowerCase(), { vid: rv.vid, price: rv.price });
+            }
+          }
+          console.log(`[Search+Price] Built SKU lookup map with ${vidBySku.size} entries for pid=${productId}`);
+        }
+        
         for (let vIdx = 0; vIdx < variants.length; vIdx++) {
           const variant = variants[vIdx];
           // mapCjItemToProductLike uses cjSku field, fallback to other possible names
@@ -495,9 +481,29 @@ export async function POST(request: NextRequest) {
           
           variantsProcessed++;
           
-          // Get variants using product/query endpoint
-          const resolvedVariants = await fetchProductWithVariants(token, productId);
-          const actualVid = resolvedVariants && resolvedVariants.length > 0 ? resolvedVariants[0].vid : null;
+          // Match variant by SKU to get the correct vid
+          const skuLower = variantSku.toLowerCase();
+          const match = vidBySku.get(skuLower);
+          
+          // If no exact match, try to find a partial match (SKU might have size suffix)
+          let actualVid: string | null = match?.vid || null;
+          if (!actualVid && resolvedVariants && resolvedVariants.length > 0) {
+            // Fall back to first variant only if there's exactly one (single-variant product)
+            if (resolvedVariants.length === 1) {
+              actualVid = resolvedVariants[0].vid;
+              console.log(`[Search+Price] Using single variant vid for SKU ${variantSku}`);
+            } else {
+              // Try partial match: check if any resolved SKU contains or is contained by this SKU
+              for (const rv of resolvedVariants) {
+                const rvSkuLower = (rv.variantSku || '').toLowerCase();
+                if (rvSkuLower.includes(skuLower) || skuLower.includes(rvSkuLower)) {
+                  actualVid = rv.vid;
+                  console.log(`[Search+Price] Partial SKU match: ${variantSku} -> ${rv.variantSku} (vid=${rv.vid})`);
+                  break;
+                }
+              }
+            }
+          }
           
           if (!actualVid) {
             variantsFailed++;
@@ -601,16 +607,27 @@ export async function POST(request: NextRequest) {
     const phase2Duration = Date.now() - phase2Start;
     const totalDuration = Date.now() - startTime;
     
-    console.log(`[Search+Price] Complete: ${pricedProducts.length} products, ${variantsSuccess}/${variantsProcessed} variants priced in ${totalDuration}ms`);
+    // BLOCKING REQUIREMENT: Only return products where ALL variants are successfully priced
+    // Filter out products that have ANY failed variants
+    const fullyPricedProducts = pricedProducts.filter(p => {
+      const allVariantsSuccess = p.variants.every(v => v.shippingAvailable && !v.error);
+      if (!allVariantsSuccess) {
+        console.log(`[Search+Price] Excluding product ${p.pid}: not all variants successfully priced`);
+      }
+      return allVariantsSuccess && p.variants.length > 0;
+    });
+    
+    console.log(`[Search+Price] Complete: ${pricedProducts.length} products processed, ${fullyPricedProducts.length} fully priced, ${variantsSuccess}/${variantsProcessed} variants priced in ${totalDuration}ms`);
     
     const response = {
       ok: true,
-      products: pricedProducts,
+      products: fullyPricedProducts, // Only return fully-priced products
       stats: {
         totalFound,
         productsSearched: allProducts.length,
-        productsReturned: pricedProducts.length,
-        productsWithPricing: pricedProducts.filter(p => p.hasAvailableVariant).length,
+        productsProcessed: pricedProducts.length,
+        productsReturned: fullyPricedProducts.length, // Only fully-priced products
+        productsExcluded: pricedProducts.length - fullyPricedProducts.length, // Products with failed variants
         variantsProcessed,
         variantsSuccess,
         variantsFailed,
