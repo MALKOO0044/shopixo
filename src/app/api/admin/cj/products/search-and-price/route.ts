@@ -82,6 +82,21 @@ async function fetchCjProductsByCategoryV2(
     }
     
     if (data?.code === 200 && data?.result) {
+      // Debug: log first raw product to verify CJ API response format
+      if (allProducts.length > 0) {
+        const sample = allProducts[0];
+        console.log(`[Search+Price] V2 API sample product fields:`, JSON.stringify({
+          id: sample.id,
+          nameEn: sample.nameEn?.slice(0, 30),
+          sku: sample.sku,
+          bigImage: sample.bigImage?.slice(0, 50),
+          sellPrice: sample.sellPrice,
+          nowPrice: sample.nowPrice,
+          discountPrice: sample.discountPrice,
+          warehouseInventoryNum: sample.warehouseInventoryNum,
+        }));
+      }
+      
       const mappedProducts = allProducts.map(p => ({
         ...p,
         pid: p.id || p.pid,
@@ -295,6 +310,16 @@ export async function POST(request: NextRequest) {
       
       console.log(`[Search+Price] Processing product ${pIdx + 1}/${allProducts.length}: ${productId} (${variants.length} variants)`);
       
+      // Debug: log variant data for first product to verify data flow
+      if (pIdx === 0 && variants.length > 0) {
+        console.log(`[Search+Price] First product variant sample:`, JSON.stringify({
+          vid: variants[0]?.vid,
+          cjSku: variants[0]?.cjSku,
+          price: variants[0]?.price,
+          stock: variants[0]?.stock,
+        }));
+      }
+      
       const pricedVariants: VariantPricingResult[] = [];
       
       if (variants.length === 0) {
@@ -363,7 +388,8 @@ export async function POST(request: NextRequest) {
       } else {
         for (let vIdx = 0; vIdx < variants.length; vIdx++) {
           const variant = variants[vIdx];
-          const variantSku = variant.variantSku || variant.sku || '';
+          // mapCjItemToProductLike uses cjSku field, fallback to other possible names
+          const variantSku = variant.cjSku || variant.variantSku || variant.sku || product.productSku || '';
           const variantPriceUSD = variant.price || variant.variantPrice || product.minPrice || 0;
           
           if (!variantSku || variantPriceUSD <= 0) {
@@ -451,10 +477,13 @@ export async function POST(request: NextRequest) {
       const availableVariants = pricedVariants.filter(v => v.shippingAvailable);
       const prices = availableVariants.map(v => v.sellPriceSAR);
       
+      // Get image from array (mapCjItemToProductLike returns images as array)
+      const productImage = (product.images && product.images[0]) || product.image || product.productImage || '';
+      
       pricedProducts.push({
         pid: productId,
         name: product.name || product.productNameEn || '',
-        image: product.image || product.productImage || '',
+        image: productImage,
         stock: product.stock || 0,
         productSku: product.productSku || '',
         listedNum: product.listedNum || 0,
