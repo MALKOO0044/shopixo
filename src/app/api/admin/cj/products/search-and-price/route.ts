@@ -13,95 +13,107 @@ export const maxDuration = 300; // 5 minutes max for unified search+pricing
 const CJ_BASE = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
 const USD_TO_SAR_RATE = 3.75;
 
-// Returns { vid, variantSku, price } for the best matching variant, or all variants if returnAll=true
-async function lookupVariantVid(
+// Fetches product details with variants using /product/query endpoint
+// IMPORTANT: /product/variant/query ONLY works for products added to "My Products"
+// /product/query works for ANY product and includes variants in the response
+async function fetchProductWithVariants(
   token: string, 
-  productId: string, 
-  inputSku: string,
-  returnAll: boolean = false
+  productId: string
 ): Promise<{ vid: string; variantSku: string; price: number }[] | null> {
   try {
-    const response = await fetchJson<any>(`${CJ_BASE}/product/variant/query?pid=${encodeURIComponent(productId)}`, {
+    // Use /product/query which works for ALL products (not just "My Products")
+    const url = `${CJ_BASE}/product/query?pid=${encodeURIComponent(productId)}`;
+    
+    console.log(`[Search+Price] Fetching product details for pid=${productId}`);
+    
+    const res = await fetch(url, {
+      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
         'CJ-Access-Token': token,
       },
       cache: 'no-store',
-      timeoutMs: 10000,
     });
     
-    if (response?.code !== 200 || !response?.data) {
-      console.log(`[Search+Price] Variant query failed for pid=${productId}: code=${response?.code}, message=${response?.message}`);
+    const response = await res.json();
+    
+    // Log response structure
+    console.log(`[Search+Price] Product query response: code=${response?.code}, result=${response?.result}, hasData=${!!response?.data}`);
+    
+    if (response?.code !== 200 || response?.result !== true || !response?.data) {
+      console.log(`[Search+Price] Product query failed for pid=${productId}: code=${response?.code}, message=${response?.message}`);
       return null;
     }
     
-    const variants = Array.isArray(response.data) ? response.data : (response.data?.list || response.data?.variants || []);
+    const productData = response.data;
     
+    // Log available keys in product data
+    console.log(`[Search+Price] Product data keys:`, Object.keys(productData).join(', '));
+    
+    // Try to find variants in different possible locations
+    let variants: any[] = [];
+    
+    if (Array.isArray(productData.variants)) {
+      variants = productData.variants;
+      console.log(`[Search+Price] Found variants in 'variants' field: ${variants.length}`);
+    } else if (Array.isArray(productData.variantList)) {
+      variants = productData.variantList;
+      console.log(`[Search+Price] Found variants in 'variantList' field: ${variants.length}`);
+    } else if (Array.isArray(productData.skuList)) {
+      variants = productData.skuList;
+      console.log(`[Search+Price] Found variants in 'skuList' field: ${variants.length}`);
+    }
+    
+    // If no variants array found, check if product itself has variant-like properties
     if (variants.length === 0) {
-      console.log(`[Search+Price] No variants returned for pid=${productId}`);
+      // Single-variant product: use product-level vid if available
+      const productVid = productData.vid || productData.variantId || productData.defaultVid;
+      if (productVid) {
+        console.log(`[Search+Price] Using product-level vid as single variant: ${productVid}`);
+        return [{
+          vid: String(productVid),
+          variantSku: String(productData.productSku || productData.sku || ''),
+          price: parseFloat(productData.sellPrice || productData.productSellPrice || productData.salePrice) || 0,
+        }];
+      }
+      
+      console.log(`[Search+Price] No variants found in product data for pid=${productId}`);
       return null;
     }
     
-    console.log(`[Search+Price] Found ${variants.length} variants for pid=${productId}`);
-    
-    // If returnAll, return all variants with their vid, sku, and price
-    if (returnAll) {
-      return variants
-        .filter((v: any) => v.vid || v.variantId)
-        .map((v: any) => ({
-          vid: String(v.vid || v.variantId),
-          variantSku: String(v.variantSku || v.sku || ''),
-          price: parseFloat(v.variantSellPrice) || 0,
-        }));
+    // Log first variant structure
+    if (variants[0]) {
+      console.log(`[Search+Price] Sample variant keys:`, Object.keys(variants[0]).join(', '));
+      console.log(`[Search+Price] Sample variant:`, JSON.stringify({
+        vid: variants[0].vid,
+        variantId: variants[0].variantId,
+        variantSku: variants[0].variantSku,
+        variantSellPrice: variants[0].variantSellPrice,
+      }));
     }
     
-    const normalizedInputSku = inputSku.trim().toUpperCase();
+    // Extract variant info
+    const result = variants
+      .filter((v: any) => {
+        const hasVid = v.vid || v.variantId;
+        return hasVid;
+      })
+      .map((v: any) => ({
+        vid: String(v.vid || v.variantId),
+        variantSku: String(v.variantSku || v.sku || ''),
+        price: parseFloat(v.variantSellPrice || v.sellPrice || v.salePrice) || 0,
+      }));
     
-    // Try exact match first
-    for (const v of variants) {
-      const sku = String(v.variantSku || v.sku || '').trim().toUpperCase();
-      if (sku === normalizedInputSku) {
-        const vid = v.vid || v.variantId || null;
-        if (vid) {
-          return [{
-            vid: String(vid),
-            variantSku: String(v.variantSku || v.sku || ''),
-            price: parseFloat(v.variantSellPrice) || 0,
-          }];
-        }
-      }
+    if (result.length === 0) {
+      console.log(`[Search+Price] No valid variants with VID found for pid=${productId}`);
+      return null;
     }
     
-    // Try partial match: variant SKU starts with product SKU (e.g., "CJXXX-XS" starts with "CJXXX")
-    for (const v of variants) {
-      const sku = String(v.variantSku || v.sku || '').trim().toUpperCase();
-      if (sku.startsWith(normalizedInputSku) || normalizedInputSku.startsWith(sku)) {
-        const vid = v.vid || v.variantId || null;
-        if (vid) {
-          console.log(`[Search+Price] Partial SKU match: input=${inputSku} matched variant=${v.variantSku}`);
-          return [{
-            vid: String(vid),
-            variantSku: String(v.variantSku || v.sku || ''),
-            price: parseFloat(v.variantSellPrice) || 0,
-          }];
-        }
-      }
-    }
+    console.log(`[Search+Price] Successfully extracted ${result.length} variants with VIDs for pid=${productId}`);
+    return result;
     
-    // Last resort: return first variant if available (for products with only one variant)
-    const firstVariant = variants[0];
-    if (firstVariant && (firstVariant.vid || firstVariant.variantId)) {
-      console.log(`[Search+Price] Using first variant as fallback for pid=${productId}`);
-      return [{
-        vid: String(firstVariant.vid || firstVariant.variantId),
-        variantSku: String(firstVariant.variantSku || firstVariant.sku || ''),
-        price: parseFloat(firstVariant.variantSellPrice) || 0,
-      }];
-    }
-    
-    return null;
   } catch (err: any) {
-    console.error(`[Search+Price] Variant lookup error for pid=${productId}: ${err?.message}`);
+    console.error(`[Search+Price] Product query error for pid=${productId}: ${err?.message}`);
     return null;
   }
 }
@@ -388,8 +400,8 @@ export async function POST(request: NextRequest) {
         const productSku = product.productSku || product.sku || '';
         
         if (productSku) {
-          // Get ALL variants for this product from CJ API
-          const resolvedVariants = await lookupVariantVid(token, productId, productSku, true);
+          // Get ALL variants for this product from CJ API using product/query endpoint
+          const resolvedVariants = await fetchProductWithVariants(token, productId);
           
           if (!resolvedVariants || resolvedVariants.length === 0) {
             variantsProcessed++;
@@ -483,8 +495,8 @@ export async function POST(request: NextRequest) {
           
           variantsProcessed++;
           
-          // lookupVariantVid now returns array - get first match
-          const resolvedVariants = await lookupVariantVid(token, productId, variantSku);
+          // Get variants using product/query endpoint
+          const resolvedVariants = await fetchProductWithVariants(token, productId);
           const actualVid = resolvedVariants && resolvedVariants.length > 0 ? resolvedVariants[0].vid : null;
           
           if (!actualVid) {
