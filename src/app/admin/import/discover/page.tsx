@@ -1624,7 +1624,11 @@ export default function ProductDiscoveryPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Total Stock:</span>
-                      <span className="font-semibold">{enrichedData ? `${enrichedData.totalCjStock} CJ + ${enrichedData.totalFactoryStock} Factory` : (previewProduct.totalStock || 0)}</span>
+                      <span className="font-semibold">{
+                        enrichedData && (enrichedData.totalCjStock > 0 || enrichedData.totalFactoryStock > 0)
+                          ? `${enrichedData.totalCjStock} CJ + ${enrichedData.totalFactoryStock} Factory`
+                          : (previewProduct.totalStock || 0)
+                      }</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Variants:</span>
