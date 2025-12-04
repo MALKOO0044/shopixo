@@ -25,10 +25,96 @@ export const maxDuration = 300; // 5 minutes max for unified search+pricing
 const CJ_BASE = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
 const USD_TO_SAR_RATE = 3.75;
 
-// Resolves variants for a product using the TWO-PHASE CACHING approach:
-// 1. First check if variants are cached in database
-// 2. If not cached: add product to "My Products" -> query variants -> cache them
-// This works because /product/variant/query ONLY works for products in "My Products"
+// PRIMARY APPROACH: Fetch product details with variants using /product/query endpoint
+// IMPORTANT: /product/query works for ANY product (not just "My Products")
+// This is the WORKING approach that should be used first
+async function fetchProductWithVariants(
+  token: string, 
+  productId: string
+): Promise<{ vid: string; variantSku: string; price: number }[] | null> {
+  try {
+    const url = `${CJ_BASE}/product/query?pid=${encodeURIComponent(productId)}`;
+    
+    console.log(`[Search+Price] Fetching product details for pid=${productId} via /product/query`);
+    
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'CJ-Access-Token': token,
+      },
+      cache: 'no-store',
+    });
+    
+    const response = await res.json();
+    
+    console.log(`[Search+Price] Product query response: code=${response?.code}, result=${response?.result}, hasData=${!!response?.data}`);
+    
+    if (response?.code !== 200 || response?.result !== true || !response?.data) {
+      console.log(`[Search+Price] Product query failed for pid=${productId}: code=${response?.code}, message=${response?.message}`);
+      return null;
+    }
+    
+    const productData = response.data;
+    
+    // Try to find variants in different possible locations
+    let variants: any[] = [];
+    
+    if (Array.isArray(productData.variants)) {
+      variants = productData.variants;
+      console.log(`[Search+Price] Found variants in 'variants' field: ${variants.length}`);
+    } else if (Array.isArray(productData.variantList)) {
+      variants = productData.variantList;
+      console.log(`[Search+Price] Found variants in 'variantList' field: ${variants.length}`);
+    } else if (Array.isArray(productData.skuList)) {
+      variants = productData.skuList;
+      console.log(`[Search+Price] Found variants in 'skuList' field: ${variants.length}`);
+    }
+    
+    // If no variants array found, check if product itself has variant-like properties
+    if (variants.length === 0) {
+      const productVid = productData.vid || productData.variantId || productData.defaultVid;
+      if (productVid) {
+        console.log(`[Search+Price] Using product-level vid as single variant: ${productVid}`);
+        return [{
+          vid: String(productVid),
+          variantSku: String(productData.productSku || productData.sku || ''),
+          price: parseFloat(productData.sellPrice || productData.productSellPrice || productData.salePrice) || 0,
+        }];
+      }
+      
+      console.log(`[Search+Price] No variants found in product data for pid=${productId}`);
+      return null;
+    }
+    
+    // Extract variant info
+    const result = variants
+      .filter((v: any) => {
+        const hasVid = v.vid || v.variantId;
+        return hasVid;
+      })
+      .map((v: any) => ({
+        vid: String(v.vid || v.variantId),
+        variantSku: String(v.variantSku || v.sku || ''),
+        price: parseFloat(v.variantSellPrice || v.sellPrice || v.salePrice) || 0,
+      }));
+    
+    if (result.length === 0) {
+      console.log(`[Search+Price] No valid variants with VID found for pid=${productId}`);
+      return null;
+    }
+    
+    console.log(`[Search+Price] Successfully extracted ${result.length} variants with VIDs for pid=${productId}`);
+    return result;
+    
+  } catch (err: any) {
+    console.error(`[Search+Price] Product query error for pid=${productId}: ${err?.message}`);
+    return null;
+  }
+}
+
+// FALLBACK: Resolves variants using the TWO-PHASE CACHING approach
+// Only used when /product/query fails
 async function resolveVariantsWithCache(
   productId: string,
   supabase: any
@@ -39,9 +125,8 @@ async function resolveVariantsWithCache(
   }
   
   try {
-    console.log(`[Search+Price] Resolving variants for pid=${productId} using cache...`);
+    console.log(`[Search+Price] Fallback: Resolving variants for pid=${productId} using cache...`);
     
-    // Step 1: Check cache first
     const cachedVariants = await getCachedVariants(productId, supabase);
     
     if (cachedVariants && cachedVariants.length > 0) {
@@ -53,7 +138,6 @@ async function resolveVariantsWithCache(
       }));
     }
     
-    // Step 2: Not cached - use the two-phase approach
     console.log(`[Search+Price] No cache for pid=${productId}, starting two-phase resolution...`);
     const newlyCache = await cacheVariantsForProduct(productId, supabase);
     
@@ -371,9 +455,15 @@ export async function POST(request: NextRequest) {
         const basePriceUSD = product.minPrice || product.price || 0;
         const productSku = product.productSku || product.sku || '';
         
-        if (productSku && supabase) {
-          // Get ALL variants using TWO-PHASE CACHING: add to My Products -> query variants -> cache
-          const resolvedVariants = await resolveVariantsWithCache(productId, supabase);
+        if (productSku) {
+          // PRIMARY: Use /product/query which works for ALL products
+          let resolvedVariants = await fetchProductWithVariants(token, productId);
+          
+          // FALLBACK: If primary fails, try cache approach
+          if ((!resolvedVariants || resolvedVariants.length === 0) && supabase) {
+            console.log(`[Search+Price] Primary variant resolution failed, trying cache fallback for pid=${productId}`);
+            resolvedVariants = await resolveVariantsWithCache(productId, supabase);
+          }
           
           if (!resolvedVariants || resolvedVariants.length === 0) {
             variantsProcessed++;
@@ -456,7 +546,14 @@ export async function POST(request: NextRequest) {
         }
       } else {
         // Resolve ALL variants ONCE before processing (with SKU matching)
-        const resolvedVariants = supabase ? await resolveVariantsWithCache(productId, supabase) : null;
+        // PRIMARY: Use /product/query which works for ALL products
+        let resolvedVariants = await fetchProductWithVariants(token, productId);
+        
+        // FALLBACK: If primary fails, try cache approach
+        if ((!resolvedVariants || resolvedVariants.length === 0) && supabase) {
+          console.log(`[Search+Price] Primary variant resolution failed, trying cache fallback for pid=${productId}`);
+          resolvedVariants = await resolveVariantsWithCache(productId, supabase);
+        }
         
         // Build a lookup map by SKU for efficient matching
         const vidBySku = new Map<string, { vid: string; price: number }>();

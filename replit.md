@@ -51,13 +51,12 @@ Preferred communication style: Simple, everyday language.
 - CJ product list/search API returns variant SKUs (e.g., "CJNSFSW301136") not actual variant IDs (e.g., "1796078021431009280")
 - The freight calculate API requires the actual `vid` (numeric/UUID format), not the SKU
 - The `/api/admin/cj/products/search-and-price` endpoint handles the complete flow: search → vid resolution → freight calculation → pricing
-- Rate limiting: 1.2 seconds between ALL CJ API calls (search, add, variant query, shipping)
+- Rate limiting: 1.2 seconds between CJ freight API calls to comply with CJ API limits
 - If vid lookup fails, variant is marked as unavailable (no fallbacks to preserve accuracy)
-**Variant Caching System (Two-Phase Approach):**
-- CJ `/product/variant/query` API only works for products added to "My Products"
-- Solution: Database cache table `cj_variant_cache` stores (pid, vid, sku, price, weight)
-- Two-phase flow: 1) Add product to "My Products" 2) Query variants 3) Cache in database
-- Subsequent requests use cached data, avoiding repeated CJ API calls
+**Variant Resolution (Two-Tier Approach):**
+- PRIMARY: `/product/query` endpoint works for ALL products and returns variants with vids directly
+- FALLBACK: Two-phase caching (add to "My Products" → query variants → cache in DB) used only when primary fails
+- Database cache table `cj_variant_cache` stores (pid, vid, sku, price, weight)
 - SKU matching: Build lookup map by SKU for correct vid→variant mapping
 - Migration: `supabase/migrations/20251203_cj_variant_cache.sql`
 **Blocking Flow (Success-Only):**
