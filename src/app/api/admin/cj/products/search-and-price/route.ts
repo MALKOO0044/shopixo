@@ -607,27 +607,35 @@ export async function POST(request: NextRequest) {
     const phase2Duration = Date.now() - phase2Start;
     const totalDuration = Date.now() - startTime;
     
-    // BLOCKING REQUIREMENT: Only return products where ALL variants are successfully priced
-    // Filter out products that have ANY failed variants
-    const fullyPricedProducts = pricedProducts.filter(p => {
-      const allVariantsSuccess = p.variants.every(v => v.shippingAvailable && !v.error);
-      if (!allVariantsSuccess) {
-        console.log(`[Search+Price] Excluding product ${p.pid}: not all variants successfully priced`);
+    // BLOCKING REQUIREMENT: Only return products with AT LEAST ONE successfully priced variant
+    // Products with zero successful variants are excluded
+    // This balances accuracy (only show priced variants) with availability (don't require ALL variants to succeed)
+    const productsWithPricing = pricedProducts.filter(p => {
+      const successfulVariants = p.variants.filter(v => v.shippingAvailable && !v.error);
+      if (successfulVariants.length === 0) {
+        console.log(`[Search+Price] Excluding product ${p.pid}: no successfully priced variants`);
+        return false;
       }
-      return allVariantsSuccess && p.variants.length > 0;
-    });
+      // Keep only the successfully priced variants, remove failed ones
+      console.log(`[Search+Price] Product ${p.pid}: keeping ${successfulVariants.length}/${p.variants.length} successful variants`);
+      return true;
+    }).map(p => ({
+      ...p,
+      // Only include successfully priced variants in the response
+      variants: p.variants.filter(v => v.shippingAvailable && !v.error),
+    }));
     
-    console.log(`[Search+Price] Complete: ${pricedProducts.length} products processed, ${fullyPricedProducts.length} fully priced, ${variantsSuccess}/${variantsProcessed} variants priced in ${totalDuration}ms`);
+    console.log(`[Search+Price] Complete: ${pricedProducts.length} products processed, ${productsWithPricing.length} with pricing, ${variantsSuccess}/${variantsProcessed} variants priced in ${totalDuration}ms`);
     
     const response = {
       ok: true,
-      products: fullyPricedProducts, // Only return fully-priced products
+      products: productsWithPricing, // Only return products with at least one priced variant
       stats: {
         totalFound,
         productsSearched: allProducts.length,
         productsProcessed: pricedProducts.length,
-        productsReturned: fullyPricedProducts.length, // Only fully-priced products
-        productsExcluded: pricedProducts.length - fullyPricedProducts.length, // Products with failed variants
+        productsReturned: productsWithPricing.length, // Products with at least one priced variant
+        productsExcluded: pricedProducts.length - productsWithPricing.length, // Products with no priced variants
         variantsProcessed,
         variantsSuccess,
         variantsFailed,

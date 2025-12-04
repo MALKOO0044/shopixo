@@ -60,9 +60,10 @@ Preferred communication style: Simple, everyday language.
 - Subsequent requests use cached data, avoiding repeated CJ API calls
 - SKU matching: Build lookup map by SKU for correct vid→variant mapping
 - Migration: `supabase/migrations/20251203_cj_variant_cache.sql`
-**Blocking Flow (Strict Success-Only):**
-- Products only returned when ALL variants are 100% successfully priced
-- Products with ANY failed variants are filtered out before response
+**Blocking Flow (Success-Only):**
+- Products only returned when AT LEAST ONE variant is successfully priced
+- Only successfully priced variants are included in response (failed variants are removed)
+- Products with ZERO successful variants are excluded
 - Timeout triggers HTTP 408 failure (not partial results)
 - No progressive price updates - complete pricing or no display
 **Error Detection System:** A global `ErrorProvider` ensures all errors are visible by default via toast notifications, with an optional "silent" mode for admin users (errors are always logged to the database). Includes server-side error logging, a health check API for external services (CJ, DB, Stripe), and an admin dashboard for error monitoring and system health status.
