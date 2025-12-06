@@ -164,9 +164,9 @@ const USD_TO_SAR_RATE = 3.75;
  * @returns Exact shipping price from CJ API
  */
 export async function calculateShippingToSA(vid: string, quantity: number = 1): Promise<CjShippingResult> {
-  // CRITICAL: Only accept EXACT "CJPacket Ordinary" - no fallbacks or alternatives
-  // This ensures 100% accurate pricing as per user requirements
-  const CJPACKET_ORDINARY_EXACT = "cjpacket ordinary"; // lowercase for comparison
+  // Accept any CJPacket Ordinary variant (e.g., "CJPacket Ordinary+", "CJPacket Ordinary - Registered")
+  // CJ returns different naming variations but they all use the same shipping method
+  const CJPACKET_ORDINARY_PREFIX = "cjpacket ordinary"; // lowercase prefix for comparison
   
   try {
     const token = await getAccessToken();
@@ -259,10 +259,10 @@ export async function calculateShippingToSA(vid: string, quantity: number = 1): 
     ).join(', ');
     console.log(`[CJ Shipping] Available shipping options for vid=${vid}: ${optionNames}`);
     
-    // Find EXACT "CJPacket Ordinary" - no other shipping methods accepted
+    // Find any CJPacket Ordinary variant (prefix match to accept "CJPacket Ordinary+", "CJPacket Ordinary - Registered", etc.)
     const cjPacketOrdinary = shippingOptions.find((opt: any) => {
       const name = (opt.logisticName || opt.logisticsName || opt.name || '').toLowerCase().trim();
-      return name === CJPACKET_ORDINARY_EXACT;
+      return name.startsWith(CJPACKET_ORDINARY_PREFIX);
     });
     
     if (!cjPacketOrdinary) {
