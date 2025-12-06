@@ -3,64 +3,69 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play } from "lucide-react";
+import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, TrendingUp } from "lucide-react";
 
-type CjVariant = {
-  cjSku?: string;
-  size?: string;
-  color?: string;
-  price?: number;
-  stock?: number;
-  cjStock?: number;
-  factoryStock?: number;
-  imageUrl?: string;
-};
-
-type VariantInventory = {
+type PricedVariant = {
+  variantId: string;
   variantSku: string;
-  variantName?: string;
-  price: number;
-  cjStock: number;
-  factoryStock: number;
-  totalStock: number;
+  variantPriceUSD: number;
+  shippingAvailable: boolean;
+  shippingPriceUSD: number;
+  shippingPriceSAR: number;
+  deliveryDays: string;
+  logisticName?: string;
+  sellPriceSAR: number;
+  totalCostSAR: number;
+  profitSAR: number;
+  error?: string;
 };
 
-type CjProduct = {
-  productId: string;
+type PricedProduct = {
+  pid: string;
   name: string;
-  images: string[];
-  videoUrl?: string | null;
-  variants: CjVariant[];
-  supplierRating?: number;
-  totalStock?: number;
-  avgPrice?: number;
-  processingTimeHours?: number;
-  qualityScore?: number;
+  image: string;
+  minPriceSAR: number;
+  maxPriceSAR: number;
+  avgPriceSAR: number;
+  stock: number;
+  listedNum: number;
+  variants: PricedVariant[];
+  successfulVariants: number;
+  totalVariants: number;
 };
 
 type Category = {
   categoryId: string;
   categoryName: string;
+  children?: Category[];
+};
+
+type FeatureOption = {
+  id: string;
+  name: string;
+  parentId?: string;
+  level: number;
 };
 
 export default function ProductDiscoveryPage() {
-  const [keywords, setKeywords] = useState("");
   const [category, setCategory] = useState("all");
-  const [quantity, setQuantity] = useState(25);
+  const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
+  const [quantity, setQuantity] = useState(50);
   const [minStock, setMinStock] = useState(10);
   const [maxPrice, setMaxPrice] = useState(100);
   const [minPrice, setMinPrice] = useState(0);
-  const [profitMargin, setProfitMargin] = useState(50);
-  const [minRating, setMinRating] = useState(0);
+  const [profitMargin, setProfitMargin] = useState(8);
+  const [popularity, setPopularity] = useState("any");
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
   
   const [loading, setLoading] = useState(false);
+  const [searchProgress, setSearchProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [products, setProducts] = useState<CjProduct[]>([]);
-  const [totalFound, setTotalFound] = useState(0);
+  const [products, setProducts] = useState<PricedProduct[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   
   const [categories, setCategories] = useState<Category[]>([]);
+  const [features, setFeatures] = useState<FeatureOption[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<{
     connected: boolean;
     latency: number;
@@ -72,9 +77,10 @@ export default function ProductDiscoveryPage() {
   const [saving, setSaving] = useState(false);
   const [savedBatchId, setSavedBatchId] = useState<number | null>(null);
   
-  const [previewProduct, setPreviewProduct] = useState<CjProduct | null>(null);
-  const [variantInventory, setVariantInventory] = useState<VariantInventory[]>([]);
-  const [loadingInventory, setLoadingInventory] = useState(false);
+  const [previewProduct, setPreviewProduct] = useState<PricedProduct | null>(null);
+
+  const quantityPresets = [1000, 500, 250, 100, 50, 25, 10];
+  const profitPresets = [100, 50, 25, 15, 8];
 
   const testConnection = async () => {
     const start = Date.now();
@@ -91,6 +97,23 @@ export default function ProductDiscoveryPage() {
           categoryCount: data.categories.length,
           message: `Connected successfully. Found ${data.categories.length} category groups.`
         });
+        
+        const allFeatures: FeatureOption[] = [];
+        const extractFeatures = (cats: Category[], level: number = 0, parentId?: string) => {
+          for (const cat of cats) {
+            allFeatures.push({
+              id: cat.categoryId,
+              name: cat.categoryName,
+              parentId,
+              level,
+            });
+            if (cat.children && cat.children.length > 0) {
+              extractFeatures(cat.children, level + 1, cat.categoryId);
+            }
+          }
+        };
+        extractFeatures(data.categories);
+        setFeatures(allFeatures);
       } else {
         setConnectionStatus({
           connected: false,
@@ -113,18 +136,35 @@ export default function ProductDiscoveryPage() {
     testConnection();
   }, []);
 
-  const calculateQualityScore = useCallback((product: any): number => {
-    const hasRating = product.supplierRating != null && product.supplierRating > 0;
-    const rating = hasRating ? product.supplierRating : 3.5;
-    const ratingWeight = hasRating ? 0.4 : 0.2;
-    const stockScore = Math.min((product.totalStock || 0) / 1000, 1);
-    const priceScore = product.avgPrice && product.avgPrice > 0 ? 0.8 : 0.5;
-    return (rating / 5 * ratingWeight) + (stockScore * 0.3) + (priceScore * (0.7 - ratingWeight));
-  }, []);
+  const loadFeatures = async (categoryId: string) => {
+    if (categoryId === "all") {
+      setSelectedFeatures([]);
+      return;
+    }
+    
+    try {
+      const res = await fetch(`/api/admin/cj/categories?parentId=${categoryId}`);
+      const data = await res.json();
+      if (data.ok && data.categories) {
+        const newFeatures: FeatureOption[] = data.categories.map((cat: Category) => ({
+          id: cat.categoryId,
+          name: cat.categoryName,
+          parentId: categoryId,
+          level: 2,
+        }));
+        setFeatures(prev => {
+          const filtered = prev.filter(f => f.parentId !== categoryId);
+          return [...filtered, ...newFeatures];
+        });
+      }
+    } catch (e) {
+      console.error("Failed to load features:", e);
+    }
+  };
 
   const searchProducts = async () => {
-    if (!keywords.trim()) {
-      setError("Please enter search keywords");
+    if (category === "all" && selectedFeatures.length === 0) {
+      setError("Please select a category or feature to search");
       return;
     }
     
@@ -133,59 +173,44 @@ export default function ProductDiscoveryPage() {
     setProducts([]);
     setSelected(new Set());
     setSavedBatchId(null);
-    setTotalFound(0);
+    setSearchProgress("Searching products and calculating prices (estimated 2 min)...");
     
     try {
+      const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
+      
       const params = new URLSearchParams({
-        keyword: keywords.trim(),
+        categoryIds: categoryIds.join(","),
         quantity: quantity.toString(),
-        category: category,
         minPrice: minPrice.toString(),
         maxPrice: maxPrice.toString(),
         minStock: minStock.toString(),
         profitMargin: profitMargin.toString(),
-        minRating: minRating.toString(),
+        popularity: popularity,
         freeShippingOnly: freeShippingOnly ? "1" : "0",
       });
       
-      const res = await fetch(`/api/admin/cj/products/query?${params}`);
+      const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
+        method: 'GET',
+      });
+      
       const data = await res.json();
       
       if (!res.ok || !data.ok) {
         throw new Error(data.error || `Search failed: ${res.status}`);
       }
       
-      const items = data.items || [];
-      setTotalFound(data.totalFound || items.length);
+      const pricedProducts: PricedProduct[] = data.products || [];
+      setProducts(pricedProducts);
       
-      const processedProducts = items.map((p: any) => {
-        const variants = p.variants || [];
-        const totalStock = variants.reduce((sum: number, v: CjVariant) => sum + (v.stock || 0), 0);
-        const prices = variants.map((v: CjVariant) => v.price || 0).filter((p: number) => p > 0);
-        const avgPrice = prices.length > 0 ? prices.reduce((a: number, b: number) => a + b, 0) / prices.length : 0;
-        const hasRating = p.hasRating ?? (p.supplierRating != null && p.supplierRating > 0);
-        
-        return {
-          ...p,
-          productId: p.productId || p.pid || p.id,
-          totalStock,
-          avgPrice,
-          supplierRating: hasRating ? p.supplierRating : null,
-          hasRating,
-          qualityScore: calculateQualityScore({ ...p, totalStock, avgPrice, supplierRating: p.supplierRating }),
-        };
-      }).sort((a: CjProduct, b: CjProduct) => {
-        const ratingA = (a as any).hasRating ? (a.supplierRating || 0) : -1;
-        const ratingB = (b as any).hasRating ? (b.supplierRating || 0) : -1;
-        if (ratingB !== ratingA) return ratingB - ratingA;
-        return (b.qualityScore || 0) - (a.qualityScore || 0);
-      });
+      if (pricedProducts.length === 0) {
+        setError("No products found. Try different filters or select more features.");
+      }
       
-      setProducts(processedProducts);
     } catch (e: any) {
       setError(e?.message || "Search failed");
     } finally {
       setLoading(false);
+      setSearchProgress("");
     }
   };
 
@@ -203,7 +228,7 @@ export default function ProductDiscoveryPage() {
   };
 
   const selectAll = () => {
-    setSelected(new Set(products.map(p => p.productId)));
+    setSelected(new Set(products.map(p => p.pid)));
   };
 
   const deselectAll = () => {
@@ -212,7 +237,7 @@ export default function ProductDiscoveryPage() {
 
   const removeProduct = (productId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setProducts(prev => prev.filter(p => p.productId !== productId));
+    setProducts(prev => prev.filter(p => p.pid !== productId));
     setSelected(prev => {
       const next = new Set(prev);
       next.delete(productId);
@@ -220,56 +245,41 @@ export default function ProductDiscoveryPage() {
     });
   };
 
-  const openPreview = async (product: CjProduct, e: React.MouseEvent) => {
+  const openPreview = (product: PricedProduct, e: React.MouseEvent) => {
     e.stopPropagation();
     setPreviewProduct(product);
-    setVariantInventory([]);
-    setLoadingInventory(true);
-    
-    try {
-      const res = await fetch(`/api/admin/cj/products/variants?pid=${encodeURIComponent(product.productId)}`);
-      const data = await res.json();
-      if (data.ok && data.variants) {
-        setVariantInventory(data.variants);
-      }
-    } catch (e) {
-      console.error("Failed to load variant inventory:", e);
-    } finally {
-      setLoadingInventory(false);
-    }
   };
 
   const saveBatch = async () => {
-    if (selected.size === 0) {
-      setError("Select at least one product");
-      return;
-    }
+    if (selected.size === 0) return;
     
     setSaving(true);
-    setError(null);
-    
     try {
-      const selectedProducts = products.filter(p => selected.has(p.productId));
-      
+      const selectedProducts = products.filter(p => selected.has(p.pid));
       const res = await fetch("/api/admin/import/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: batchName || `${keywords} - ${new Date().toLocaleDateString()}`,
-          keywords,
-          category,
-          filters: { minStock, minPrice, maxPrice, profitMargin, minRating, freeShippingOnly },
-          products: selectedProducts,
+          name: batchName || `Discovery ${new Date().toLocaleDateString()}`,
+          products: selectedProducts.map(p => ({
+            cjProductId: p.pid,
+            name: p.name,
+            image: p.image,
+            minPriceSAR: p.minPriceSAR,
+            maxPriceSAR: p.maxPriceSAR,
+            avgPriceSAR: p.avgPriceSAR,
+            stock: p.stock,
+            variants: p.variants,
+          })),
         }),
       });
       
       const data = await res.json();
-      
-      if (!res.ok || !data.ok) {
+      if (data.ok && data.batchId) {
+        setSavedBatchId(data.batchId);
+      } else {
         throw new Error(data.error || "Failed to save batch");
       }
-      
-      setSavedBatchId(data.batchId);
     } catch (e: any) {
       setError(e?.message || "Failed to save batch");
     } finally {
@@ -277,109 +287,176 @@ export default function ProductDiscoveryPage() {
     }
   };
 
-  const renderStars = (rating: number) => {
-    const stars = [];
-    const fullStars = Math.floor(rating);
-    for (let i = 0; i < 5; i++) {
-      stars.push(
-        <Star
-          key={i}
-          className={`h-3 w-3 ${i < fullStars ? "fill-amber-400 text-amber-400" : "text-gray-300"}`}
-        />
-      );
-    }
-    return stars;
+  const toggleFeature = (featureId: string) => {
+    setSelectedFeatures(prev => {
+      if (prev.includes(featureId)) {
+        return prev.filter(f => f !== featureId);
+      } else {
+        return [...prev, featureId];
+      }
+    });
   };
 
+  const getFeatureName = (id: string) => {
+    const feature = features.find(f => f.id === id);
+    return feature?.name || id;
+  };
+
+  const getCategoryChildren = (parentId: string) => {
+    return features.filter(f => f.parentId === parentId);
+  };
+
+  const selectedCategory = categories.find(c => c.categoryId === category);
+
   return (
-    <div className="space-y-6" dir="rtl">
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {connectionStatus?.connected ? (
-            <>
-              <span className="text-sm text-green-600">{connectionStatus.message}</span>
-              <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>
-            </>
-          ) : (
-            <>
-              <span className="text-sm text-red-600">{connectionStatus?.message || "Not connected"}</span>
-              <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
-            </>
-          )}
-          <span className="text-sm font-medium text-gray-900">CJ Dropshipping API</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-600">
-            {connectionStatus?.latency || 0}ms
-          </span>
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900">Search Products</h1>
+      </div>
+
+      {connectionStatus && (
+        <div className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${
+          connectionStatus.connected 
+            ? "bg-green-50 border-green-200" 
+            : "bg-red-50 border-red-200"
+        }`}>
           <button
             onClick={testConnection}
-            className="px-3 py-1.5 border border-gray-300 rounded bg-white text-sm hover:bg-gray-50"
+            className="px-4 py-1.5 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50"
           >
             Test Connection
           </button>
+          <span className="text-sm text-gray-600">{connectionStatus.latency}ms</span>
+          <span className={`text-sm ${connectionStatus.connected ? "text-green-700" : "text-red-700"}`}>
+            CJ Dropshipping API {connectionStatus.connected ? "●" : "○"} {connectionStatus.message}
+          </span>
         </div>
-      </div>
+      )}
 
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-6">Search Products</h2>
-        
-        <div className="grid grid-cols-3 gap-6 mb-6">
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
+        <div className="grid grid-cols-4 gap-6">
           <div>
-            <label className="block text-sm text-gray-600 mb-2">Keyword</label>
+            <label className="block text-sm text-gray-600 mb-2">Quantity to Find</label>
+            <div className="flex gap-1 mb-2">
+              {quantityPresets.map(preset => (
+                <button
+                  key={preset}
+                  onClick={() => setQuantity(preset)}
+                  className={`px-2 py-1 text-xs rounded ${
+                    quantity === preset
+                      ? "bg-amber-500 text-white"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
             <input
-              type="text"
-              value={keywords}
-              onChange={(e) => setKeywords(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && searchProducts()}
-              placeholder="e.g., women blouse, men shirt"
-              className="w-full px-3 py-2 border border-gray-300 rounded"
+              type="number"
+              value={quantity}
+              onChange={(e) => setQuantity(Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-left"
               dir="ltr"
             />
+          </div>
+          
+          <div>
+            <label className="block text-sm text-gray-600 mb-2">Features ({selectedFeatures.length} selected)</label>
+            <div className="relative">
+              <select
+                onChange={(e) => {
+                  if (e.target.value) toggleFeature(e.target.value);
+                  e.target.value = "";
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded appearance-none"
+              >
+                <option value="">Select features...</option>
+                {selectedCategory?.children?.map(child => (
+                  <optgroup key={child.categoryId} label={child.categoryName}>
+                    {child.children?.map(subChild => (
+                      <option 
+                        key={subChild.categoryId} 
+                        value={subChild.categoryId}
+                        disabled={selectedFeatures.includes(subChild.categoryId)}
+                      >
+                        {subChild.categoryName}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-wrap gap-1 mt-2">
+              {selectedFeatures.map(featureId => (
+                <span
+                  key={featureId}
+                  className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-800 rounded-full text-xs"
+                >
+                  {getFeatureName(featureId)}
+                  <button
+                    onClick={() => toggleFeature(featureId)}
+                    className="hover:text-amber-900"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
           </div>
           
           <div>
             <label className="block text-sm text-gray-600 mb-2">Category</label>
             <select
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
+              onChange={(e) => {
+                setCategory(e.target.value);
+                setSelectedFeatures([]);
+                loadFeatures(e.target.value);
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded"
             >
               <option value="all">All Categories</option>
               {categories.map(cat => (
-                <option key={cat.categoryId} value={cat.categoryId}>{cat.categoryName}</option>
+                <option key={cat.categoryId} value={cat.categoryId}>
+                  {cat.categoryName}
+                </option>
               ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-600 mb-2">Keyword</label>
+            <input
+              type="text"
+              placeholder="Optional keyword..."
+              className="w-full px-3 py-2 border border-gray-300 rounded text-left"
+              dir="ltr"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-4 gap-6">
+          <div>
+            <label className="block text-sm text-gray-600 mb-2">Popularity</label>
+            <select
+              value={popularity}
+              onChange={(e) => setPopularity(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded"
+            >
+              <option value="any">Any Popularity</option>
+              <option value="high">High (1000+ listed)</option>
+              <option value="medium">Medium (100-999 listed)</option>
+              <option value="low">Low (&lt;100 listed)</option>
             </select>
           </div>
           
           <div>
-            <label className="block text-sm text-gray-600 mb-2">Quantity to Find</label>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={searchProducts}
-                disabled={loading}
-                className="px-4 py-2 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50 text-sm font-medium"
-              >
-                {loading ? "..." : "Load"}
-              </button>
-              <input
-                type="number"
-                value={quantity}
-                onChange={(e) => setQuantity(Number(e.target.value))}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded text-left"
-                dir="ltr"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-4 gap-6 mb-6">
-          <div>
-            <label className="block text-sm text-gray-600 mb-2">Min Price (USD)</label>
+            <label className="block text-sm text-gray-600 mb-2">Min Stock</label>
             <input
               type="number"
-              value={minPrice}
-              onChange={(e) => setMinPrice(Number(e.target.value))}
+              value={minStock}
+              onChange={(e) => setMinStock(Number(e.target.value))}
               className="w-full px-3 py-2 border border-gray-300 rounded text-left"
               dir="ltr"
             />
@@ -397,78 +474,102 @@ export default function ProductDiscoveryPage() {
           </div>
           
           <div>
-            <label className="block text-sm text-gray-600 mb-2">Min Stock</label>
+            <label className="block text-sm text-gray-600 mb-2">Min Price (USD)</label>
             <input
               type="number"
-              value={minStock}
-              onChange={(e) => setMinStock(Number(e.target.value))}
+              value={minPrice}
+              onChange={(e) => setMinPrice(Number(e.target.value))}
               className="w-full px-3 py-2 border border-gray-300 rounded text-left"
               dir="ltr"
             />
           </div>
-          
-          <div>
-            <label className="block text-sm text-gray-600 mb-2">Min Rating</label>
-            <select
-              value={minRating}
-              onChange={(e) => setMinRating(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded"
-            >
-              <option value={0}>Any Rating</option>
-              <option value={3}>3+ Stars</option>
-              <option value={4}>4+ Stars</option>
-              <option value={4.5}>4.5+ Stars</option>
-            </select>
-          </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-6 mb-6">
-          <div>
-            <label className="block text-sm text-gray-600 mb-2">Profit Margin %</label>
-            <input
-              type="number"
-              value={profitMargin}
-              onChange={(e) => setProfitMargin(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-left"
-              dir="ltr"
-            />
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <input
+                type="checkbox"
+                checked={freeShippingOnly}
+                onChange={(e) => setFreeShippingOnly(e.target.checked)}
+                className="w-4 h-4 border-gray-300 rounded"
+              />
+              <label className="text-sm text-gray-700">Free Shipping Only</label>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-amber-700 font-medium">*Profit Margin % ({profitMargin}%)</span>
+              <div className="flex gap-1">
+                {profitPresets.map(preset => (
+                  <button
+                    key={preset}
+                    onClick={() => setProfitMargin(preset)}
+                    className={`px-3 py-1.5 text-sm rounded ${
+                      profitMargin === preset
+                        ? "bg-amber-500 text-white font-medium"
+                        : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    {preset}%
+                  </button>
+                ))}
+              </div>
+              <span className="text-gray-400">%</span>
+              <input
+                type="number"
+                value={profitMargin}
+                onChange={(e) => setProfitMargin(Number(e.target.value))}
+                className="w-16 px-2 py-1.5 border border-gray-300 rounded text-center"
+                dir="ltr"
+              />
+            </div>
           </div>
-          
-          <div></div>
-          <div></div>
-          
-          <div className="flex items-center gap-2 pt-7">
-            <input
-              type="checkbox"
-              checked={freeShippingOnly}
-              onChange={(e) => setFreeShippingOnly(e.target.checked)}
-              className="w-4 h-4 border-gray-300 rounded"
-            />
-            <label className="text-sm text-gray-600">Free Shipping Only</label>
-          </div>
+          <p className="text-xs text-amber-600 mt-2 text-right">
+            Set your desired profit margin. Products will display final SAR sell prices including shipping + profit when search completes.
+          </p>
         </div>
 
-        <div className="flex items-center gap-3 pt-4 border-t border-gray-200">
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
+          <Link
+            href={"/admin/import/queue" as Route}
+            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
+          >
+            Review Queue
+          </Link>
           <button
             onClick={searchProducts}
             disabled={loading}
-            className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             Search Products
           </button>
-          <Link
-            href={"/admin/import/queue" as Route}
-            className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 text-sm"
-          >
-            Review Queue
-          </Link>
         </div>
       </div>
 
+      {loading && searchProgress && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
+            <div className="flex-1">
+              <div className="h-2 bg-amber-200 rounded-full overflow-hidden">
+                <div className="h-full bg-amber-500 rounded-full animate-pulse" style={{ width: '60%' }} />
+              </div>
+            </div>
+            <span className="text-sm text-amber-700">{searchProgress}</span>
+          </div>
+          <p className="text-xs text-amber-600 mt-2">
+            Searching products, calculating shipping costs, and applying {profitMargin}% profit margin. Products will display final SAR sell prices including shipping + profit when search completes.
+          </p>
+        </div>
+      )}
+
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-800">
-          {error}
+        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-800 flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-600 hover:text-red-800">
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -477,7 +578,7 @@ export default function ProductDiscoveryPage() {
           <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-4">
             <div className="flex items-center gap-4">
               <span className="text-sm text-gray-900">
-                Found <strong>{totalFound}</strong> products, showing <strong>{products.length}</strong>
+                Found <strong>{products.length}</strong> products with prices
               </span>
               <span className="text-sm text-gray-400">|</span>
               <span className="text-sm text-gray-600">
@@ -492,21 +593,19 @@ export default function ProductDiscoveryPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {products.map((product) => {
-              const isSelected = selected.has(product.productId);
-              const mainImage = product.images?.[0];
-              const firstVariant = product.variants?.[0];
+              const isSelected = selected.has(product.pid);
               
               return (
                 <div
-                  key={product.productId}
+                  key={product.pid}
                   className={`bg-white rounded-xl border-2 overflow-hidden transition-all ${
                     isSelected ? "border-blue-500 ring-2 ring-blue-100" : "border-gray-100 hover:border-gray-200"
                   }`}
                 >
                   <div className="relative aspect-square bg-gray-100">
-                    {mainImage ? (
+                    {product.image ? (
                       <img
-                        src={mainImage}
+                        src={product.image}
                         alt={product.name}
                         className="w-full h-full object-cover"
                         onError={(e) => {
@@ -519,15 +618,9 @@ export default function ProductDiscoveryPage() {
                       </div>
                     )}
                     
-                    {product.videoUrl && (
-                      <div className="absolute bottom-2 left-2 bg-black/70 rounded-full p-1.5">
-                        <Play className="h-4 w-4 text-white fill-white" />
-                      </div>
-                    )}
-                    
                     <div className="absolute top-2 right-2 flex items-center gap-1">
                       <button
-                        onClick={(e) => toggleSelect(product.productId, e)}
+                        onClick={(e) => toggleSelect(product.pid, e)}
                         className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${
                           isSelected ? "bg-blue-500" : "bg-white border border-gray-300 hover:bg-gray-100"
                         }`}
@@ -545,7 +638,7 @@ export default function ProductDiscoveryPage() {
                         <Eye className="h-3.5 w-3.5 text-gray-700" />
                       </button>
                       <button
-                        onClick={(e) => removeProduct(product.productId, e)}
+                        onClick={(e) => removeProduct(product.pid, e)}
                         className="w-7 h-7 bg-white/90 rounded-full flex items-center justify-center hover:bg-red-50"
                         title="Remove"
                       >
@@ -553,8 +646,9 @@ export default function ProductDiscoveryPage() {
                       </button>
                     </div>
                     
-                    <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/70 rounded text-xs text-white">
-                      {((product.qualityScore || 0) * 100).toFixed(0)}%
+                    <div className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 bg-black/70 rounded text-xs text-white">
+                      <TrendingUp className="h-3 w-3" />
+                      {product.listedNum || 0}
                     </div>
                   </div>
                   
@@ -563,46 +657,31 @@ export default function ProductDiscoveryPage() {
                       {product.name}
                     </h3>
                     
-                    <div className="flex items-center gap-1">
-                      {renderStars(product.supplierRating || 0)}
-                      <span className="text-xs text-gray-500 ml-1">
-                        ({(product.supplierRating || 0).toFixed(1)})
-                      </span>
+                    <div className="bg-green-50 rounded-lg p-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-gray-600">Sell Price (SAR)</span>
+                        <span className="font-bold text-green-700 text-lg">
+                          {product.minPriceSAR === product.maxPriceSAR
+                            ? `${product.avgPriceSAR.toFixed(0)} SAR`
+                            : `${product.minPriceSAR.toFixed(0)} - ${product.maxPriceSAR.toFixed(0)} SAR`
+                          }
+                        </span>
+                      </div>
                     </div>
                     
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="flex flex-col">
-                        <span className="text-gray-500">Price</span>
-                        <span className="font-semibold text-green-600">
-                          ${(product.avgPrice || 0).toFixed(2)}
+                        <span className="text-gray-500">Stock</span>
+                        <span className={`font-semibold ${product.stock > 0 ? "text-gray-900" : "text-red-500"}`}>
+                          {product.stock}
                         </span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-gray-500">Stock</span>
-                        <span className={`font-semibold ${(product.totalStock || 0) > 0 ? "text-gray-900" : "text-red-500"}`}>
-                          {product.totalStock || 0}
+                        <span className="text-gray-500">Variants</span>
+                        <span className="font-semibold text-gray-900">
+                          {product.successfulVariants}/{product.totalVariants}
                         </span>
                       </div>
-                    </div>
-                    
-                    {firstVariant?.cjSku && (
-                      <div className="text-xs">
-                        <span className="text-gray-500">SKU: </span>
-                        <span className="font-mono text-gray-700">{firstVariant.cjSku}</span>
-                      </div>
-                    )}
-                    
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      {product.variants.slice(0, 3).map((v, i) => (
-                        <span key={i} className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
-                          {v.color || v.size || (v.cjSku ? v.cjSku.slice(-6) : `V${i+1}`)}
-                        </span>
-                      ))}
-                      {product.variants.length > 3 && (
-                        <span className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-500">
-                          +{product.variants.length - 3}
-                        </span>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -666,7 +745,7 @@ export default function ProductDiscoveryPage() {
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setPreviewProduct(null)}>
           <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Product Preview</h3>
+              <h3 className="text-lg font-semibold">Product Preview - Pricing Details</h3>
               <button onClick={() => setPreviewProduct(null)} className="p-2 hover:bg-gray-100 rounded-full">
                 <X className="h-5 w-5" />
               </button>
@@ -675,142 +754,72 @@ export default function ProductDiscoveryPage() {
             <div className="p-6">
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="space-y-4">
-                  {previewProduct.images[0] && (
+                  {previewProduct.image && (
                     <img 
-                      src={previewProduct.images[0]} 
+                      src={previewProduct.image} 
                       alt={previewProduct.name}
                       className="w-full rounded-lg"
                     />
                   )}
-                  
-                  {previewProduct.videoUrl && (
-                    <div className="bg-gray-100 rounded-lg p-4">
-                      <p className="text-sm text-gray-600 mb-2">Video Available</p>
-                      <a 
-                        href={previewProduct.videoUrl} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-blue-600 text-sm hover:underline flex items-center gap-2"
-                      >
-                        <Play className="h-4 w-4" /> Watch Video
-                      </a>
-                    </div>
-                  )}
-                  
-                  <div className="flex gap-2 overflow-x-auto pb-2">
-                    {previewProduct.images.slice(1, 6).map((img, i) => (
-                      <img 
-                        key={i}
-                        src={img}
-                        alt={`${previewProduct.name} ${i+2}`}
-                        className="w-20 h-20 object-cover rounded-lg flex-shrink-0"
-                      />
-                    ))}
-                  </div>
                 </div>
                 
                 <div className="space-y-4">
                   <h2 className="text-xl font-semibold" dir="ltr">{previewProduct.name}</h2>
                   
-                  <div className="flex items-center gap-2">
-                    {renderStars(previewProduct.supplierRating || 0)}
-                    <span className="text-sm text-gray-600">
-                      {(previewProduct.supplierRating || 0).toFixed(1)} Rating
-                    </span>
+                  <div className="bg-green-50 rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between text-lg font-bold">
+                      <span>Sell Price Range:</span>
+                      <span className="text-green-700">
+                        {previewProduct.minPriceSAR.toFixed(0)} - {previewProduct.maxPriceSAR.toFixed(0)} SAR
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Average Price:</span>
+                      <span className="font-semibold">{previewProduct.avgPriceSAR.toFixed(0)} SAR</span>
+                    </div>
                   </div>
                   
                   <div className="bg-gray-50 rounded-lg p-4 space-y-3">
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Average Price:</span>
-                      <span className="font-semibold text-green-600">${(previewProduct.avgPrice || 0).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
                       <span className="text-gray-600">Total Stock:</span>
-                      <span className="font-semibold">{previewProduct.totalStock || 0}</span>
+                      <span className="font-semibold">{previewProduct.stock}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Variants:</span>
-                      <span className="font-semibold">{previewProduct.variants.length}</span>
+                      <span className="text-gray-600">Popularity (Listed):</span>
+                      <span className="font-semibold">{previewProduct.listedNum}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Quality Score:</span>
-                      <span className="font-semibold">{((previewProduct.qualityScore || 0) * 100).toFixed(0)}%</span>
+                      <span className="text-gray-600">Priced Variants:</span>
+                      <span className="font-semibold">{previewProduct.successfulVariants}/{previewProduct.totalVariants}</span>
                     </div>
                   </div>
                   
                   <div>
-                    <h4 className="font-medium mb-2">
-                      Inventory Details ({variantInventory.length > 0 ? variantInventory.length : previewProduct.variants.length} variants)
-                      {loadingInventory && <Loader2 className="inline-block h-4 w-4 ml-2 animate-spin" />}
-                    </h4>
-                    
-                    {variantInventory.length > 0 ? (
-                      <div className="border rounded-lg overflow-hidden">
-                        <table className="w-full text-sm">
-                          <thead className="bg-gray-100">
-                            <tr>
-                              <th className="text-left p-2 font-medium">Variant</th>
-                              <th className="text-right p-2 font-medium">Price</th>
-                              <th className="text-right p-2 font-medium">CJ Stock</th>
-                              <th className="text-right p-2 font-medium">Factory Stock</th>
+                    <h4 className="font-medium mb-2">Variant Pricing</h4>
+                    <div className="border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-100 sticky top-0">
+                          <tr>
+                            <th className="text-left p-2 font-medium">SKU</th>
+                            <th className="text-right p-2 font-medium">Cost (USD)</th>
+                            <th className="text-right p-2 font-medium">Ship (SAR)</th>
+                            <th className="text-right p-2 font-medium">Sell (SAR)</th>
+                            <th className="text-right p-2 font-medium">Profit</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {previewProduct.variants.filter(v => v.shippingAvailable).map((v, i) => (
+                            <tr key={i} className="hover:bg-gray-50">
+                              <td className="p-2 font-mono text-xs">{v.variantSku?.slice(-10) || v.variantId?.slice(-8)}</td>
+                              <td className="p-2 text-right">${v.variantPriceUSD.toFixed(2)}</td>
+                              <td className="p-2 text-right">{v.shippingPriceSAR.toFixed(0)}</td>
+                              <td className="p-2 text-right font-semibold text-green-600">{v.sellPriceSAR.toFixed(0)}</td>
+                              <td className="p-2 text-right text-blue-600">{v.profitSAR.toFixed(0)}</td>
                             </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {variantInventory.map((v, i) => (
-                              <tr key={i} className="hover:bg-gray-50">
-                                <td className="p-2">
-                                  <div className="font-mono text-xs text-gray-600">{v.variantSku}</div>
-                                  {v.variantName && (
-                                    <div className="text-gray-500 text-xs">{v.variantName}</div>
-                                  )}
-                                </td>
-                                <td className="p-2 text-right font-semibold text-green-600">
-                                  ${v.price.toFixed(2)}
-                                </td>
-                                <td className="p-2 text-right">
-                                  <span className={v.cjStock > 0 ? "text-blue-600 font-medium" : "text-gray-400"}>
-                                    {v.cjStock}
-                                  </span>
-                                </td>
-                                <td className="p-2 text-right">
-                                  <span className={v.factoryStock > 0 ? "text-orange-600 font-medium" : "text-gray-400"}>
-                                    {v.factoryStock.toLocaleString()}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot className="bg-gray-50 font-medium">
-                            <tr>
-                              <td className="p-2">Total</td>
-                              <td className="p-2"></td>
-                              <td className="p-2 text-right text-blue-600">
-                                {variantInventory.reduce((sum, v) => sum + v.cjStock, 0)}
-                              </td>
-                              <td className="p-2 text-right text-orange-600">
-                                {variantInventory.reduce((sum, v) => sum + v.factoryStock, 0).toLocaleString()}
-                              </td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="space-y-2 max-h-60 overflow-y-auto">
-                        {previewProduct.variants.map((v, i) => (
-                          <div key={i} className="bg-gray-50 rounded p-3 text-sm">
-                            <div className="flex justify-between mb-1">
-                              <span className="font-mono text-xs text-gray-500">{v.cjSku || `SKU-${i+1}`}</span>
-                              <span className="font-semibold">${(v.price || 0).toFixed(2)}</span>
-                            </div>
-                            <div className="flex gap-4 text-gray-600">
-                              {v.color && <span>Color: {v.color}</span>}
-                              {v.size && <span>Size: {v.size}</span>}
-                              <span>Stock: {v.stock || 0}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               </div>
