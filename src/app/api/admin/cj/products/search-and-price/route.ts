@@ -213,8 +213,8 @@ async function fetchCjProductsByCategoryV2(
       
       const mappedProducts = allProducts.map(p => ({
         ...p,
-        pid: p.id || p.pid,
-        productId: p.id || p.pid,
+        pid: p.pid || p.productId || p.id,
+        productId: p.pid || p.productId || p.id,
         productNameEn: p.nameEn || p.productNameEn,
         name: p.nameEn || p.productNameEn,
         productImage: p.bigImage || p.productImage,
