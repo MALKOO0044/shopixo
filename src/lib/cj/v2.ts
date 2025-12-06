@@ -48,15 +48,6 @@ export async function listCjProductsPage(params: { pageNum: number; pageSize?: n
   for (const ep of endpoints) {
     try {
       const r = await cjFetch<any>(ep);
-      console.log(`[CJ ListPage] endpoint=${ep.split('?')[0]}, code=${r?.code}, result=${r?.result}, listLength=${r?.data?.list?.length || r?.data?.content?.length || 0}`);
-      
-      if (r?.code !== 200 || !r?.result) {
-        if (r?.message) {
-          console.log(`[CJ ListPage] Error message: ${r.message}`);
-        }
-        continue;
-      }
-      
       const arr = Array.isArray(r?.data?.list)
         ? r.data.list
         : Array.isArray(r?.data?.content)
@@ -75,12 +66,10 @@ export async function listCjProductsPage(params: { pageNum: number; pageSize?: n
         if (out.length >= pageSize) break;
       }
       if (out.length >= pageSize) break;
-    } catch (e: any) {
-      console.log(`[CJ ListPage] Error for endpoint ${ep.split('?')[0]}: ${e?.message}`);
+    } catch (e) {
       lastErr = e;
     }
   }
-  console.log(`[CJ ListPage] Final result for keyword="${kw}", page=${pageNum}: ${out.length} products found`);
   if (out.length === 0 && lastErr) throw lastErr;
   return { code: 200, data: { list: out } };
 }
@@ -139,235 +128,6 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<{ o
   }
   return { options: out };
 }
-
-// --- CJPacket Ordinary Shipping Calculation (EXACT from CJ API) ---
-// This function calculates shipping cost using the OFFICIAL CJ API endpoint
-// Returns the EXACT shipping price from CJ - no estimates, no calculations
-export type CjShippingResult = {
-  shippingPriceUSD: number;     // Exact shipping price in USD from CJ API
-  shippingPriceSAR: number;     // Converted to SAR (using fixed rate 3.75)
-  logisticName: string;          // e.g., "CJPacket Ordinary"
-  deliveryDays: string;          // e.g., "15-25"
-  available: boolean;            // Whether CJPacket Ordinary is available for this product
-  error?: string;                // Error message if calculation failed
-};
-
-// USD to SAR exchange rate (fixed rate for stability - update as needed)
-const USD_TO_SAR_RATE = 3.75;
-
-/**
- * Calculate shipping cost for a product variant to Saudi Arabia via CJPacket Ordinary
- * This calls the official CJ freightCalculate API and returns EXACT prices
- * 
- * @param vid - Variant ID from CJ product data
- * @param quantity - Number of items (default 1)
- * @returns Exact shipping price from CJ API
- */
-export async function calculateShippingToSA(vid: string, quantity: number = 1): Promise<CjShippingResult> {
-  // Accept any CJPacket Ordinary variant (e.g., "CJPacket Ordinary+", "CJPacket Ordinary - Registered")
-  // CJ returns different naming variations but they all use the same shipping method
-  const CJPACKET_ORDINARY_PREFIX = "cjpacket ordinary"; // lowercase prefix for comparison
-  
-  try {
-    const token = await getAccessToken();
-    const base = await resolveBase();
-    
-    // Official CJ API endpoint for freight calculation
-    const body = {
-      startCountryCode: "CN",    // Origin: China
-      endCountryCode: "SA",       // Destination: Saudi Arabia
-      products: [{ vid, quantity }]
-    };
-    
-    console.log(`[CJ Shipping] Calculating shipping for vid=${vid}, qty=${quantity}`);
-    
-    const response = await fetchJson<any>(`${base}/logistic/freightCalculate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'CJ-Access-Token': token,
-      },
-      body: JSON.stringify(body),
-      cache: 'no-store',
-      timeoutMs: 15000,
-    });
-    
-    // Log raw response structure for debugging
-    console.log(`[CJ Shipping] Raw response structure:`, JSON.stringify({
-      code: response?.code,
-      result: response?.result,
-      dataType: typeof response?.data,
-      dataKeys: response?.data ? Object.keys(response.data) : 'null',
-      hasFreightList: !!response?.data?.freightList,
-    }));
-    
-    // Check for API success
-    if (response?.code !== 200 || !response?.result) {
-      console.log(`[CJ Shipping] API error for vid=${vid}: ${response?.message || 'Unknown error'}`);
-      return {
-        shippingPriceUSD: 0,
-        shippingPriceSAR: 0,
-        logisticName: '',
-        deliveryDays: '',
-        available: false,
-        error: response?.message || 'CJ API error'
-      };
-    }
-    
-    // Handle multiple possible response structures from CJ API:
-    // Structure 1: response.data is an array directly
-    // Structure 2: response.data.freightList is an array
-    // Structure 3: response.data contains shipping options nested
-    let shippingOptions: any[] = [];
-    const data = response?.data;
-    
-    if (Array.isArray(data)) {
-      // Structure 1: Direct array
-      shippingOptions = data;
-    } else if (data?.freightList && Array.isArray(data.freightList)) {
-      // Structure 2: Nested in freightList
-      shippingOptions = data.freightList;
-    } else if (data && typeof data === 'object') {
-      // Structure 3: Try to find array in any property
-      for (const key of Object.keys(data)) {
-        if (Array.isArray(data[key]) && data[key].length > 0) {
-          const first = data[key][0];
-          if (first && (first.logisticName || first.logisticsName || first.name)) {
-            shippingOptions = data[key];
-            console.log(`[CJ Shipping] Found shipping array in data.${key}`);
-            break;
-          }
-        }
-      }
-    }
-    
-    if (shippingOptions.length === 0) {
-      console.log(`[CJ Shipping] No shipping options found for vid=${vid}. Data structure:`, JSON.stringify(data).slice(0, 500));
-      return {
-        shippingPriceUSD: 0,
-        shippingPriceSAR: 0,
-        logisticName: '',
-        deliveryDays: '',
-        available: false,
-        error: 'No shipping options available to Saudi Arabia'
-      };
-    }
-    
-    // Log available options for debugging
-    const optionNames = shippingOptions.map((o: any) => 
-      o.logisticName || o.logisticsName || o.name || 'unnamed'
-    ).join(', ');
-    console.log(`[CJ Shipping] Available shipping options for vid=${vid}: ${optionNames}`);
-    
-    // Find any CJPacket Ordinary variant (prefix match to accept "CJPacket Ordinary+", "CJPacket Ordinary - Registered", etc.)
-    const cjPacketOrdinary = shippingOptions.find((opt: any) => {
-      const name = (opt.logisticName || opt.logisticsName || opt.name || '').toLowerCase().trim();
-      return name.startsWith(CJPACKET_ORDINARY_PREFIX);
-    });
-    
-    if (!cjPacketOrdinary) {
-      // CJPacket Ordinary is REQUIRED - do not fall back to other options
-      // This ensures 100% accurate pricing as per user requirements
-      console.log(`[CJ Shipping] CRITICAL: CJPacket Ordinary not found for vid=${vid}. Available options: ${optionNames}`);
-      return {
-        shippingPriceUSD: 0,
-        shippingPriceSAR: 0,
-        logisticName: '',
-        deliveryDays: '',
-        available: false,
-        error: `CJPacket Ordinary not available for this product. Other options: ${optionNames}`
-      };
-    }
-    
-    // Extract EXACT price from CJ API response - try multiple field names
-    const shippingPriceUSD = Number(
-      cjPacketOrdinary.logisticPrice || 
-      cjPacketOrdinary.logisticsPrice || 
-      cjPacketOrdinary.totalFreight || 
-      cjPacketOrdinary.price || 
-      0
-    );
-    const shippingPriceSAR = Math.round(shippingPriceUSD * USD_TO_SAR_RATE * 100) / 100;
-    const deliveryDays = cjPacketOrdinary.logisticAging || cjPacketOrdinary.aging || cjPacketOrdinary.deliveryDays || '';
-    const logisticName = cjPacketOrdinary.logisticName || cjPacketOrdinary.logisticsName || cjPacketOrdinary.name || 'CJPacket Ordinary';
-    
-    console.log(`[CJ Shipping] Found for vid=${vid}: $${shippingPriceUSD} USD = ${shippingPriceSAR} SAR, delivery: ${deliveryDays} days`);
-    
-    if (shippingPriceUSD <= 0) {
-      console.log(`[CJ Shipping] Warning: Zero or invalid price for vid=${vid}. Raw option:`, JSON.stringify(cjPacketOrdinary).slice(0, 300));
-      return {
-        shippingPriceUSD: 0,
-        shippingPriceSAR: 0,
-        logisticName: '',
-        deliveryDays: '',
-        available: false,
-        error: 'Invalid shipping price returned from CJ API'
-      };
-    }
-    
-    return {
-      shippingPriceUSD,
-      shippingPriceSAR,
-      logisticName,
-      deliveryDays,
-      available: true
-    };
-    
-  } catch (error: any) {
-    console.error(`[CJ Shipping] Error calculating shipping for vid=${vid}:`, error?.message);
-    return {
-      shippingPriceUSD: 0,
-      shippingPriceSAR: 0,
-      logisticName: '',
-      deliveryDays: '',
-      available: false,
-      error: error?.message || 'Failed to calculate shipping'
-    };
-  }
-}
-
-/**
- * Calculate complete pricing for a product including shipping and profit margin
- * All prices are in SAR (Saudi Riyal)
- * 
- * @param productPriceUSD - CJ product price in USD
- * @param shippingPriceUSD - CJ shipping price in USD (from calculateShippingToSA)
- * @param profitMarginPercent - User's desired profit margin (e.g., 25 for 25%)
- * @returns Complete pricing breakdown in SAR
- */
-export function calculateFinalPricingSAR(
-  productPriceUSD: number,
-  shippingPriceUSD: number,
-  profitMarginPercent: number
-): {
-  productPriceSAR: number;    // Product cost in SAR
-  shippingPriceSAR: number;   // Shipping cost in SAR
-  totalCostSAR: number;       // Product + Shipping in SAR
-  profitSAR: number;          // Your profit in SAR
-  sellPriceSAR: number;       // Final price to sell at in SAR
-} {
-  // Convert USD to SAR
-  const productPriceSAR = Math.round(productPriceUSD * USD_TO_SAR_RATE * 100) / 100;
-  const shippingPriceSAR = Math.round(shippingPriceUSD * USD_TO_SAR_RATE * 100) / 100;
-  
-  // Calculate total cost
-  const totalCostSAR = Math.round((productPriceSAR + shippingPriceSAR) * 100) / 100;
-  
-  // Calculate profit based on user's chosen percentage
-  const profitSAR = Math.round(totalCostSAR * (profitMarginPercent / 100) * 100) / 100;
-  
-  // Calculate final sell price
-  const sellPriceSAR = Math.round((totalCostSAR + profitSAR) * 100) / 100;
-  
-  return {
-    productPriceSAR,
-    shippingPriceSAR,
-    totalCostSAR,
-    profitSAR,
-    sellPriceSAR
-  };
-}
-
 // - POST /authentication/refreshAccessToken { refreshToken }
 // Token lives 15 days; refresh token 180 days; getAccessToken limited to once/5 minutes.
 // Env vars supported:
@@ -560,7 +320,6 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
 }
 
 export type CjVariantLike = {
-  vid?: string; // CRITICAL: variant ID required for shipping calculation
   cjSku?: string;
   size?: string;
   color?: string;
@@ -621,12 +380,6 @@ type TokenState = {
 
 let tokenState: TokenState | null = null;
 
-// Clear token cache - use when API key changes
-export function clearTokenCache(): void {
-  console.log('[CJ Auth] Clearing token cache');
-  tokenState = null;
-}
-
 function ms() { return Date.now(); }
 
 function isNotExpired(iso?: string | null): boolean {
@@ -656,15 +409,12 @@ async function authPost<T>(path: string, body: any): Promise<T> {
 }
 
 async function fetchNewAccessToken(): Promise<TokenState> {
-  // CJ API requires BOTH email AND apiKey for authentication
-  const { email, apiKey } = await getCjCreds();
+  // Per official CJ API docs: only apiKey is required (format: CJUserNum@api@xxx)
+  const apiKey = await getCjApiKey();
   if (!apiKey) throw new Error('Missing CJ_API_KEY (env or admin settings)');
-  if (!email) throw new Error('Missing CJ_EMAIL (env or admin settings)');
 
-  console.log('[CJ Auth] Requesting new token with email:', email);
-  
-  // Official endpoint per CJ docs - requires both email and apiKey
-  const r = await authPost<any>('/authentication/getAccessToken', { email, apiKey });
+  // Official endpoint per CJ docs
+  const r = await authPost<any>('/authentication/getAccessToken', { apiKey });
   
   // Check for success response
   if (r?.code !== 200 || !r?.result) {
@@ -729,14 +479,10 @@ async function refreshAccessTokenState(state: TokenState): Promise<TokenState> {
 export async function getAccessToken(): Promise<string> {
   // Manual override for emergencies
   const manual = process.env.CJ_ACCESS_TOKEN;
-  if (manual) {
-    console.log('[CJ Auth] Using manual CJ_ACCESS_TOKEN from env');
-    return manual;
-  }
+  if (manual) return manual;
 
   // Use cached if valid
   if (tokenState && isNotExpired(tokenState.accessTokenExpiry)) {
-    console.log('[CJ Auth] Using cached token (valid until: ' + tokenState.accessTokenExpiry + ')');
     return tokenState.accessToken;
   }
 
@@ -744,7 +490,6 @@ export async function getAccessToken(): Promise<string> {
   try {
     const row = await loadToken('cj');
     if (row?.access_token) {
-      console.log('[CJ Auth] Loaded token from DB, expiry: ' + row.access_expiry);
       const dbState: TokenState = {
         accessToken: row.access_token,
         accessTokenExpiry: row.access_expiry,
@@ -754,41 +499,26 @@ export async function getAccessToken(): Promise<string> {
       };
       tokenState = dbState;
       if (isNotExpired(dbState.accessTokenExpiry)) {
-        console.log('[CJ Auth] DB token is valid, using it');
         return dbState.accessToken;
-      } else {
-        console.log('[CJ Auth] DB token expired, will refresh');
       }
     }
-  } catch (e: any) {
-    console.log('[CJ Auth] Error loading token from DB: ' + e?.message);
-  }
+  } catch {}
 
   // Try to refresh if we have a refreshToken and respect 5-min throttle
   if (tokenState && tokenState.refreshToken) {
     if (!throttleOk(tokenState.lastAuthCallMs)) {
-      console.log('[CJ Auth] Token refresh throttled, using existing token');
       // If throttled but token expired, we still have to try using the old token (may fail downstream)
       return tokenState.accessToken;
     }
     try {
-      console.log('[CJ Auth] Attempting token refresh');
       tokenState = await refreshAccessTokenState(tokenState);
-      if (tokenState && isNotExpired(tokenState.accessTokenExpiry)) {
-        console.log('[CJ Auth] Token refreshed successfully');
-        return tokenState.accessToken;
-      }
-    } catch (e: any) {
-      console.log('[CJ Auth] Token refresh failed: ' + e?.message);
-      /* will fallback to new token */
-    }
+      if (tokenState && isNotExpired(tokenState.accessTokenExpiry)) return tokenState.accessToken;
+    } catch {/* will fallback to new token */}
   }
 
   // Fetch a new token with email/apiKey
   if (!tokenState || throttleOk(tokenState.lastAuthCallMs)) {
-    console.log('[CJ Auth] Fetching new access token');
     tokenState = await fetchNewAccessToken();
-    console.log('[CJ Auth] New token obtained, expiry: ' + tokenState.accessTokenExpiry);
     return tokenState.accessToken;
   }
 
@@ -847,45 +577,24 @@ export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?
       // Resolve PID generically: the input may be a numeric web id or a SKU like CJTZ...; search to find the product pid
       try {
         const lr = await cjFetch<any>(`/product/list?keyWords=${encodeURIComponent(pid)}&pageSize=5&pageNum=1`);
-        console.log(`[CJ PID Resolve] pid=${pid}, code=${lr?.code}, result=${lr?.result}, listLength=${lr?.data?.list?.length || 0}`);
-        
-        if (lr?.code === 200 && lr?.result) {
-          const cand = (Array.isArray(lr?.data?.list) ? lr.data.list : []) as any[];
-          if (cand.length > 0 && cand[0]?.pid) {
-            guidPid = String(cand[0].pid);
-          }
-        } else if (lr?.message) {
-          console.log(`[CJ PID Resolve] Error message: ${lr.message}`);
+        const cand = (Array.isArray(lr?.data?.list) ? lr.data.list : []) as any[];
+        if (cand.length > 0 && cand[0]?.pid) {
+          guidPid = String(cand[0].pid);
         }
-      } catch (e: any) {
-        console.log(`[CJ PID Resolve] Error for ${pid}: ${e?.message}`);
-      }
+      } catch {}
 
       // Fetch product details and variants using GUID pid
       const pr = await cjFetch<any>(`/product/query?pid=${encodeURIComponent(guidPid)}`);
-      console.log(`[CJ Product Query] pid=${guidPid}, code=${pr?.code}, result=${pr?.result}, hasData=${!!pr?.data}`);
-      
-      if (pr?.code !== 200 || !pr?.result) {
-        if (pr?.message) {
-          console.log(`[CJ Product Query] Error message: ${pr.message}`);
-        }
-        throw new Error(pr?.message || 'Product query failed');
-      }
-      
       let base = pr?.data || pr?.content || pr || null;
       try {
         const vr = await cjFetch<any>(`/product/variant/query?pid=${encodeURIComponent(guidPid)}`);
-        console.log(`[CJ Variant Query] pid=${guidPid}, code=${vr?.code}, result=${vr?.result}, variantsCount=${vr?.data?.length || 0}`);
         const vlist = Array.isArray(vr?.data) ? vr.data : [];
         if (base) base = { ...base, variantList: vlist };
-      } catch (e: any) {
-        console.log(`[CJ Variant Query] Error for ${guidPid}: ${e?.message}`);
-      }
+      } catch { /* ignore variant errors */ }
 
       const content = base ? [base] : [];
       return { code: 200, data: { content } };
-    } catch (e: any) {
-      console.log(`[CJ PID Search] Failed for ${pid}, falling back to keyword: ${e?.message}`);
+    } catch (e) {
       // Fall through to keyword mode as a last resort
     }
   }
@@ -905,15 +614,6 @@ export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?
   for (const ep of endpoints) {
     try {
       const r = await cjFetch<any>(ep);
-      console.log(`[CJ Keyword Search] endpoint=${ep.split('?')[0]}, code=${r?.code}, result=${r?.result}, listLength=${r?.data?.list?.length || r?.data?.content?.length || 0}`);
-      
-      if (r?.code !== 200 || !r?.result) {
-        if (r?.message) {
-          console.log(`[CJ Keyword Search] Error message: ${r.message}`);
-        }
-        continue;
-      }
-      
       const arr = Array.isArray(r?.data?.list)
         ? r.data.list
         : Array.isArray(r?.data?.content)
@@ -928,12 +628,10 @@ export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?
       for (const it of arr) collected.push(it);
       if (collected.length > 0) break;
     } catch (e: any) {
-      console.log(`[CJ Keyword Search] Error for endpoint ${ep.split('?')[0]}: ${e?.message}`);
       lastErr = e;
     }
   }
 
-  console.log(`[CJ Keyword Search] Final result for "${term}": ${collected.length} products found`);
   if (collected.length === 0 && lastErr) throw lastErr;
   return { code: 200, data: { content: collected } };
 }
@@ -1190,11 +888,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
       const widthCm = pickNum(v.width, v.widthCm, v.w) as number | undefined;
       const heightCm = pickNum(v.height, v.heightCm, v.h) as number | undefined;
 
-      // CRITICAL: vid is required for shipping calculation
-      const vid = v.vid || v.variantId || v.variantSku || v.skuId || cjSku || null;
-      
       variants.push({
-        vid: vid || undefined,
         cjSku: cjSku || undefined,
         size: size || undefined,
         color: color || undefined,
@@ -1230,10 +924,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     const productPrice = pickNum(item.sellPrice, item.price, item.salePrice, item.costPrice);
     const productStock = pickNum(item.stock, item.inventory, item.listingCount, item.listedNum) ?? 100;
     const productSku = item.productSku || item.sku || null;
-    // Use product SKU or productId as fallback vid for shipping calculation
-    const fallbackVid = productSku || productId || null;
     variants.push({
-      vid: fallbackVid || undefined,
       cjSku: productSku || undefined,
       price: productPrice,
       stock: typeof productStock === 'number' ? productStock : undefined,
@@ -1267,256 +958,4 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     // Attach processing time in a way that callers can read from item if needed
     // (keeping CjProductLike strict; we will pass via casting if used)
   };
-}
-
-// ============================================================================
-// CJ "My Products" Management & Variant Cache
-// The variant/query endpoint ONLY works for products in "My Products"
-// So we must first add products, then query variants, then cache them
-// ============================================================================
-
-export type CachedVariant = {
-  cj_product_id: string;
-  cj_variant_id: string;
-  variant_sku: string | null;
-  variant_name: string | null;
-  variant_sell_price: number | null;
-  weight_grams: number | null;
-  added_to_my_products: boolean;
-  last_shipping_price_sar: number | null;
-  last_shipping_fetch_at: Date | null;
-};
-
-// Add a product to "My Products" in CJ account
-export async function addProductToMyProducts(productId: string): Promise<{ success: boolean; message: string }> {
-  try {
-    const token = await getAccessToken();
-    if (!token) {
-      return { success: false, message: 'Failed to get CJ access token' };
-    }
-
-    const base = await resolveBase();
-    
-    // CJ API: POST /product/addMyProducts
-    // Body: { productId: "xxx" } or { pid: "xxx" }
-    const response = await fetchJson<any>(`${base}/product/addMyProducts`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'CJ-Access-Token': token,
-      },
-      body: JSON.stringify({ pid: productId }),
-      cache: 'no-store',
-      timeoutMs: 15000,
-    });
-
-    console.log(`[CJ AddMyProducts] pid=${productId}, code=${response?.code}, result=${response?.result}, message=${response?.message}`);
-
-    // Some success codes: 200 = added, or product already exists
-    if (response?.code === 200 && response?.result === true) {
-      return { success: true, message: 'Product added to My Products' };
-    }
-
-    // Product may already be in "My Products"
-    if (response?.message?.toLowerCase().includes('already') || 
-        response?.message?.toLowerCase().includes('exist')) {
-      return { success: true, message: 'Product already in My Products' };
-    }
-
-    return { success: false, message: response?.message || 'Failed to add product' };
-  } catch (err: any) {
-    console.error(`[CJ AddMyProducts] Error for pid=${productId}:`, err?.message);
-    return { success: false, message: err?.message || 'Unknown error' };
-  }
-}
-
-// Fetch variants for a product that's already in "My Products"
-export async function fetchVariantsFromMyProducts(productId: string): Promise<{
-  success: boolean;
-  variants: { vid: string; sku: string; name?: string; price?: number; weight?: number }[];
-  message?: string;
-}> {
-  try {
-    const token = await getAccessToken();
-    if (!token) {
-      return { success: false, variants: [], message: 'Failed to get CJ access token' };
-    }
-
-    const base = await resolveBase();
-    
-    // Now that product is in "My Products", variant/query should work
-    const url = `${base}/product/variant/query?pid=${encodeURIComponent(productId)}`;
-    
-    console.log(`[CJ FetchVariants] Fetching variants for pid=${productId}`);
-    
-    const response = await fetchJson<any>(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'CJ-Access-Token': token,
-      },
-      cache: 'no-store',
-      timeoutMs: 15000,
-    });
-
-    console.log(`[CJ FetchVariants] Response: code=${response?.code}, result=${response?.result}, dataType=${typeof response?.data}, isArray=${Array.isArray(response?.data)}, length=${Array.isArray(response?.data) ? response.data.length : 'N/A'}`);
-
-    if (response?.code !== 200 || !response?.result) {
-      return { 
-        success: false, 
-        variants: [], 
-        message: response?.message || 'Variant query failed' 
-      };
-    }
-
-    // Variants are returned directly in data as an array
-    const rawVariants = Array.isArray(response.data) ? response.data : [];
-    
-    if (rawVariants.length === 0) {
-      return { success: false, variants: [], message: 'No variants returned' };
-    }
-
-    // Log first variant structure
-    if (rawVariants[0]) {
-      console.log(`[CJ FetchVariants] Sample variant keys:`, Object.keys(rawVariants[0]).join(', '));
-    }
-
-    const variants = rawVariants.map((v: any) => ({
-      vid: String(v.vid || v.variantId || ''),
-      sku: String(v.variantSku || v.sku || ''),
-      name: v.variantName || v.name || undefined,
-      price: parseFloat(v.variantSellPrice || v.sellPrice) || undefined,
-      weight: parseInt(v.variantWeight || v.weight) || undefined,
-    })).filter((v: any) => v.vid);
-
-    console.log(`[CJ FetchVariants] Extracted ${variants.length} variants with VIDs for pid=${productId}`);
-
-    return { success: true, variants };
-  } catch (err: any) {
-    console.error(`[CJ FetchVariants] Error for pid=${productId}:`, err?.message);
-    return { success: false, variants: [], message: err?.message || 'Unknown error' };
-  }
-}
-
-// Cache variants in database for a product
-// Returns cached variants or null if caching failed
-// IMPORTANT: This function includes rate limiting (1.2s delay) for CJ API calls
-export async function cacheVariantsForProduct(productId: string, supabase: any): Promise<CachedVariant[] | null> {
-  try {
-    // Step 1: Check if variants are already cached
-    const { data: existingVariants, error: selectError } = await supabase
-      .from('cj_variant_cache')
-      .select('*')
-      .eq('cj_product_id', productId);
-
-    if (selectError) {
-      console.error(`[CJ Cache] Error checking existing variants for pid=${productId}:`, selectError.message);
-    }
-
-    if (existingVariants && existingVariants.length > 0) {
-      console.log(`[CJ Cache] Found ${existingVariants.length} cached variants for pid=${productId}`);
-      return existingVariants;
-    }
-
-    // Step 2: Add product to "My Products" (with rate limiting)
-    console.log(`[CJ Cache] Adding product ${productId} to My Products...`);
-    await new Promise(resolve => setTimeout(resolve, 1200)); // Rate limit
-    const addResult = await addProductToMyProducts(productId);
-    
-    if (!addResult.success) {
-      console.error(`[CJ Cache] Failed to add product ${productId} to My Products: ${addResult.message}`);
-      // Continue anyway - it might already be added
-    }
-
-    // Step 3: Fetch variants from "My Products" (with rate limiting)
-    console.log(`[CJ Cache] Fetching variants for ${productId}...`);
-    await new Promise(resolve => setTimeout(resolve, 1200)); // Rate limit
-    const variantResult = await fetchVariantsFromMyProducts(productId);
-
-    if (!variantResult.success || variantResult.variants.length === 0) {
-      console.error(`[CJ Cache] Failed to fetch variants for ${productId}: ${variantResult.message}`);
-      return null;
-    }
-
-    // Step 4: Store variants in database
-    const variantsToInsert = variantResult.variants.map(v => ({
-      cj_product_id: productId,
-      cj_variant_id: v.vid,
-      variant_sku: v.sku || null,
-      variant_name: v.name || null,
-      variant_sell_price: v.price || null,
-      weight_grams: v.weight || null,
-      added_to_my_products: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }));
-
-    const { data: insertedVariants, error: insertError } = await supabase
-      .from('cj_variant_cache')
-      .upsert(variantsToInsert, { 
-        onConflict: 'cj_variant_id',
-        ignoreDuplicates: false 
-      })
-      .select();
-
-    if (insertError) {
-      console.error(`[CJ Cache] Error inserting variants for pid=${productId}:`, insertError.message);
-      return null;
-    }
-
-    console.log(`[CJ Cache] Successfully cached ${insertedVariants?.length || 0} variants for pid=${productId}`);
-    return insertedVariants || variantsToInsert.map(v => ({...v, added_to_my_products: true, last_shipping_price_sar: null, last_shipping_fetch_at: null})) as CachedVariant[];
-
-  } catch (err: any) {
-    console.error(`[CJ Cache] Error caching variants for pid=${productId}:`, err?.message);
-    return null;
-  }
-}
-
-// Get cached variants from database
-export async function getCachedVariants(productId: string, supabase: any): Promise<CachedVariant[]> {
-  try {
-    const { data, error } = await supabase
-      .from('cj_variant_cache')
-      .select('*')
-      .eq('cj_product_id', productId);
-
-    if (error) {
-      console.error(`[CJ Cache] Error fetching cached variants for pid=${productId}:`, error.message);
-      return [];
-    }
-
-    return data || [];
-  } catch (err: any) {
-    console.error(`[CJ Cache] Error fetching cached variants for pid=${productId}:`, err?.message);
-    return [];
-  }
-}
-
-// Update cached variant with shipping price
-export async function updateCachedVariantShipping(
-  variantId: string, 
-  shippingPriceSar: number, 
-  supabase: any
-): Promise<boolean> {
-  try {
-    const { error } = await supabase
-      .from('cj_variant_cache')
-      .update({
-        last_shipping_price_sar: shippingPriceSar,
-        last_shipping_fetch_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('cj_variant_id', variantId);
-
-    if (error) {
-      console.error(`[CJ Cache] Error updating shipping for vid=${variantId}:`, error.message);
-      return false;
-    }
-
-    return true;
-  } catch (err: any) {
-    console.error(`[CJ Cache] Error updating shipping for vid=${variantId}:`, err?.message);
-    return false;
-  }
 }

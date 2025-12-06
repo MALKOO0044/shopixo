@@ -3,41 +3,17 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, AlertTriangle, TrendingUp } from "lucide-react";
-import { useToast } from "@/components/ui/toast-provider";
-
-// Per-variant shipping/pricing data for 100% accurate pricing
-type VariantPricing = {
-  variantPriceUSD: number;
-  variantPriceSAR: number;
-  shippingPriceSAR: number;
-  totalCostSAR: number;
-  profitSAR: number;
-  sellPriceSAR: number;
-};
-
-type VariantShipping = {
-  available: boolean;
-  priceUSD: number;
-  priceSAR: number;
-  deliveryDays: string;
-  error?: string;
-};
+import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play } from "lucide-react";
 
 type CjVariant = {
-  vid?: string; // CJ variant ID - required for shipping calculation
   cjSku?: string;
-  variantSku?: string; // Variant SKU from V2 API
   size?: string;
   color?: string;
   price?: number;
   stock?: number;
   cjStock?: number;
   factoryStock?: number;
-  imageUrl?: string; // Variant-specific image (for color swatches)
-  // Per-variant shipping and pricing (populated after Calculate Pricing)
-  shipping?: VariantShipping;
-  pricing?: VariantPricing | null; // null = shipping unavailable
+  imageUrl?: string;
 };
 
 type VariantInventory = {
@@ -49,115 +25,42 @@ type VariantInventory = {
   totalStock: number;
 };
 
-type EnrichedProduct = {
-  pid: string;
-  nameEn: string;
-  nameAr: string | null;
-  descriptionEn: string | null;
-  descriptionAr: string | null;
-  colors: string[];
-  sizes: string[];
-  variants: Array<{
-    sku: string;
-    color: string | null;
-    size: string | null;
-    price: number;
-    cjStock: number;
-    factoryStock: number;
-    totalStock: number;
-  }>;
-  totalCjStock: number;
-  totalFactoryStock: number;
-  totalStock: number;
-  processingTimeHours: number | null;
-  processingTimeDisplay: string | null;
-  shippingToSA: {
-    estimatedDays: { min?: number; max?: number } | null;
-    shippingCost: number | null;
-    shippingMethod: string | null;
-  } | null;
-  notes: string | null;
-  supplierRating: number;
-};
-
 type CjProduct = {
   productId: string;
   name: string;
   images: string[];
   videoUrl?: string | null;
   variants: CjVariant[];
-  // V2 API fields
-  productSku?: string;          // Product SKU code
-  listedNum?: number;           // Popularity count (higher = more popular)
-  totalStock?: number;          // From warehouseInventoryNum
-  cjInventory?: number;         // Stock in CJ warehouses
-  factoryInventory?: number;    // Stock in factory/supplier warehouses
+  supplierRating?: number;
+  totalStock?: number;
   avgPrice?: number;
-  deliveryCycle?: string | null; // e.g., "3-5" days
-  supplierName?: string;         // Supplier name
-  addMarkStatus?: number;        // 1 = free shipping
-  // Computed
+  processingTimeHours?: number;
   qualityScore?: number;
-  // Per-variant pricing calculated - tracks which variants have been priced
-  variantsPriced?: boolean; // true after Calculate Pricing has been run
-};
-
-type Feature = {
-  featureId: string;
-  featureName: string;
-  level: number;
-  parentId?: string;
-  isProductCategory?: boolean; // true = can be used for product search
-  childCategoryIds?: string[]; // Level 2 features include their Level 3 child IDs
 };
 
 type Category = {
   categoryId: string;
   categoryName: string;
-  features: Feature[];
 };
 
 export default function ProductDiscoveryPage() {
-  const { toast } = useToast();
-  
-  const [selectedCategory, setSelectedCategory] = useState("");
-  const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
+  const [keywords, setKeywords] = useState("");
+  const [category, setCategory] = useState("all");
   const [quantity, setQuantity] = useState(25);
   const [minStock, setMinStock] = useState(10);
   const [maxPrice, setMaxPrice] = useState(100);
   const [minPrice, setMinPrice] = useState(0);
   const [profitMargin, setProfitMargin] = useState(50);
-  const [minPopularity, setMinPopularity] = useState(0); // listedNum threshold
+  const [minRating, setMinRating] = useState(0);
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  const showError = useCallback((message: string, errorType: string = 'general', details?: any) => {
-    setError(message);
-    toast({
-      title: "Error",
-      description: message,
-      variant: "error",
-      duration: 8000,
-    });
-    fetch('/api/admin/errors/log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        error_type: errorType,
-        message,
-        details,
-        page: '/admin/import/discover',
-      }),
-    }).catch(() => {});
-  }, [toast]);
   const [products, setProducts] = useState<CjProduct[]>([]);
   const [totalFound, setTotalFound] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   
   const [categories, setCategories] = useState<Category[]>([]);
-  const [featuresDropdownOpen, setFeaturesDropdownOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<{
     connected: boolean;
     latency: number;
@@ -172,25 +75,6 @@ export default function ProductDiscoveryPage() {
   const [previewProduct, setPreviewProduct] = useState<CjProduct | null>(null);
   const [variantInventory, setVariantInventory] = useState<VariantInventory[]>([]);
   const [loadingInventory, setLoadingInventory] = useState(false);
-  const [enrichedData, setEnrichedData] = useState<EnrichedProduct | null>(null);
-  const [loadingEnrichment, setLoadingEnrichment] = useState(false);
-  const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
-  const [enrichmentCache, setEnrichmentCache] = useState<Map<string, { data: EnrichedProduct; timestamp: number }>>(new Map());
-  const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache TTL
-  
-  // Shipping calculation progress
-  const [shippingProgress, setShippingProgress] = useState<{
-    calculating: boolean;
-    current: number;
-    total: number;
-    message: string;
-  }>({ calculating: false, current: 0, total: 0, message: '' });
-  
-  // Track selected variant ID per product for variant selector UI (use vid, not index, for accuracy)
-  const [selectedVariantId, setSelectedVariantId] = useState<Record<string, string>>({});
-  
-  // Track which specific variants are being calculated (for individual variant pricing)
-  const [calculatingVariants, setCalculatingVariants] = useState<Set<string>>(new Set());
 
   const testConnection = async () => {
     const start = Date.now();
@@ -238,40 +122,9 @@ export default function ProductDiscoveryPage() {
     return (rating / 5 * ratingWeight) + (stockScore * 0.3) + (priceScore * (0.7 - ratingWeight));
   }, []);
 
-  const currentCategory = categories.find(c => c.categoryId === selectedCategory);
-  const availableFeatures = currentCategory?.features || [];
-
-  const handleCategoryChange = (categoryId: string) => {
-    setSelectedCategory(categoryId);
-    setSelectedFeatures([]);
-  };
-
-  const toggleFeature = (featureId: string) => {
-    setSelectedFeatures(prev => {
-      if (prev.includes(featureId)) {
-        return prev.filter(id => id !== featureId);
-      } else {
-        return [...prev, featureId];
-      }
-    });
-  };
-
   const searchProducts = async () => {
-    console.log('[Search+Price] Starting unified search with pricing...');
-    console.log('[Search+Price] Category:', selectedCategory);
-    console.log('[Search+Price] Features:', selectedFeatures);
-    console.log('[Search+Price] Profit Margin:', profitMargin, '%');
-    
-    if (!selectedCategory) {
-      showError("Please select a category", "search");
-      return;
-    }
-    if (selectedFeatures.length === 0) {
-      showError("Please select at least one feature", "search");
-      return;
-    }
-    if (profitMargin < 1) {
-      showError("Please set a profit margin before searching", "search");
+    if (!keywords.trim()) {
+      setError("Please enter search keywords");
       return;
     }
     
@@ -282,457 +135,59 @@ export default function ProductDiscoveryPage() {
     setSavedBatchId(null);
     setTotalFound(0);
     
-    // CRITICAL: Expand Level 2 features to their Level 3 child category IDs
-    const validCategoryIds: string[] = [];
-    
-    for (const featureId of selectedFeatures) {
-      const feature = availableFeatures.find(f => f.featureId === featureId);
-      if (!feature) {
-        validCategoryIds.push(featureId);
-        continue;
-      }
-      
-      if (feature.isProductCategory) {
-        validCategoryIds.push(featureId);
-      } else if (feature.childCategoryIds && feature.childCategoryIds.length > 0) {
-        validCategoryIds.push(...feature.childCategoryIds);
-        console.log(`[Search+Price] Expanded Level 2 "${feature.featureName}" to ${feature.childCategoryIds.length} child categories`);
-      }
-    }
-    
-    const uniqueCategoryIds = [...new Set(validCategoryIds)];
-    console.log('[Search+Price] Valid category IDs:', uniqueCategoryIds.length);
-    
-    if (uniqueCategoryIds.length === 0) {
-      showError("No valid product categories selected. Please select specific product types.", "search");
-      setLoading(false);
-      return;
-    }
-    
-    // Estimate wait time: ~1.2s per variant, assume ~2 variants per product
-    const estimatedVariants = quantity * 2;
-    const estimatedWaitSeconds = Math.ceil(estimatedVariants * 1.2);
-    
-    // Show initial progress - searching products
-    setShippingProgress({
-      calculating: true,
-      current: 0,
-      total: quantity,
-      message: `Searching products and calculating prices (estimated ${Math.ceil(estimatedWaitSeconds / 60)} min)...`
-    });
-    
     try {
-      // Use unified search-and-price endpoint
-      const res = await fetch('/api/admin/cj/products/search-and-price', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          categoryIds: uniqueCategoryIds,
-          quantity,
-          profitMarginPercent: profitMargin,
-          minStock,
-          minPopularity,
-          minPrice,
-          maxPrice,
-          freeShippingOnly,
-        })
+      const params = new URLSearchParams({
+        keyword: keywords.trim(),
+        quantity: quantity.toString(),
+        category: category,
+        minPrice: minPrice.toString(),
+        maxPrice: maxPrice.toString(),
+        minStock: minStock.toString(),
+        profitMargin: profitMargin.toString(),
+        minRating: minRating.toString(),
+        freeShippingOnly: freeShippingOnly ? "1" : "0",
       });
       
+      const res = await fetch(`/api/admin/cj/products/query?${params}`);
       const data = await res.json();
-      console.log('[Search+Price] Response:', { 
-        ok: data.ok, 
-        products: data.products?.length,
-        stats: data.stats 
-      });
       
       if (!res.ok || !data.ok) {
-        const errorMessage = data.error || `Search failed with status ${res.status}`;
-        showError(errorMessage, "cj_api", { status: res.status, response: data });
-        setShippingProgress({ calculating: false, current: 0, total: 0, message: '' });
-        setLoading(false);
-        return;
+        throw new Error(data.error || `Search failed: ${res.status}`);
       }
       
-      const products = data.products || [];
-      const stats = data.stats || {};
+      const items = data.items || [];
+      setTotalFound(data.totalFound || items.length);
       
-      setTotalFound(stats.totalFound || products.length);
-      
-      if (products.length === 0) {
-        toast({
-          title: "No Products Found",
-          description: "Try different filters or select more features",
-          variant: "info",
-          duration: 5000,
-        });
-        setShippingProgress({ calculating: false, current: 0, total: 0, message: '' });
-      } else {
-        // Show completion stats
-        setShippingProgress({
-          calculating: true,
-          current: stats.variantsSuccess || 0,
-          total: stats.variantsProcessed || 0,
-          message: `Completed! ${stats.productsWithPricing}/${products.length} products have SAR pricing`
-        });
-        
-        toast({
-          title: "Search Complete",
-          description: `Found ${products.length} products with ${stats.variantsSuccess} priced variants`,
-          variant: "success",
-          duration: 4000,
-        });
-      }
-      
-      // Map unified response to CjProduct format with pre-calculated pricing
-      const processedProducts: CjProduct[] = products.map((p: any) => {
-        const variants: CjVariant[] = (p.variants || []).map((v: any) => ({
-          vid: v.variantId,
-          variantSku: v.variantSku,
-          cjSku: v.variantSku,
-          price: v.variantPriceUSD,
-          stock: 0,
-          shipping: v.shippingAvailable ? {
-            available: true,
-            priceUSD: v.shippingPriceUSD,
-            priceSAR: v.shippingPriceSAR,
-            deliveryDays: v.deliveryDays,
-          } : {
-            available: false,
-            priceUSD: 0,
-            priceSAR: 0,
-            deliveryDays: '',
-            error: v.error || 'Shipping not available',
-          },
-          pricing: v.shippingAvailable ? {
-            variantPriceUSD: v.variantPriceUSD,
-            variantPriceSAR: v.variantPriceUSD * 3.75,
-            shippingPriceSAR: v.shippingPriceSAR,
-            totalCostSAR: v.totalCostSAR,
-            profitSAR: v.profitSAR,
-            sellPriceSAR: v.sellPriceSAR,
-          } : null,
-        }));
-        
-        const avgPrice = variants.length > 0 
-          ? variants.reduce((sum, v) => sum + (v.price || 0), 0) / variants.length 
-          : 0;
+      const processedProducts = items.map((p: any) => {
+        const variants = p.variants || [];
+        const totalStock = variants.reduce((sum: number, v: CjVariant) => sum + (v.stock || 0), 0);
+        const prices = variants.map((v: CjVariant) => v.price || 0).filter((p: number) => p > 0);
+        const avgPrice = prices.length > 0 ? prices.reduce((a: number, b: number) => a + b, 0) / prices.length : 0;
+        const hasRating = p.hasRating ?? (p.supplierRating != null && p.supplierRating > 0);
         
         return {
-          productId: p.pid,
-          name: p.name,
-          images: [p.image].filter(Boolean),
-          variants,
-          productSku: p.productSku,
-          listedNum: p.listedNum,
-          totalStock: p.stock,
+          ...p,
+          productId: p.productId || p.pid || p.id,
+          totalStock,
           avgPrice,
-          deliveryCycle: p.deliveryCycle,
-          supplierName: p.supplierName,
-          addMarkStatus: p.freeShipping ? 1 : 0,
-          qualityScore: calculateQualityScore({ totalStock: p.stock, avgPrice, listedNum: p.listedNum }),
-          variantsPriced: true,
+          supplierRating: hasRating ? p.supplierRating : null,
+          hasRating,
+          qualityScore: calculateQualityScore({ ...p, totalStock, avgPrice, supplierRating: p.supplierRating }),
         };
-      });
-      
-      // Sort by popularity
-      processedProducts.sort((a, b) => {
-        const popA = a.listedNum || 0;
-        const popB = b.listedNum || 0;
-        if (popB !== popA) return popB - popA;
+      }).sort((a: CjProduct, b: CjProduct) => {
+        const ratingA = (a as any).hasRating ? (a.supplierRating || 0) : -1;
+        const ratingB = (b as any).hasRating ? (b.supplierRating || 0) : -1;
+        if (ratingB !== ratingA) return ratingB - ratingA;
         return (b.qualityScore || 0) - (a.qualityScore || 0);
       });
       
       setProducts(processedProducts);
-      
-      // Keep completion message visible briefly
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      setShippingProgress({ calculating: false, current: 0, total: 0, message: '' });
-      
     } catch (e: any) {
-      console.error('[Search+Price] Error:', e);
-      showError(e?.message || "Search failed unexpectedly", "search", { error: e?.toString() });
-      setShippingProgress({ calculating: false, current: 0, total: 0, message: '' });
+      setError(e?.message || "Search failed");
     } finally {
       setLoading(false);
     }
   };
-
-  // Calculate shipping for selected variants using CJ API (per-variant accuracy)
-  const calculateShippingForVariants = async (productsList: CjProduct[], variantIndex: number = 0) => {
-    // Collect all variants to price (one per product at the specified index)
-    const variantsToPrice: Array<{productId: string; variantId: string; variantPriceUSD: number}> = [];
-    
-    for (const product of productsList) {
-      const variant = product.variants?.[variantIndex];
-      // CRITICAL: Only include variants with valid vid AND price - no fallbacks
-      if (variant?.vid && variant?.price && variant.price > 0) {
-        variantsToPrice.push({
-          productId: product.productId,
-          variantId: variant.vid,
-          variantPriceUSD: variant.price
-        });
-      }
-    }
-    
-    const totalVariants = variantsToPrice.length;
-    const skippedCount = productsList.length - totalVariants;
-    
-    // Show initial progress message
-    setShippingProgress({
-      calculating: true,
-      current: 0,
-      total: totalVariants,
-      message: `Calculating shipping for ${totalVariants} variants via CJ API...${skippedCount > 0 ? ` (${skippedCount} skipped - missing price/vid)` : ''}`
-    });
-    
-    if (totalVariants === 0) {
-      setShippingProgress({
-        calculating: true,
-        current: 0,
-        total: 0,
-        message: 'No valid variants to price (missing vid or price)'
-      });
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      setShippingProgress({ calculating: false, current: 0, total: 0, message: '' });
-      return;
-    }
-    
-    try {
-      // Update progress to indicate we're waiting for API (rate limited to 1.2s per variant)
-      const estimatedSeconds = Math.ceil(totalVariants * 1.2);
-      setShippingProgress({
-        calculating: true,
-        current: 0,
-        total: totalVariants,
-        message: `Calculating shipping... (est. ${estimatedSeconds}s due to CJ API rate limits)`
-      });
-      
-      // Call shipping API with per-variant inputs
-      const res = await fetch('/api/admin/cj/shipping/calculate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          variants: variantsToPrice,
-          profitMarginPercent: profitMargin
-        })
-      });
-      
-      const data = await res.json();
-      
-      if (data.ok && data.results) {
-        // Show stats
-        const stats = data.stats || { success: 0, failed: 0, total: totalVariants };
-        setShippingProgress({
-          calculating: true,
-          current: totalVariants,
-          total: totalVariants,
-          message: `Completed! ${stats.success} variants with shipping, ${stats.failed} unavailable`
-        });
-        
-        // Update products with per-variant shipping/pricing data
-        // Use variantId for matching, not indices, to ensure accuracy
-        setProducts(prev => prev.map(product => {
-          // Check if any variant in this product has pricing data in results
-          const updatedVariants = product.variants.map(variant => {
-            if (!variant?.vid) return variant;
-            
-            const result = data.results[variant.vid];
-            if (!result) return variant;
-            
-            return {
-              ...variant,
-              shipping: result.shipping,
-              pricing: result.pricing
-            };
-          });
-          
-          // Check if any variant was updated
-          const hasUpdates = updatedVariants.some((v, i) => 
-            v.shipping !== product.variants[i].shipping || 
-            v.pricing !== product.variants[i].pricing
-          );
-          
-          if (!hasUpdates) return product;
-          
-          return {
-            ...product,
-            variants: updatedVariants,
-            variantsPriced: true
-          };
-        }));
-        
-        // Keep completion message visible for 2 seconds
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      } else {
-        const errorMessage = data.error || 'Failed to calculate shipping';
-        showError(errorMessage, "shipping", { response: data, variantsCount: totalVariants });
-        setShippingProgress({
-          calculating: true,
-          current: totalVariants,
-          total: totalVariants,
-          message: `Error: ${errorMessage}`
-        });
-        await new Promise(resolve => setTimeout(resolve, 3000));
-      }
-      
-    } catch (error: any) {
-      console.error('[Shipping Calc] Error:', error?.message);
-      const errorMessage = error?.message || 'Failed to calculate shipping';
-      showError(errorMessage, "shipping", { error: error?.toString(), variantsCount: totalVariants });
-      setShippingProgress({
-        calculating: true,
-        current: 0,
-        total: totalVariants,
-        message: `Error: ${errorMessage}`
-      });
-      await new Promise(resolve => setTimeout(resolve, 3000));
-    } finally {
-      setShippingProgress({
-        calculating: false,
-        current: 0,
-        total: 0,
-        message: ''
-      });
-    }
-  };
-  
-  // Calculate pricing for a single specific variant on demand - uses variantId for accuracy
-  const calculatePricingForVariant = async (productId: string, variantId: string, variantPriceUSD: number) => {
-    if (!variantId || !variantPriceUSD || variantPriceUSD <= 0) {
-      console.warn(`[Variant Pricing] Cannot price variant ${variantId} - missing vid or price`);
-      showError(`Cannot calculate pricing - variant data is incomplete`, "pricing", { variantId });
-      return;
-    }
-    
-    const variantKey = `${productId}-${variantId}`;
-    
-    // Mark this variant as calculating
-    setCalculatingVariants(prev => new Set([...prev, variantKey]));
-    
-    try {
-      const res = await fetch('/api/admin/cj/shipping/calculate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          variants: [{
-            productId,
-            variantId,
-            variantPriceUSD
-          }],
-          profitMarginPercent: profitMargin
-        })
-      });
-      
-      const data = await res.json();
-      
-      if (!res.ok || !data.ok) {
-        const errorMessage = data.error || `Failed to calculate pricing (status ${res.status})`;
-        showError(errorMessage, "shipping", { variantId, productId, response: data });
-        return;
-      }
-      
-      if (data.results && data.results[variantId]) {
-        const result = data.results[variantId];
-        
-        if (!result.shipping?.available) {
-          toast({
-            title: "Shipping Unavailable",
-            description: "CJPacket Ordinary not available for this variant",
-            variant: "warning",
-            duration: 4000,
-          });
-        } else {
-          toast({
-            title: "Pricing Calculated",
-            description: `Sell price: ${result.pricing?.sellPriceSAR?.toFixed(2)} SAR`,
-            variant: "success",
-            duration: 3000,
-          });
-        }
-        
-        // Update the specific variant by variantId (NOT by index!)
-        setProducts(prev => prev.map(p => {
-          if (p.productId !== productId) return p;
-          
-          // Find variant by vid, not by index
-          const updatedVariants = p.variants.map(v => {
-            if (v.vid !== variantId) return v;
-            return {
-              ...v,
-              shipping: result.shipping,
-              pricing: result.pricing
-            };
-          });
-          
-          return {
-            ...p,
-            variants: updatedVariants,
-            variantsPriced: true
-          };
-        }));
-      } else {
-        showError(`No pricing result returned for variant`, "pricing", { variantId, productId });
-      }
-    } catch (error: any) {
-      console.error(`[Variant Pricing] Error for ${variantKey}:`, error?.message);
-      showError(`Failed to calculate pricing: ${error?.message || 'Network error'}`, "pricing", { variantId, productId, error: error?.toString() });
-    } finally {
-      setCalculatingVariants(prev => {
-        const next = new Set(prev);
-        next.delete(variantKey);
-        return next;
-      });
-    }
-  };
-
-  // Recalculate pricing when profit margin changes (without calling CJ API again)
-  // Only recalculates for variants with valid shipping data (CJPacket Ordinary available)
-  const recalculatePricing = useCallback(() => {
-    const USD_TO_SAR_RATE = 3.75;
-    
-    setProducts(prev => prev.map(product => {
-      // Check if any variant has pricing that needs recalculation
-      const updatedVariants = product.variants.map(variant => {
-        // Only recalculate if variant has valid shipping and pricing
-        if (!variant.shipping?.available || !variant.pricing) return variant;
-        if (!variant.price || variant.price <= 0) return variant;
-        
-        const variantPriceUSD = variant.price;
-        const shippingPriceUSD = variant.shipping.priceUSD || 0;
-        
-        // Convert to SAR
-        const variantPriceSAR = Math.round(variantPriceUSD * USD_TO_SAR_RATE * 100) / 100;
-        const shippingPriceSAR = Math.round(shippingPriceUSD * USD_TO_SAR_RATE * 100) / 100;
-        const totalCostSAR = Math.round((variantPriceSAR + shippingPriceSAR) * 100) / 100;
-        const profitSAR = Math.round(totalCostSAR * (profitMargin / 100) * 100) / 100;
-        const sellPriceSAR = Math.round((totalCostSAR + profitSAR) * 100) / 100;
-        
-        return {
-          ...variant,
-          pricing: {
-            variantPriceUSD,
-            variantPriceSAR,
-            shippingPriceSAR,
-            totalCostSAR,
-            profitSAR,
-            sellPriceSAR
-          }
-        };
-      });
-      
-      return {
-        ...product,
-        variants: updatedVariants
-      };
-    }));
-  }, [profitMargin]);
-
-  // Recalculate when profit margin changes (only for products with priced variants)
-  useEffect(() => {
-    if (products.some(p => p.variantsPriced)) {
-      recalculatePricing();
-    }
-  }, [profitMargin, recalculatePricing]);
 
   const toggleSelect = (productId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -769,52 +224,19 @@ export default function ProductDiscoveryPage() {
     e.stopPropagation();
     setPreviewProduct(product);
     setVariantInventory([]);
-    setEnrichmentError(null);
-    
-    const cached = enrichmentCache.get(product.productId);
-    const isCacheValid = cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS;
-    
-    if (isCacheValid && cached) {
-      setEnrichedData(cached.data);
-      setLoadingEnrichment(false);
-    } else {
-      setEnrichedData(null);
-      setLoadingEnrichment(true);
-    }
-    
     setLoadingInventory(true);
     
-    const pid = encodeURIComponent(product.productId);
-    
-    const variantsPromise = fetch(`/api/admin/cj/products/variants?pid=${pid}`)
-      .then(r => r.json())
-      .catch(() => ({ ok: false, error: 'Failed to load variants' }));
-    
-    const enrichPromise = isCacheValid && cached
-      ? Promise.resolve({ ok: true, data: cached.data })
-      : fetch(`/api/admin/cj/products/enrich?pid=${pid}`)
-          .then(r => r.json())
-          .catch(() => ({ ok: false, error: 'Failed to load product details' }));
-    
-    Promise.all([variantsPromise, enrichPromise]).then(([variantsData, enrichData]) => {
-      if (variantsData?.ok && variantsData?.variants) {
-        setVariantInventory(variantsData.variants);
+    try {
+      const res = await fetch(`/api/admin/cj/products/variants?pid=${encodeURIComponent(product.productId)}`);
+      const data = await res.json();
+      if (data.ok && data.variants) {
+        setVariantInventory(data.variants);
       }
-      if (enrichData?.ok && enrichData?.data) {
-        setEnrichedData(enrichData.data);
-        if (!isCacheValid) {
-          setEnrichmentCache(prev => new Map(prev).set(product.productId, { data: enrichData.data, timestamp: Date.now() }));
-        }
-      } else if (!enrichData?.ok && enrichData?.error) {
-        setEnrichmentError(enrichData.error);
-      }
+    } catch (e) {
+      console.error("Failed to load variant inventory:", e);
+    } finally {
       setLoadingInventory(false);
-      setLoadingEnrichment(false);
-    }).catch((err) => {
-      setEnrichmentError('Failed to load product details');
-      setLoadingInventory(false);
-      setLoadingEnrichment(false);
-    });
+    }
   };
 
   const saveBatch = async () => {
@@ -829,21 +251,14 @@ export default function ProductDiscoveryPage() {
     try {
       const selectedProducts = products.filter(p => selected.has(p.productId));
       
-      const categoryName = currentCategory?.categoryName || "Unknown";
-      const featureNames = selectedFeatures
-        .map(id => availableFeatures.find(f => f.featureId === id)?.featureName)
-        .filter(Boolean)
-        .join(", ");
-      
       const res = await fetch("/api/admin/import/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: batchName || `${categoryName} - ${featureNames} - ${new Date().toLocaleDateString()}`,
-          keywords: `${categoryName}: ${featureNames}`,
-          category: selectedCategory,
-          categoryIds: selectedFeatures,
-          filters: { minStock, minPrice, maxPrice, profitMargin, minPopularity, freeShippingOnly },
+          name: batchName || `${keywords} - ${new Date().toLocaleDateString()}`,
+          keywords,
+          category,
+          filters: { minStock, minPrice, maxPrice, profitMargin, minRating, freeShippingOnly },
           products: selectedProducts,
         }),
       });
@@ -862,22 +277,14 @@ export default function ProductDiscoveryPage() {
     }
   };
 
-  // Render popularity as a visual indicator (based on listedNum)
-  const renderPopularity = (listedNum: number) => {
-    // Convert listedNum to a 0-5 scale based on typical ranges
-    let level = 0;
-    if (listedNum >= 500) level = 5;
-    else if (listedNum >= 200) level = 4;
-    else if (listedNum >= 100) level = 3;
-    else if (listedNum >= 50) level = 2;
-    else if (listedNum >= 10) level = 1;
-    
+  const renderStars = (rating: number) => {
     const stars = [];
+    const fullStars = Math.floor(rating);
     for (let i = 0; i < 5; i++) {
       stars.push(
         <Star
           key={i}
-          className={`h-3 w-3 ${i < level ? "fill-amber-400 text-amber-400" : "text-gray-300"}`}
+          className={`h-3 w-3 ${i < fullStars ? "fill-amber-400 text-amber-400" : "text-gray-300"}`}
         />
       );
     }
@@ -919,13 +326,26 @@ export default function ProductDiscoveryPage() {
         
         <div className="grid grid-cols-3 gap-6 mb-6">
           <div>
+            <label className="block text-sm text-gray-600 mb-2">Keyword</label>
+            <input
+              type="text"
+              value={keywords}
+              onChange={(e) => setKeywords(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && searchProducts()}
+              placeholder="e.g., women blouse, men shirt"
+              className="w-full px-3 py-2 border border-gray-300 rounded"
+              dir="ltr"
+            />
+          </div>
+          
+          <div>
             <label className="block text-sm text-gray-600 mb-2">Category</label>
             <select
-              value={selectedCategory}
-              onChange={(e) => handleCategoryChange(e.target.value)}
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded"
             >
-              <option value="">Select a Category</option>
+              <option value="all">All Categories</option>
               {categories.map(cat => (
                 <option key={cat.categoryId} value={cat.categoryId}>{cat.categoryName}</option>
               ))}
@@ -933,156 +353,22 @@ export default function ProductDiscoveryPage() {
           </div>
           
           <div>
-            <label className="block text-sm text-gray-600 mb-2">
-              Features {selectedFeatures.length > 0 && `(${selectedFeatures.length} selected)`}
-            </label>
-            <div className="relative">
-              <div 
-                onClick={() => selectedCategory && setFeaturesDropdownOpen(!featuresDropdownOpen)}
-                className={`w-full min-h-[42px] px-3 py-2 border border-gray-300 rounded bg-white ${
-                  !selectedCategory ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:border-gray-400"
-                }`}
-              >
-                {!selectedCategory ? (
-                  <span className="text-gray-400">Select category first</span>
-                ) : selectedFeatures.length === 0 ? (
-                  <span className="text-gray-400">Click to select features</span>
-                ) : (
-                  <div className="flex flex-wrap gap-1">
-                    {selectedFeatures.slice(0, 3).map(id => {
-                      const feature = availableFeatures.find(f => f.featureId === id);
-                      const displayName = feature?.featureName?.includes(' > ') 
-                        ? feature.featureName.split(' > ').pop() 
-                        : feature?.featureName;
-                      return (
-                        <span key={id} className="inline-flex items-center px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded">
-                          {displayName || id.slice(0, 8)}
-                        </span>
-                      );
-                    })}
-                    {selectedFeatures.length > 3 && (
-                      <span className="text-xs text-gray-500">+{selectedFeatures.length - 3} more</span>
-                    )}
-                  </div>
-                )}
-              </div>
-              {featuresDropdownOpen && selectedCategory && availableFeatures.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 max-h-60 overflow-y-auto bg-white border border-gray-300 rounded shadow-lg">
-                  <div className="sticky top-0 bg-gray-100 px-3 py-2 border-b flex justify-between items-center">
-                    <span className="text-xs text-gray-600">{availableFeatures.length} features available</span>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setFeaturesDropdownOpen(false); }}
-                      className="text-xs text-blue-600 hover:underline"
-                    >
-                      Done
-                    </button>
-                  </div>
-                  {(() => {
-                    const level2Features = availableFeatures.filter(f => f.level === 2);
-                    const level3Features = availableFeatures.filter(f => f.level === 3);
-                    
-                    if (level2Features.length === 0) {
-                      return availableFeatures.map(feature => (
-                        <div
-                          key={feature.featureId}
-                          onClick={() => toggleFeature(feature.featureId)}
-                          className="flex items-center px-3 py-2 hover:bg-blue-50 cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedFeatures.includes(feature.featureId)}
-                            onChange={() => {}}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2 pointer-events-none"
-                          />
-                          <span className="text-sm text-gray-700">{feature.featureName}</span>
-                        </div>
-                      ));
-                    }
-                    
-                    return level2Features.map(parent => {
-                      const children = level3Features.filter(f => f.parentId === parent.featureId);
-                      const childName = (name: string) => name.includes(' > ') ? name.split(' > ').pop() : name;
-                      
-                      return (
-                        <div key={parent.featureId}>
-                          <div className="px-3 py-2 bg-gray-50 border-b border-gray-100">
-                            <span className="text-sm font-semibold text-gray-800">{parent.featureName}</span>
-                          </div>
-                          {children.map(child => (
-                            <div
-                              key={child.featureId}
-                              onClick={() => toggleFeature(child.featureId)}
-                              className="flex items-center px-3 py-1.5 pr-6 hover:bg-blue-50 cursor-pointer"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedFeatures.includes(child.featureId)}
-                                onChange={() => {}}
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2 pointer-events-none"
-                              />
-                              <span className="text-sm text-gray-700">{childName(child.featureName)}</span>
-                            </div>
-                          ))}
-                          {children.length === 0 && (
-                            <div
-                              onClick={() => toggleFeature(parent.featureId)}
-                              className="flex items-center px-3 py-1.5 pr-6 hover:bg-blue-50 cursor-pointer"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedFeatures.includes(parent.featureId)}
-                                onChange={() => {}}
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2 pointer-events-none"
-                              />
-                              <span className="text-sm text-gray-700">{parent.featureName}</span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-              )}
-            </div>
-          </div>
-          
-          <div>
             <label className="block text-sm text-gray-600 mb-2">Quantity to Find</label>
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap gap-1">
-                {[10, 25, 50, 100, 250, 500, 1000].map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => setQuantity(q)}
-                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                      quantity === q 
-                        ? 'bg-blue-500 text-white' 
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={1}
-                  max={2000}
-                  value={quantity}
-                  onChange={(e) => setQuantity(Math.min(2000, Math.max(1, Number(e.target.value))))}
-                  className="w-24 px-3 py-2 border border-gray-300 rounded text-left text-sm"
-                  dir="ltr"
-                  placeholder="Custom"
-                />
-                <button
-                  onClick={searchProducts}
-                  disabled={loading || !selectedCategory || selectedFeatures.length === 0}
-                  className="flex-1 px-4 py-2 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50 text-sm font-medium"
-                >
-                  {loading ? "Searching..." : "Search Products"}
-                </button>
-              </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={searchProducts}
+                disabled={loading}
+                className="px-4 py-2 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50 text-sm font-medium"
+              >
+                {loading ? "..." : "Load"}
+              </button>
+              <input
+                type="number"
+                value={quantity}
+                onChange={(e) => setQuantity(Number(e.target.value))}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded text-left"
+                dir="ltr"
+              />
             </div>
           </div>
         </div>
@@ -1122,71 +408,44 @@ export default function ProductDiscoveryPage() {
           </div>
           
           <div>
-            <label className="block text-sm text-gray-600 mb-2">Popularity</label>
+            <label className="block text-sm text-gray-600 mb-2">Min Rating</label>
             <select
-              value={minPopularity}
-              onChange={(e) => setMinPopularity(Number(e.target.value))}
+              value={minRating}
+              onChange={(e) => setMinRating(Number(e.target.value))}
               className="w-full px-3 py-2 border border-gray-300 rounded"
             >
-              <option value={0}>Any Popularity</option>
-              <option value={10}>10+ listings</option>
-              <option value={50}>50+ listings</option>
-              <option value={100}>100+ listings</option>
-              <option value={500}>500+ listings</option>
+              <option value={0}>Any Rating</option>
+              <option value={3}>3+ Stars</option>
+              <option value={4}>4+ Stars</option>
+              <option value={4.5}>4.5+ Stars</option>
             </select>
           </div>
         </div>
 
-        <div className="bg-amber-50 border-2 border-amber-200 rounded-lg p-4 mb-6">
-          <div className="flex items-center gap-2 mb-3">
-            <TrendingUp className="h-5 w-5 text-amber-600" />
-            <label className="text-sm font-semibold text-amber-800">
-              Profit Margin % <span className="text-amber-600 font-bold">({profitMargin}%)</span>
-              <span className="text-red-500 ml-1">*</span>
-            </label>
-          </div>
-          <div className="flex items-center gap-3 flex-wrap">
+        <div className="grid grid-cols-4 gap-6 mb-6">
+          <div>
+            <label className="block text-sm text-gray-600 mb-2">Profit Margin %</label>
             <input
               type="number"
-              min={1}
-              max={999}
               value={profitMargin}
-              onChange={(e) => {
-                const val = Math.max(1, Math.min(999, Number(e.target.value) || 1));
-                setProfitMargin(val);
-              }}
-              className="w-20 px-3 py-2 border-2 border-amber-300 rounded text-center font-bold text-amber-800 bg-white"
+              onChange={(e) => setProfitMargin(Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-left"
               dir="ltr"
             />
-            <span className="text-amber-700 font-medium">%</span>
-            <div className="flex gap-1">
-              {[8, 15, 25, 50, 100].map((pct) => (
-                <button
-                  key={pct}
-                  onClick={() => setProfitMargin(pct)}
-                  className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${
-                    profitMargin === pct 
-                      ? 'bg-amber-500 text-white shadow-md' 
-                      : 'bg-white text-amber-700 border border-amber-300 hover:bg-amber-100'
-                  }`}
-                >
-                  {pct}%
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-2 ml-auto">
-              <input
-                type="checkbox"
-                checked={freeShippingOnly}
-                onChange={(e) => setFreeShippingOnly(e.target.checked)}
-                className="w-4 h-4 border-gray-300 rounded"
-              />
-              <label className="text-sm text-gray-600">Free Shipping Only</label>
-            </div>
           </div>
-          <p className="text-xs text-amber-700 mt-2">
-            Set your desired profit margin. Products will display final SAR sell prices including shipping + profit when search completes.
-          </p>
+          
+          <div></div>
+          <div></div>
+          
+          <div className="flex items-center gap-2 pt-7">
+            <input
+              type="checkbox"
+              checked={freeShippingOnly}
+              onChange={(e) => setFreeShippingOnly(e.target.checked)}
+              className="w-4 h-4 border-gray-300 rounded"
+            />
+            <label className="text-sm text-gray-600">Free Shipping Only</label>
+          </div>
         </div>
 
         <div className="flex items-center gap-3 pt-4 border-t border-gray-200">
@@ -1213,45 +472,6 @@ export default function ProductDiscoveryPage() {
         </div>
       )}
 
-      {/* Unified Search+Price Progress Indicator */}
-      {shippingProgress.calculating && (
-        <div className={`rounded-lg p-4 ${
-          shippingProgress.message.startsWith('Completed') 
-            ? 'bg-green-50 border border-green-200' 
-            : shippingProgress.message.startsWith('Error')
-              ? 'bg-red-50 border border-red-200'
-              : 'bg-amber-50 border border-amber-200'
-        }`}>
-          <div className="flex items-center gap-3">
-            {shippingProgress.message.startsWith('Completed') ? (
-              <CheckCircle className="h-5 w-5 text-green-600" />
-            ) : shippingProgress.message.startsWith('Error') ? (
-              <AlertTriangle className="h-5 w-5 text-red-600" />
-            ) : (
-              <Loader2 className="h-5 w-5 text-amber-600 animate-spin" />
-            )}
-            <span className={`font-medium ${
-              shippingProgress.message.startsWith('Completed')
-                ? 'text-green-800'
-                : shippingProgress.message.startsWith('Error')
-                  ? 'text-red-800'
-                  : 'text-amber-800'
-            }`}>{shippingProgress.message}</span>
-          </div>
-          {!shippingProgress.message.startsWith('Completed') && !shippingProgress.message.startsWith('Error') && (
-            <div className="mt-3 space-y-2">
-              <div className="bg-amber-100 rounded-full h-2 overflow-hidden">
-                <div className="bg-amber-500 h-full animate-pulse" style={{ width: '100%' }} />
-              </div>
-              <p className="text-xs text-amber-700">
-                Searching products, calculating shipping costs, and applying {profitMargin}% profit margin.
-                Products will only appear when all pricing is final.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
       {products.length > 0 && (
         <>
           <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-4">
@@ -1274,12 +494,7 @@ export default function ProductDiscoveryPage() {
             {products.map((product) => {
               const isSelected = selected.has(product.productId);
               const mainImage = product.images?.[0];
-              // Get the currently selected variant by vid (not index) for accuracy
-              const currentVariantVid = selectedVariantId[product.productId];
-              const selectedVariant = currentVariantVid 
-                ? product.variants?.find(v => v.vid === currentVariantVid) || product.variants?.[0]
-                : product.variants?.[0];
-              const isCalculatingVariant = selectedVariant?.vid ? calculatingVariants.has(`${product.productId}-${selectedVariant.vid}`) : false;
+              const firstVariant = product.variants?.[0];
               
               return (
                 <div
@@ -1348,183 +563,45 @@ export default function ProductDiscoveryPage() {
                       {product.name}
                     </h3>
                     
-                    {/* SKU Display */}
-                    {product.productSku && (
-                      <div className="text-[10px] text-gray-400 font-mono truncate" title={product.productSku}>
-                        SKU: {product.productSku}
-                      </div>
-                    )}
-                    
-                    {/* Popularity Display (based on listedNum) */}
                     <div className="flex items-center gap-1">
-                      {renderPopularity(product.listedNum || 0)}
+                      {renderStars(product.supplierRating || 0)}
                       <span className="text-xs text-gray-500 ml-1">
-                        ({product.listedNum || 0} listings)
+                        ({(product.supplierRating || 0).toFixed(1)})
                       </span>
                     </div>
                     
-                    {/* Variant Selector - Click to select different variants with color images */}
-                    {product.variants.length > 1 && (
-                      <div className="flex flex-wrap gap-1 pt-1 border-t border-gray-100">
-                        <span className="text-[10px] text-gray-400 w-full mb-1">Select variant:</span>
-                        {product.variants.map((v, i) => {
-                          const isPriced = v.pricing && v.shipping?.available;
-                          const isUnavailable = v.shipping && !v.shipping.available;
-                          // Check if this variant is selected by comparing vid
-                          const isCurrentlySelected = v.vid ? v.vid === selectedVariant?.vid : i === 0;
-                          const hasImage = !!v.imageUrl;
-                          return (
-                            <button
-                              key={v.vid || i}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                // Store vid, not index, for accuracy
-                                if (v.vid) {
-                                  setSelectedVariantId(prev => ({ ...prev, [product.productId]: v.vid! }));
-                                }
-                              }}
-                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${
-                                isCurrentlySelected 
-                                  ? 'bg-blue-500 text-white ring-2 ring-blue-300' 
-                                  : isPriced 
-                                    ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                                    : isUnavailable
-                                      ? 'bg-red-100 text-red-500 hover:bg-red-200'
-                                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                              }`}
-                              title={`${v.color || v.size || 'Variant'} - ${isPriced ? 'Priced' : isUnavailable ? 'Unavailable' : 'Not calculated'}`}
-                            >
-                              {/* Color swatch image if available */}
-                              {hasImage && (
-                                <img 
-                                  src={v.imageUrl} 
-                                  alt={v.color || ''} 
-                                  className="w-4 h-4 rounded object-cover border border-gray-200"
-                                  onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
-                                />
-                              )}
-                              <span className="truncate max-w-[60px]">
-                                {v.color || v.size || (v.cjSku ? v.cjSku.slice(-6) : `V${i+1}`)}
-                              </span>
-                            </button>
-                          );
-                        })}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="flex flex-col">
+                        <span className="text-gray-500">Price</span>
+                        <span className="font-semibold text-green-600">
+                          ${(product.avgPrice || 0).toFixed(2)}
+                        </span>
                       </div>
-                    )}
-                    
-                    {/* Pricing Section - Per-Variant SAR Pricing */}
-                    {isCalculatingVariant ? (
-                      // Currently calculating pricing for this variant
-                      <div className="bg-blue-50 rounded-lg p-2 text-xs">
-                        <div className="flex items-center gap-2 text-blue-600">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          <span>Calculating shipping...</span>
-                        </div>
-                      </div>
-                    ) : selectedVariant?.pricing && selectedVariant?.shipping?.available ? (
-                      // ONLY show full SAR breakdown when CJPacket Ordinary shipping is available for this variant
-                      <div className="bg-gray-50 rounded-lg p-2 space-y-1 text-xs">
-                        <div className="text-[10px] text-gray-400 mb-1 text-center">
-                          Variant: {selectedVariant.color || selectedVariant.size || 'Default'}
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">CJ Price:</span>
-                          <span className="text-gray-700">{selectedVariant.pricing.variantPriceSAR.toFixed(2)} SAR</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Shipping:</span>
-                          <span className="text-gray-700">{selectedVariant.pricing.shippingPriceSAR.toFixed(2)} SAR</span>
-                        </div>
-                        <div className="flex justify-between border-t border-gray-200 pt-1">
-                          <span className="text-gray-600 font-medium">Your Cost:</span>
-                          <span className="text-gray-800 font-medium">{selectedVariant.pricing.totalCostSAR.toFixed(2)} SAR</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-amber-600">Profit ({profitMargin}%):</span>
-                          <span className="text-amber-600 font-medium">+{selectedVariant.pricing.profitSAR.toFixed(2)} SAR</span>
-                        </div>
-                        <div className="flex justify-between border-t border-gray-300 pt-1">
-                          <span className="text-green-700 font-bold">Sell Price:</span>
-                          <span className="text-green-700 font-bold">{selectedVariant.pricing.sellPriceSAR.toFixed(2)} SAR</span>
-                        </div>
-                      </div>
-                    ) : selectedVariant?.shipping && !selectedVariant?.shipping?.available ? (
-                      // Shipping unavailable for this variant
-                      <div className="bg-red-50 rounded-lg p-2 text-xs">
-                        <div className="flex items-center gap-2 text-red-600 font-medium mb-1">
-                          <AlertTriangle className="h-3.5 w-3.5" />
-                          <span>Shipping Unavailable</span>
-                        </div>
-                        <p className="text-red-500 text-[10px]">{selectedVariant.shipping.error || 'CJPacket Ordinary not available'}</p>
-                        <div className="text-gray-500 mt-1">
-                          <span>CJ Price: </span>
-                          <span className="font-medium">${(selectedVariant.price || product.avgPrice || 0).toFixed(2)} USD</span>
-                        </div>
-                      </div>
-                    ) : (
-                      // No shipping data yet - show Calculate button
-                      <div className="bg-gray-50 rounded-lg p-2 text-xs space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="flex flex-col">
-                            <span className="text-gray-500">Price (USD)</span>
-                            <span className="font-semibold text-green-600">
-                              ${(selectedVariant?.price || product.avgPrice || 0).toFixed(2)}
-                            </span>
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="text-gray-500">Stock</span>
-                            <span className={`font-semibold ${(selectedVariant?.stock || 0) > 0 ? "text-gray-900" : "text-red-500"}`}>
-                              {selectedVariant?.stock || 0}
-                            </span>
-                          </div>
-                        </div>
-                        {/* Calculate Pricing Button */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (selectedVariant?.vid && selectedVariant?.price) {
-                              calculatePricingForVariant(product.productId, selectedVariant.vid, selectedVariant.price);
-                            }
-                          }}
-                          disabled={!selectedVariant?.vid || !selectedVariant?.price}
-                          className="w-full px-2 py-1.5 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Calculate SAR Pricing
-                        </button>
-                        {(!selectedVariant?.vid || !selectedVariant?.price) && (
-                          <p className="text-[10px] text-gray-400 text-center">Missing variant ID or price</p>
-                        )}
-                      </div>
-                    )}
-                    
-                    {/* Delivery Days */}
-                    {selectedVariant?.shipping?.available && selectedVariant?.shipping.deliveryDays && (
-                      <div className="text-xs text-gray-500 flex items-center gap-1">
-                        <span>Delivery: {selectedVariant.shipping.deliveryDays} days</span>
-                      </div>
-                    )}
-                    
-                    {/* Delivery Time from V2 API */}
-                    {product.deliveryCycle && (
-                      <div className="text-xs text-gray-500 flex items-center gap-1">
-                        <span>Est. Delivery: {product.deliveryCycle} days</span>
-                      </div>
-                    )}
-                    
-                    {/* Stock info with CJ + Factory breakdown */}
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-gray-500">
-                        Stock: <span className={`font-medium ${(product.totalStock || 0) > 0 ? "text-gray-700" : "text-red-500"}`}>
+                      <div className="flex flex-col">
+                        <span className="text-gray-500">Stock</span>
+                        <span className={`font-semibold ${(product.totalStock || 0) > 0 ? "text-gray-900" : "text-red-500"}`}>
                           {product.totalStock || 0}
                         </span>
-                        {(product.cjInventory || product.factoryInventory) && (
-                          <span className="text-gray-400 text-[10px] ml-1">
-                            (CJ: {product.cjInventory || 0} + Factory: {product.factoryInventory || 0})
-                          </span>
-                        )}
-                      </span>
-                      {selectedVariant?.cjSku && (
-                        <span className="text-gray-400 font-mono text-[10px]">{selectedVariant.cjSku.slice(-8)}</span>
+                      </div>
+                    </div>
+                    
+                    {firstVariant?.cjSku && (
+                      <div className="text-xs">
+                        <span className="text-gray-500">SKU: </span>
+                        <span className="font-mono text-gray-700">{firstVariant.cjSku}</span>
+                      </div>
+                    )}
+                    
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {product.variants.slice(0, 3).map((v, i) => (
+                        <span key={i} className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
+                          {v.color || v.size || (v.cjSku ? v.cjSku.slice(-6) : `V${i+1}`)}
+                        </span>
+                      ))}
+                      {product.variants.length > 3 && (
+                        <span className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-500">
+                          +{product.variants.length - 3}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -1636,9 +713,9 @@ export default function ProductDiscoveryPage() {
                   <h2 className="text-xl font-semibold" dir="ltr">{previewProduct.name}</h2>
                   
                   <div className="flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-blue-500" />
+                    {renderStars(previewProduct.supplierRating || 0)}
                     <span className="text-sm text-gray-600">
-                      Listed {(previewProduct as any).listedNum || 0} times
+                      {(previewProduct.supplierRating || 0).toFixed(1)} Rating
                     </span>
                   </div>
                   
@@ -1649,115 +726,17 @@ export default function ProductDiscoveryPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Total Stock:</span>
-                      <span className="font-semibold">{
-                        enrichedData && (enrichedData.totalCjStock > 0 || enrichedData.totalFactoryStock > 0)
-                          ? `${enrichedData.totalCjStock} CJ + ${enrichedData.totalFactoryStock} Factory`
-                          : (previewProduct.totalStock || 0)
-                      }</span>
+                      <span className="font-semibold">{previewProduct.totalStock || 0}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Variants:</span>
-                      <span className="font-semibold">{enrichedData?.variants.length || previewProduct.variants.length}</span>
+                      <span className="font-semibold">{previewProduct.variants.length}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Quality Score:</span>
                       <span className="font-semibold">{((previewProduct.qualityScore || 0) * 100).toFixed(0)}%</span>
                     </div>
                   </div>
-                  
-                  {loadingEnrichment && (
-                    <div className="flex items-center gap-2 text-gray-500 text-sm">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Loading detailed product info...
-                    </div>
-                  )}
-                  
-                  {enrichmentError && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 flex items-center justify-between">
-                      <span>Could not load detailed product info: {enrichmentError}</span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEnrichmentError(null);
-                          setLoadingEnrichment(true);
-                          const pid = encodeURIComponent(previewProduct.productId);
-                          fetch(`/api/admin/cj/products/enrich?pid=${pid}`)
-                            .then(r => r.json())
-                            .then(data => {
-                              if (data?.ok && data?.data) {
-                                setEnrichedData(data.data);
-                                setEnrichmentCache(prev => new Map(prev).set(previewProduct.productId, { data: data.data, timestamp: Date.now() }));
-                              } else {
-                                setEnrichmentError(data?.error || 'Failed to load');
-                              }
-                            })
-                            .catch(() => setEnrichmentError('Failed to load'))
-                            .finally(() => setLoadingEnrichment(false));
-                        }}
-                        className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700"
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  )}
-                  
-                  {enrichedData && (
-                    <div className="space-y-4">
-                      {enrichedData.colors.length > 0 && (
-                        <div>
-                          <h4 className="font-medium text-sm text-gray-700 mb-2">Colors ({enrichedData.colors.length})</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {enrichedData.colors.map((color, i) => (
-                              <span key={i} className="px-3 py-1 bg-gray-100 rounded-full text-sm">{color}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {enrichedData.sizes.length > 0 && (
-                        <div>
-                          <h4 className="font-medium text-sm text-gray-700 mb-2">Sizes ({enrichedData.sizes.length})</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {enrichedData.sizes.map((size, i) => (
-                              <span key={i} className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm font-medium">{size}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      <div className="grid grid-cols-2 gap-3">
-                        {enrichedData.processingTimeDisplay && (
-                          <div className="bg-amber-50 rounded-lg p-3">
-                            <div className="text-xs text-amber-700 font-medium">Processing Time</div>
-                            <div className="text-sm font-semibold text-amber-900">{enrichedData.processingTimeDisplay}</div>
-                          </div>
-                        )}
-                        
-                        {enrichedData.shippingToSA && (
-                          <div className="bg-green-50 rounded-lg p-3">
-                            <div className="text-xs text-green-700 font-medium">Delivery to Saudi Arabia</div>
-                            <div className="text-sm font-semibold text-green-900">
-                              {enrichedData.shippingToSA.estimatedDays 
-                                ? `${enrichedData.shippingToSA.estimatedDays.min || '?'}-${enrichedData.shippingToSA.estimatedDays.max || '?'} days`
-                                : 'N/A'}
-                            </div>
-                            {enrichedData.shippingToSA.shippingCost !== null && (
-                              <div className="text-xs text-green-600">
-                                ~${enrichedData.shippingToSA.shippingCost?.toFixed(2)} via {enrichedData.shippingToSA.shippingMethod}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      
-                      {enrichedData.notes && (
-                        <div className="bg-gray-100 rounded-lg p-3">
-                          <div className="text-xs text-gray-600 font-medium mb-1">Product Notes</div>
-                          <div className="text-sm text-gray-800">{enrichedData.notes}</div>
-                        </div>
-                      )}
-                    </div>
-                  )}
                   
                   <div>
                     <h4 className="font-medium mb-2">

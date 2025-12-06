@@ -4,13 +4,10 @@ import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchWithMeta, fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 import { classifyQuery, matchProductName } from '@/lib/search/keyword-lexicon';
-import { throttleCjRequest } from '@/lib/cj/rate-limit';
-import { logError } from '@/lib/error-logger';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const runtime = 'nodejs';
-export const maxDuration = 60; // Allow up to 60 seconds for product queries
 
 function normalizeText(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -95,200 +92,50 @@ async function fetchCjProductPage(token: string, base: string, keyword: string, 
   }
   
   try {
-    const res = await throttleCjRequest(() => fetchJson<any>(`${base}/product/list?${params}`, {
+    const res = await fetchJson<any>(`${base}/product/list?${params}`, {
       headers: {
         'CJ-Access-Token': token,
         'Content-Type': 'application/json',
       },
       cache: 'no-store',
       timeoutMs: 20000,
-    }));
-    
-    console.log(`[CJ Keyword Fetch] keyword="${keyword}", page=${pageNum}, code=${res?.code}, result=${res?.result}, total=${res?.data?.total || 0}, items=${res?.data?.list?.length || 0}`);
-    
-    if (res?.code === 200 && res?.result && Array.isArray(res?.data?.list)) {
-      return {
-        list: res.data.list,
-        total: res.data.total || 0,
-      };
-    }
-    
-    if (res?.message) {
-      console.log(`[CJ Keyword Fetch] Error message: ${res.message}`);
-    }
-    
-    return { list: [], total: 0 };
-  } catch (e: any) {
-    console.log(`[CJ Keyword Fetch] Error for "${keyword}": ${e?.message}`);
-    return { list: [], total: 0 };
-  }
-}
-
-async function fetchCjProductsByCategoryId(token: string, base: string, categoryId: string, pageNum: number, pageSize: number): Promise<{ list: any[]; total: number }> {
-  // USE V2 API for better data: warehouseInventoryNum, sku, deliveryCycle, listedNum
-  // V2 uses 'page' and 'size' instead of 'pageNum' and 'pageSize'
-  // V2 uses 'lv3categoryList' array instead of 'categoryId'
-  const params = new URLSearchParams();
-  params.set('page', String(pageNum));
-  params.set('size', String(Math.min(pageSize, 100))); // V2 max is 100
-  params.set('lv3categoryList', categoryId); // Use lv3categoryList for third-level categories
-  
-  const url = `${base}/product/listV2?${params}`;
-  
-  console.log(`[CJ V2 Fetch] Starting request: categoryId=${categoryId}, page=${pageNum}, size=${pageSize}`);
-  console.log(`[CJ V2 Fetch] URL: ${url}`);
-  
-  try {
-    const data = await throttleCjRequest(async () => {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'CJ-Access-Token': token,
-          'Content-Type': 'application/json',
-        },
-        cache: 'no-store',
-      });
-      const jsonData = await res.json();
-      console.log(`[CJ V2 Fetch] Raw response status: ${res.status}, ok: ${res.ok}`);
-      return jsonData;
     });
-    
-    // V2 API has different response structure: data.content[].productList[]
-    const totalRecords = data?.data?.totalRecords || 0;
-    const contentList = data?.data?.content || [];
-    
-    // Flatten productList from all content items
-    let allProducts: any[] = [];
-    for (const content of contentList) {
-      if (Array.isArray(content?.productList)) {
-        allProducts = allProducts.concat(content.productList);
-      }
-    }
-    
-    console.log(`[CJ V2 Fetch] Response: categoryId=${categoryId}, page=${pageNum}, code=${data?.code}, result=${data?.result}, totalRecords=${totalRecords}, products=${allProducts.length}`);
-    
-    if (data?.code === 200 && data?.result) {
-      // Map V2 fields to expected format
-      const mappedProducts = allProducts.map(p => ({
-        ...p,
-        // Map V2 field names to our expected names
-        pid: p.id || p.pid,
-        productId: p.id || p.pid,
-        productNameEn: p.nameEn || p.productNameEn,
-        name: p.nameEn || p.productNameEn,
-        productImage: p.bigImage || p.productImage,
-        // Stock: V2 uses warehouseInventoryNum for total inventory
-        stock: p.warehouseInventoryNum || p.totalVerifiedInventory || p.totalUnVerifiedInventory || 0,
-        warehouseInventoryNum: p.warehouseInventoryNum || 0,
-        cjInventory: p.totalVerifiedInventory || 0,
-        factoryInventory: p.totalUnVerifiedInventory || 0,
-        // Price
-        sellPrice: parseFloat(p.sellPrice || p.nowPrice || p.discountPrice || '0'),
-        price: parseFloat(p.sellPrice || p.nowPrice || p.discountPrice || '0'),
-        // SKU
-        sku: p.sku || p.spu || '',
-        productSku: p.sku || p.spu || '',
-        // Popularity (listedNum = how many times this product was listed)
-        listedNum: p.listedNum || 0,
-        // Delivery time
-        deliveryCycle: p.deliveryCycle || null, // e.g., "3-5" days
-        // Free shipping
-        addMarkStatus: p.addMarkStatus || 0, // 1 = free shipping
-        // Supplier
-        supplierName: p.supplierName || '',
-      }));
-      
-      return {
-        list: mappedProducts,
-        total: totalRecords,
-      };
-    }
-    
-    // Log the error message if failed
-    if (data?.message) {
-      console.log(`[CJ V2 Fetch] Error message: ${data.message}`);
-    }
-    
-    // Fallback to old API if V2 fails
-    console.log(`[CJ V2 Fetch] V2 failed, trying legacy /product/list...`);
-    return await fetchCjProductsByCategoryIdLegacy(token, base, categoryId, pageNum, pageSize);
-  } catch (e: any) {
-    console.log(`[CJ V2 Fetch] Error for ${categoryId}: ${e?.message}`);
-    // Fallback to old API on error
-    return await fetchCjProductsByCategoryIdLegacy(token, base, categoryId, pageNum, pageSize);
-  }
-}
-
-// Legacy fallback function for older /product/list endpoint
-async function fetchCjProductsByCategoryIdLegacy(token: string, base: string, categoryId: string, pageNum: number, pageSize: number): Promise<{ list: any[]; total: number }> {
-  const params = new URLSearchParams();
-  params.set('categoryId', categoryId);
-  params.set('pageNum', String(pageNum));
-  params.set('pageSize', String(pageSize));
-  
-  const url = `${base}/product/list?${params}`;
-  
-  try {
-    const data = await throttleCjRequest(async () => {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'CJ-Access-Token': token,
-          'Content-Type': 'application/json',
-        },
-        cache: 'no-store',
-      });
-      return await res.json();
-    });
-    
-    if (data?.code === 200 && data?.result && Array.isArray(data?.data?.list)) {
-      return {
-        list: data.data.list,
-        total: data.data.total || 0,
-      };
-    }
-    
-    return { list: [], total: 0 };
-  } catch (e: any) {
-    console.log(`[CJ Legacy Fetch] Error for ${categoryId}: ${e?.message}`);
+    return {
+      list: res?.data?.list || [],
+      total: res?.data?.total || 0,
+    };
+  } catch {
     return { list: [], total: 0 };
   }
 }
 
 export async function GET(req: Request) {
-  console.log('[Product Query] Request received');
   const log = loggerForRequest(req);
   try {
-    console.log('[Product Query] Checking admin auth...');
     const guard = await ensureAdmin();
     if (!guard.ok) {
-      console.log('[Product Query] Auth failed:', guard.reason);
-      const r = NextResponse.json({ ok: false, version: 'query-v5', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+      const r = NextResponse.json({ ok: false, version: 'query-v4', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
-    console.log('[Product Query] Auth passed for user:', (guard.user as any)?.email);
     const { searchParams } = new URL(req.url);
     let pid = searchParams.get('pid') || undefined;
     const keyword = searchParams.get('keyword') || undefined;
     const urlParam = searchParams.get('url') || undefined;
     const categoryId = searchParams.get('category') || undefined;
-    const categoryIds = searchParams.get('categoryIds') || undefined;
     const quantity = Math.max(1, Number(searchParams.get('quantity') || 25));
     const strictMode = searchParams.get('strict') !== 'false';
-    // V2 API: Use minPopularity (listedNum threshold) instead of minRating (CJ has no rating field)
-    const minPopularity = Number(searchParams.get('minPopularity') || 0);
-    const minStock = Number(searchParams.get('minStock') || 0);
-    const minPrice = Number(searchParams.get('minPrice') || 0);
-    const maxPrice = Number(searchParams.get('maxPrice') || 0);
+    const minRating = Number(searchParams.get('minRating') || 0);
+    const includeUnratedParam = searchParams.get('includeUnrated');
+    const includeUnrated = includeUnratedParam === 'true' ? true : (includeUnratedParam === 'false' ? false : (minRating <= 0));
     
     if (!pid && urlParam) pid = extractPidFromUrl(urlParam);
     if (!pid && urlParam) {
       pid = await extractGuidPidFromCjHtml(urlParam);
     }
 
-    if (!pid && !keyword && !categoryIds) {
-      const r = NextResponse.json({ ok: false, error: 'Provide pid, keyword, or categoryIds' }, { status: 400 });
+    if (!pid && !keyword) {
+      const r = NextResponse.json({ ok: false, error: 'Provide pid or keyword' }, { status: 400 });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
@@ -297,7 +144,8 @@ export async function GET(req: Request) {
     let totalFound = 0;
     let pagesFetched = 0;
     let totalRawFetched = 0;
-    let skippedLowPopularity = 0;
+    let skippedNoRating = 0;
+    let skippedLowRating = 0;
     let skippedNoMatch = 0;
     
     if (pid) {
@@ -312,10 +160,7 @@ export async function GET(req: Request) {
       const searchTokens = tokenize(keyword);
       
       const { requiredConcepts, genderExclusions } = classifyQuery(keyword);
-      console.log(`[Search v5] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}, MinPopularity: ${minPopularity}, MinStock: ${minStock}, MinPrice: ${minPrice}, MaxPrice: ${maxPrice}`);
-      
-      let skippedLowStock = 0;
-      let skippedPrice = 0;
+      console.log(`[Search v4] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}, MinRating: ${minRating}, IncludeUnrated: ${includeUnrated}`);
       
       const pageSize = 50;
       const maxPagesForQuantity = Math.ceil(quantity * 20 / pageSize);
@@ -327,44 +172,27 @@ export async function GET(req: Request) {
       const seenPids = new Set<string>();
       const startTime = Date.now();
       const maxDurationMs = quantity > 1000 ? 180000 : (quantity > 500 ? 120000 : 90000);
-      // CRITICAL: Hard timeout to prevent Vercel function timeout
-      const hardTimeoutMs = 12000; // 12 seconds - well under Vercel's limit
-      let timedOut = false;
       
-      console.log(`[Search v5] Config: maxPages=${maxPages}, maxDuration=${maxDurationMs}ms, pageSize=${pageSize}, hardTimeout=${hardTimeoutMs}ms`);
+      console.log(`[Search v4] Config: maxPages=${maxPages}, maxDuration=${maxDurationMs}ms, pageSize=${pageSize}`);
       
       for (let page = 1; page <= maxPages; page++) {
-        if (Date.now() - startTime > hardTimeoutMs) {
-          console.log(`[Search v5] Hard timeout reached after ${page - 1} pages, ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed`);
-          timedOut = true;
-          break;
-        }
         if (Date.now() - startTime > maxDurationMs) {
-          console.log(`[Search v5] Timeout reached after ${page - 1} pages, ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed`);
-          timedOut = true;
+          console.log(`[Search v4] Timeout reached after ${page - 1} pages, ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed`);
           break;
         }
         
         const pageResult = await fetchCjProductPage(token, base, keyword, categoryId, page, pageSize);
-        
-        // Check timeout AFTER fetch completes
-        if (Date.now() - startTime > hardTimeoutMs) {
-          console.log(`[Search v5] Hard timeout (${Date.now() - startTime}ms) after fetch for page ${page}`);
-          timedOut = true;
-          // Process results from this page then exit
-        }
-        
         pagesFetched++;
         totalRawFetched += pageResult.list.length;
         
         if (pageResult.list.length === 0) {
-          console.log(`[Search v5] Empty page at ${page}, stopping`);
+          console.log(`[Search v4] Empty page at ${page}, stopping`);
           break;
         }
         
         if (page === 1) {
           totalFound = pageResult.total;
-          console.log(`[Search v5] CJ reports ${totalFound} total products available`);
+          console.log(`[Search v4] CJ reports ${totalFound} total products available`);
         }
         
         for (const rawItem of pageResult.list) {
@@ -374,45 +202,26 @@ export async function GET(req: Request) {
           
           allRawItems.push(rawItem);
           
-          // V2 API: Use listedNum as popularity indicator
-          const listedNum = Number(rawItem.listedNum || 0);
+          const supplierRating = Number(rawItem.supplierRating || rawItem.score || rawItem.rating || rawItem.productScore || 0);
+          const hasRating = supplierRating > 0;
           
-          if (minPopularity > 0 && listedNum < minPopularity) {
-            skippedLowPopularity++;
-            continue;
-          }
-          
-          // Apply stock filter from raw item before mapping
-          // Only filter if stock data is actually present in the response
-          const rawStock = rawItem.stock ?? rawItem.inventory ?? rawItem.listingCount ?? rawItem.listedNum ?? rawItem.quantity;
-          const itemStock = rawStock !== undefined ? Number(rawStock) : -1; // -1 means no stock data
-          if (minStock > 0 && itemStock >= 0 && itemStock < minStock) {
-            skippedLowStock++;
-            continue;
-          }
-          
-          // Apply price filter from raw item before mapping
-          const itemPrice = Number(rawItem.sellPrice ?? rawItem.price ?? rawItem.salePrice ?? rawItem.costPrice ?? 0);
-          if (minPrice > 0 && itemPrice > 0 && itemPrice < minPrice) {
-            skippedPrice++;
-            continue;
-          }
-          if (maxPrice > 0 && itemPrice > 0 && itemPrice > maxPrice) {
-            skippedPrice++;
-            continue;
+          if (minRating > 0) {
+            if (!hasRating) {
+              if (!includeUnrated) {
+                skippedNoRating++;
+                continue;
+              }
+            } else if (supplierRating < minRating) {
+              skippedLowRating++;
+              continue;
+            }
           }
           
           const mappedItem = mapCjItemToProductLike(rawItem);
           if (!mappedItem) continue;
           
-          // Add V2 API fields
-          (mappedItem as any).listedNum = listedNum;
-          (mappedItem as any).hasPopularityData = listedNum > 0;
-          (mappedItem as any).totalStock = itemStock >= 0 ? itemStock : null;
-          (mappedItem as any).avgPrice = itemPrice > 0 ? itemPrice : null;
-          (mappedItem as any).productSku = rawItem.sku || rawItem.productSku || '';
-          (mappedItem as any).deliveryCycle = rawItem.deliveryCycle || null;
-          (mappedItem as any).supplierName = rawItem.supplierName || '';
+          (mappedItem as any).supplierRating = hasRating ? supplierRating : null;
+          (mappedItem as any).hasRating = hasRating;
           
           if (strictMode && searchTokens.length > 0 && requiredConcepts.size > 0) {
             const strictResult = smartMatch(mappedItem.name || '', keyword, false);
@@ -424,12 +233,6 @@ export async function GET(req: Request) {
               strictMatchedItems.push(mappedItem);
             } else if (relaxedResult.matches) {
               relaxedMatchedItems.push(mappedItem);
-            } else if (!strictResult.hasProductMatch) {
-              // Fallback: if matcher couldn't identify any product concepts, accept the item
-              // This handles cases where CJ product names don't match our lexicon
-              (mappedItem as any)._matchScore = 0;
-              (mappedItem as any)._matchRatio = 0;
-              relaxedMatchedItems.push(mappedItem);
             } else {
               skippedNoMatch++;
             }
@@ -439,32 +242,25 @@ export async function GET(req: Request) {
         }
         
         if (page % 20 === 0 || page === 1) {
-          console.log(`[Search v5] Page ${page}/${maxPages}: ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed, target: ${quantity}, raw: ${totalRawFetched}`);
+          console.log(`[Search v4] Page ${page}/${maxPages}: ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed, target: ${quantity}, raw: ${totalRawFetched}`);
         }
         
         const totalMatched = strictMatchedItems.length + relaxedMatchedItems.length;
         if (totalMatched >= quantity) {
-          console.log(`[Search v5] Target reached with ${totalMatched} matches after ${page} pages`);
+          console.log(`[Search v4] Target reached with ${totalMatched} matches after ${page} pages`);
           break;
         }
         
         if (pageResult.list.length < pageSize) {
-          console.log(`[Search v5] Partial page at ${page} (${pageResult.list.length}/${pageSize}), stopping`);
-          break;
-        }
-        
-        // Exit loop if timed out
-        if (timedOut) {
-          console.log(`[Search v5] Exiting after timeout with ${strictMatchedItems.length} strict, ${relaxedMatchedItems.length} relaxed`);
+          console.log(`[Search v4] Partial page at ${page} (${pageResult.list.length}/${pageSize}), stopping`);
           break;
         }
       }
       
-      // Sort by popularity (listedNum) - higher = more popular
       strictMatchedItems.sort((a, b) => {
-        const popA = (a as any).listedNum || 0;
-        const popB = (b as any).listedNum || 0;
-        if (popB !== popA) return popB - popA;
+        const ratingA = (a as any).hasRating ? ((a as any).supplierRating || 0) : -1;
+        const ratingB = (b as any).hasRating ? ((b as any).supplierRating || 0) : -1;
+        if (ratingB !== ratingA) return ratingB - ratingA;
         return ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0);
       });
       
@@ -472,9 +268,9 @@ export async function GET(req: Request) {
         const ratioA = (a as any)._matchRatio || 0;
         const ratioB = (b as any)._matchRatio || 0;
         if (ratioB !== ratioA) return ratioB - ratioA;
-        const popA = (a as any).listedNum || 0;
-        const popB = (b as any).listedNum || 0;
-        if (popB !== popA) return popB - popA;
+        const ratingA = (a as any).hasRating ? ((a as any).supplierRating || 0) : -1;
+        const ratingB = (b as any).hasRating ? ((b as any).supplierRating || 0) : -1;
+        if (ratingB !== ratingA) return ratingB - ratingA;
         return ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0);
       });
       
@@ -482,222 +278,22 @@ export async function GET(req: Request) {
       items = combined.slice(0, quantity);
       
       const duration = Date.now() - startTime;
-      console.log(`[Search v5] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms, timedOut=${timedOut}`);
-      console.log(`[Search v5] Stats: raw=${totalRawFetched}, unique=${seenPids.size}, strict=${strictMatchedItems.length}, relaxed=${relaxedMatchedItems.length}`);
-      console.log(`[Search v5] Skipped: lowPopularity=${skippedLowPopularity}, noMatch=${skippedNoMatch}, lowStock=${skippedLowStock}, price=${skippedPrice}`);
-      
-      // Return early for keyword search with timedOut indicator
-      const r = NextResponse.json({ 
-        ok: true, 
-        version: 'query-v5', 
-        count: items.length,
-        requested: quantity,
-        totalFound,
-        pagesFetched,
-        timedOut,
-        message: timedOut ? 'Search returned partial results due to time limit. Try a more specific keyword.' : undefined,
-        stats: {
-          rawFetched: totalRawFetched,
-          skippedLowPopularity,
-          skippedNoMatch,
-          duration,
-        },
-        items 
-      }, { headers: { 'Cache-Control': 'no-store' } });
-      r.headers.set('x-request-id', log.requestId);
-      return r;
-    } else if (categoryIds) {
-      const categoryIdList = categoryIds.split(',').map(id => id.trim()).filter(Boolean);
-      console.log(`[Search v5 Category] Category IDs: [${categoryIdList.join(', ')}], Target: ${quantity}, MinPopularity: ${minPopularity}, MinStock: ${minStock}, MinPrice: ${minPrice}, MaxPrice: ${maxPrice}`);
-      
-      let skippedLowStock = 0;
-      let skippedPrice = 0;
-      
-      console.log('[Search v5 Category] Getting CJ access token...');
-      let token: string;
-      try {
-        token = await getAccessToken();
-        console.log('[Search v5 Category] Token obtained: ' + (token ? token.substring(0, 20) + '...' : 'EMPTY'));
-      } catch (tokenErr: any) {
-        console.error('[Search v5 Category] Token error:', tokenErr?.message);
-        throw new Error('Failed to get CJ access token: ' + (tokenErr?.message || 'Unknown error'));
-      }
-      const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
-      console.log('[Search v5 Category] Using API base:', base);
-      
-      const pageSize = 50;
-      const seenPids = new Set<string>();
-      const allItems: any[] = [];
-      const startTime = Date.now();
-      const maxDurationMs = quantity > 1000 ? 180000 : (quantity > 500 ? 120000 : 90000);
-      
-      const quantityPerCategory = Math.ceil(quantity / categoryIdList.length);
-      const maxPagesPerCategory = Math.min(2000, Math.ceil(quantityPerCategory * 20 / pageSize));
-      
-      // CRITICAL: Hard timeout to prevent Vercel function timeout
-      // Must return results before Vercel cuts off the function (default 10s, max 60s on Pro)
-      const hardTimeoutMs = 12000; // 12 seconds - well under Vercel's limit
-      
-      console.log(`[Search v5 Category] Config: ${categoryIdList.length} categories, ~${quantityPerCategory} per category, maxPages=${maxPagesPerCategory}, hardTimeout=${hardTimeoutMs}ms`);
-      
-      let timedOut = false;
-      
-      for (const catId of categoryIdList) {
-        if (Date.now() - startTime > hardTimeoutMs) {
-          console.log(`[Search v5 Category] Hard timeout reached after ${Date.now() - startTime}ms, stopping to prevent Vercel cutoff`);
-          timedOut = true;
-          break;
-        }
-        if (Date.now() - startTime > maxDurationMs) {
-          console.log(`[Search v5 Category] Soft timeout reached, stopping`);
-          timedOut = true;
-          break;
-        }
-        
-        if (allItems.length >= quantity) {
-          console.log(`[Search v5 Category] Target reached with ${allItems.length} items`);
-          break;
-        }
-        
-        let categoryTotal = 0;
-        let categoryItems = 0;
-        
-        for (let page = 1; page <= maxPagesPerCategory; page++) {
-          // Check timeout BEFORE making the fetch call
-          if (Date.now() - startTime > hardTimeoutMs) {
-            console.log(`[Search v5 Category] Hard timeout (${Date.now() - startTime}ms) before fetch for category ${catId} page ${page}`);
-            timedOut = true;
-            break;
-          }
-          if (Date.now() - startTime > maxDurationMs) break;
-          if (allItems.length >= quantity) break;
-          
-          const pageResult = await fetchCjProductsByCategoryId(token, base, catId, page, pageSize);
-          
-          // Check timeout AFTER fetch completes
-          if (Date.now() - startTime > hardTimeoutMs) {
-            console.log(`[Search v5 Category] Hard timeout (${Date.now() - startTime}ms) after fetch for category ${catId} page ${page}`);
-            timedOut = true;
-            // Still process results from this page before breaking
-          }
-          pagesFetched++;
-          totalRawFetched += pageResult.list.length;
-          
-          if (page === 1) {
-            categoryTotal = pageResult.total;
-            console.log(`[Search v5 Category] Category ${catId}: ${categoryTotal} products available`);
-          }
-          
-          if (pageResult.list.length === 0) break;
-          
-          for (const rawItem of pageResult.list) {
-            if (allItems.length >= quantity) break;
-            
-            const itemPid = String(rawItem.pid || rawItem.productId || rawItem.id || '');
-            if (seenPids.has(itemPid)) continue;
-            seenPids.add(itemPid);
-            
-            // V2 API: Use listedNum as popularity indicator (CJ has NO supplier rating field)
-            const listedNum = Number(rawItem.listedNum || 0);
-            const hasPopularityData = listedNum > 0;
-            
-            // V2 API: Use warehouseInventoryNum for accurate stock
-            const rawStock = rawItem.warehouseInventoryNum ?? rawItem.stock ?? rawItem.inventory ?? 0;
-            const itemStock = Number(rawStock);
-            if (minStock > 0 && itemStock < minStock) {
-              skippedLowStock++;
-              continue;
-            }
-            
-            // Apply price filter from raw item before mapping
-            const itemPrice = Number(rawItem.sellPrice ?? rawItem.price ?? 0);
-            if (minPrice > 0 && itemPrice > 0 && itemPrice < minPrice) {
-              skippedPrice++;
-              continue;
-            }
-            if (maxPrice > 0 && itemPrice > 0 && itemPrice > maxPrice) {
-              skippedPrice++;
-              continue;
-            }
-            
-            const mappedItem = mapCjItemToProductLike(rawItem);
-            if (!mappedItem) continue;
-            
-            // Add V2 API fields for display
-            (mappedItem as any).listedNum = listedNum;                                    // Popularity count
-            (mappedItem as any).hasPopularityData = hasPopularityData;
-            (mappedItem as any).categoryId = catId;
-            (mappedItem as any).totalStock = itemStock;                                    // From warehouseInventoryNum
-            (mappedItem as any).cjInventory = Number(rawItem.cjInventory || rawItem.totalVerifiedInventory || 0);
-            (mappedItem as any).factoryInventory = Number(rawItem.factoryInventory || rawItem.totalUnVerifiedInventory || 0);
-            (mappedItem as any).avgPrice = itemPrice > 0 ? itemPrice : null;
-            (mappedItem as any).productSku = rawItem.sku || rawItem.productSku || '';      // Product SKU
-            (mappedItem as any).deliveryCycle = rawItem.deliveryCycle || null;             // Delivery time e.g., "3-5"
-            (mappedItem as any).supplierName = rawItem.supplierName || '';                 // Supplier name
-            (mappedItem as any).addMarkStatus = rawItem.addMarkStatus || 0;                // 1 = free shipping
-            
-            allItems.push(mappedItem);
-            categoryItems++;
-          }
-          
-          if (pageResult.list.length < pageSize) break;
-          
-          // Exit page loop if timed out
-          if (timedOut) break;
-        }
-        
-        console.log(`[Search v5 Category] Category ${catId}: fetched ${categoryItems} items`);
-        
-        // Exit category loop if timed out
-        if (timedOut) break;
-        totalFound += categoryTotal;
-      }
-      
-      // Sort by popularity (listedNum) - higher = more popular
-      allItems.sort((a, b) => {
-        const popA = (a as any).listedNum || 0;
-        const popB = (b as any).listedNum || 0;
-        return popB - popA;
-      });
-      
-      items = allItems.slice(0, quantity);
-      
-      const duration = Date.now() - startTime;
-      console.log(`[Search v5 Category] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms, timedOut=${timedOut}`);
-      console.log(`[Search v5 Category] Skipped: lowPopularity=${skippedLowPopularity}, lowStock=${skippedLowStock}, price=${skippedPrice}`);
-      
-      // Return early with timedOut indicator
-      const r = NextResponse.json({ 
-        ok: true, 
-        version: 'query-v5', 
-        count: items.length,
-        requested: quantity,
-        totalFound,
-        pagesFetched,
-        timedOut,
-        message: timedOut ? 'Search returned partial results due to time limit. Try selecting fewer features or reducing filters.' : undefined,
-        stats: {
-          rawFetched: totalRawFetched,
-          skippedLowPopularity,
-          skippedNoMatch,
-          duration,
-        },
-        items 
-      }, { headers: { 'Cache-Control': 'no-store' } });
-      r.headers.set('x-request-id', log.requestId);
-      return r;
+      console.log(`[Search v4] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms`);
+      console.log(`[Search v4] Stats: raw=${totalRawFetched}, unique=${seenPids.size}, strict=${strictMatchedItems.length}, relaxed=${relaxedMatchedItems.length}`);
+      console.log(`[Search v4] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}, noMatch=${skippedNoMatch}`);
     }
 
     const r = NextResponse.json({ 
       ok: true, 
-      version: 'query-v5', 
+      version: 'query-v4', 
       count: items.length,
       requested: quantity,
       totalFound,
       pagesFetched,
       stats: {
         rawFetched: totalRawFetched,
-        skippedLowPopularity,
+        skippedNoRating,
+        skippedLowRating,
         skippedNoMatch,
       },
       items 
@@ -705,19 +301,8 @@ export async function GET(req: Request) {
     r.headers.set('x-request-id', log.requestId);
     return r;
   } catch (e: any) {
-    console.error('[Search v5] Error:', e?.message);
-    
-    await logError({
-      error_type: 'cj_api',
-      message: e?.message || 'CJ product query failed',
-      details: {
-        stack: e?.stack,
-        url: req.url,
-      },
-      page: '/api/admin/cj/products/query',
-    });
-    
-    const r = NextResponse.json({ ok: false, version: 'query-v5', error: e?.message || 'CJ query failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    console.error('[Search v4] Error:', e?.message);
+    const r = NextResponse.json({ ok: false, version: 'query-v4', error: e?.message || 'CJ query failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', loggerForRequest(req).requestId);
     return r;
   }

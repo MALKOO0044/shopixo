@@ -159,35 +159,3 @@ begin
   where id = product_id_in;
 end;
 $$;
-
--- 0005_cj_variant_cache.sql
--- CJ Variant Cache: stores variant data for products added to "My Products"
--- This allows shipping calculation which requires vid (variant ID)
--- The CJ API /product/variant/query only works for products in "My Products"
--- So we use a two-phase approach: add to My Products -> query variants -> cache
-create table if not exists public.cj_variant_cache (
-  id bigserial primary key,
-  cj_product_id text not null,
-  cj_variant_id text not null unique,
-  variant_sku text,
-  variant_name text,
-  variant_sell_price numeric(10,2),
-  weight_grams integer,
-  length_cm numeric(10,2),
-  width_cm numeric(10,2),
-  height_cm numeric(10,2),
-  variant_attrs jsonb default '{}'::jsonb,
-  added_to_my_products boolean default false,
-  last_shipping_price_sar numeric(10,2),
-  last_shipping_fetch_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists idx_cj_variant_cache_product_id on public.cj_variant_cache(cj_product_id);
-create index if not exists idx_cj_variant_cache_sku on public.cj_variant_cache(variant_sku);
-
-alter table public.cj_variant_cache enable row level security;
-drop policy if exists "Service role can manage cj_variant_cache" on public.cj_variant_cache;
-create policy "Service role can manage cj_variant_cache" on public.cj_variant_cache
-  for all using (auth.role() = 'service_role') with check (auth.role() = 'service_role');

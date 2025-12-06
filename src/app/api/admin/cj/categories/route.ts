@@ -3,23 +3,15 @@ import { getAccessToken } from "@/lib/cj/v2";
 
 export const dynamic = "force-dynamic";
 
-type Feature = {
-  featureId: string;
-  featureName: string;
-  level: number;
-  parentId?: string;
-  isProductCategory: boolean; // true = can be used for product search, false = grouping only
-  childCategoryIds?: string[]; // Level 2 features include their Level 3 child IDs
-};
-
-type CategoryWithFeatures = { 
+type FlatCategory = { 
   categoryId: string; 
   categoryName: string;
-  features: Feature[];
+  level: number;
+  parentId?: string;
 };
 
-function buildCategoryHierarchy(nodes: any[]): CategoryWithFeatures[] {
-  const result: CategoryWithFeatures[] = [];
+function buildCategoryTree(nodes: any[]): FlatCategory[] {
+  const result: FlatCategory[] = [];
   
   if (!Array.isArray(nodes)) return result;
   
@@ -30,9 +22,13 @@ function buildCategoryHierarchy(nodes: any[]): CategoryWithFeatures[] {
     const firstName = firstLevel.categoryFirstName || firstLevel.categoryName || firstLevel.name;
     
     if (firstId && firstName) {
-      const features: Feature[] = [];
+      result.push({
+        categoryId: String(firstId),
+        categoryName: String(firstName),
+        level: 1,
+      });
       
-      const secondLevelArray = firstLevel.categoryFirstList || firstLevel.categorySecond || firstLevel.children || [];
+      const secondLevelArray = firstLevel.categorySecond || firstLevel.children || [];
       if (Array.isArray(secondLevelArray)) {
         for (const secondLevel of secondLevelArray) {
           if (!secondLevel || typeof secondLevel !== 'object') continue;
@@ -41,12 +37,14 @@ function buildCategoryHierarchy(nodes: any[]): CategoryWithFeatures[] {
           const secondName = secondLevel.categorySecondName || secondLevel.categoryName || secondLevel.name;
           
           if (secondId && secondName) {
-            const cleanSecondName = String(secondName).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+            result.push({
+              categoryId: String(secondId),
+              categoryName: `${firstName} > ${secondName}`,
+              level: 2,
+              parentId: String(firstId),
+            });
             
-            // Collect all Level 3 (leaf) category IDs under this Level 2 grouping
-            const childCategoryIds: string[] = [];
-            
-            const thirdLevelArray = secondLevel.categorySecondList || secondLevel.categoryThird || secondLevel.children || [];
+            const thirdLevelArray = secondLevel.categoryThird || secondLevel.children || [];
             if (Array.isArray(thirdLevelArray)) {
               for (const thirdLevel of thirdLevelArray) {
                 if (!thirdLevel || typeof thirdLevel !== 'object') continue;
@@ -55,39 +53,18 @@ function buildCategoryHierarchy(nodes: any[]): CategoryWithFeatures[] {
                 const thirdName = thirdLevel.categoryThirdName || thirdLevel.categoryName || thirdLevel.name;
                 
                 if (thirdId && thirdName) {
-                  const cleanThirdName = String(thirdName).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-                  childCategoryIds.push(String(thirdId));
-                  
-                  // Level 3 = actual product category (can be used for search)
-                  features.push({
-                    featureId: String(thirdId),
-                    featureName: `${cleanSecondName} > ${cleanThirdName}`,
+                  result.push({
+                    categoryId: String(thirdId),
+                    categoryName: `${firstName} > ${secondName} > ${thirdName}`,
                     level: 3,
                     parentId: String(secondId),
-                    isProductCategory: true,
                   });
                 }
               }
             }
-            
-            // Level 2 = grouping only (NOT a product category, but includes child IDs)
-            features.push({
-              featureId: String(secondId),
-              featureName: cleanSecondName,
-              level: 2,
-              parentId: String(firstId),
-              isProductCategory: false,
-              childCategoryIds: childCategoryIds.length > 0 ? childCategoryIds : undefined,
-            });
           }
         }
       }
-      
-      result.push({
-        categoryId: String(firstId),
-        categoryName: String(firstName),
-        features,
-      });
     }
   }
   
@@ -125,9 +102,8 @@ export async function GET() {
         console.log("[CJ Categories] First category sample:", JSON.stringify(rawCategories[0]).slice(0, 500));
       }
       
-      const categories = buildCategoryHierarchy(rawCategories);
-      const totalFeatures = categories.reduce((sum, cat) => sum + cat.features.length, 0);
-      console.log("[CJ Categories] Categories count:", categories.length, "Total features:", totalFeatures);
+      const categories = buildCategoryTree(rawCategories);
+      console.log("[CJ Categories] Tree count:", categories.length, "First level:", categories.filter(c => c.level === 1).length);
       
       if (categories.length === 0 && rawCategories.length > 0) {
         console.log("[CJ Categories] WARNING: Raw data exists but parsing returned 0. Raw sample:", JSON.stringify(rawCategories.slice(0, 2)).slice(0, 1000));
@@ -137,7 +113,6 @@ export async function GET() {
         ok: true, 
         categories,
         total: categories.length,
-        totalFeatures,
         rawCount: rawCategories.length,
       });
     }
