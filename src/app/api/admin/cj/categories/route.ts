@@ -14,58 +14,60 @@ function buildCategoryTree(nodes: any[]): CategoryNode[] {
   
   const result: CategoryNode[] = [];
   
-  for (const firstLevel of nodes) {
+  for (let i = 0; i < nodes.length; i++) {
+    const firstLevel = nodes[i];
     if (!firstLevel || typeof firstLevel !== 'object') continue;
     
-    const firstId = firstLevel.categoryFirstId || firstLevel.categoryId || firstLevel.id;
-    const firstName = firstLevel.categoryFirstName || firstLevel.categoryName || firstLevel.name;
-    
-    if (!firstId || !firstName) continue;
+    const firstName = firstLevel.categoryFirstName;
+    if (!firstName) continue;
     
     const firstNode: CategoryNode = {
-      categoryId: String(firstId),
+      categoryId: `first-${i}`,
       categoryName: String(firstName),
       children: [],
     };
     
-    const secondLevelArray = firstLevel.categorySecond || firstLevel.children || [];
-    if (Array.isArray(secondLevelArray)) {
-      for (const secondLevel of secondLevelArray) {
+    const firstList = firstLevel.categoryFirstList;
+    if (Array.isArray(firstList)) {
+      for (let j = 0; j < firstList.length; j++) {
+        const secondLevel = firstList[j];
         if (!secondLevel || typeof secondLevel !== 'object') continue;
         
-        const secondId = secondLevel.categorySecondId || secondLevel.categoryId || secondLevel.id;
-        const secondName = secondLevel.categorySecondName || secondLevel.categoryName || secondLevel.name;
-        
-        if (!secondId || !secondName) continue;
+        const secondName = secondLevel.categorySecondName;
+        if (!secondName) continue;
         
         const secondNode: CategoryNode = {
-          categoryId: String(secondId),
+          categoryId: `second-${i}-${j}`,
           categoryName: String(secondName),
           children: [],
         };
         
-        const thirdLevelArray = secondLevel.categoryThird || secondLevel.children || [];
-        if (Array.isArray(thirdLevelArray)) {
-          for (const thirdLevel of thirdLevelArray) {
+        const secondList = secondLevel.categorySecondList;
+        if (Array.isArray(secondList)) {
+          for (const thirdLevel of secondList) {
             if (!thirdLevel || typeof thirdLevel !== 'object') continue;
             
-            const thirdId = thirdLevel.categoryThirdId || thirdLevel.categoryId || thirdLevel.id;
-            const thirdName = thirdLevel.categoryThirdName || thirdLevel.categoryName || thirdLevel.name;
+            const thirdId = thirdLevel.categoryId;
+            const thirdName = thirdLevel.categoryName;
             
-            if (!thirdId || !thirdName) continue;
-            
-            secondNode.children!.push({
-              categoryId: String(thirdId),
-              categoryName: String(thirdName),
-            });
+            if (thirdId && thirdName) {
+              secondNode.children!.push({
+                categoryId: String(thirdId),
+                categoryName: String(thirdName),
+              });
+            }
           }
         }
         
-        firstNode.children!.push(secondNode);
+        if (secondNode.children!.length > 0) {
+          firstNode.children!.push(secondNode);
+        }
       }
     }
     
-    result.push(firstNode);
+    if (firstNode.children!.length > 0) {
+      result.push(firstNode);
+    }
   }
   
   return result;
@@ -104,21 +106,30 @@ export async function GET() {
     });
 
     const data = await res.json();
-    console.log("[CJ Categories] Response code:", data.code, "data type:", typeof data.data, "is array:", Array.isArray(data.data));
+    console.log("[CJ Categories] Response code:", data.code, "result:", data.result);
     
     if (data.code === 200 && data.data) {
       const rawCategories = Array.isArray(data.data) ? data.data : [];
       
       if (rawCategories.length > 0) {
-        console.log("[CJ Categories] First category sample:", JSON.stringify(rawCategories[0]).slice(0, 500));
+        console.log("[CJ Categories] Sample first category:", rawCategories[0]?.categoryFirstName);
+        const firstList = rawCategories[0]?.categoryFirstList;
+        if (Array.isArray(firstList) && firstList.length > 0) {
+          console.log("[CJ Categories] Sample second category:", firstList[0]?.categorySecondName);
+          const secondList = firstList[0]?.categorySecondList;
+          if (Array.isArray(secondList) && secondList.length > 0) {
+            console.log("[CJ Categories] Sample third category:", secondList[0]?.categoryId, secondList[0]?.categoryName);
+          }
+        }
       }
       
       const categories = buildCategoryTree(rawCategories);
       const totalCount = countAllCategories(categories);
-      console.log("[CJ Categories] Tree built: ", categories.length, "top-level,", totalCount, "total categories");
+      console.log("[CJ Categories] Tree built:", categories.length, "top-level categories,", totalCount, "total nodes");
       
       if (categories.length === 0 && rawCategories.length > 0) {
-        console.log("[CJ Categories] WARNING: Raw data exists but parsing returned 0. Raw sample:", JSON.stringify(rawCategories.slice(0, 2)).slice(0, 1000));
+        console.log("[CJ Categories] WARNING: Raw data exists but tree is empty. Check parsing logic.");
+        console.log("[CJ Categories] Raw sample:", JSON.stringify(rawCategories[0]).slice(0, 500));
       }
       
       return NextResponse.json({ 
@@ -129,7 +140,7 @@ export async function GET() {
       });
     }
 
-    console.log("[CJ Categories] No data in response:", JSON.stringify(data).slice(0, 500));
+    console.log("[CJ Categories] API error:", data.code, data.message);
     return NextResponse.json({ 
       ok: true, 
       categories: [],
