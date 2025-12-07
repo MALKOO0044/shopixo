@@ -200,7 +200,8 @@ export async function POST(req: NextRequest) {
           price_sar: pricing.retailSar,
           cost_usd: v.price || avgPrice,
           stock: Math.max(0, (v.stock || 0) - 5),
-          weight_g: v.weight || null,
+          weight_g: v.weight || v.weightGrams || null,
+          image_url: v.imageUrl || v.image || v.whiteImage || null,
         }));
 
         const totalStock = variants.reduce((sum: number, v: any) => sum + (v.stock || 0), 0);
@@ -225,12 +226,13 @@ export async function POST(req: NextRequest) {
           free_shipping: true,
           processing_time_hours: qp.processing_days ? qp.processing_days * 24 : null,
           delivery_time_hours: qp.delivery_days_max ? qp.delivery_days_max * 24 : null,
+          variants: variants.length > 0 ? variants : null,
         };
 
         await omitMissingColumns(optionalFields, [
           'description', 'images', 'video_url', 'is_active', 'cj_product_id',
           'free_shipping', 'processing_time_hours', 'delivery_time_hours',
-          'supplier_sku'
+          'supplier_sku', 'variants'
         ]);
 
         const fullPayload = { ...productPayload, ...optionalFields };
