@@ -61,19 +61,35 @@ export async function POST(req: NextRequest) {
     const errorMessages: string[] = [];
     
     for (const p of products) {
-      const avgPrice = p.variants?.length > 0
-        ? p.variants.reduce((sum: number, v: any) => sum + (v.price || 0), 0) / p.variants.length
-        : 0;
-      const totalStock = p.variants?.reduce((sum: number, v: any) => sum + (v.stock || 0), 0) || 0;
+      // Calculate average price from variants, or use provided avgPriceSAR
+      let avgPrice = p.avgPriceSAR || 0;
+      if (!avgPrice && p.variants?.length > 0) {
+        avgPrice = p.variants.reduce((sum: number, v: any) => sum + (v.price || v.variantSellPrice || 0), 0) / p.variants.length;
+      }
+      
+      // Calculate total stock from variants, or use provided stock
+      let totalStock = p.stock || 0;
+      if (!totalStock && p.variants?.length > 0) {
+        totalStock = p.variants.reduce((sum: number, v: any) => sum + (v.stock || v.variantQuantity || 0), 0);
+      }
+      
       const productId = p.cjProductId || p.pid || p.productId;
+      
+      // Handle images - could be array or single image
+      let images: string[] = [];
+      if (Array.isArray(p.images)) {
+        images = p.images;
+      } else if (p.image) {
+        images = [p.image];
+      }
 
       const result = await addProductToQueue(batch.id, {
         productId,
-        cjSku: p.cjSku || p.variants?.[0]?.cjSku || undefined,
+        cjSku: p.cjSku || p.variants?.[0]?.cjSku || p.variants?.[0]?.variantSku || undefined,
         name: p.name || "Untitled",
         description: p.description || undefined,
         category: category || "General",
-        images: p.images || [],
+        images,
         videoUrl: p.videoUrl || undefined,
         variants: p.variants || [],
         avgPrice,
