@@ -127,7 +127,13 @@ export async function addProductToQueue(batchId: number, product: {
     });
 
   if (error) {
-    console.error('[Import DB] Failed to add product to queue:', error.message);
+    console.error('[Import DB] Failed to add product to queue:', {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      productId: product.productId
+    });
     return false;
   }
   return true;
