@@ -41,32 +41,40 @@ type PricedProduct = {
 async function fetchCjProductPage(
   token: string, 
   base: string, 
-  categoryIds: string[], 
-  pageNum: number, 
-  pageSize: number
+  categoryId: string | null,
+  pageNum: number
 ): Promise<{ list: any[]; total: number }> {
   const params = new URLSearchParams();
-  params.set('pageSize', String(pageSize));
   params.set('pageNum', String(pageNum));
   
-  if (categoryIds.length === 1 && categoryIds[0] !== 'all') {
-    params.set('categoryId', categoryIds[0]);
+  if (categoryId && categoryId !== 'all' && !categoryId.startsWith('first-') && !categoryId.startsWith('second-')) {
+    params.set('categoryId', categoryId);
   }
   
+  const url = `${base}/product/list?${params}`;
+  console.log(`[Search&Price] Fetching: ${url}`);
+  
   try {
-    const res = await fetchJson<any>(`${base}/product/list?${params}`, {
+    const res = await fetchJson<any>(url, {
       headers: {
         'CJ-Access-Token': token,
         'Content-Type': 'application/json',
       },
       cache: 'no-store',
-      timeoutMs: 20000,
+      timeoutMs: 30000,
     });
-    return {
-      list: res?.data?.list || [],
-      total: res?.data?.total || 0,
-    };
-  } catch {
+    
+    const list = res?.data?.list || [];
+    const total = res?.data?.total || 0;
+    console.log(`[Search&Price] Page ${pageNum} returned ${list.length} items (total: ${total})`);
+    
+    if (list.length > 0) {
+      console.log(`[Search&Price] Sample product: pid=${list[0].pid}, name=${list[0].productNameEn?.slice(0, 50)}, price=${list[0].sellPrice}, listedNum=${list[0].listedNum}`);
+    }
+    
+    return { list, total };
+  } catch (e: any) {
+    console.error(`[Search&Price] Fetch error:`, e?.message);
     return { list: [], total: 0 };
   }
 }
@@ -112,69 +120,125 @@ export async function GET(req: Request) {
     const quantity = Math.max(1, Math.min(1000, Number(searchParams.get('quantity') || 50)));
     const minPrice = Number(searchParams.get('minPrice') || 0);
     const maxPrice = Number(searchParams.get('maxPrice') || 1000);
-    const minStock = Number(searchParams.get('minStock') || 5);
+    const minStock = Number(searchParams.get('minStock') || 0);
     const profitMargin = Math.max(1, Number(searchParams.get('profitMargin') || 8));
     const popularity = searchParams.get('popularity') || 'any';
     const freeShippingOnly = searchParams.get('freeShippingOnly') === '1';
 
-    console.log(`[Search&Price] Starting search: categories=${categoryIds.join(',')}, qty=${quantity}, price=${minPrice}-${maxPrice}, margin=${profitMargin}%`);
+    console.log(`[Search&Price] ========================================`);
+    console.log(`[Search&Price] Starting search with params:`);
+    console.log(`[Search&Price]   categories: ${categoryIds.join(',')}`);
+    console.log(`[Search&Price]   quantity: ${quantity}`);
+    console.log(`[Search&Price]   price range: $${minPrice} - $${maxPrice}`);
+    console.log(`[Search&Price]   minStock: ${minStock}`);
+    console.log(`[Search&Price]   popularity: ${popularity}`);
+    console.log(`[Search&Price]   profitMargin: ${profitMargin}%`);
+    console.log(`[Search&Price] ========================================`);
 
     const token = await getAccessToken();
-    const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
+    if (!token) {
+      console.error('[Search&Price] Failed to get access token');
+      return NextResponse.json(
+        { ok: false, error: 'Failed to authenticate with CJ API' },
+        { status: 500, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
     
-    const pageSize = 50;
-    const maxPages = Math.min(100, Math.ceil(quantity * 5 / pageSize));
+    const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
     
     const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
-    const maxDurationMs = 120000;
+    const maxDurationMs = 90000;
     
-    for (let page = 1; page <= maxPages; page++) {
+    let totalFiltered = { price: 0, stock: 0, popularity: 0 };
+    
+    for (const catId of categoryIds) {
+      if (candidateProducts.length >= quantity * 2) break;
       if (Date.now() - startTime > maxDurationMs) {
-        console.log(`[Search&Price] Timeout at page ${page}`);
+        console.log(`[Search&Price] Timeout reached`);
         break;
       }
       
-      if (candidateProducts.length >= quantity * 2) {
-        console.log(`[Search&Price] Enough candidates at page ${page}`);
-        break;
-      }
+      console.log(`[Search&Price] Searching category: ${catId}`);
       
-      const pageResult = await fetchCjProductPage(token, base, categoryIds, page, pageSize);
+      const maxPages = 50;
       
-      if (pageResult.list.length === 0) {
-        console.log(`[Search&Price] Empty page at ${page}`);
-        break;
-      }
-      
-      for (const item of pageResult.list) {
-        const pid = String(item.pid || item.productId || '');
-        if (!pid || seenPids.has(pid)) continue;
-        seenPids.add(pid);
+      for (let page = 1; page <= maxPages; page++) {
+        if (Date.now() - startTime > maxDurationMs) break;
+        if (candidateProducts.length >= quantity * 2) break;
         
-        const sellPrice = Number(item.sellPrice || item.price || 0);
-        if (sellPrice < minPrice || sellPrice > maxPrice) continue;
+        const pageResult = await fetchCjProductPage(token, base, catId, page);
         
-        const stock = Number(item.stock || item.inventory || 0);
-        if (stock < minStock) continue;
+        if (pageResult.list.length === 0) {
+          console.log(`[Search&Price] No more products at page ${page}`);
+          break;
+        }
         
-        const listedNum = Number(item.listedNum || 0);
-        if (popularity === 'high' && listedNum < 1000) continue;
-        if (popularity === 'medium' && (listedNum < 100 || listedNum >= 1000)) continue;
-        if (popularity === 'low' && listedNum >= 100) continue;
-        
-        candidateProducts.push(item);
-      }
-      
-      if (page % 10 === 0) {
-        console.log(`[Search&Price] Page ${page}: ${candidateProducts.length} candidates`);
+        for (const item of pageResult.list) {
+          const pid = String(item.pid || item.productId || '');
+          if (!pid || seenPids.has(pid)) continue;
+          seenPids.add(pid);
+          
+          const sellPrice = Number(item.sellPrice || item.price || 0);
+          if (sellPrice < minPrice || sellPrice > maxPrice) {
+            totalFiltered.price++;
+            continue;
+          }
+          
+          const stock = Number(item.stock || item.inventory || 0);
+          if (stock < minStock) {
+            totalFiltered.stock++;
+            continue;
+          }
+          
+          const listedNum = Number(item.listedNum || 0);
+          if (popularity === 'high' && listedNum < 1000) {
+            totalFiltered.popularity++;
+            continue;
+          }
+          if (popularity === 'medium' && (listedNum < 100 || listedNum >= 1000)) {
+            totalFiltered.popularity++;
+            continue;
+          }
+          if (popularity === 'low' && listedNum >= 100) {
+            totalFiltered.popularity++;
+            continue;
+          }
+          
+          candidateProducts.push(item);
+        }
       }
     }
     
-    console.log(`[Search&Price] Found ${candidateProducts.length} candidate products, processing top ${quantity}`);
+    console.log(`[Search&Price] ----------------------------------------`);
+    console.log(`[Search&Price] Search complete:`);
+    console.log(`[Search&Price]   Total candidates: ${candidateProducts.length}`);
+    console.log(`[Search&Price]   Filtered by price: ${totalFiltered.price}`);
+    console.log(`[Search&Price]   Filtered by stock: ${totalFiltered.stock}`);
+    console.log(`[Search&Price]   Filtered by popularity: ${totalFiltered.popularity}`);
+    console.log(`[Search&Price] ----------------------------------------`);
     
-    const productsToPrice = candidateProducts.slice(0, quantity);
+    if (candidateProducts.length === 0) {
+      console.log(`[Search&Price] No candidates found! Returning empty result.`);
+      const r = NextResponse.json({
+        ok: true,
+        products: [],
+        count: 0,
+        duration: Date.now() - startTime,
+        debug: {
+          categoriesSearched: categoryIds,
+          totalSeen: seenPids.size,
+          filtered: totalFiltered,
+        }
+      }, { headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
+    
+    const productsToPrice = candidateProducts.slice(0, Math.min(quantity, 20));
+    console.log(`[Search&Price] Pricing ${productsToPrice.length} products...`);
+    
     const pricedProducts: PricedProduct[] = [];
     
     for (const item of productsToPrice) {
@@ -217,11 +281,9 @@ export async function GET(req: Request) {
               deliveryDays = max ? `${min}-${max} days` : `${min} days`;
             }
           } else {
-            console.warn(`[Search&Price] No shipping options for product ${pid}`);
             shippingError = 'No shipping options available to Saudi Arabia';
           }
         } catch (e: any) {
-          console.error(`[Search&Price] Freight calculation failed for ${pid}:`, e?.message);
           shippingError = e?.message || 'Shipping calculation failed';
         }
         
@@ -248,7 +310,7 @@ export async function GET(req: Request) {
           error: shippingError,
         });
       } else {
-        for (const variant of variants) {
+        for (const variant of variants.slice(0, 5)) {
           const variantId = String(variant.vid || variant.variantId || variant.id || '');
           const variantSku = String(variant.variantSku || variant.sku || variantId);
           const variantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
@@ -280,11 +342,9 @@ export async function GET(req: Request) {
                 deliveryDays = max ? `${min}-${max} days` : `${min} days`;
               }
             } else {
-              console.warn(`[Search&Price] No shipping options for variant ${variantSku} of product ${pid}`);
               shippingError = 'No shipping options available to Saudi Arabia';
             }
           } catch (e: any) {
-            console.error(`[Search&Price] Freight calculation failed for variant ${variantSku}:`, e?.message);
             shippingError = e?.message || 'Shipping calculation failed';
           }
           
@@ -351,7 +411,7 @@ export async function GET(req: Request) {
     return r;
     
   } catch (e: any) {
-    console.error('[Search&Price] Error:', e?.message);
+    console.error('[Search&Price] Error:', e?.message, e?.stack);
     const r = NextResponse.json(
       { ok: false, error: e?.message || 'Search and price failed' }, 
       { status: 500, headers: { 'Cache-Control': 'no-store' } }
