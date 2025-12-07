@@ -201,7 +201,7 @@ function MediaGallery({ images, title, videoUrl }: MediaGalleryProps) {
   };
 
   return (
-    <div className="flex gap-3 h-full">
+    <div className="flex gap-3 h-full" dir="ltr">
       <div className="flex flex-col items-center gap-2 w-16 md:w-20 shrink-0">
         {items.length > 4 && (
           <button
@@ -903,7 +903,7 @@ export default function ProductDetailsClient({
 
   return (
     <div className="w-full">
-      <div className="flex flex-col-reverse lg:flex-row-reverse gap-6 lg:gap-10">
+      <div className="flex flex-col lg:flex-row gap-6 lg:gap-10">
         <div className="w-full lg:w-[55%] xl:w-[60%]">
           <MediaGallery 
             images={product.images} 
