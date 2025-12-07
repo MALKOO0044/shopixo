@@ -26,6 +26,7 @@ type PricedVariant = {
 
 type PricedProduct = {
   pid: string;
+  cjSku: string;
   name: string;
   image: string;
   minPriceSAR: number;
@@ -245,6 +246,7 @@ export async function GET(req: Request) {
     
     for (const item of productsToPrice) {
       const pid = String(item.pid || item.productId || '');
+      const cjSku = String(item.productSku || item.sku || `CJ-${pid}`);
       const name = String(item.productNameEn || item.name || item.productName || '');
       const image = String(item.productImage || item.image || item.mainImage || '');
       const stock = Number(item.stock || item.inventory || 0);
@@ -387,6 +389,7 @@ export async function GET(req: Request) {
       
       pricedProducts.push({
         pid,
+        cjSku,
         name,
         image,
         minPriceSAR,

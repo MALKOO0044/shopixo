@@ -221,7 +221,7 @@ export async function POST(req: NextRequest) {
           video_url: qp.video_url || null,
           is_active: totalStock > 0,
           cj_product_id: qp.cj_product_id,
-          supplier_sku: qp.cj_product_id,
+          supplier_sku: qp.cj_sku || `CJ-${qp.cj_product_id}`,
           free_shipping: true,
           processing_time_hours: qp.processing_days ? qp.processing_days * 24 : null,
           delivery_time_hours: qp.delivery_days_max ? qp.delivery_days_max * 24 : null,

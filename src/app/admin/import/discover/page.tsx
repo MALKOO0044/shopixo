@@ -22,6 +22,7 @@ type PricedVariant = {
 
 type PricedProduct = {
   pid: string;
+  cjSku: string;
   name: string;
   image: string;
   minPriceSAR: number;
@@ -263,6 +264,7 @@ export default function ProductDiscoveryPage() {
           name: batchName || `Discovery ${new Date().toLocaleDateString()}`,
           products: selectedProducts.map(p => ({
             cjProductId: p.pid,
+            cjSku: p.cjSku,
             name: p.name,
             image: p.image,
             minPriceSAR: p.minPriceSAR,
@@ -646,8 +648,8 @@ export default function ProductDiscoveryPage() {
                     <h3 className="font-medium text-gray-900 text-sm line-clamp-2 leading-tight" dir="ltr">
                       {product.name}
                     </h3>
-                    <p className="text-xs text-gray-400 font-mono" title={product.pid}>
-                      SKU: {product.pid.length > 12 ? `...${product.pid.slice(-8)}` : product.pid}
+                    <p className="text-xs text-gray-400 font-mono" title={product.cjSku}>
+                      SKU: {product.cjSku.length > 12 ? `...${product.cjSku.slice(-8)}` : product.cjSku}
                     </p>
                     
                     <div className="bg-green-50 rounded-lg p-2">
@@ -760,7 +762,7 @@ export default function ProductDiscoveryPage() {
                   <h2 className="text-xl font-semibold" dir="ltr">{previewProduct.name}</h2>
                   <p className="text-sm text-gray-500">
                     <span className="font-medium">Supplier SKU:</span>{" "}
-                    <span className="font-mono text-blue-600">{previewProduct.pid}</span>
+                    <span className="font-mono text-blue-600">{previewProduct.cjSku}</span>
                   </p>
                   
                   <div className="bg-green-50 rounded-lg p-4 space-y-2">

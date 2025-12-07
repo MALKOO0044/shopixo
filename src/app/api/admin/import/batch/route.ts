@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
 
       const success = await addProductToQueue(batch.id, {
         productId,
-        cjSku: p.variants?.[0]?.cjSku || undefined,
+        cjSku: p.cjSku || p.variants?.[0]?.cjSku || undefined,
         name: p.name || "Untitled",
         description: p.description || undefined,
         category: category || "General",
