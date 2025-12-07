@@ -334,31 +334,25 @@ export default function ProductDiscoveryPage() {
       )}
 
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
-        <div className="grid grid-cols-4 gap-6">
+        <div className="grid grid-cols-3 gap-6">
           <div>
-            <label className="block text-sm text-gray-600 mb-2">Quantity to Find</label>
-            <div className="flex gap-1 mb-2">
-              {quantityPresets.map(preset => (
-                <button
-                  key={preset}
-                  onClick={() => setQuantity(preset)}
-                  className={`px-2 py-1 text-xs rounded ${
-                    quantity === preset
-                      ? "bg-amber-500 text-white"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
-                >
-                  {preset}
-                </button>
+            <label className="block text-sm text-gray-600 mb-2">Category</label>
+            <select
+              value={category}
+              onChange={(e) => {
+                setCategory(e.target.value);
+                setSelectedFeatures([]);
+                loadFeatures(e.target.value);
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded"
+            >
+              <option value="all">All Categories</option>
+              {categories.map(cat => (
+                <option key={cat.categoryId} value={cat.categoryId}>
+                  {cat.categoryName}
+                </option>
               ))}
-            </div>
-            <input
-              type="number"
-              value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-left"
-              dir="ltr"
-            />
+            </select>
           </div>
           
           <div>
@@ -406,30 +400,26 @@ export default function ProductDiscoveryPage() {
           </div>
           
           <div>
-            <label className="block text-sm text-gray-600 mb-2">Category</label>
-            <select
-              value={category}
-              onChange={(e) => {
-                setCategory(e.target.value);
-                setSelectedFeatures([]);
-                loadFeatures(e.target.value);
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded"
-            >
-              <option value="all">All Categories</option>
-              {categories.map(cat => (
-                <option key={cat.categoryId} value={cat.categoryId}>
-                  {cat.categoryName}
-                </option>
+            <label className="block text-sm text-gray-600 mb-2">Quantity to Find</label>
+            <div className="flex gap-1 mb-2">
+              {quantityPresets.map(preset => (
+                <button
+                  key={preset}
+                  onClick={() => setQuantity(preset)}
+                  className={`px-2 py-1 text-xs rounded ${
+                    quantity === preset
+                      ? "bg-amber-500 text-white"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  {preset}
+                </button>
               ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm text-gray-600 mb-2">Keyword</label>
+            </div>
             <input
-              type="text"
-              placeholder="Optional keyword..."
+              type="number"
+              value={quantity}
+              onChange={(e) => setQuantity(Number(e.target.value))}
               className="w-full px-3 py-2 border border-gray-300 rounded text-left"
               dir="ltr"
             />
@@ -438,25 +428,11 @@ export default function ProductDiscoveryPage() {
 
         <div className="grid grid-cols-4 gap-6">
           <div>
-            <label className="block text-sm text-gray-600 mb-2">Popularity</label>
-            <select
-              value={popularity}
-              onChange={(e) => setPopularity(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded"
-            >
-              <option value="any">Any Popularity</option>
-              <option value="high">High (1000+ listed)</option>
-              <option value="medium">Medium (100-999 listed)</option>
-              <option value="low">Low (&lt;100 listed)</option>
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-sm text-gray-600 mb-2">Min Stock</label>
+            <label className="block text-sm text-gray-600 mb-2">Min Price (USD)</label>
             <input
               type="number"
-              value={minStock}
-              onChange={(e) => setMinStock(Number(e.target.value))}
+              value={minPrice}
+              onChange={(e) => setMinPrice(Number(e.target.value))}
               className="w-full px-3 py-2 border border-gray-300 rounded text-left"
               dir="ltr"
             />
@@ -474,29 +450,33 @@ export default function ProductDiscoveryPage() {
           </div>
           
           <div>
-            <label className="block text-sm text-gray-600 mb-2">Min Price (USD)</label>
+            <label className="block text-sm text-gray-600 mb-2">Min Stock</label>
             <input
               type="number"
-              value={minPrice}
-              onChange={(e) => setMinPrice(Number(e.target.value))}
+              value={minStock}
+              onChange={(e) => setMinStock(Number(e.target.value))}
               className="w-full px-3 py-2 border border-gray-300 rounded text-left"
               dir="ltr"
             />
+          </div>
+          
+          <div>
+            <label className="block text-sm text-gray-600 mb-2">Popularity</label>
+            <select
+              value={popularity}
+              onChange={(e) => setPopularity(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded"
+            >
+              <option value="any">Any Popularity</option>
+              <option value="high">High (1000+ listed)</option>
+              <option value="medium">Medium (100-999 listed)</option>
+              <option value="low">Low (&lt;100 listed)</option>
+            </select>
           </div>
         </div>
 
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <input
-                type="checkbox"
-                checked={freeShippingOnly}
-                onChange={(e) => setFreeShippingOnly(e.target.checked)}
-                className="w-4 h-4 border-gray-300 rounded"
-              />
-              <label className="text-sm text-gray-700">Free Shipping Only</label>
-            </div>
-            
             <div className="flex items-center gap-3">
               <span className="text-sm text-amber-700 font-medium">*Profit Margin % ({profitMargin}%)</span>
               <div className="flex gap-1">
@@ -522,6 +502,16 @@ export default function ProductDiscoveryPage() {
                 className="w-16 px-2 py-1.5 border border-gray-300 rounded text-center"
                 dir="ltr"
               />
+            </div>
+            
+            <div className="flex items-center gap-4">
+              <input
+                type="checkbox"
+                checked={freeShippingOnly}
+                onChange={(e) => setFreeShippingOnly(e.target.checked)}
+                className="w-4 h-4 border-gray-300 rounded"
+              />
+              <label className="text-sm text-gray-700">Free Shipping Only</label>
             </div>
           </div>
           <p className="text-xs text-amber-600 mt-2 text-right">
