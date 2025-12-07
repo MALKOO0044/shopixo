@@ -186,8 +186,10 @@ export async function GET(req: Request) {
             continue;
           }
           
-          const stock = Number(item.stock || item.inventory || 0);
-          if (stock < minStock) {
+          const stockRaw = item.stock ?? item.inventory;
+          const hasStockInfo = stockRaw !== undefined && stockRaw !== null;
+          const stock = hasStockInfo ? Number(stockRaw) : Infinity;
+          if (hasStockInfo && stock < minStock) {
             totalFiltered.stock++;
             continue;
           }

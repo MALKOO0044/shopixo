@@ -127,6 +127,15 @@ export async function GET() {
       const totalCount = countAllCategories(categories);
       console.log("[CJ Categories] Tree built:", categories.length, "top-level categories,", totalCount, "total nodes");
       
+      if (categories.length > 0 && categories[0].children && categories[0].children.length > 0) {
+        const firstLevel2 = categories[0].children[0];
+        console.log("[CJ Categories] Sample Level 2:", firstLevel2.categoryId, firstLevel2.categoryName);
+        if (firstLevel2.children && firstLevel2.children.length > 0) {
+          const firstLevel3 = firstLevel2.children[0];
+          console.log("[CJ Categories] Sample Level 3 (REAL ID):", firstLevel3.categoryId, firstLevel3.categoryName);
+        }
+      }
+      
       if (categories.length === 0 && rawCategories.length > 0) {
         console.log("[CJ Categories] WARNING: Raw data exists but tree is empty. Check parsing logic.");
         console.log("[CJ Categories] Raw sample:", JSON.stringify(rawCategories[0]).slice(0, 500));

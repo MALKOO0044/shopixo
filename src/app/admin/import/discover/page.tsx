@@ -51,7 +51,7 @@ export default function ProductDiscoveryPage() {
   const [category, setCategory] = useState("all");
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
   const [quantity, setQuantity] = useState(50);
-  const [minStock, setMinStock] = useState(10);
+  const [minStock, setMinStock] = useState(0);
   const [maxPrice, setMaxPrice] = useState(100);
   const [minPrice, setMinPrice] = useState(0);
   const [profitMargin, setProfitMargin] = useState(8);
