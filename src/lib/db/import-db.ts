@@ -91,40 +91,60 @@ export async function addProductToQueue(batchId: number, product: {
   const supabase = getSupabaseAdmin();
   if (!supabase) return false;
 
-  const { error } = await supabase
+  const productData = {
+    batch_id: batchId,
+    cj_product_id: product.productId,
+    cj_sku: product.cjSku || null,
+    name_en: product.name,
+    name_ar: null,
+    description_en: product.description || null,
+    description_ar: null,
+    category: product.category,
+    images: product.images,
+    video_url: product.videoUrl || null,
+    variants: product.variants,
+    cj_price_usd: product.avgPrice,
+    shipping_cost_usd: null,
+    calculated_retail_sar: null,
+    margin_applied: null,
+    supplier_rating: product.supplierRating || 4.0,
+    total_sales: product.totalSales || 0,
+    stock_total: product.totalStock,
+    processing_days: product.processingDays || 3,
+    delivery_days_min: product.deliveryDaysMin || 7,
+    delivery_days_max: product.deliveryDaysMax || 15,
+    quality_score: product.qualityScore || 0.75,
+    status: 'pending',
+    admin_notes: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    shopixo_product_id: null,
+    imported_at: null,
+    updated_at: new Date().toISOString(),
+  };
+
+  // First check if product already exists
+  const { data: existing } = await supabase
     .from('product_queue')
-    .upsert({
-      batch_id: batchId,
-      cj_product_id: product.productId,
-      cj_sku: product.cjSku || null,
-      name_en: product.name,
-      name_ar: null,
-      description_en: product.description || null,
-      description_ar: null,
-      category: product.category,
-      images: product.images,
-      video_url: product.videoUrl || null,
-      variants: product.variants,
-      cj_price_usd: product.avgPrice,
-      shipping_cost_usd: null,
-      calculated_retail_sar: null,
-      margin_applied: null,
-      supplier_rating: product.supplierRating || 4.0,
-      total_sales: product.totalSales || 0,
-      stock_total: product.totalStock,
-      processing_days: product.processingDays || 3,
-      delivery_days_min: product.deliveryDaysMin || 7,
-      delivery_days_max: product.deliveryDaysMax || 15,
-      quality_score: product.qualityScore || 0.75,
-      status: 'pending',
-      admin_notes: null,
-      reviewed_by: null,
-      reviewed_at: null,
-      shopixo_product_id: null,
-      imported_at: null,
-    }, {
-      onConflict: 'cj_product_id',
-    });
+    .select('id')
+    .eq('cj_product_id', product.productId)
+    .maybeSingle();
+
+  let error;
+  if (existing) {
+    // Update existing product
+    const result = await supabase
+      .from('product_queue')
+      .update(productData)
+      .eq('cj_product_id', product.productId);
+    error = result.error;
+  } else {
+    // Insert new product
+    const result = await supabase
+      .from('product_queue')
+      .insert(productData);
+    error = result.error;
+  }
 
   if (error) {
     console.error('[Import DB] Failed to add product to queue:', {
