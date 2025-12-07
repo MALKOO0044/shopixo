@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
         ? p.variants.reduce((sum: number, v: any) => sum + (v.price || 0), 0) / p.variants.length
         : 0;
       const totalStock = p.variants?.reduce((sum: number, v: any) => sum + (v.stock || 0), 0) || 0;
-      const productId = p.pid || p.productId;
+      const productId = p.cjProductId || p.pid || p.productId;
 
       const result = await addProductToQueue(batch.id, {
         productId,
