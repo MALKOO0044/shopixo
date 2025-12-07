@@ -28,6 +28,10 @@ export type Product = {
   variants: { name: string; options: string[] }[];
   is_active?: boolean; // soft delete flag (optional to avoid breaking existing code)
 
+  // Product codes
+  product_code?: string | null; // Shopixo public code (SHP-XXXXX) - visible to customers
+  supplier_sku?: string | null; // Supplier SKU from CJ - admin only
+
   // Shipping and CJ linkage metadata (optional)
   video_url?: string | null;
   processing_time_hours?: number | null;
