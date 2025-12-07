@@ -3,17 +3,16 @@ import { getAccessToken } from "@/lib/cj/v2";
 
 export const dynamic = "force-dynamic";
 
-type FlatCategory = { 
+type CategoryNode = { 
   categoryId: string; 
   categoryName: string;
-  level: number;
-  parentId?: string;
+  children?: CategoryNode[];
 };
 
-function buildCategoryTree(nodes: any[]): FlatCategory[] {
-  const result: FlatCategory[] = [];
+function buildCategoryTree(nodes: any[]): CategoryNode[] {
+  if (!Array.isArray(nodes)) return [];
   
-  if (!Array.isArray(nodes)) return result;
+  const result: CategoryNode[] = [];
   
   for (const firstLevel of nodes) {
     if (!firstLevel || typeof firstLevel !== 'object') continue;
@@ -21,54 +20,66 @@ function buildCategoryTree(nodes: any[]): FlatCategory[] {
     const firstId = firstLevel.categoryFirstId || firstLevel.categoryId || firstLevel.id;
     const firstName = firstLevel.categoryFirstName || firstLevel.categoryName || firstLevel.name;
     
-    if (firstId && firstName) {
-      result.push({
-        categoryId: String(firstId),
-        categoryName: String(firstName),
-        level: 1,
-      });
-      
-      const secondLevelArray = firstLevel.categorySecond || firstLevel.children || [];
-      if (Array.isArray(secondLevelArray)) {
-        for (const secondLevel of secondLevelArray) {
-          if (!secondLevel || typeof secondLevel !== 'object') continue;
-          
-          const secondId = secondLevel.categorySecondId || secondLevel.categoryId || secondLevel.id;
-          const secondName = secondLevel.categorySecondName || secondLevel.categoryName || secondLevel.name;
-          
-          if (secondId && secondName) {
-            result.push({
-              categoryId: String(secondId),
-              categoryName: `${firstName} > ${secondName}`,
-              level: 2,
-              parentId: String(firstId),
-            });
+    if (!firstId || !firstName) continue;
+    
+    const firstNode: CategoryNode = {
+      categoryId: String(firstId),
+      categoryName: String(firstName),
+      children: [],
+    };
+    
+    const secondLevelArray = firstLevel.categorySecond || firstLevel.children || [];
+    if (Array.isArray(secondLevelArray)) {
+      for (const secondLevel of secondLevelArray) {
+        if (!secondLevel || typeof secondLevel !== 'object') continue;
+        
+        const secondId = secondLevel.categorySecondId || secondLevel.categoryId || secondLevel.id;
+        const secondName = secondLevel.categorySecondName || secondLevel.categoryName || secondLevel.name;
+        
+        if (!secondId || !secondName) continue;
+        
+        const secondNode: CategoryNode = {
+          categoryId: String(secondId),
+          categoryName: String(secondName),
+          children: [],
+        };
+        
+        const thirdLevelArray = secondLevel.categoryThird || secondLevel.children || [];
+        if (Array.isArray(thirdLevelArray)) {
+          for (const thirdLevel of thirdLevelArray) {
+            if (!thirdLevel || typeof thirdLevel !== 'object') continue;
             
-            const thirdLevelArray = secondLevel.categoryThird || secondLevel.children || [];
-            if (Array.isArray(thirdLevelArray)) {
-              for (const thirdLevel of thirdLevelArray) {
-                if (!thirdLevel || typeof thirdLevel !== 'object') continue;
-                
-                const thirdId = thirdLevel.categoryThirdId || thirdLevel.categoryId || thirdLevel.id;
-                const thirdName = thirdLevel.categoryThirdName || thirdLevel.categoryName || thirdLevel.name;
-                
-                if (thirdId && thirdName) {
-                  result.push({
-                    categoryId: String(thirdId),
-                    categoryName: `${firstName} > ${secondName} > ${thirdName}`,
-                    level: 3,
-                    parentId: String(secondId),
-                  });
-                }
-              }
-            }
+            const thirdId = thirdLevel.categoryThirdId || thirdLevel.categoryId || thirdLevel.id;
+            const thirdName = thirdLevel.categoryThirdName || thirdLevel.categoryName || thirdLevel.name;
+            
+            if (!thirdId || !thirdName) continue;
+            
+            secondNode.children!.push({
+              categoryId: String(thirdId),
+              categoryName: String(thirdName),
+            });
           }
         }
+        
+        firstNode.children!.push(secondNode);
       }
     }
+    
+    result.push(firstNode);
   }
   
   return result;
+}
+
+function countAllCategories(nodes: CategoryNode[]): number {
+  let count = 0;
+  for (const node of nodes) {
+    count++;
+    if (node.children) {
+      count += countAllCategories(node.children);
+    }
+  }
+  return count;
 }
 
 export async function GET() {
@@ -103,7 +114,8 @@ export async function GET() {
       }
       
       const categories = buildCategoryTree(rawCategories);
-      console.log("[CJ Categories] Tree count:", categories.length, "First level:", categories.filter(c => c.level === 1).length);
+      const totalCount = countAllCategories(categories);
+      console.log("[CJ Categories] Tree built: ", categories.length, "top-level,", totalCount, "total categories");
       
       if (categories.length === 0 && rawCategories.length > 0) {
         console.log("[CJ Categories] WARNING: Raw data exists but parsing returned 0. Raw sample:", JSON.stringify(rawCategories.slice(0, 2)).slice(0, 1000));
@@ -112,7 +124,7 @@ export async function GET() {
       return NextResponse.json({ 
         ok: true, 
         categories,
-        total: categories.length,
+        total: totalCount,
         rawCount: rawCategories.length,
       });
     }
