@@ -202,6 +202,42 @@ function MediaGallery({ images, title, videoUrl }: MediaGalleryProps) {
 
   return (
     <div className="flex gap-3 h-full" dir="ltr">
+      <div
+        className="relative flex-1 aspect-[3/4] md:aspect-square rounded-lg overflow-hidden bg-muted cursor-zoom-in"
+        onClick={() => !isLikelyVideoUrl(selected) && openZoom()}
+        role={!isLikelyVideoUrl(selected) ? 'button' : undefined}
+        aria-label={!isLikelyVideoUrl(selected) ? 'تكبير الصورة' : undefined}
+      >
+        {isLikelyVideoUrl(selected) ? (
+          <video
+            className="h-full w-full object-cover"
+            controls
+            playsInline
+            preload="metadata"
+            crossOrigin="anonymous"
+            poster={getCloudinaryVideoPoster(selected) || undefined}
+          >
+            <source src={transformVideo(selected)} type={videoMimeFromUrl(selected)} />
+          </video>
+        ) : (
+          <SmartImage
+            src={transformImage(selected)}
+            alt={title}
+            fill
+            className="object-cover"
+            loading="eager"
+            onError={(e: any) => {
+              try {
+                const el = e.currentTarget as HTMLImageElement;
+                if (el && !el.src.endsWith('/placeholder.svg')) {
+                  el.src = '/placeholder.svg';
+                }
+              } catch {}
+            }}
+          />
+        )}
+      </div>
+
       <div className="flex flex-col items-center gap-2 w-16 md:w-20 shrink-0">
         {items.length > 4 && (
           <button
@@ -265,42 +301,6 @@ function MediaGallery({ images, title, videoUrl }: MediaGalleryProps) {
         )}
       </div>
 
-      <div
-        className="relative flex-1 aspect-[3/4] md:aspect-square rounded-lg overflow-hidden bg-muted cursor-zoom-in"
-        onClick={() => !isLikelyVideoUrl(selected) && openZoom()}
-        role={!isLikelyVideoUrl(selected) ? 'button' : undefined}
-        aria-label={!isLikelyVideoUrl(selected) ? 'تكبير الصورة' : undefined}
-      >
-        {isLikelyVideoUrl(selected) ? (
-          <video
-            className="h-full w-full object-cover"
-            controls
-            playsInline
-            preload="metadata"
-            crossOrigin="anonymous"
-            poster={getCloudinaryVideoPoster(selected) || undefined}
-          >
-            <source src={transformVideo(selected)} type={videoMimeFromUrl(selected)} />
-          </video>
-        ) : (
-          <SmartImage
-            src={transformImage(selected)}
-            alt={title}
-            fill
-            className="object-cover"
-            loading="eager"
-            onError={(e: any) => {
-              try {
-                const el = e.currentTarget as HTMLImageElement;
-                if (el && !el.src.endsWith('/placeholder.svg')) {
-                  el.src = '/placeholder.svg';
-                }
-              } catch {}
-            }}
-          />
-        )}
-      </div>
-
       {zoomOpen && !isLikelyVideoUrl(selected) && (
         <div className="fixed inset-0 z-50" aria-modal="true" role="dialog">
           <div className="absolute inset-0 bg-black/80" onClick={closeZoom} />
@@ -358,7 +358,7 @@ function DetailHeader({ title, productCode, rating, reviewCount = 0 }: DetailHea
 
   return (
     <div className="space-y-2">
-      <h1 className="text-xl md:text-2xl font-bold text-foreground leading-tight">
+      <h1 className="text-lg md:text-xl font-bold text-foreground leading-tight">
         {title}
       </h1>
       
@@ -405,12 +405,12 @@ function PriceBlock({ price, originalPrice, isAvailable }: PriceBlockProps) {
   return (
     <div className="space-y-1">
       <div className="flex items-baseline gap-3 flex-wrap">
-        <span className="text-2xl md:text-3xl font-bold text-foreground">
+        <span className="text-xl md:text-2xl font-bold text-foreground">
           {formatCurrency(price)}
         </span>
         {hasDiscount && (
           <>
-            <span className="text-lg text-muted-foreground line-through">
+            <span className="text-base text-muted-foreground line-through">
               {formatCurrency(originalPrice)}
             </span>
             <span className="px-2 py-0.5 bg-red-100 text-red-700 text-sm font-medium rounded">
