@@ -29,7 +29,7 @@ export type Product = {
   is_active?: boolean; // soft delete flag (optional to avoid breaking existing code)
 
   // Product codes
-  product_code?: string | null; // Shopixo public code (SHP-XXXXX) - visible to customers
+  product_code?: string | null; // Shopixo public code (XO00001 format) - visible to customers
   supplier_sku?: string | null; // Supplier SKU from CJ - admin only
 
   // Shipping and CJ linkage metadata (optional)

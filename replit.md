@@ -4,6 +4,18 @@ Shopixo is a modern, professional e-commerce platform targeting the Saudi Arabia
 
 ---
 
+# Recent Changes (December 2025)
+
+## Product Code System (December 7, 2025)
+- **Store Product Codes**: Auto-generated unique codes in XO00001 format
+  - Visible to customers on product pages and cart
+  - Database function `generate_product_code()` creates sequential codes
+- **Supplier SKU**: CJ Dropshipping SKU stored for admin reference only
+  - Visible only in admin pages (Discovery, Queue, Inventory)
+  - Never exposed to customers
+
+---
+
 # Recent Changes (November 2025)
 
 ## Import System Migration to Supabase (Latest - November 30, 2025)

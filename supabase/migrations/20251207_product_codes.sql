@@ -3,7 +3,7 @@
 -- supplier_sku: The SKU from the supplier (CJ Dropshipping) - admin only visibility
 ALTER TABLE products ADD COLUMN IF NOT EXISTS supplier_sku TEXT;
 
--- product_code: Shopixo's public product code (SHP-00001 format) - visible to customers
+-- product_code: Shopixo's public product code (XO00001 format) - visible to customers
 ALTER TABLE products ADD COLUMN IF NOT EXISTS product_code TEXT UNIQUE;
 
 -- Create a sequence for generating product codes
@@ -17,7 +17,7 @@ DECLARE
   code TEXT;
 BEGIN
   next_val := nextval('product_code_seq');
-  code := 'SHP-' || LPAD(next_val::TEXT, 5, '0');
+  code := 'XO' || LPAD(next_val::TEXT, 5, '0');
   RETURN code;
 END;
 $$ LANGUAGE plpgsql;
@@ -38,4 +38,4 @@ CREATE INDEX IF NOT EXISTS idx_products_supplier_sku ON products(supplier_sku);
 
 -- Comment the columns for documentation
 COMMENT ON COLUMN products.supplier_sku IS 'Supplier SKU from CJ Dropshipping - admin only visibility';
-COMMENT ON COLUMN products.product_code IS 'Shopixo public product code (SHP-XXXXX format) - visible to customers';
+COMMENT ON COLUMN products.product_code IS 'Shopixo public product code (XO00001 format) - visible to customers';
