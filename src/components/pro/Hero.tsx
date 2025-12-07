@@ -26,6 +26,7 @@ export default function Hero() {
             src="https://images.unsplash.com/photo-1512436991641-6745cdb1723f?q=80&w=1600&auto=format&fit=crop"
             alt="صورة فاخرة لمنتجات"
             fill
+            sizes="(max-width: 768px) 100vw, 50vw"
             className="object-cover"
             priority
           />

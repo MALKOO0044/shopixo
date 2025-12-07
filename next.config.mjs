@@ -26,6 +26,7 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   experimental: { typedRoutes: true },
+  allowedDevOrigins: ['*.replit.dev', '*.kirk.replit.dev', '127.0.0.1', 'localhost'],
   // Increase SSG timeout for heavy concurrent renders in CI
   staticPageGenerationTimeout: 180,
   eslint: {

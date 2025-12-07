@@ -28,7 +28,7 @@ export default function CartItem({ item }: { item: CartItemType }) {
   return (
     <div className="flex items-center gap-4 rounded-xl border bg-white p-4 shadow-sm">
       <div className="relative h-20 w-20 overflow-hidden rounded-md bg-slate-100">
-        <Image src={product.images?.[0] || "/placeholder.svg"} alt={product.title} fill className="object-cover" />
+        <Image src={product.images?.[0] || "/placeholder.svg"} alt={product.title} fill sizes="80px" className="object-cover" />
       </div>
       <div className="flex-1">
         <Link href={`/product/${product.slug}`} className="font-medium hover:underline">
