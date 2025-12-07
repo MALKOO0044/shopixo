@@ -87,9 +87,9 @@ export async function addProductToQueue(batchId: number, product: {
   deliveryDaysMin?: number;
   deliveryDaysMax?: number;
   qualityScore?: number;
-}): Promise<boolean> {
+}): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseAdmin();
-  if (!supabase) return false;
+  if (!supabase) return { success: false, error: 'Supabase not configured' };
 
   const productData = {
     batch_id: batchId,
@@ -147,6 +147,7 @@ export async function addProductToQueue(batchId: number, product: {
   }
 
   if (error) {
+    const errorMsg = `${error.message} (code: ${error.code})${error.details ? ` - ${error.details}` : ''}`;
     console.error('[Import DB] Failed to add product to queue:', {
       message: error.message,
       code: error.code,
@@ -154,9 +155,9 @@ export async function addProductToQueue(batchId: number, product: {
       hint: error.hint,
       productId: product.productId
     });
-    return false;
+    return { success: false, error: errorMsg };
   }
-  return true;
+  return { success: true };
 }
 
 export async function logImportAction(batchId: number, action: string, status: string, details: any): Promise<void> {

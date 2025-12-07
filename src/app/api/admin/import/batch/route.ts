@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
     let addedCount = 0;
     let failedCount = 0;
     const failedProducts: string[] = [];
+    const errorMessages: string[] = [];
     
     for (const p of products) {
       const avgPrice = p.variants?.length > 0
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
       const totalStock = p.variants?.reduce((sum: number, v: any) => sum + (v.stock || 0), 0) || 0;
       const productId = p.pid || p.productId;
 
-      const success = await addProductToQueue(batch.id, {
+      const result = await addProductToQueue(batch.id, {
         productId,
         cjSku: p.cjSku || p.variants?.[0]?.cjSku || undefined,
         name: p.name || "Untitled",
@@ -85,19 +86,26 @@ export async function POST(req: NextRequest) {
         qualityScore: p.qualityScore || 0.75,
       });
 
-      if (success) {
+      if (result.success) {
         addedCount++;
       } else {
         failedCount++;
         failedProducts.push(productId);
+        if (result.error && errorMessages.length < 3) {
+          errorMessages.push(result.error);
+        }
       }
     }
     
     if (addedCount === 0 && products.length > 0) {
+      const errorDetail = errorMessages.length > 0 
+        ? ` First error: ${errorMessages[0]}`
+        : '';
       return NextResponse.json({ 
         ok: false, 
-        error: `Failed to add any products to queue. ${failedCount} products failed.`,
-        failedProducts: failedProducts.slice(0, 10)
+        error: `Failed to add any products to queue. ${failedCount} products failed.${errorDetail}`,
+        failedProducts: failedProducts.slice(0, 10),
+        errorDetails: errorMessages
       }, { status: 500 });
     }
 
