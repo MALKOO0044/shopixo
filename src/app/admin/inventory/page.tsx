@@ -27,6 +27,8 @@ type InventoryProduct = {
   stock: number;
   active: boolean;
   images: string[];
+  supplier_sku: string | null;
+  product_code: string | null;
   metadata: {
     cj_product_id?: string;
     cj_sku?: string;
@@ -292,7 +294,7 @@ export default function InventoryPage() {
               <tr className="bg-gray-50 border-b">
                 <th className="w-20 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Image</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier SKU</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Visibility</th>
@@ -329,8 +331,14 @@ export default function InventoryPage() {
                       <p className="text-xs text-gray-400 mt-1">{product.category}</p>
                     </td>
                     <td className="px-4 py-3">
-                      {product.metadata?.cj_product_id ? (
-                        <span className="font-mono text-xs text-blue-600">{product.metadata.cj_product_id.slice(-8)}</span>
+                      {product.supplier_sku ? (
+                        <span className="font-mono text-xs text-blue-600" title={product.supplier_sku}>
+                          {product.supplier_sku.length > 12 ? `...${product.supplier_sku.slice(-8)}` : product.supplier_sku}
+                        </span>
+                      ) : product.metadata?.cj_product_id ? (
+                        <span className="font-mono text-xs text-blue-600" title={product.metadata.cj_product_id}>
+                          {product.metadata.cj_product_id.length > 12 ? `...${product.metadata.cj_product_id.slice(-8)}` : product.metadata.cj_product_id}
+                        </span>
                       ) : (
                         <span className="text-gray-400 text-xs">Manual</span>
                       )}

@@ -646,6 +646,9 @@ export default function ProductDiscoveryPage() {
                     <h3 className="font-medium text-gray-900 text-sm line-clamp-2 leading-tight" dir="ltr">
                       {product.name}
                     </h3>
+                    <p className="text-xs text-gray-400 font-mono" title={product.pid}>
+                      SKU: {product.pid.length > 12 ? `...${product.pid.slice(-8)}` : product.pid}
+                    </p>
                     
                     <div className="bg-green-50 rounded-lg p-2">
                       <div className="flex justify-between items-center">
@@ -755,6 +758,10 @@ export default function ProductDiscoveryPage() {
                 
                 <div className="space-y-4">
                   <h2 className="text-xl font-semibold" dir="ltr">{previewProduct.name}</h2>
+                  <p className="text-sm text-gray-500">
+                    <span className="font-medium">Supplier SKU:</span>{" "}
+                    <span className="font-mono text-blue-600">{previewProduct.pid}</span>
+                  </p>
                   
                   <div className="bg-green-50 rounded-lg p-4 space-y-2">
                     <div className="flex justify-between text-lg font-bold">

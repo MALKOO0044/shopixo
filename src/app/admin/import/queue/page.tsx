@@ -411,6 +411,7 @@ export default function QueuePage() {
                 <th className="w-10 px-4 py-3"></th>
                 <th className="w-20 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Image</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier SKU</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock</th>
@@ -427,7 +428,7 @@ export default function QueuePage() {
                 
                 return editingId === product.id ? (
                   <tr key={product.id} className="bg-blue-50">
-                    <td colSpan={9} className="px-4 py-4">
+                    <td colSpan={10} className="px-4 py-4">
                       <div className="space-y-3">
                         <div className="grid grid-cols-2 gap-4">
                           <div>
@@ -518,7 +519,11 @@ export default function QueuePage() {
                       {product.name_ar && (
                         <p className="text-sm text-gray-500 line-clamp-1" dir="rtl">{product.name_ar}</p>
                       )}
-                      <p className="text-xs text-gray-400 mt-1 font-mono">{product.cj_product_id}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-mono text-xs text-blue-600" title={product.cj_product_id}>
+                        {product.cj_product_id.length > 12 ? `...${product.cj_product_id.slice(-8)}` : product.cj_product_id}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-1 bg-gray-100 rounded text-xs text-gray-700">{product.category}</span>

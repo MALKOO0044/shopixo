@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
 
     let query = admin
       .from("products")
-      .select("id, title, title_ar, category, price, stock, active, images, metadata, updated_at", { count: "exact" })
+      .select("id, title, title_ar, category, price, stock, active, images, metadata, updated_at, supplier_sku, product_code", { count: "exact" })
       .order("stock", { ascending: true })
       .order("updated_at", { ascending: false })
       .range(offset, offset + limit - 1);

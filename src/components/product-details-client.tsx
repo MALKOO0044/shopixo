@@ -486,6 +486,11 @@ export default function ProductDetailsClient({ product, variantRows, children }:
       <ProductGallery images={product.images} videoUrl={(product as any).video_url || undefined} title={product.title} />
       <div>
         <h1 className="text-3xl font-bold text-foreground">{product.title}</h1>
+        {product.product_code && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            رمز المنتج: <span className="font-mono">{product.product_code}</span>
+          </p>
+        )}
         <div className="mt-2 flex items-center gap-4">
           <span className="text-2xl font-semibold text-primary">{formatCurrency(selectedVariant?.price ?? product.price)}</span>
           <span className={cn(

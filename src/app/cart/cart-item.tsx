@@ -34,6 +34,9 @@ export default function CartItem({ item }: { item: CartItemType }) {
         <Link href={`/product/${product.slug}`} className="font-medium hover:underline">
           {product.title}
         </Link>
+        {product.product_code && (
+          <p className="text-xs text-slate-500">رمز: {product.product_code}</p>
+        )}
         <div className="text-sm text-slate-600">
           {variant ? (
             <>
