@@ -24,7 +24,7 @@ type PricedProduct = {
   pid: string;
   cjSku: string;
   name: string;
-  image: string;
+  images: string[];
   minPriceSAR: number;
   maxPriceSAR: number;
   avgPriceSAR: number;
@@ -266,7 +266,7 @@ export default function ProductDiscoveryPage() {
             cjProductId: p.pid,
             cjSku: p.cjSku,
             name: p.name,
-            image: p.image,
+            images: p.images,
             minPriceSAR: p.minPriceSAR,
             maxPriceSAR: p.maxPriceSAR,
             avgPriceSAR: p.avgPriceSAR,

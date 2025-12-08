@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAccessToken, freightCalculate } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsBatch } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
@@ -28,7 +28,7 @@ type PricedProduct = {
   pid: string;
   cjSku: string;
   name: string;
-  image: string;
+  images: string[];
   minPriceSAR: number;
   maxPriceSAR: number;
   avgPriceSAR: number;
@@ -100,6 +100,56 @@ async function getVariantsForProduct(token: string, base: string, pid: string): 
 function calculateSellPriceWithMargin(landedCostSAR: number, profitMarginPercent: number): number {
   const margin = profitMarginPercent / 100;
   return computeRetailFromLanded(landedCostSAR, { margin });
+}
+
+function extractAllImages(item: any): string[] {
+  if (!item) return [];
+  
+  const imageList: string[] = [];
+  const seen = new Set<string>();
+  
+  const pushUrl = (val: any) => {
+    if (typeof val === 'string' && val.trim()) {
+      const url = val.trim();
+      if (!seen.has(url)) {
+        seen.add(url);
+        imageList.push(url);
+      }
+    }
+  };
+  
+  // Main image fields
+  const mainFields = ['productImage', 'bigImage', 'image', 'mainImage', 'mainImageUrl'];
+  for (const field of mainFields) {
+    pushUrl(item[field]);
+  }
+  
+  // Array fields containing images
+  const arrFields = ['imageList', 'productImageList', 'detailImageList', 'pictureList', 'productImages'];
+  for (const key of arrFields) {
+    const arr = item[key];
+    if (Array.isArray(arr)) {
+      for (const it of arr) {
+        if (typeof it === 'string') pushUrl(it);
+        else if (it && typeof it === 'object') {
+          pushUrl(it.imageUrl || it.url || it.imgUrl || it.big || it.origin || it.src);
+        }
+      }
+    }
+  }
+  
+  // Variants may have images too
+  const variantList = item.variantList || item.skuList || item.variants || [];
+  if (Array.isArray(variantList)) {
+    for (const v of variantList) {
+      pushUrl(v?.whiteImage || v?.image || v?.imageUrl || v?.imgUrl);
+    }
+  }
+  
+  // Filter out non-product images (badges, icons, etc.)
+  const deny = /(sprite|icon|favicon|logo|placeholder|blank|loading|alipay|wechat|whatsapp|kefu|service|avatar|thumb|thumbnail|small|tiny|mini|sizechart|size\s*chart|chart|table|guide|tips|hot|badge|flag|promo|banner|sale|discount|qr)/i;
+  
+  return imageList.filter(url => !deny.test(url)).slice(0, 30);
 }
 
 export async function GET(req: Request) {
@@ -242,15 +292,25 @@ export async function GET(req: Request) {
     const productsToPrice = candidateProducts.slice(0, Math.min(quantity, 20));
     console.log(`[Search&Price] Pricing ${productsToPrice.length} products...`);
     
+    // Fetch full product details to get all images
+    const pidsToHydrate = productsToPrice.map(p => String(p.pid || p.productId || '')).filter(Boolean);
+    console.log(`[Search&Price] Hydrating ${pidsToHydrate.length} products with full details...`);
+    const productDetailsMap = await fetchProductDetailsBatch(pidsToHydrate, 5);
+    console.log(`[Search&Price] Successfully hydrated ${productDetailsMap.size} products`);
+    
     const pricedProducts: PricedProduct[] = [];
     
     for (const item of productsToPrice) {
       const pid = String(item.pid || item.productId || '');
       const cjSku = String(item.productSku || item.sku || `CJ-${pid}`);
       const name = String(item.productNameEn || item.name || item.productName || '');
-      const image = String(item.productImage || item.image || item.mainImage || '');
       const stock = Number(item.stock || item.inventory || 0);
       const listedNum = Number(item.listedNum || 0);
+      
+      // Get full product details for all images
+      const fullDetails = productDetailsMap.get(pid);
+      const images = extractAllImages(fullDetails || item);
+      console.log(`[Search&Price] Product ${pid}: ${images.length} images found`);
       
       const variants = await getVariantsForProduct(token, base, pid);
       
@@ -391,7 +451,7 @@ export async function GET(req: Request) {
         pid,
         cjSku,
         name,
-        image,
+        images,
         minPriceSAR,
         maxPriceSAR,
         avgPriceSAR,
