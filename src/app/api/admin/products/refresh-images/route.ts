@@ -48,16 +48,51 @@ function extractAllImages(item: any): string[] {
     }
   }
   
+  // Extract color images from productPropertyList (CJ color options)
+  const propertyList = item.productPropertyList || item.propertyList || item.productOptions || [];
+  if (Array.isArray(propertyList)) {
+    for (const prop of propertyList) {
+      pushUrl(prop?.image || prop?.imageUrl || prop?.propImage || prop?.optionImage);
+      
+      const propValues = prop?.propertyValueList || prop?.values || prop?.options || [];
+      if (Array.isArray(propValues)) {
+        for (const pv of propValues) {
+          pushUrl(pv?.image || pv?.imageUrl || pv?.propImage || pv?.bigImage);
+        }
+      }
+    }
+  }
+  
+  // Variants - comprehensive extraction including color images
   const variantList = item.variantList || item.skuList || item.variants || [];
   if (Array.isArray(variantList)) {
     for (const v of variantList) {
       pushUrl(v?.whiteImage || v?.image || v?.imageUrl || v?.imgUrl);
+      pushUrl(v?.variantImage || v?.attributeImage || v?.skuImage);
+      pushUrl(v?.bigImage || v?.originImage || v?.mainImage);
+      
+      const variantImages = v?.variantImageList || v?.skuImageList || v?.imageList || [];
+      if (Array.isArray(variantImages)) {
+        for (const vi of variantImages) {
+          if (typeof vi === 'string') pushUrl(vi);
+          else if (vi && typeof vi === 'object') {
+            pushUrl(vi.image || vi.big || vi.small || vi.url || vi.imageUrl);
+          }
+        }
+      }
+      
+      const variantProps = v?.variantPropertyList || v?.propertyList || [];
+      if (Array.isArray(variantProps)) {
+        for (const vp of variantProps) {
+          pushUrl(vp?.image || vp?.propImage || vp?.imageUrl);
+        }
+      }
     }
   }
   
   const deny = /(sprite|icon|favicon|logo|placeholder|blank|loading|alipay|wechat|whatsapp|kefu|service|avatar|thumb|thumbnail|small|tiny|mini|sizechart|size\s*chart|chart|table|guide|tips|hot|badge|flag|promo|banner|sale|discount|qr)/i;
   
-  return imageList.filter(url => !deny.test(url)).slice(0, 30);
+  return imageList.filter(url => !deny.test(url)).slice(0, 50);
 }
 
 function removeDuplicateImages(images: string[]): string[] {
