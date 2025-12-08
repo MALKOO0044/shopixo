@@ -407,13 +407,30 @@ export async function GET(req: Request) {
       let images = extractAllImages(fullDetails || item);
       console.log(`[Search&Price] Product ${pid}: ${images.length} images from details`);
       
-      // Fetch variants - we'll also extract images from these
+      // Fetch variants - we'll ONLY use images from AVAILABLE variants (with stock > 0)
       const variants = await getVariantsForProduct(token, base, pid);
       
-      // Extract images from variants (each color variant often has its own image)
+      // Filter to only variants with available stock
+      const availableVariants = variants.filter(v => {
+        const stock = Number(v.variantStock || v.stock || v.inventory || v.availableStock || v.quantity || 0);
+        return stock > 0;
+      });
+      
+      console.log(`[Search&Price] Product ${pid}: ${availableVariants.length}/${variants.length} variants have stock`);
+      
+      // ONLY extract images from AVAILABLE variants (colors that can actually be purchased)
       const variantImages: string[] = [];
-      const seenUrls = new Set(images);
-      for (const v of variants) {
+      const seenUrls = new Set<string>();
+      
+      // First, add the main product image (this is always the hero image)
+      const mainImage = item.productImage || item.image || item.bigImage;
+      if (typeof mainImage === 'string' && mainImage.startsWith('http')) {
+        seenUrls.add(mainImage);
+        variantImages.push(mainImage);
+      }
+      
+      // Then add images ONLY from available variants
+      for (const v of availableVariants) {
         const imgFields = ['variantImage', 'whiteImage', 'image', 'imageUrl', 'imgUrl', 'bigImage', 'variantImg', 'skuImage'];
         for (const field of imgFields) {
           const url = v[field];
@@ -424,9 +441,14 @@ export async function GET(req: Request) {
         }
       }
       
+      // Replace images with only the available variant images
       if (variantImages.length > 0) {
-        console.log(`[Search&Price] Product ${pid}: +${variantImages.length} images from ${variants.length} variants`);
-        images = [...images, ...variantImages].slice(0, 50);
+        console.log(`[Search&Price] Product ${pid}: Using ${variantImages.length} images from available variants only`);
+        images = variantImages.slice(0, 50);
+      } else {
+        // Fallback: if no variant images, keep the original images but limit to main image
+        console.log(`[Search&Price] Product ${pid}: No variant images, using main image only`);
+        images = images.slice(0, 1);
       }
       
       const pricedVariants: PricedVariant[] = [];
