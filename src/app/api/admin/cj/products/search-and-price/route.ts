@@ -91,8 +91,22 @@ async function getVariantsForProduct(token: string, base: string, pid: string): 
       timeoutMs: 15000,
     });
     const data = res?.data;
-    return Array.isArray(data) ? data : (data?.list || data?.variants || []);
-  } catch {
+    const variants = Array.isArray(data) ? data : (data?.list || data?.variants || []);
+    
+    // Log first variant to see what fields are available
+    if (variants.length > 0) {
+      const sample = variants[0];
+      const keys = Object.keys(sample);
+      const imageKeys = keys.filter(k => /image|img|photo|pic/i.test(k));
+      console.log(`[Variants] Product ${pid}: ${variants.length} variants, image fields: [${imageKeys.join(', ')}]`);
+      if (imageKeys.length > 0) {
+        console.log(`[Variants] Sample image values:`, imageKeys.map(k => `${k}=${typeof sample[k] === 'string' ? sample[k].slice(0, 80) : typeof sample[k]}`).join(', '));
+      }
+    }
+    
+    return variants;
+  } catch (e: any) {
+    console.log(`[Variants] Error for ${pid}:`, e?.message);
     return [];
   }
 }
@@ -390,10 +404,30 @@ export async function GET(req: Request) {
       
       // Get full product details for all images
       const fullDetails = productDetailsMap.get(pid);
-      const images = extractAllImages(fullDetails || item);
-      console.log(`[Search&Price] Product ${pid}: ${images.length} images found`);
+      let images = extractAllImages(fullDetails || item);
+      console.log(`[Search&Price] Product ${pid}: ${images.length} images from details`);
       
+      // Fetch variants - we'll also extract images from these
       const variants = await getVariantsForProduct(token, base, pid);
+      
+      // Extract images from variants (each color variant often has its own image)
+      const variantImages: string[] = [];
+      const seenUrls = new Set(images);
+      for (const v of variants) {
+        const imgFields = ['variantImage', 'whiteImage', 'image', 'imageUrl', 'imgUrl', 'bigImage', 'variantImg', 'skuImage'];
+        for (const field of imgFields) {
+          const url = v[field];
+          if (typeof url === 'string' && url.startsWith('http') && !seenUrls.has(url)) {
+            seenUrls.add(url);
+            variantImages.push(url);
+          }
+        }
+      }
+      
+      if (variantImages.length > 0) {
+        console.log(`[Search&Price] Product ${pid}: +${variantImages.length} images from ${variants.length} variants`);
+        images = [...images, ...variantImages].slice(0, 50);
+      }
       
       const pricedVariants: PricedVariant[] = [];
       
