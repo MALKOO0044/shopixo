@@ -595,9 +595,9 @@ export default function ProductDiscoveryPage() {
                   }`}
                 >
                   <div className="relative aspect-square bg-gray-100">
-                    {product.image ? (
+                    {product.images?.[0] ? (
                       <img
-                        src={product.image}
+                        src={product.images[0]}
                         alt={product.name}
                         className="w-full h-full object-cover"
                         onError={(e) => {
@@ -749,9 +749,9 @@ export default function ProductDiscoveryPage() {
             <div className="p-6">
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="space-y-4">
-                  {previewProduct.image && (
+                  {previewProduct.images?.[0] && (
                     <img 
-                      src={previewProduct.image} 
+                      src={previewProduct.images[0]} 
                       alt={previewProduct.name}
                       className="w-full rounded-lg"
                     />
