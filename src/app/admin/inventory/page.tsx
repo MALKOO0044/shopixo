@@ -16,6 +16,8 @@ import {
   Filter,
   Loader2,
   Settings,
+  ImageIcon,
+  Images,
 } from "lucide-react";
 
 type InventoryProduct = {
@@ -74,6 +76,9 @@ export default function InventoryPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const limit = 20;
+  
+  const [refreshingImages, setRefreshingImages] = useState<string | null>(null);
+  const [bulkRefreshing, setBulkRefreshing] = useState(false);
 
   const fetchInventory = useCallback(async () => {
     setLoading(true);
@@ -159,6 +164,69 @@ export default function InventoryPage() {
     return { label: "In Stock", color: "bg-green-100 text-green-800", icon: CheckCircle };
   };
 
+  const getImageCountStatus = (images: string[] | null | undefined) => {
+    const count = Array.isArray(images) ? images.length : 0;
+    if (count === 0) return { count, color: "text-red-600 bg-red-50", label: "No images" };
+    if (count === 1) return { count, color: "text-amber-600 bg-amber-50", label: "1 image" };
+    return { count, color: "text-green-600 bg-green-50", label: `${count} images` };
+  };
+
+  const refreshSingleProductImages = async (productId: string) => {
+    setRefreshingImages(productId);
+    setError(null);
+    
+    try {
+      const res = await fetch("/api/admin/products/refresh-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId: Number(productId) }),
+      });
+      
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to refresh images");
+      }
+      
+      setSuccess(`Refreshed ${data.imagesCount} images for product`);
+      fetchInventory();
+      
+      setTimeout(() => setSuccess(null), 5000);
+    } catch (e: any) {
+      setError(e?.message || "Failed to refresh images");
+    } finally {
+      setRefreshingImages(null);
+    }
+  };
+
+  const refreshAllProductImages = async () => {
+    if (!confirm("Refresh images for ALL products from CJ? This may take a few minutes.")) return;
+    
+    setBulkRefreshing(true);
+    setError(null);
+    
+    try {
+      const res = await fetch("/api/admin/products/refresh-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
+      });
+      
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Bulk refresh failed");
+      }
+      
+      setSuccess(`Refreshed images for ${data.successfulProducts}/${data.totalProducts} products (${data.totalImages} total images)`);
+      fetchInventory();
+      
+      setTimeout(() => setSuccess(null), 8000);
+    } catch (e: any) {
+      setError(e?.message || "Bulk refresh failed");
+    } finally {
+      setBulkRefreshing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -166,14 +234,24 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-bold text-gray-900">Inventory Management</h1>
           <p className="text-sm text-gray-500 mt-1">إدارة المخزون - Monitor and sync stock levels</p>
         </div>
-        <button
-          onClick={syncAllStock}
-          disabled={syncing}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
-        >
-          {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          Sync from CJ
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={refreshAllProductImages}
+            disabled={bulkRefreshing || syncing}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50"
+          >
+            {bulkRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Images className="h-4 w-4" />}
+            {bulkRefreshing ? "Refreshing All..." : "Refresh All Images"}
+          </button>
+          <button
+            onClick={syncAllStock}
+            disabled={syncing || bulkRefreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+          >
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Sync Stock
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-6 gap-4">
@@ -295,10 +373,10 @@ export default function InventoryPage() {
                 <th className="w-20 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Image</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier SKU</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Images</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Visibility</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Sync</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
@@ -306,9 +384,6 @@ export default function InventoryPage() {
               {products.map((product) => {
                 const status = getStockStatus(product.stock);
                 const StatusIcon = status.icon;
-                const lastSync = product.metadata?.last_stock_sync
-                  ? new Date(product.metadata.last_stock_sync).toLocaleDateString()
-                  : "Never";
                 
                 return (
                   <tr key={product.id} className={!product.active ? "bg-gray-50 opacity-75" : "hover:bg-gray-50"}>
@@ -344,6 +419,34 @@ export default function InventoryPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
+                      {(() => {
+                        const imgStatus = getImageCountStatus(product.images);
+                        const hasCjLink = !!(product.supplier_sku || product.metadata?.cj_product_id);
+                        return (
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${imgStatus.color}`}>
+                              <ImageIcon className="h-3 w-3" />
+                              {imgStatus.count}
+                            </span>
+                            {hasCjLink && (
+                              <button
+                                onClick={() => refreshSingleProductImages(product.id)}
+                                disabled={refreshingImages === product.id || bulkRefreshing}
+                                className="p-1 rounded hover:bg-gray-100 disabled:opacity-50"
+                                title="Refresh images from CJ"
+                              >
+                                {refreshingImages === product.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-600" />
+                                ) : (
+                                  <RefreshCw className="h-3.5 w-3.5 text-gray-400 hover:text-purple-600" />
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <span className={`text-lg font-bold ${
                           product.stock === 0 ? "text-red-600" :
@@ -374,9 +477,6 @@ export default function InventoryPage() {
                         {product.active ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
                         {product.active ? "Visible" : "Hidden"}
                       </button>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">
-                      {lastSync}
                     </td>
                     <td className="px-4 py-3">
                       <Link
