@@ -576,11 +576,46 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
     
     if (!productData) return null;
     
+    // Log available image fields for debugging
+    const imageFields = ['productImage', 'productImageList', 'imageList', 'bigImage', 'mainImage', 'productImages', 'detailImageList'];
+    const availableImages: Record<string, any> = {};
+    for (const field of imageFields) {
+      if (productData[field]) {
+        availableImages[field] = Array.isArray(productData[field]) 
+          ? `[${productData[field].length} items]` 
+          : typeof productData[field];
+      }
+    }
+    console.log(`[CJ Details] Product ${pid} image fields:`, JSON.stringify(availableImages));
+    
+    // Log property lists (where color images often are)
+    const propFields = ['productPropertyList', 'propertyList', 'productOptions', 'options'];
+    for (const field of propFields) {
+      if (productData[field] && Array.isArray(productData[field])) {
+        console.log(`[CJ Details] Product ${pid} ${field}: ${productData[field].length} items`);
+        if (productData[field][0]) {
+          console.log(`[CJ Details] Sample ${field} item:`, JSON.stringify(productData[field][0]).slice(0, 500));
+        }
+      }
+    }
+    
     // Fetch variants separately to get complete variant data with images
     try {
       const vr = await cjFetch<any>(`/product/variant/query?pid=${encodeURIComponent(pid)}`);
       const variantList = Array.isArray(vr?.data) ? vr.data : (vr?.data?.list || []);
       if (variantList.length > 0) {
+        console.log(`[CJ Details] Product ${pid} has ${variantList.length} variants`);
+        if (variantList[0]) {
+          // Log variant image fields
+          const variantImageFields = ['variantImage', 'image', 'whiteImage', 'bigImage', 'variantImageList'];
+          const variantImages: string[] = [];
+          for (const field of variantImageFields) {
+            if (variantList[0][field]) {
+              variantImages.push(`${field}=${typeof variantList[0][field]}`);
+            }
+          }
+          console.log(`[CJ Details] Sample variant image fields:`, variantImages.join(', ') || 'none');
+        }
         productData = { ...productData, variantList };
       }
     } catch {

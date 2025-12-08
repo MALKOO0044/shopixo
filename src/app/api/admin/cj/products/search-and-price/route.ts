@@ -108,10 +108,11 @@ function extractAllImages(item: any): string[] {
   const imageList: string[] = [];
   const seen = new Set<string>();
   
-  const pushUrl = (val: any) => {
+  const pushUrl = (val: any, source?: string) => {
     if (typeof val === 'string' && val.trim()) {
       const url = val.trim();
-      if (!seen.has(url)) {
+      // Must look like a valid image URL
+      if (url.startsWith('http') && !seen.has(url)) {
         seen.add(url);
         imageList.push(url);
       }
@@ -121,7 +122,7 @@ function extractAllImages(item: any): string[] {
   // Main image fields
   const mainFields = ['productImage', 'bigImage', 'image', 'mainImage', 'mainImageUrl'];
   for (const field of mainFields) {
-    pushUrl(item[field]);
+    pushUrl(item[field], `main.${field}`);
   }
   
   // Array fields containing images
@@ -130,9 +131,9 @@ function extractAllImages(item: any): string[] {
     const arr = item[key];
     if (Array.isArray(arr)) {
       for (const it of arr) {
-        if (typeof it === 'string') pushUrl(it);
+        if (typeof it === 'string') pushUrl(it, `arr.${key}`);
         else if (it && typeof it === 'object') {
-          pushUrl(it.imageUrl || it.url || it.imgUrl || it.big || it.origin || it.src);
+          pushUrl(it.imageUrl || it.url || it.imgUrl || it.big || it.origin || it.src, `arr.${key}.obj`);
         }
       }
     }
@@ -143,13 +144,13 @@ function extractAllImages(item: any): string[] {
   if (Array.isArray(propertyList)) {
     for (const prop of propertyList) {
       // Each property may have an image (e.g., color swatch with product image)
-      pushUrl(prop?.image || prop?.imageUrl || prop?.propImage || prop?.optionImage);
+      pushUrl(prop?.image || prop?.imageUrl || prop?.propImage || prop?.optionImage, 'prop');
       
       // Property values may also have images
       const propValues = prop?.propertyValueList || prop?.values || prop?.options || [];
       if (Array.isArray(propValues)) {
         for (const pv of propValues) {
-          pushUrl(pv?.image || pv?.imageUrl || pv?.propImage || pv?.bigImage);
+          pushUrl(pv?.image || pv?.imageUrl || pv?.propImage || pv?.bigImage, 'propValue');
         }
       }
     }
@@ -160,17 +161,24 @@ function extractAllImages(item: any): string[] {
   if (Array.isArray(variantList)) {
     for (const v of variantList) {
       // Standard variant image fields
-      pushUrl(v?.whiteImage || v?.image || v?.imageUrl || v?.imgUrl);
-      pushUrl(v?.variantImage || v?.attributeImage || v?.skuImage);
-      pushUrl(v?.bigImage || v?.originImage || v?.mainImage);
+      pushUrl(v?.whiteImage, 'variant.whiteImage');
+      pushUrl(v?.image, 'variant.image');
+      pushUrl(v?.imageUrl, 'variant.imageUrl');
+      pushUrl(v?.imgUrl, 'variant.imgUrl');
+      pushUrl(v?.variantImage, 'variant.variantImage');
+      pushUrl(v?.attributeImage, 'variant.attributeImage');
+      pushUrl(v?.skuImage, 'variant.skuImage');
+      pushUrl(v?.bigImage, 'variant.bigImage');
+      pushUrl(v?.originImage, 'variant.originImage');
+      pushUrl(v?.mainImage, 'variant.mainImage');
       
       // Variant image list/array
       const variantImages = v?.variantImageList || v?.skuImageList || v?.imageList || [];
       if (Array.isArray(variantImages)) {
         for (const vi of variantImages) {
-          if (typeof vi === 'string') pushUrl(vi);
+          if (typeof vi === 'string') pushUrl(vi, 'variantArr');
           else if (vi && typeof vi === 'object') {
-            pushUrl(vi.image || vi.big || vi.small || vi.url || vi.imageUrl);
+            pushUrl(vi.image || vi.big || vi.small || vi.url || vi.imageUrl, 'variantArr.obj');
           }
         }
       }
@@ -179,16 +187,50 @@ function extractAllImages(item: any): string[] {
       const variantProps = v?.variantPropertyList || v?.propertyList || [];
       if (Array.isArray(variantProps)) {
         for (const vp of variantProps) {
-          pushUrl(vp?.image || vp?.propImage || vp?.imageUrl);
+          pushUrl(vp?.image || vp?.propImage || vp?.imageUrl, 'variantProp');
         }
       }
     }
   }
   
+  // Deep scan: look for any URL-like strings in the entire object
+  // This catches any image fields we might have missed
+  const deepScan = (obj: any, depth: number = 0) => {
+    if (depth > 3 || !obj || typeof obj !== 'object') return;
+    
+    for (const key of Object.keys(obj)) {
+      const val = obj[key];
+      // Look for keys that contain 'image' or 'img' or 'photo' or 'pic'
+      if (/image|img|photo|pic/i.test(key)) {
+        if (typeof val === 'string') {
+          pushUrl(val, `deep.${key}`);
+        } else if (Array.isArray(val)) {
+          for (const v of val) {
+            if (typeof v === 'string') pushUrl(v, `deep.${key}[]`);
+            else if (v && typeof v === 'object') {
+              pushUrl(v.url || v.src || v.imageUrl || v.image, `deep.${key}[].obj`);
+            }
+          }
+        }
+      } else if (Array.isArray(val)) {
+        for (const v of val) {
+          deepScan(v, depth + 1);
+        }
+      } else if (typeof val === 'object') {
+        deepScan(val, depth + 1);
+      }
+    }
+  };
+  
+  deepScan(item);
+  
   // Filter out non-product images (badges, icons, etc.)
   const deny = /(sprite|icon|favicon|logo|placeholder|blank|loading|alipay|wechat|whatsapp|kefu|service|avatar|thumb|thumbnail|small|tiny|mini|sizechart|size\s*chart|chart|table|guide|tips|hot|badge|flag|promo|banner|sale|discount|qr)/i;
   
-  return imageList.filter(url => !deny.test(url)).slice(0, 50);
+  const finalImages = imageList.filter(url => !deny.test(url)).slice(0, 50);
+  console.log(`[ExtractImages] Found ${imageList.length} raw images, ${finalImages.length} after filtering`);
+  
+  return finalImages;
 }
 
 export async function GET(req: Request) {
