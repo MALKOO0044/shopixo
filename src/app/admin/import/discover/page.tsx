@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, TrendingUp } from "lucide-react";
+import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, TrendingUp, ChevronLeft, ChevronRight, Image as ImageIcon, BarChart3, DollarSign, Grid3X3 } from "lucide-react";
 
 type PricedVariant = {
   variantId: string;
@@ -79,6 +79,8 @@ export default function ProductDiscoveryPage() {
   const [savedBatchId, setSavedBatchId] = useState<number | null>(null);
   
   const [previewProduct, setPreviewProduct] = useState<PricedProduct | null>(null);
+  const [previewPage, setPreviewPage] = useState(1);
+  const TOTAL_PREVIEW_PAGES = 4;
 
   const quantityPresets = [1000, 500, 250, 100, 50, 25, 10];
   const profitPresets = [100, 50, 25, 15, 8];
@@ -249,6 +251,39 @@ export default function ProductDiscoveryPage() {
   const openPreview = (product: PricedProduct, e: React.MouseEvent) => {
     e.stopPropagation();
     setPreviewProduct(product);
+    setPreviewPage(1);
+  };
+
+  const nextPage = () => {
+    if (previewPage < TOTAL_PREVIEW_PAGES) {
+      setPreviewPage(previewPage + 1);
+    }
+  };
+
+  const prevPage = () => {
+    if (previewPage > 1) {
+      setPreviewPage(previewPage - 1);
+    }
+  };
+
+  const getPageTitle = (page: number) => {
+    switch (page) {
+      case 1: return "Hero Image & Details";
+      case 2: return "Image Gallery";
+      case 3: return "Stock & Metrics";
+      case 4: return "Variant Pricing";
+      default: return "Product Preview";
+    }
+  };
+
+  const getPageIcon = (page: number) => {
+    switch (page) {
+      case 1: return <Package className="h-4 w-4" />;
+      case 2: return <Grid3X3 className="h-4 w-4" />;
+      case 3: return <BarChart3 className="h-4 w-4" />;
+      case 4: return <DollarSign className="h-4 w-4" />;
+      default: return null;
+    }
   };
 
   const saveBatch = async () => {
@@ -738,90 +773,286 @@ export default function ProductDiscoveryPage() {
 
       {previewProduct && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setPreviewProduct(null)}>
-          <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Product Preview - Pricing Details</h3>
-              <button onClick={() => setPreviewProduct(null)} className="p-2 hover:bg-gray-100 rounded-full">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            
-            <div className="p-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  {previewProduct.images?.[0] && (
-                    <img 
-                      src={previewProduct.images[0]} 
-                      alt={previewProduct.name}
-                      className="w-full rounded-lg"
-                    />
-                  )}
+          <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+            {/* Header with page navigation */}
+            <div className="bg-white border-b p-4 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                {getPageIcon(previewPage)}
+                <h3 className="text-lg font-semibold">{getPageTitle(previewPage)}</h3>
+              </div>
+              
+              {/* Page indicator and navigation */}
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={prevPage}
+                    disabled={previewPage === 1}
+                    className={`p-2 rounded-full transition-colors ${
+                      previewPage === 1 
+                        ? "text-gray-300 cursor-not-allowed" 
+                        : "text-gray-600 hover:bg-gray-100"
+                    }`}
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                  
+                  {/* Page dots */}
+                  <div className="flex items-center gap-1.5">
+                    {Array.from({ length: TOTAL_PREVIEW_PAGES }, (_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setPreviewPage(i + 1)}
+                        className={`w-2.5 h-2.5 rounded-full transition-all ${
+                          previewPage === i + 1 
+                            ? "bg-blue-600 w-6" 
+                            : "bg-gray-300 hover:bg-gray-400"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  
+                  <button 
+                    onClick={nextPage}
+                    disabled={previewPage === TOTAL_PREVIEW_PAGES}
+                    className={`p-2 rounded-full transition-colors ${
+                      previewPage === TOTAL_PREVIEW_PAGES 
+                        ? "text-gray-300 cursor-not-allowed" 
+                        : "text-gray-600 hover:bg-gray-100"
+                    }`}
+                  >
+                    <ChevronRight className="h-5 w-5" />
+                  </button>
                 </div>
                 
+                <span className="text-sm text-gray-500 font-medium">
+                  {previewPage} / {TOTAL_PREVIEW_PAGES}
+                </span>
+                
+                <button onClick={() => setPreviewProduct(null)} className="p-2 hover:bg-gray-100 rounded-full ml-2">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            
+            {/* Page content */}
+            <div className="p-6 overflow-y-auto flex-1">
+              {/* Page 1: Hero Image & Details */}
+              {previewPage === 1 && (
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    {previewProduct.images?.[0] && (
+                      <img 
+                        src={previewProduct.images[0]} 
+                        alt={previewProduct.name}
+                        className="w-full rounded-lg shadow-lg"
+                      />
+                    )}
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <ImageIcon className="h-4 w-4" />
+                      <span>{previewProduct.images?.length || 0} images available</span>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <h2 className="text-xl font-semibold" dir="ltr">{previewProduct.name}</h2>
+                    <p className="text-sm text-gray-500">
+                      <span className="font-medium">Supplier SKU:</span>{" "}
+                      <span className="font-mono text-blue-600">{previewProduct.cjSku}</span>
+                    </p>
+                    
+                    <div className="bg-green-50 rounded-lg p-4 space-y-2">
+                      <div className="flex justify-between text-lg font-bold">
+                        <span>Sell Price Range:</span>
+                        <span className="text-green-700">
+                          {previewProduct.minPriceSAR.toFixed(0)} - {previewProduct.maxPriceSAR.toFixed(0)} SAR
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Average Price:</span>
+                        <span className="font-semibold">{previewProduct.avgPriceSAR.toFixed(0)} SAR</span>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                      Use the arrows or dots above to navigate through all product details, images, and pricing information.
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Page 2: Image Gallery */}
+              {previewPage === 2 && (
                 <div className="space-y-4">
-                  <h2 className="text-xl font-semibold" dir="ltr">{previewProduct.name}</h2>
-                  <p className="text-sm text-gray-500">
-                    <span className="font-medium">Supplier SKU:</span>{" "}
-                    <span className="font-mono text-blue-600">{previewProduct.cjSku}</span>
-                  </p>
-                  
-                  <div className="bg-green-50 rounded-lg p-4 space-y-2">
-                    <div className="flex justify-between text-lg font-bold">
-                      <span>Sell Price Range:</span>
-                      <span className="text-green-700">
-                        {previewProduct.minPriceSAR.toFixed(0)} - {previewProduct.maxPriceSAR.toFixed(0)} SAR
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Average Price:</span>
-                      <span className="font-semibold">{previewProduct.avgPriceSAR.toFixed(0)} SAR</span>
-                    </div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="font-medium text-gray-900">All Product Images ({previewProduct.images?.length || 0})</h4>
                   </div>
                   
-                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Total Stock:</span>
-                      <span className="font-semibold">{previewProduct.stock}</span>
+                  {previewProduct.images && previewProduct.images.length > 0 ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {previewProduct.images.map((img, index) => (
+                        <div key={index} className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden group">
+                          <img 
+                            src={img} 
+                            alt={`${previewProduct.name} - Image ${index + 1}`}
+                            className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                          <div className="absolute bottom-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
+                            {index + 1}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Popularity (Listed):</span>
-                      <span className="font-semibold">{previewProduct.listedNum}</span>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                      <ImageIcon className="h-12 w-12 mb-3" />
+                      <p>No images available</p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Priced Variants:</span>
-                      <span className="font-semibold">{previewProduct.successfulVariants}/{previewProduct.totalVariants}</span>
+                  )}
+                </div>
+              )}
+              
+              {/* Page 3: Stock & Metrics */}
+              {previewPage === 3 && (
+                <div className="space-y-6">
+                  <h4 className="font-medium text-gray-900 mb-4">Stock & Supplier Metrics</h4>
+                  
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <div className="bg-gray-50 rounded-xl p-5 space-y-4">
+                        <h5 className="font-medium text-gray-700 border-b pb-2">Inventory Status</h5>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600">Total Stock:</span>
+                          <span className={`text-2xl font-bold ${previewProduct.stock > 0 ? "text-green-600" : "text-red-500"}`}>
+                            {previewProduct.stock}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600">Variants with Stock:</span>
+                          <span className="font-semibold">{previewProduct.successfulVariants} / {previewProduct.totalVariants}</span>
+                        </div>
+                      </div>
+                      
+                      <div className="bg-blue-50 rounded-xl p-5 space-y-4">
+                        <h5 className="font-medium text-blue-700 border-b border-blue-200 pb-2">Popularity</h5>
+                        <div className="flex justify-between items-center">
+                          <span className="text-blue-600">Listed by Sellers:</span>
+                          <span className="text-2xl font-bold text-blue-700">{previewProduct.listedNum || 0}</span>
+                        </div>
+                        <div className="text-sm text-blue-600">
+                          {previewProduct.listedNum >= 1000 ? "🔥 Very Popular" : 
+                           previewProduct.listedNum >= 100 ? "📈 Moderate Popularity" : 
+                           "🆕 New / Niche Product"}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-green-50 rounded-xl p-5 space-y-4">
+                      <h5 className="font-medium text-green-700 border-b border-green-200 pb-2">Pricing Summary</h5>
+                      <div className="space-y-3">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Min Sell Price:</span>
+                          <span className="font-bold text-green-700">{previewProduct.minPriceSAR.toFixed(0)} SAR</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Max Sell Price:</span>
+                          <span className="font-bold text-green-700">{previewProduct.maxPriceSAR.toFixed(0)} SAR</span>
+                        </div>
+                        <div className="flex justify-between border-t border-green-200 pt-3">
+                          <span className="text-gray-600">Average Price:</span>
+                          <span className="text-xl font-bold text-green-800">{previewProduct.avgPriceSAR.toFixed(0)} SAR</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
+                </div>
+              )}
+              
+              {/* Page 4: Variant Pricing */}
+              {previewPage === 4 && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="font-medium text-gray-900">
+                      Variant Pricing Details ({previewProduct.variants.filter(v => v.shippingAvailable).length} priced)
+                    </h4>
+                  </div>
                   
-                  <div>
-                    <h4 className="font-medium mb-2">Variant Pricing</h4>
-                    <div className="border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+                  <div className="border rounded-xl overflow-hidden">
+                    <div className="max-h-[50vh] overflow-y-auto">
                       <table className="w-full text-sm">
                         <thead className="bg-gray-100 sticky top-0">
                           <tr>
-                            <th className="text-left p-2 font-medium">SKU</th>
-                            <th className="text-right p-2 font-medium">Cost (USD)</th>
-                            <th className="text-right p-2 font-medium">Ship (SAR)</th>
-                            <th className="text-right p-2 font-medium">Sell (SAR)</th>
-                            <th className="text-right p-2 font-medium">Profit</th>
+                            <th className="text-left p-3 font-medium">SKU</th>
+                            <th className="text-right p-3 font-medium">Cost (USD)</th>
+                            <th className="text-right p-3 font-medium">Shipping (SAR)</th>
+                            <th className="text-right p-3 font-medium">Sell Price (SAR)</th>
+                            <th className="text-right p-3 font-medium">Profit (SAR)</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
                           {previewProduct.variants.filter(v => v.shippingAvailable).map((v, i) => (
                             <tr key={i} className="hover:bg-gray-50">
-                              <td className="p-2 font-mono text-xs">{v.variantSku?.slice(-10) || v.variantId?.slice(-8)}</td>
-                              <td className="p-2 text-right">${v.variantPriceUSD.toFixed(2)}</td>
-                              <td className="p-2 text-right">{v.shippingPriceSAR.toFixed(0)}</td>
-                              <td className="p-2 text-right font-semibold text-green-600">{v.sellPriceSAR.toFixed(0)}</td>
-                              <td className="p-2 text-right text-blue-600">{v.profitSAR.toFixed(0)}</td>
+                              <td className="p-3 font-mono text-xs">{v.variantSku || v.variantId?.slice(-12)}</td>
+                              <td className="p-3 text-right">${v.variantPriceUSD.toFixed(2)}</td>
+                              <td className="p-3 text-right text-gray-600">{v.shippingPriceSAR.toFixed(0)}</td>
+                              <td className="p-3 text-right font-semibold text-green-600">{v.sellPriceSAR.toFixed(0)}</td>
+                              <td className="p-3 text-right font-semibold text-blue-600">{v.profitSAR.toFixed(0)}</td>
                             </tr>
                           ))}
+                          {previewProduct.variants.filter(v => v.shippingAvailable).length === 0 && (
+                            <tr>
+                              <td colSpan={5} className="p-8 text-center text-gray-400">
+                                No variants with shipping available
+                              </td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>
                   </div>
+                  
+                  {previewProduct.variants.some(v => !v.shippingAvailable) && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                      Note: {previewProduct.variants.filter(v => !v.shippingAvailable).length} variant(s) excluded due to shipping unavailability
+                    </div>
+                  )}
                 </div>
+              )}
+            </div>
+            
+            {/* Footer navigation */}
+            <div className="bg-gray-50 border-t p-4 flex items-center justify-between shrink-0">
+              <button 
+                onClick={prevPage}
+                disabled={previewPage === 1}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                  previewPage === 1 
+                    ? "text-gray-400 cursor-not-allowed" 
+                    : "text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </button>
+              
+              <div className="text-sm text-gray-500">
+                Page {previewPage} of {TOTAL_PREVIEW_PAGES}
               </div>
+              
+              <button 
+                onClick={nextPage}
+                disabled={previewPage === TOTAL_PREVIEW_PAGES}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                  previewPage === TOTAL_PREVIEW_PAGES 
+                    ? "text-gray-400 cursor-not-allowed" 
+                    : "bg-blue-600 text-white hover:bg-blue-700"
+                }`}
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </button>
             </div>
           </div>
         </div>
