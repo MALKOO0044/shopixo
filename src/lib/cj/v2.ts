@@ -766,7 +766,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     if (seen.has(key)) continue;
     seen.add(key);
     filteredImages.push(u);
-    if (filteredImages.length >= 10) break;
+    if (filteredImages.length >= 30) break;
   }
 
   // Video detection: some responses may contain videoUrl or list
@@ -902,7 +902,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
       });
 
       // Opportunistically collect variant images if main set is empty or small
-      if (filteredImages.length < 10) {
+      if (filteredImages.length < 30) {
         const vcands = [v.image, v.imageUrl, v.imgUrl, v.whiteImage, v.bigImage];
         for (const c of vcands) {
           if (!c || typeof c !== 'string') continue;
@@ -913,7 +913,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
           if (seen.has(key)) continue;
           seen.add(key);
           filteredImages.push(u);
-          if (filteredImages.length >= 10) break;
+          if (filteredImages.length >= 30) break;
         }
       }
     }
