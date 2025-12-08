@@ -565,6 +565,60 @@ async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
+// Fetch full product details by PID - returns complete product with all images and variants
+export async function fetchProductDetailsByPid(pid: string): Promise<any | null> {
+  if (!pid) return null;
+  
+  try {
+    // Fetch product details
+    const pr = await cjFetch<any>(`/product/query?pid=${encodeURIComponent(pid)}`);
+    let productData = pr?.data || pr?.content || pr || null;
+    
+    if (!productData) return null;
+    
+    // Fetch variants separately to get complete variant data with images
+    try {
+      const vr = await cjFetch<any>(`/product/variant/query?pid=${encodeURIComponent(pid)}`);
+      const variantList = Array.isArray(vr?.data) ? vr.data : (vr?.data?.list || []);
+      if (variantList.length > 0) {
+        productData = { ...productData, variantList };
+      }
+    } catch {
+      // Continue without variants if that endpoint fails
+    }
+    
+    return productData;
+  } catch (e: any) {
+    console.log(`[CJ Details] Failed to fetch details for ${pid}:`, e?.message);
+    return null;
+  }
+}
+
+// Batch fetch product details with concurrency control
+export async function fetchProductDetailsBatch(pids: string[], concurrency: number = 5): Promise<Map<string, any>> {
+  const results = new Map<string, any>();
+  
+  // Process in batches to avoid overwhelming the API
+  for (let i = 0; i < pids.length; i += concurrency) {
+    const batch = pids.slice(i, i + concurrency);
+    const promises = batch.map(async (pid) => {
+      const details = await fetchProductDetailsByPid(pid);
+      if (details) {
+        results.set(pid, details);
+      }
+    });
+    await Promise.all(promises);
+    
+    // Small delay between batches to respect rate limits
+    if (i + concurrency < pids.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  
+  console.log(`[CJ Batch] Fetched details for ${results.size}/${pids.length} products`);
+  return results;
+}
+
 // Query by keyword or PID (CJ sometimes exposes myProduct query); we attempt flexible endpoints.
 export async function queryProductByPidOrKeyword(input: { pid?: string; keyword?: string }): Promise<any> {
   const { pid, keyword } = input;

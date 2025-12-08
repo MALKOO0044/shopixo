@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { queryProductByPidOrKeyword, mapCjItemToProductLike, getAccessToken } from '@/lib/cj/v2';
+import { queryProductByPidOrKeyword, mapCjItemToProductLike, getAccessToken, fetchProductDetailsBatch } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchWithMeta, fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
@@ -275,12 +275,51 @@ export async function GET(req: Request) {
       });
       
       const combined = [...strictMatchedItems, ...relaxedMatchedItems];
-      items = combined.slice(0, quantity);
+      const selectedItems = combined.slice(0, quantity);
+      
+      // CRITICAL: Hydrate selected products with full details (images + variants)
+      // The /product/list endpoint only returns 1-2 thumbnail images
+      // We need to call /product/query and /product/variant/query for full data
+      const pidsToHydrate = selectedItems.map(item => item.productId).filter(Boolean);
+      console.log(`[Search v4] Hydrating ${pidsToHydrate.length} products with full details...`);
+      
+      const detailsMap = await fetchProductDetailsBatch(pidsToHydrate, 5);
+      
+      // Re-map products using full detail data
+      const hydratedItems: any[] = [];
+      for (const item of selectedItems) {
+        const pid = item.productId;
+        const fullDetails = detailsMap.get(pid);
+        
+        if (fullDetails) {
+          // Map the full details which include all images and variants
+          const hydratedItem = mapCjItemToProductLike(fullDetails);
+          if (hydratedItem) {
+            // Preserve metadata from original match
+            (hydratedItem as any).supplierRating = (item as any).supplierRating;
+            (hydratedItem as any).hasRating = (item as any).hasRating;
+            (hydratedItem as any)._matchScore = (item as any)._matchScore;
+            (hydratedItem as any)._matchRatio = (item as any)._matchRatio;
+            hydratedItems.push(hydratedItem);
+            console.log(`[Search v4] Hydrated ${pid}: ${hydratedItem.images.length} images, ${hydratedItem.variants.length} variants`);
+          } else {
+            // Fallback to original if mapping fails
+            hydratedItems.push(item);
+          }
+        } else {
+          // Fallback to original if details fetch failed
+          hydratedItems.push(item);
+          console.log(`[Search v4] Using original for ${pid} (details fetch failed)`);
+        }
+      }
+      
+      items = hydratedItems;
       
       const duration = Date.now() - startTime;
       console.log(`[Search v4] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms`);
       console.log(`[Search v4] Stats: raw=${totalRawFetched}, unique=${seenPids.size}, strict=${strictMatchedItems.length}, relaxed=${relaxedMatchedItems.length}`);
       console.log(`[Search v4] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}, noMatch=${skippedNoMatch}`);
+      console.log(`[Search v4] Hydration: ${detailsMap.size}/${pidsToHydrate.length} products successfully hydrated with full details`);
     }
 
     const r = NextResponse.json({ 
