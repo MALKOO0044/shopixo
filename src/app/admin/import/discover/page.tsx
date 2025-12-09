@@ -3,8 +3,12 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, TrendingUp, ChevronLeft, ChevronRight, Image as ImageIcon, BarChart3, DollarSign, Grid3X3 } from "lucide-react";
+import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, TrendingUp, ChevronLeft, ChevronRight, Image as ImageIcon, BarChart3, DollarSign, Grid3X3, FileText, Truck } from "lucide-react";
 import PreviewPageOne from "@/components/admin/import/preview/PreviewPageOne";
+import PreviewPageThree from "@/components/admin/import/preview/PreviewPageThree";
+import PreviewPageFour from "@/components/admin/import/preview/PreviewPageFour";
+import PreviewPageFive from "@/components/admin/import/preview/PreviewPageFive";
+import PreviewPageSix from "@/components/admin/import/preview/PreviewPageSix";
 import type { PricedProduct, PricedVariant } from "@/components/admin/import/preview/types";
 
 type Category = {
@@ -52,7 +56,7 @@ export default function ProductDiscoveryPage() {
   
   const [previewProduct, setPreviewProduct] = useState<PricedProduct | null>(null);
   const [previewPage, setPreviewPage] = useState(1);
-  const TOTAL_PREVIEW_PAGES = 4;
+  const TOTAL_PREVIEW_PAGES = 6;
 
   const quantityPresets = [1000, 500, 250, 100, 50, 25, 10];
   const profitPresets = [100, 50, 25, 15, 8];
@@ -240,11 +244,13 @@ export default function ProductDiscoveryPage() {
 
   const getPageTitle = (page: number) => {
     switch (page) {
-      case 1: return "Hero Image & Details";
-      case 2: return "Image Gallery";
-      case 3: return "Stock & Metrics";
-      case 4: return "Variant Pricing";
-      default: return "Product Preview";
+      case 1: return "نظرة عامة";
+      case 2: return "معرض الصور";
+      case 3: return "المواصفات";
+      case 4: return "المخزون والشعبية";
+      case 5: return "الشحن والتوصيل";
+      case 6: return "تفاصيل الأسعار";
+      default: return "معاينة المنتج";
     }
   };
 
@@ -252,8 +258,10 @@ export default function ProductDiscoveryPage() {
     switch (page) {
       case 1: return <Package className="h-4 w-4" />;
       case 2: return <Grid3X3 className="h-4 w-4" />;
-      case 3: return <BarChart3 className="h-4 w-4" />;
-      case 4: return <DollarSign className="h-4 w-4" />;
+      case 3: return <FileText className="h-4 w-4" />;
+      case 4: return <BarChart3 className="h-4 w-4" />;
+      case 5: return <Truck className="h-4 w-4" />;
+      case 6: return <DollarSign className="h-4 w-4" />;
       default: return null;
     }
   };
@@ -847,111 +855,24 @@ export default function ProductDiscoveryPage() {
                 </div>
               )}
               
-              {/* Page 3: Stock & Metrics */}
+              {/* Page 3: Product Specifications */}
               {previewPage === 3 && (
-                <div className="space-y-6">
-                  <h4 className="font-medium text-gray-900 mb-4">Stock & Supplier Metrics</h4>
-                  
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                      <div className="bg-gray-50 rounded-xl p-5 space-y-4">
-                        <h5 className="font-medium text-gray-700 border-b pb-2">Inventory Status</h5>
-                        <div className="flex justify-between items-center">
-                          <span className="text-gray-600">Total Stock:</span>
-                          <span className={`text-2xl font-bold ${previewProduct.stock > 0 ? "text-green-600" : "text-red-500"}`}>
-                            {previewProduct.stock}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-gray-600">Variants with Stock:</span>
-                          <span className="font-semibold">{previewProduct.successfulVariants} / {previewProduct.totalVariants}</span>
-                        </div>
-                      </div>
-                      
-                      <div className="bg-blue-50 rounded-xl p-5 space-y-4">
-                        <h5 className="font-medium text-blue-700 border-b border-blue-200 pb-2">Popularity</h5>
-                        <div className="flex justify-between items-center">
-                          <span className="text-blue-600">Listed by Sellers:</span>
-                          <span className="text-2xl font-bold text-blue-700">{previewProduct.listedNum || 0}</span>
-                        </div>
-                        <div className="text-sm text-blue-600">
-                          {previewProduct.listedNum >= 1000 ? "🔥 Very Popular" : 
-                           previewProduct.listedNum >= 100 ? "📈 Moderate Popularity" : 
-                           "🆕 New / Niche Product"}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-green-50 rounded-xl p-5 space-y-4">
-                      <h5 className="font-medium text-green-700 border-b border-green-200 pb-2">Pricing Summary</h5>
-                      <div className="space-y-3">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Min Sell Price:</span>
-                          <span className="font-bold text-green-700">{previewProduct.minPriceSAR.toFixed(0)} SAR</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Max Sell Price:</span>
-                          <span className="font-bold text-green-700">{previewProduct.maxPriceSAR.toFixed(0)} SAR</span>
-                        </div>
-                        <div className="flex justify-between border-t border-green-200 pt-3">
-                          <span className="text-gray-600">Average Price:</span>
-                          <span className="text-xl font-bold text-green-800">{previewProduct.avgPriceSAR.toFixed(0)} SAR</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <PreviewPageThree product={previewProduct} />
               )}
               
-              {/* Page 4: Variant Pricing */}
+              {/* Page 4: Stock & Popularity */}
               {previewPage === 4 && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="font-medium text-gray-900">
-                      Variant Pricing Details ({previewProduct.variants.filter(v => v.shippingAvailable).length} priced)
-                    </h4>
-                  </div>
-                  
-                  <div className="border rounded-xl overflow-hidden">
-                    <div className="max-h-[50vh] overflow-y-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-100 sticky top-0">
-                          <tr>
-                            <th className="text-left p-3 font-medium">SKU</th>
-                            <th className="text-right p-3 font-medium">Cost (USD)</th>
-                            <th className="text-right p-3 font-medium">Shipping (SAR)</th>
-                            <th className="text-right p-3 font-medium">Sell Price (SAR)</th>
-                            <th className="text-right p-3 font-medium">Profit (SAR)</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {previewProduct.variants.filter(v => v.shippingAvailable).map((v, i) => (
-                            <tr key={i} className="hover:bg-gray-50">
-                              <td className="p-3 font-mono text-xs">{v.variantSku || v.variantId?.slice(-12)}</td>
-                              <td className="p-3 text-right">${v.variantPriceUSD.toFixed(2)}</td>
-                              <td className="p-3 text-right text-gray-600">{v.shippingPriceSAR.toFixed(0)}</td>
-                              <td className="p-3 text-right font-semibold text-green-600">{v.sellPriceSAR.toFixed(0)}</td>
-                              <td className="p-3 text-right font-semibold text-blue-600">{v.profitSAR.toFixed(0)}</td>
-                            </tr>
-                          ))}
-                          {previewProduct.variants.filter(v => v.shippingAvailable).length === 0 && (
-                            <tr>
-                              <td colSpan={5} className="p-8 text-center text-gray-400">
-                                No variants with shipping available
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                  
-                  {previewProduct.variants.some(v => !v.shippingAvailable) && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                      Note: {previewProduct.variants.filter(v => !v.shippingAvailable).length} variant(s) excluded due to shipping unavailability
-                    </div>
-                  )}
-                </div>
+                <PreviewPageFour product={previewProduct} />
+              )}
+
+              {/* Page 5: Shipping & Delivery */}
+              {previewPage === 5 && (
+                <PreviewPageFive product={previewProduct} />
+              )}
+              
+              {/* Page 6: Variant Pricing */}
+              {previewPage === 6 && (
+                <PreviewPageSix product={previewProduct} />
               )}
             </div>
             
