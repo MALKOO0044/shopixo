@@ -92,18 +92,29 @@ async function fetchCjProductPage(
     let productList: any[] = [];
     let total = 0;
     
-    // Structure 1: data.content[0].productList (standard listV2)
-    const content = res?.data?.content || [];
+    const content = res?.data?.content;
+    
+    // Structure 1: data.content[0].productList (content is array with productList inside)
     if (Array.isArray(content) && content[0]?.productList) {
       productList = content[0].productList;
-      total = res?.data?.totalRecords || 0;
+      total = res?.data?.totalRecords || content[0]?.totalRecords || 0;
     }
-    // Structure 2: data.list (fallback format)
+    // Structure 2: data.content.productList (content is object with productList)
+    else if (content && !Array.isArray(content) && content.productList) {
+      productList = content.productList;
+      total = res?.data?.totalRecords || content.totalRecords || 0;
+    }
+    // Structure 3: data.content.list (content is object with list)
+    else if (content && !Array.isArray(content) && content.list) {
+      productList = content.list;
+      total = res?.data?.totalRecords || content.totalRecords || content.total || 0;
+    }
+    // Structure 4: data.list (fallback format)
     else if (res?.data?.list) {
       productList = res.data.list;
       total = res?.data?.total || res?.data?.totalRecords || 0;
     }
-    // Structure 3: data is the array directly
+    // Structure 5: data is the array directly
     else if (Array.isArray(res?.data)) {
       productList = res.data;
       total = productList.length;
