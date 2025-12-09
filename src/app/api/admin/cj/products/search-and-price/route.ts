@@ -543,24 +543,110 @@ export async function GET(req: Request) {
         return lines.join('<br/>');
       };
       
+      // Helper: Extract specs from HTML description (tables, lists, key:value patterns)
+      const extractSpecsFromHtml = (html: string): string => {
+        if (!html || typeof html !== 'string') return '';
+        const lines: string[] = [];
+        
+        // Remove supplier junk first
+        let cleaned = html
+          .replace(/<a[^>]*href=[^>]*(1688|taobao|alibaba|aliexpress|tmall)[^>]*>.*?<\/a>/gi, '')
+          .replace(/https?:\/\/[^\s<>"]*?(1688|taobao|alibaba|aliexpress|tmall)[^\s<>"]*/gi, '')
+          .replace(/<[^>]*>(.*?(微信|QQ|联系|客服|淘宝|阿里巴巴).*?)<\/[^>]*>/gi, '');
+        
+        // Extract key:value patterns like "Material: Cotton" or "Size: S-XL"
+        const kvPatterns = cleaned.match(/([A-Za-z][A-Za-z\s]{2,30})[\s]*[:\-：][\s]*([A-Za-z0-9][A-Za-z0-9\s,.\-\/×xX%]+)/g) || [];
+        for (const kv of kvPatterns) {
+          const match = kv.match(/([A-Za-z][A-Za-z\s]{2,30})[\s]*[:\-：][\s]*(.+)/);
+          if (match && match[1] && match[2]) {
+            const key = match[1].trim();
+            const value = match[2].trim();
+            // Skip if mostly Chinese in value
+            const chineseChars = (value.match(/[\u4e00-\u9fff]/g) || []).length;
+            if (chineseChars < value.length * 0.5 && value.length > 1) {
+              lines.push(`${key}: ${value}`);
+            }
+          }
+        }
+        
+        // Extract from <li> items that look like specs
+        const liItems = cleaned.match(/<li[^>]*>([^<]+)<\/li>/gi) || [];
+        for (const li of liItems) {
+          const text = li.replace(/<[^>]*>/g, '').trim();
+          // Must have English letters and not be too long
+          if (/[a-zA-Z]/.test(text) && text.length > 3 && text.length < 100) {
+            const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+            if (chineseChars < text.length * 0.3) {
+              lines.push(text);
+            }
+          }
+        }
+        
+        // Deduplicate
+        const seen = new Set<string>();
+        const uniqueLines: string[] = [];
+        for (const line of lines) {
+          const normalized = line.toLowerCase().replace(/\s+/g, ' ');
+          if (!seen.has(normalized)) {
+            seen.add(normalized);
+            uniqueLines.push(line);
+          }
+        }
+        
+        return uniqueLines.slice(0, 20).join('<br/>');
+      };
+      
+      // Helper: Build basic specs from product fields
+      const buildBasicSpecs = (): string => {
+        const specs: string[] = [];
+        if (material) specs.push(`Material: ${material}`);
+        if (productWeight) specs.push(`Weight: ${productWeight}g`);
+        if (packLength && packWidth && packHeight) {
+          specs.push(`Dimensions: ${packLength} × ${packWidth} × ${packHeight} cm`);
+        }
+        if (categoryName) specs.push(`Category: ${categoryName}`);
+        if (productType) specs.push(`Type: ${productType}`);
+        return specs.join('<br/>');
+      };
+      
       // Extract Product Information - check multiple sources
       let rawProductInfo = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
+      const descriptionHtml = rawProductInfo; // Save for later extraction
       
-      // If no description, try to build from productPropertyList
+      // First try productPropertyList (best quality specs)
+      const propList = source.productPropertyList || source.propertyList || source.properties || source.specs || source.attributes || [];
+      const propsInfo = buildInfoFromProperties(propList);
+      if (propsInfo && propsInfo.length > 10) {
+        rawProductInfo = propsInfo;
+      }
+      
+      // If no specs from property list, try to extract from HTML description
       if (!rawProductInfo || rawProductInfo.length < 10) {
-        const propList = source.productPropertyList || source.propertyList || source.properties || source.specs || source.attributes || [];
-        const propsInfo = buildInfoFromProperties(propList);
-        if (propsInfo) {
-          rawProductInfo = propsInfo;
+        const htmlSpecs = extractSpecsFromHtml(descriptionHtml);
+        if (htmlSpecs && htmlSpecs.length > 10) {
+          rawProductInfo = htmlSpecs;
         }
       }
       
-      // Also check for nested data structures
+      // If still nothing, check nested data structures
       if (!rawProductInfo || rawProductInfo.length < 10) {
-        // Some CJ responses have data nested
         const nested = source.data || source.product || source.detail || source.info || {};
         if (typeof nested === 'object') {
-          rawProductInfo = String(nested.description || nested.productDescription || nested.descriptionEn || '').trim() || rawProductInfo;
+          const nestedDesc = String(nested.description || nested.productDescription || nested.descriptionEn || '').trim();
+          if (nestedDesc) {
+            const nestedSpecs = extractSpecsFromHtml(nestedDesc);
+            if (nestedSpecs && nestedSpecs.length > 10) {
+              rawProductInfo = nestedSpecs;
+            }
+          }
+        }
+      }
+      
+      // Last resort: build basic specs from known fields
+      if (!rawProductInfo || rawProductInfo.length < 10) {
+        const basicSpecs = buildBasicSpecs();
+        if (basicSpecs) {
+          rawProductInfo = basicSpecs;
         }
       }
       
@@ -631,7 +717,7 @@ export async function GET(req: Request) {
       }
       
       // Log what we found for debugging
-      console.log(`[Search&Price] Product ${pid} specs: productInfo=${!!productInfo}, packingList=${!!packingList}, productNote=${!!productNote}, sizeChartImages=${sizeChartImages.length}`);
+      console.log(`[Search&Price] Product ${pid} initial specs: productInfo=${!!productInfo} (len=${productInfo?.length || 0}), packingList=${!!packingList}, productNote=${!!productNote}, sizeChartImages=${sizeChartImages.length}`);
       
       // Fetch variants - CJ returns only purchasable variants in this API
       const variants = await getVariantsForProduct(token, base, pid);
@@ -674,6 +760,49 @@ export async function GET(req: Request) {
       }
       
       console.log(`[Search&Price] Product ${pid}: ${variantImages.length} images from ${variants.length} variants`);
+      
+      // If productInfo is still empty, try to build specs from variant data
+      let finalProductInfo = productInfo;
+      if (!finalProductInfo && variants.length > 0) {
+        const variantSpecs: string[] = [];
+        const colors = new Set<string>();
+        const sizes = new Set<string>();
+        
+        for (const v of variants) {
+          // Extract color from variant name or properties
+          const variantName = String(v.variantNameEn || v.variantName || v.name || '').trim();
+          const colorMatch = variantName.match(/\b(Black|White|Red|Blue|Green|Yellow|Pink|Purple|Orange|Brown|Grey|Gray|Beige|Navy|Khaki|Apricot|Wine|Coffee|Camel|Cream)\b/i);
+          if (colorMatch) colors.add(colorMatch[1]);
+          
+          // Extract size from variant
+          const sizeMatch = variantName.match(/\b(XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|6XL|One Size|Free Size|\d+)\b/i);
+          if (sizeMatch) sizes.add(sizeMatch[1]);
+          
+          // Check variant properties
+          const vProps = v.variantPropertyList || v.propertyList || [];
+          if (Array.isArray(vProps)) {
+            for (const p of vProps) {
+              const propName = String(p.propertyNameEn || p.propertyName || '').toLowerCase();
+              const propValue = String(p.propertyValueNameEn || p.propertyValueName || p.value || '').trim();
+              if (propValue && /[a-zA-Z]/.test(propValue)) {
+                if (propName.includes('color') || propName.includes('colour')) {
+                  colors.add(propValue);
+                } else if (propName.includes('size')) {
+                  sizes.add(propValue);
+                }
+              }
+            }
+          }
+        }
+        
+        if (colors.size > 0) variantSpecs.push(`Colors: ${[...colors].join(', ')}`);
+        if (sizes.size > 0) variantSpecs.push(`Sizes: ${[...sizes].join(', ')}`);
+        
+        if (variantSpecs.length > 0) {
+          finalProductInfo = variantSpecs.join('<br/>');
+          console.log(`[Search&Price] Product ${pid}: Built specs from ${variants.length} variants - ${colors.size} colors, ${sizes.size} sizes`);
+        }
+      }
       
       // Use variant images if we have them, otherwise keep original images
       if (variantImages.length > 1) {
@@ -846,7 +975,7 @@ export async function GET(req: Request) {
         packHeight,
         material,
         productType,
-        productInfo,
+        productInfo: finalProductInfo,
         productNote,
         packingList,
         sizeChartImages: sizeChartImages.length > 0 ? sizeChartImages : undefined,
