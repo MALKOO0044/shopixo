@@ -443,7 +443,7 @@ export async function GET(req: Request) {
       const material = String(source.material || source.productMaterial || source.materialNameEn || source.materialName || '').trim() || undefined;
       const productType = String(source.productType || source.type || source.productTypeName || '').trim() || undefined;
       
-      // Helper: Sanitize HTML - remove Chinese text, emojis, 1688 links, and other supplier junk
+      // Helper: Sanitize HTML - remove supplier links/contacts but keep usable content
       const sanitizeHtml = (html: string): string | undefined => {
         if (!html || typeof html !== 'string') return undefined;
         let cleaned = html
@@ -454,26 +454,30 @@ export async function GET(req: Request) {
           .replace(/<[^>]*>(.*?(微信|QQ|联系|客服|淘宝|阿里巴巴|天猫|拼多多|抖音|快手).*?)<\/[^>]*>/gi, '')
           // Remove emoji patterns
           .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '')
-          // Remove pure Chinese content blocks (but keep mixed content)
-          .replace(/<[^>]*>[\s]*[\u4e00-\u9fff\s]+[\s]*<\/[^>]*>/g, '')
           // Remove empty elements
           .replace(/<(\w+)[^>]*>\s*<\/\1>/g, '')
           // Remove multiple whitespace and line breaks
           .replace(/\s+/g, ' ')
           .trim();
         
-        // Check if remaining content has any useful English/Arabic text
+        // Check if remaining content has any useful content
         const textOnly = cleaned.replace(/<[^>]*>/g, '').trim();
-        const hasEnglish = /[a-zA-Z]{2,}/.test(textOnly); // Lowered to 2 chars for short words like "XL", "Cotton"
+        const hasEnglish = /[a-zA-Z]/.test(textOnly); // Single letter is enough
         const hasArabic = /[\u0600-\u06FF]/.test(textOnly);
-        const hasNumbers = /\d+/.test(textOnly);
+        const hasNumbers = /\d/.test(textOnly);
+        const hasUnits = /\b(cm|mm|m|kg|g|ml|l|inch|oz|lb)\b/i.test(textOnly);
         
-        // If no useful content remains (no letters/numbers), return undefined
+        // If no useful content remains, return undefined
         if (!hasEnglish && !hasArabic && !hasNumbers && textOnly.length === 0) return undefined;
         
-        // If mostly Chinese characters remain (>70%), return undefined
+        // Accept content if it has numbers or units (likely specs) even if Chinese-heavy
+        if (hasNumbers || hasUnits) {
+          return cleaned.length > 0 ? cleaned : undefined;
+        }
+        
+        // For pure text, if >90% Chinese with no English, skip it
         const chineseChars = (textOnly.match(/[\u4e00-\u9fff]/g) || []).length;
-        if (textOnly.length > 0 && chineseChars > textOnly.length * 0.7) return undefined;
+        if (textOnly.length > 0 && !hasEnglish && !hasArabic && chineseChars > textOnly.length * 0.9) return undefined;
         
         // Return cleaned content if it has any text
         return cleaned.length > 0 ? cleaned : undefined;
@@ -484,28 +488,55 @@ export async function GET(req: Request) {
       const buildInfoFromProperties = (props: any[]): string => {
         if (!Array.isArray(props) || props.length === 0) return '';
         const lines: string[] = [];
+        
+        // Helper to clean a value - strip pure Chinese, keep mixed/numeric content
+        const cleanValue = (val: string): string => {
+          if (!val) return '';
+          const trimmed = val.trim();
+          // If it has numbers or units, keep it even with Chinese
+          if (/\d/.test(trimmed) || /\b(cm|mm|m|kg|g|ml|l|inch|oz|lb|pcs|pc|set)\b/i.test(trimmed)) {
+            // Remove pure Chinese segments but keep numbers and English
+            return trimmed.replace(/^[\u4e00-\u9fff\s]+(?=\d)/g, '').replace(/[\u4e00-\u9fff]+$/g, '').trim();
+          }
+          // If it has English letters, keep it
+          if (/[a-zA-Z]/.test(trimmed)) {
+            return trimmed;
+          }
+          // Pure Chinese with no useful content
+          return '';
+        };
+        
         for (const prop of props) {
-          const name = String(prop.propertyNameEn || prop.propertyName || prop.name || prop.key || '').trim();
-          if (!name || /[\u4e00-\u9fff]/.test(name)) continue;
+          // Try EN name first, then fallback to base name
+          let name = String(prop.propertyNameEn || '').trim();
+          if (!name) {
+            name = String(prop.propertyName || prop.name || prop.key || '').trim();
+            // Skip if name is pure Chinese
+            if (/^[\u4e00-\u9fff\s]+$/.test(name)) continue;
+          }
+          if (!name) continue;
           
           // Handle nested propertyValueList array (common CJ structure)
           const valueList = prop.propertyValueList || prop.values || prop.options || [];
           if (Array.isArray(valueList) && valueList.length > 0) {
             const values: string[] = [];
             for (const v of valueList) {
-              const val = String(v.propertyValueNameEn || v.propertyValueName || v.valueNameEn || v.valueName || v.name || v.value || '').trim();
-              if (val && !/[\u4e00-\u9fff]/.test(val)) {
-                values.push(val);
+              // Try multiple value fields with fallbacks
+              const raw = String(v.propertyValueNameEn || v.propertyValueName || v.valueNameEn || v.valueName || v.name || v.value || '').trim();
+              const cleaned = cleanValue(raw);
+              if (cleaned) {
+                values.push(cleaned);
               }
             }
             if (values.length > 0) {
               lines.push(`${name}: ${values.join(', ')}`);
             }
           } else {
-            // Handle scalar value (fallback)
-            const value = String(prop.propertyValueNameEn || prop.propertyValueName || prop.value || prop.valueName || '').trim();
-            if (value && !/[\u4e00-\u9fff]/.test(value)) {
-              lines.push(`${name}: ${value}`);
+            // Handle scalar value (fallback) - try multiple fields
+            const raw = String(prop.propertyValueNameEn || prop.propertyValueName || prop.propertyValue || prop.value || prop.valueName || '').trim();
+            const cleaned = cleanValue(raw);
+            if (cleaned) {
+              lines.push(`${name}: ${cleaned}`);
             }
           }
         }
