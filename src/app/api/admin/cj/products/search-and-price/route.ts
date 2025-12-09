@@ -440,17 +440,56 @@ export async function GET(req: Request) {
       const packLength = source.packLength !== undefined ? Number(source.packLength) : (source.length !== undefined ? Number(source.length) : undefined);
       const packWidth = source.packWidth !== undefined ? Number(source.packWidth) : (source.width !== undefined ? Number(source.width) : undefined);
       const packHeight = source.packHeight !== undefined ? Number(source.packHeight) : (source.height !== undefined ? Number(source.height) : undefined);
-      const material = String(source.material || source.productMaterial || '').trim() || undefined;
+      const material = String(source.material || source.productMaterial || source.materialNameEn || source.materialName || '').trim() || undefined;
       const productType = String(source.productType || source.type || source.productTypeName || '').trim() || undefined;
       
-      // Extract Product Information (CJ description field contains HTML with product info)
-      const productInfo = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim() || undefined;
+      // Helper: Sanitize HTML - remove Chinese text, emojis, 1688 links, and other supplier junk
+      const sanitizeHtml = (html: string): string | undefined => {
+        if (!html || typeof html !== 'string') return undefined;
+        let cleaned = html
+          // Remove 1688.com and other supplier links
+          .replace(/<a[^>]*href=[^>]*(1688|taobao|alibaba|aliexpress|tmall)[^>]*>.*?<\/a>/gi, '')
+          .replace(/https?:\/\/[^\s<>"]*?(1688|taobao|alibaba|aliexpress|tmall)[^\s<>"]*/gi, '')
+          // Remove WeChat/QQ/supplier contact info
+          .replace(/<[^>]*>(.*?(微信|QQ|联系|客服|淘宝|阿里巴巴|天猫|拼多多|抖音|快手).*?)<\/[^>]*>/gi, '')
+          // Remove emoji patterns
+          .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '')
+          // Remove pure Chinese content blocks (but keep mixed content)
+          .replace(/<[^>]*>[\s]*[\u4e00-\u9fff\s]+[\s]*<\/[^>]*>/g, '')
+          // Remove empty elements
+          .replace(/<(\w+)[^>]*>\s*<\/\1>/g, '')
+          // Remove multiple whitespace and line breaks
+          .replace(/\s+/g, ' ')
+          .trim();
+        
+        // Check if remaining content has any useful English/Arabic text
+        const textOnly = cleaned.replace(/<[^>]*>/g, '').trim();
+        const hasEnglish = /[a-zA-Z]{2,}/.test(textOnly); // Lowered to 2 chars for short words like "XL", "Cotton"
+        const hasArabic = /[\u0600-\u06FF]/.test(textOnly);
+        const hasNumbers = /\d+/.test(textOnly);
+        
+        // If no useful content remains (no letters/numbers), return undefined
+        if (!hasEnglish && !hasArabic && !hasNumbers && textOnly.length === 0) return undefined;
+        
+        // If mostly Chinese characters remain (>70%), return undefined
+        const chineseChars = (textOnly.match(/[\u4e00-\u9fff]/g) || []).length;
+        if (textOnly.length > 0 && chineseChars > textOnly.length * 0.7) return undefined;
+        
+        // Return cleaned content if it has any text
+        return cleaned.length > 0 ? cleaned : undefined;
+      };
       
-      // Extract Product Note (sizing/color notes from CJ)
-      const productNote = String(source.productNote || source.note || source.notes || source.remark || source.memo || '').trim() || undefined;
+      // Extract Product Information (CJ description field contains HTML with product info)
+      const rawProductInfo = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
+      const productInfo = sanitizeHtml(rawProductInfo);
+      
+      // Extract Product Note (sizing/color notes from CJ) - heavily sanitize
+      const rawProductNote = String(source.productNote || source.note || source.notes || source.remark || source.memo || source.comment || '').trim();
+      const productNote = sanitizeHtml(rawProductNote);
       
       // Extract Packing List
-      const packingList = String(source.packingList || source.packing || source.packageContent || source.packageList || '').trim() || undefined;
+      const rawPackingList = String(source.packingList || source.packing || source.packageContent || source.packageList || source.packingNameEn || source.packingName || '').trim();
+      const packingList = sanitizeHtml(rawPackingList) || (rawPackingList && rawPackingList.length > 2 && !/[\u4e00-\u9fff]/.test(rawPackingList) ? rawPackingList : undefined);
       
       // Extract Size Chart Images (CJ provides these as separate images)
       const sizeChartImages: string[] = [];
@@ -477,6 +516,9 @@ export async function GET(req: Request) {
           }
         }
       }
+      
+      // Log what we found for debugging
+      console.log(`[Search&Price] Product ${pid} specs: productInfo=${!!productInfo}, packingList=${!!packingList}, productNote=${!!productNote}, sizeChartImages=${sizeChartImages.length}`);
       
       // Fetch variants - CJ returns only purchasable variants in this API
       const variants = await getVariantsForProduct(token, base, pid);
