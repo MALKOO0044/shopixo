@@ -98,10 +98,21 @@ async function getVariantsForProduct(token: string, base: string, pid: string): 
       const sample = variants[0];
       const keys = Object.keys(sample);
       const imageKeys = keys.filter(k => /image|img|photo|pic/i.test(k));
-      console.log(`[Variants] Product ${pid}: ${variants.length} variants, image fields: [${imageKeys.join(', ')}]`);
-      if (imageKeys.length > 0) {
-        console.log(`[Variants] Sample image values:`, imageKeys.map(k => `${k}=${typeof sample[k] === 'string' ? sample[k].slice(0, 80) : typeof sample[k]}`).join(', '));
+      console.log(`[Variants] Product ${pid}: ${variants.length} variants`);
+      console.log(`[Variants] ALL fields: [${keys.join(', ')}]`);
+      console.log(`[Variants] Image fields: [${imageKeys.join(', ')}]`);
+      
+      // Log actual values for image fields
+      for (const k of imageKeys) {
+        const val = sample[k];
+        if (val) {
+          console.log(`[Variants] ${k} = ${typeof val === 'string' ? val.slice(0, 100) : JSON.stringify(val).slice(0, 100)}`);
+        }
       }
+      
+      // Also log variantKey which often contains color info
+      if (sample.variantKey) console.log(`[Variants] variantKey = ${sample.variantKey}`);
+      if (sample.variantNameEn) console.log(`[Variants] variantNameEn = ${sample.variantNameEn}`);
     }
     
     return variants;
@@ -407,18 +418,10 @@ export async function GET(req: Request) {
       let images = extractAllImages(fullDetails || item);
       console.log(`[Search&Price] Product ${pid}: ${images.length} images from details`);
       
-      // Fetch variants - we'll ONLY use images from AVAILABLE variants (with stock > 0)
+      // Fetch variants - CJ returns only purchasable variants in this API
       const variants = await getVariantsForProduct(token, base, pid);
       
-      // Filter to only variants with available stock
-      const availableVariants = variants.filter(v => {
-        const stock = Number(v.variantStock || v.stock || v.inventory || v.availableStock || v.quantity || 0);
-        return stock > 0;
-      });
-      
-      console.log(`[Search&Price] Product ${pid}: ${availableVariants.length}/${variants.length} variants have stock`);
-      
-      // ONLY extract images from AVAILABLE variants (colors that can actually be purchased)
+      // Build set of images from variants (these are the purchasable color options)
       const variantImages: string[] = [];
       const seenUrls = new Set<string>();
       
@@ -429,9 +432,11 @@ export async function GET(req: Request) {
         variantImages.push(mainImage);
       }
       
-      // Then add images ONLY from available variants
-      for (const v of availableVariants) {
-        const imgFields = ['variantImage', 'whiteImage', 'image', 'imageUrl', 'imgUrl', 'bigImage', 'variantImg', 'skuImage'];
+      // Extract images from ALL variants (CJ only returns purchasable ones)
+      // Check all possible image field names
+      const imgFields = ['variantImage', 'whiteImage', 'image', 'imageUrl', 'imgUrl', 'bigImage', 'variantImg', 'skuImage', 'pic', 'picture', 'photo'];
+      
+      for (const v of variants) {
         for (const field of imgFields) {
           const url = v[field];
           if (typeof url === 'string' && url.startsWith('http') && !seenUrls.has(url)) {
@@ -439,17 +444,37 @@ export async function GET(req: Request) {
             variantImages.push(url);
           }
         }
+        
+        // Also check nested structures like variantProperty
+        const variantProps = v.variantPropertyList || v.propertyList || v.properties || [];
+        if (Array.isArray(variantProps)) {
+          for (const prop of variantProps) {
+            const propImg = prop?.image || prop?.propImage || prop?.imageUrl || prop?.pic;
+            if (typeof propImg === 'string' && propImg.startsWith('http') && !seenUrls.has(propImg)) {
+              seenUrls.add(propImg);
+              variantImages.push(propImg);
+            }
+          }
+        }
       }
       
-      // Replace images with only the available variant images
-      if (variantImages.length > 0) {
-        console.log(`[Search&Price] Product ${pid}: Using ${variantImages.length} images from available variants only`);
+      console.log(`[Search&Price] Product ${pid}: ${variantImages.length} images from ${variants.length} variants`);
+      
+      // Use variant images if we have them, otherwise keep original images
+      if (variantImages.length > 1) {
         images = variantImages.slice(0, 50);
-      } else {
-        // Fallback: if no variant images, keep the original images but limit to main image
-        console.log(`[Search&Price] Product ${pid}: No variant images, using main image only`);
-        images = images.slice(0, 1);
+      } else if (variantImages.length === 1) {
+        // Only main image found from variants - combine with original images but limit
+        const combinedImages = [...variantImages];
+        for (const img of images) {
+          if (!seenUrls.has(img)) {
+            seenUrls.add(img);
+            combinedImages.push(img);
+          }
+        }
+        images = combinedImages.slice(0, 50);
       }
+      // else keep original images as fallback
       
       const pricedVariants: PricedVariant[] = [];
       
