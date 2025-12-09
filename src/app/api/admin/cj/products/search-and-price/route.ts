@@ -596,16 +596,20 @@ export async function GET(req: Request) {
         return uniqueLines.slice(0, 20).join('<br/>');
       };
       
-      // Helper: Build basic specs from product fields
+      // Helper: Build basic specs from product fields (only meaningful customer-facing data)
       const buildBasicSpecs = (): string => {
         const specs: string[] = [];
-        if (material) specs.push(`Material: ${material}`);
-        if (productWeight) specs.push(`Weight: ${productWeight}g`);
+        if (material && material.length > 1) specs.push(`Material: ${material}`);
+        if (productWeight && productWeight > 0) specs.push(`Weight: ${productWeight}g`);
         if (packLength && packWidth && packHeight) {
           specs.push(`Dimensions: ${packLength} × ${packWidth} × ${packHeight} cm`);
         }
-        if (categoryName) specs.push(`Category: ${categoryName}`);
-        if (productType) specs.push(`Type: ${productType}`);
+        // Don't include Category or Type alone - not useful as standalone specs
+        // Only include category if we have other specs too
+        if (specs.length > 0 && categoryName && !categoryName.includes('_')) {
+          specs.push(`Category: ${categoryName}`);
+        }
+        // Never include internal type like "ORDINARY_PRODUCT"
         return specs.join('<br/>');
       };
       
@@ -768,40 +772,74 @@ export async function GET(req: Request) {
         const colors = new Set<string>();
         const sizes = new Set<string>();
         
+        // Extended color list
+        const colorPattern = /\b(Black|White|Red|Blue|Green|Yellow|Pink|Purple|Orange|Brown|Grey|Gray|Beige|Navy|Khaki|Apricot|Wine|Coffee|Camel|Cream|Rose|Gold|Silver|Ivory|Mint|Coral|Burgundy|Maroon|Olive|Teal|Turquoise|Lavender|Lilac|Peach|Tan|Charcoal|Sky Blue|Dark Blue|Light Blue|Light Green|Dark Green|Light Pink|Dark Pink|Off White|Nude)\b/gi;
+        
         for (const v of variants) {
-          // Extract color from variant name or properties
-          const variantName = String(v.variantNameEn || v.variantName || v.name || '').trim();
-          const colorMatch = variantName.match(/\b(Black|White|Red|Blue|Green|Yellow|Pink|Purple|Orange|Brown|Grey|Gray|Beige|Navy|Khaki|Apricot|Wine|Coffee|Camel|Cream)\b/i);
-          if (colorMatch) colors.add(colorMatch[1]);
+          // Check multiple variant fields for color/size info
+          const fieldsToCheck = [
+            v.variantNameEn, v.variantName, v.name,
+            v.variantKey, v.variantSku, v.sku,
+            v.color, v.colour, v.colorNameEn, v.colorName,
+            v.size, v.sizeNameEn, v.sizeName
+          ].filter(Boolean).map(x => String(x).trim());
           
-          // Extract size from variant
-          const sizeMatch = variantName.match(/\b(XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|6XL|One Size|Free Size|\d+)\b/i);
-          if (sizeMatch) sizes.add(sizeMatch[1]);
+          for (const field of fieldsToCheck) {
+            // Extract colors
+            const colorMatches = field.match(colorPattern);
+            if (colorMatches) {
+              for (const c of colorMatches) {
+                colors.add(c.charAt(0).toUpperCase() + c.slice(1).toLowerCase());
+              }
+            }
+            
+            // Extract sizes - be more flexible
+            const sizeMatches = field.match(/\b(XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|6XL|One Size|Free Size|EU\s*\d+|US\s*\d+|\d+(?:cm)?)\b/gi);
+            if (sizeMatches) {
+              for (const s of sizeMatches) {
+                sizes.add(s.toUpperCase());
+              }
+            }
+          }
           
           // Check variant properties
-          const vProps = v.variantPropertyList || v.propertyList || [];
+          const vProps = v.variantPropertyList || v.propertyList || v.properties || [];
           if (Array.isArray(vProps)) {
             for (const p of vProps) {
-              const propName = String(p.propertyNameEn || p.propertyName || '').toLowerCase();
-              const propValue = String(p.propertyValueNameEn || p.propertyValueName || p.value || '').trim();
-              if (propValue && /[a-zA-Z]/.test(propValue)) {
+              const propName = String(p.propertyNameEn || p.propertyName || p.name || '').toLowerCase();
+              const propValue = String(p.propertyValueNameEn || p.propertyValueName || p.value || p.name || '').trim();
+              if (propValue && propValue.length > 0) {
                 if (propName.includes('color') || propName.includes('colour')) {
-                  colors.add(propValue);
+                  // Clean the color value
+                  const cleanColor = propValue.replace(/[\u4e00-\u9fff]/g, '').trim();
+                  if (cleanColor && /[a-zA-Z]/.test(cleanColor)) {
+                    colors.add(cleanColor);
+                  }
                 } else if (propName.includes('size')) {
-                  sizes.add(propValue);
+                  const cleanSize = propValue.replace(/[\u4e00-\u9fff]/g, '').trim();
+                  if (cleanSize) {
+                    sizes.add(cleanSize);
+                  }
                 }
               }
             }
           }
         }
         
-        if (colors.size > 0) variantSpecs.push(`Colors: ${[...colors].join(', ')}`);
-        if (sizes.size > 0) variantSpecs.push(`Sizes: ${[...sizes].join(', ')}`);
+        if (colors.size > 0) variantSpecs.push(`Colors: ${[...colors].slice(0, 15).join(', ')}`);
+        if (sizes.size > 0) variantSpecs.push(`Sizes: ${[...sizes].slice(0, 15).join(', ')}`);
         
         if (variantSpecs.length > 0) {
           finalProductInfo = variantSpecs.join('<br/>');
           console.log(`[Search&Price] Product ${pid}: Built specs from ${variants.length} variants - ${colors.size} colors, ${sizes.size} sizes`);
+        } else {
+          console.log(`[Search&Price] Product ${pid}: No colors/sizes found in ${variants.length} variants`);
         }
+      }
+      
+      // If still no product info, set to undefined (don't show empty section)
+      if (!finalProductInfo || finalProductInfo.trim().length === 0) {
+        finalProductInfo = undefined;
       }
       
       // Use variant images if we have them, otherwise keep original images
