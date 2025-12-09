@@ -479,16 +479,98 @@ export async function GET(req: Request) {
         return cleaned.length > 0 ? cleaned : undefined;
       };
       
-      // Extract Product Information (CJ description field contains HTML with product info)
-      const rawProductInfo = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
+      // Helper: Build product info from productPropertyList if description is empty
+      // CJ propertyList structure: { propertyName, propertyNameEn, propertyValueList: [{propertyValueName, propertyValueNameEn}] }
+      const buildInfoFromProperties = (props: any[]): string => {
+        if (!Array.isArray(props) || props.length === 0) return '';
+        const lines: string[] = [];
+        for (const prop of props) {
+          const name = String(prop.propertyNameEn || prop.propertyName || prop.name || prop.key || '').trim();
+          if (!name || /[\u4e00-\u9fff]/.test(name)) continue;
+          
+          // Handle nested propertyValueList array (common CJ structure)
+          const valueList = prop.propertyValueList || prop.values || prop.options || [];
+          if (Array.isArray(valueList) && valueList.length > 0) {
+            const values: string[] = [];
+            for (const v of valueList) {
+              const val = String(v.propertyValueNameEn || v.propertyValueName || v.valueNameEn || v.valueName || v.name || v.value || '').trim();
+              if (val && !/[\u4e00-\u9fff]/.test(val)) {
+                values.push(val);
+              }
+            }
+            if (values.length > 0) {
+              lines.push(`${name}: ${values.join(', ')}`);
+            }
+          } else {
+            // Handle scalar value (fallback)
+            const value = String(prop.propertyValueNameEn || prop.propertyValueName || prop.value || prop.valueName || '').trim();
+            if (value && !/[\u4e00-\u9fff]/.test(value)) {
+              lines.push(`${name}: ${value}`);
+            }
+          }
+        }
+        return lines.join('<br/>');
+      };
+      
+      // Extract Product Information - check multiple sources
+      let rawProductInfo = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
+      
+      // If no description, try to build from productPropertyList
+      if (!rawProductInfo || rawProductInfo.length < 10) {
+        const propList = source.productPropertyList || source.propertyList || source.properties || source.specs || source.attributes || [];
+        const propsInfo = buildInfoFromProperties(propList);
+        if (propsInfo) {
+          rawProductInfo = propsInfo;
+        }
+      }
+      
+      // Also check for nested data structures
+      if (!rawProductInfo || rawProductInfo.length < 10) {
+        // Some CJ responses have data nested
+        const nested = source.data || source.product || source.detail || source.info || {};
+        if (typeof nested === 'object') {
+          rawProductInfo = String(nested.description || nested.productDescription || nested.descriptionEn || '').trim() || rawProductInfo;
+        }
+      }
+      
       const productInfo = sanitizeHtml(rawProductInfo);
       
       // Extract Product Note (sizing/color notes from CJ) - heavily sanitize
-      const rawProductNote = String(source.productNote || source.note || source.notes || source.remark || source.memo || source.comment || '').trim();
+      const rawProductNote = String(source.productNote || source.note || source.notes || source.remark || source.memo || source.comment || source.remarkEn || '').trim();
       const productNote = sanitizeHtml(rawProductNote);
       
-      // Extract Packing List
-      const rawPackingList = String(source.packingList || source.packing || source.packageContent || source.packageList || source.packingNameEn || source.packingName || '').trim();
+      // Extract Packing List - check multiple field names
+      let rawPackingList = String(source.packingList || source.packing || source.packageContent || source.packageList || source.packingNameEn || source.packingName || source.packageInfo || '').trim();
+      
+      // If packingList is empty, check if it's in a nested structure or property list
+      if (!rawPackingList) {
+        const propList = source.productPropertyList || source.propertyList || [];
+        if (Array.isArray(propList)) {
+          for (const prop of propList) {
+            const name = String(prop.propertyNameEn || prop.propertyName || prop.name || '').toLowerCase();
+            if (name.includes('pack') || name.includes('includ') || name.includes('content') || name.includes('box')) {
+              // Handle nested propertyValueList array
+              const valueList = prop.propertyValueList || prop.values || [];
+              if (Array.isArray(valueList) && valueList.length > 0) {
+                const values: string[] = [];
+                for (const v of valueList) {
+                  const val = String(v.propertyValueNameEn || v.propertyValueName || v.value || '').trim();
+                  if (val && !/[\u4e00-\u9fff]/.test(val)) values.push(val);
+                }
+                if (values.length > 0) {
+                  rawPackingList = values.join(', ');
+                  break;
+                }
+              } else {
+                // Scalar value fallback
+                rawPackingList = String(prop.propertyValueNameEn || prop.propertyValueName || prop.value || '').trim();
+                if (rawPackingList) break;
+              }
+            }
+          }
+        }
+      }
+      
       const packingList = sanitizeHtml(rawPackingList) || (rawPackingList && rawPackingList.length > 2 && !/[\u4e00-\u9fff]/.test(rawPackingList) ? rawPackingList : undefined);
       
       // Extract Size Chart Images (CJ provides these as separate images)

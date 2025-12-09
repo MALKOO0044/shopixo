@@ -576,6 +576,17 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
     
     if (!productData) return null;
     
+    // Log available data fields for debugging (specs, description, etc.)
+    const specFields = ['description', 'productDescription', 'descriptionEn', 'productNote', 'remark', 'packingList', 'packingNameEn', 'materialNameEn'];
+    const availableSpecs: Record<string, string> = {};
+    for (const field of specFields) {
+      if (productData[field]) {
+        const val = productData[field];
+        availableSpecs[field] = typeof val === 'string' ? `"${val.slice(0, 50)}..."` : typeof val;
+      }
+    }
+    console.log(`[CJ Details] Product ${pid} spec fields:`, JSON.stringify(availableSpecs));
+    
     // Log available image fields for debugging
     const imageFields = ['productImage', 'productImageList', 'imageList', 'bigImage', 'mainImage', 'productImages', 'detailImageList'];
     const availableImages: Record<string, any> = {};
@@ -588,8 +599,8 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
     }
     console.log(`[CJ Details] Product ${pid} image fields:`, JSON.stringify(availableImages));
     
-    // Log property lists (where color images often are)
-    const propFields = ['productPropertyList', 'propertyList', 'productOptions', 'options'];
+    // Log property lists (where specs/color images often are)
+    const propFields = ['productPropertyList', 'propertyList', 'productOptions', 'options', 'specs', 'attributes'];
     for (const field of propFields) {
       if (productData[field] && Array.isArray(productData[field])) {
         console.log(`[CJ Details] Product ${pid} ${field}: ${productData[field].length} items`);
@@ -598,6 +609,10 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
         }
       }
     }
+    
+    // Log all top-level keys for debugging
+    const allKeys = Object.keys(productData);
+    console.log(`[CJ Details] Product ${pid} all keys: [${allKeys.slice(0, 30).join(', ')}${allKeys.length > 30 ? '...' : ''}]`);
     
     // Fetch variants separately to get complete variant data with images
     try {
