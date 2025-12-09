@@ -63,7 +63,7 @@ async function fetchCjProductPage(
   const params = new URLSearchParams();
   params.set('page', String(pageNum));
   params.set('size', '20');
-  params.set('features', 'enable_description,enable_category');
+  // Note: features parameter removed for stable search - descriptions fetched via hydration step
   
   if (categoryId && categoryId !== 'all' && !categoryId.startsWith('first-') && !categoryId.startsWith('second-')) {
     if (categoryId.startsWith('lv2-')) {
@@ -88,15 +88,35 @@ async function fetchCjProductPage(
       timeoutMs: 30000,
     });
     
+    // Handle multiple possible response structures from CJ listV2 API
+    let productList: any[] = [];
+    let total = 0;
+    
+    // Structure 1: data.content[0].productList (standard listV2)
     const content = res?.data?.content || [];
-    const productList = content[0]?.productList || [];
-    const total = res?.data?.totalRecords || 0;
+    if (Array.isArray(content) && content[0]?.productList) {
+      productList = content[0].productList;
+      total = res?.data?.totalRecords || 0;
+    }
+    // Structure 2: data.list (fallback format)
+    else if (res?.data?.list) {
+      productList = res.data.list;
+      total = res?.data?.total || res?.data?.totalRecords || 0;
+    }
+    // Structure 3: data is the array directly
+    else if (Array.isArray(res?.data)) {
+      productList = res.data;
+      total = productList.length;
+    }
+    
     console.log(`[Search&Price] Page ${pageNum} returned ${productList.length} items (total: ${total})`);
     
     if (productList.length > 0) {
       const sample = productList[0];
       console.log(`[Search&Price] Sample product: pid=${sample.id || sample.pid}, name=${sample.nameEn?.slice(0, 50)}, desc=${sample.description ? 'YES' : 'NO'}`);
       console.log(`[Search&Price] Sample fields: ${Object.keys(sample).slice(0, 15).join(', ')}`);
+    } else {
+      console.log(`[Search&Price] Response structure: ${JSON.stringify(Object.keys(res?.data || {}))}`);
     }
     
     return { list: productList, total };
