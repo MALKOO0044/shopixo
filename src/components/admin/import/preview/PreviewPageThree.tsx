@@ -1,111 +1,145 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { FileText, Tag, Layers, Scale, Box, Package } from "lucide-react";
+import { FileText, Ruler, Package, AlertCircle } from "lucide-react";
 import type { PricedProduct } from "./types";
 
 type PreviewPageThreeProps = {
   product: PricedProduct;
 };
 
-type SpecRowProps = {
+type SectionCardProps = {
+  title: string;
   icon: ReactNode;
-  label: string;
-  value: string | number | undefined;
-  fallback?: string;
+  children: ReactNode;
+  gradientFrom?: string;
+  gradientTo?: string;
+  iconColor?: string;
 };
 
-function SpecRow({ icon, label, value, fallback = "غير متوفر" }: SpecRowProps) {
-  const displayValue = value !== undefined && value !== null && value !== "" ? value : fallback;
-  const hasValue = value !== undefined && value !== null && value !== "";
-
+function SectionCard({ 
+  title, 
+  icon, 
+  children, 
+  gradientFrom = "from-blue-50", 
+  gradientTo = "to-indigo-50",
+  iconColor = "text-blue-600"
+}: SectionCardProps) {
   return (
-    <div className="flex items-start gap-3 py-3 border-b border-gray-100 last:border-b-0">
-      <div className="flex-shrink-0 w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
-        {icon}
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className={`bg-gradient-to-r ${gradientFrom} ${gradientTo} px-5 py-4 border-b border-gray-200`}>
+        <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+          <span className={iconColor}>{icon}</span>
+          {title}
+        </h3>
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-500 mb-0.5">{label}</p>
-        <p className={`font-medium ${hasValue ? "text-gray-900" : "text-gray-400 italic"}`}>
-          {displayValue}
-        </p>
+      <div className="p-5">
+        {children}
       </div>
     </div>
   );
 }
 
-function formatDimensions(length?: number, width?: number, height?: number): string | undefined {
-  if (!length && !width && !height) return undefined;
-  const parts = [];
-  if (length) parts.push(`${length} سم`);
-  if (width) parts.push(`${width} سم`);
-  if (height) parts.push(`${height} سم`);
-  return parts.join(" × ");
+function EmptyState({ message }: { message: string }) {
+  return (
+    <p className="text-gray-400 italic text-center py-4">
+      {message}
+    </p>
+  );
+}
+
+function HtmlContent({ html }: { html: string }) {
+  return (
+    <div 
+      className="prose prose-sm max-w-none text-gray-700 leading-relaxed
+        [&_table]:w-full [&_table]:border-collapse [&_table]:my-4
+        [&_th]:border [&_th]:border-gray-300 [&_th]:bg-gray-100 [&_th]:px-3 [&_th]:py-2 [&_th]:text-right
+        [&_td]:border [&_td]:border-gray-300 [&_td]:px-3 [&_td]:py-2
+        [&_img]:max-w-full [&_img]:h-auto [&_img]:my-2
+        [&_p]:mb-2 [&_ul]:list-disc [&_ul]:mr-4 [&_ol]:list-decimal [&_ol]:mr-4"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
 }
 
 export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
-  const dimensions = formatDimensions(product.packLength, product.packWidth, product.packHeight);
-  const hasDescription = product.description && product.description.trim().length > 0;
+  const hasProductInfo = product.productInfo && product.productInfo.trim().length > 0;
+  const hasSizeChartImages = product.sizeChartImages && product.sizeChartImages.length > 0;
+  const hasPackingList = product.packingList && product.packingList.trim().length > 0;
+  const hasProductNote = product.productNote && product.productNote.trim().length > 0;
 
   return (
     <div className="space-y-6" dir="rtl">
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-5 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <FileText className="h-5 w-5 text-blue-600" />
-            مواصفات المنتج
-          </h3>
-        </div>
+      {/* Product Information Section */}
+      <SectionCard
+        title="معلومات المنتج"
+        icon={<FileText className="h-5 w-5" />}
+        gradientFrom="from-blue-50"
+        gradientTo="to-indigo-50"
+        iconColor="text-blue-600"
+      >
+        {hasProductInfo ? (
+          <HtmlContent html={product.productInfo!} />
+        ) : (
+          <EmptyState message="لا توجد معلومات متاحة" />
+        )}
+      </SectionCard>
 
-        <div className="p-5 space-y-1">
-          <SpecRow
-            icon={<Tag className="h-4 w-4 text-blue-600" />}
-            label="الفئة"
-            value={product.categoryName}
-          />
-          <SpecRow
-            icon={<Layers className="h-4 w-4 text-blue-600" />}
-            label="نوع المنتج"
-            value={product.productType}
-          />
-          <SpecRow
-            icon={<Package className="h-4 w-4 text-blue-600" />}
-            label="المادة"
-            value={product.material}
-          />
-          <SpecRow
-            icon={<Scale className="h-4 w-4 text-blue-600" />}
-            label="الوزن"
-            value={product.productWeight ? `${product.productWeight} جم` : undefined}
-          />
-          <SpecRow
-            icon={<Box className="h-4 w-4 text-blue-600" />}
-            label="الأبعاد (الطول × العرض × الارتفاع)"
-            value={dimensions}
-          />
-        </div>
-      </div>
+      {/* Size Chart Section */}
+      <SectionCard
+        title="جدول المقاسات"
+        icon={<Ruler className="h-5 w-5" />}
+        gradientFrom="from-purple-50"
+        gradientTo="to-pink-50"
+        iconColor="text-purple-600"
+      >
+        {hasSizeChartImages ? (
+          <div className="space-y-4">
+            {product.sizeChartImages!.map((imgUrl, index) => (
+              <div key={index} className="rounded-lg overflow-hidden border border-gray-200">
+                <img
+                  src={imgUrl}
+                  alt={`جدول المقاسات ${index + 1}`}
+                  className="w-full h-auto object-contain"
+                  loading="lazy"
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState message="لا يوجد جدول مقاسات متاح" />
+        )}
+      </SectionCard>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="bg-gradient-to-r from-gray-50 to-slate-50 px-5 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <FileText className="h-5 w-5 text-gray-600" />
-            الوصف الكامل
-          </h3>
-        </div>
+      {/* Packing List Section */}
+      <SectionCard
+        title="قائمة التعبئة"
+        icon={<Package className="h-5 w-5" />}
+        gradientFrom="from-green-50"
+        gradientTo="to-emerald-50"
+        iconColor="text-green-600"
+      >
+        {hasPackingList ? (
+          <HtmlContent html={product.packingList!} />
+        ) : (
+          <EmptyState message="لا توجد قائمة تعبئة متاحة" />
+        )}
+      </SectionCard>
 
-        <div className="p-5">
-          {hasDescription ? (
-            <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">
-              {product.description}
-            </p>
-          ) : (
-            <p className="text-gray-400 italic">
-              لا يوجد وصف متاح لهذا المنتج
-            </p>
-          )}
-        </div>
-      </div>
+      {/* Notes Section */}
+      <SectionCard
+        title="ملاحظات"
+        icon={<AlertCircle className="h-5 w-5" />}
+        gradientFrom="from-amber-50"
+        gradientTo="to-orange-50"
+        iconColor="text-amber-600"
+      >
+        {hasProductNote ? (
+          <HtmlContent html={product.productNote!} />
+        ) : (
+          <EmptyState message="لا توجد ملاحظات متاحة" />
+        )}
+      </SectionCard>
     </div>
   );
 }
