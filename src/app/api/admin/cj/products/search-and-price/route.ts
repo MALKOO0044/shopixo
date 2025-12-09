@@ -37,6 +37,15 @@ type PricedProduct = {
   variants: PricedVariant[];
   successfulVariants: number;
   totalVariants: number;
+  description?: string;
+  rating?: number;
+  categoryName?: string;
+  productWeight?: number;
+  packLength?: number;
+  packWidth?: number;
+  packHeight?: number;
+  material?: string;
+  productType?: string;
 };
 
 async function fetchCjProductPage(
@@ -413,10 +422,22 @@ export async function GET(req: Request) {
       const stock = Number(item.stock || item.inventory || 0);
       const listedNum = Number(item.listedNum || 0);
       
-      // Get full product details for all images
+      // Get full product details for all images and additional info
       const fullDetails = productDetailsMap.get(pid);
       let images = extractAllImages(fullDetails || item);
       console.log(`[Search&Price] Product ${pid}: ${images.length} images from details`);
+      
+      // Extract additional product info from fullDetails or item
+      const source = fullDetails || item;
+      const description = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim() || undefined;
+      const rating = source.rating !== undefined ? Number(source.rating) : (source.score !== undefined ? Number(source.score) : undefined);
+      const categoryName = String(source.categoryName || source.categoryNameEn || source.category || '').trim() || undefined;
+      const productWeight = source.productWeight !== undefined ? Number(source.productWeight) : (source.weight !== undefined ? Number(source.weight) : undefined);
+      const packLength = source.packLength !== undefined ? Number(source.packLength) : (source.length !== undefined ? Number(source.length) : undefined);
+      const packWidth = source.packWidth !== undefined ? Number(source.packWidth) : (source.width !== undefined ? Number(source.width) : undefined);
+      const packHeight = source.packHeight !== undefined ? Number(source.packHeight) : (source.height !== undefined ? Number(source.height) : undefined);
+      const material = String(source.material || source.productMaterial || '').trim() || undefined;
+      const productType = String(source.productType || source.type || source.productTypeName || '').trim() || undefined;
       
       // Fetch variants - CJ returns only purchasable variants in this API
       const variants = await getVariantsForProduct(token, base, pid);
@@ -622,6 +643,15 @@ export async function GET(req: Request) {
         variants: pricedVariants,
         successfulVariants,
         totalVariants: pricedVariants.length,
+        description,
+        rating,
+        categoryName,
+        productWeight,
+        packLength,
+        packWidth,
+        packHeight,
+        material,
+        productType,
       });
     }
     

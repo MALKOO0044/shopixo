@@ -4,36 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, TrendingUp, ChevronLeft, ChevronRight, Image as ImageIcon, BarChart3, DollarSign, Grid3X3 } from "lucide-react";
-
-type PricedVariant = {
-  variantId: string;
-  variantSku: string;
-  variantPriceUSD: number;
-  shippingAvailable: boolean;
-  shippingPriceUSD: number;
-  shippingPriceSAR: number;
-  deliveryDays: string;
-  logisticName?: string;
-  sellPriceSAR: number;
-  totalCostSAR: number;
-  profitSAR: number;
-  error?: string;
-};
-
-type PricedProduct = {
-  pid: string;
-  cjSku: string;
-  name: string;
-  images: string[];
-  minPriceSAR: number;
-  maxPriceSAR: number;
-  avgPriceSAR: number;
-  stock: number;
-  listedNum: number;
-  variants: PricedVariant[];
-  successfulVariants: number;
-  totalVariants: number;
-};
+import PreviewPageOne from "@/components/admin/import/preview/PreviewPageOne";
+import type { PricedProduct, PricedVariant } from "@/components/admin/import/preview/types";
 
 type Category = {
   categoryId: string;
@@ -836,48 +808,9 @@ export default function ProductDiscoveryPage() {
             
             {/* Page content */}
             <div className="p-6 overflow-y-auto flex-1">
-              {/* Page 1: Hero Image & Details */}
+              {/* Page 1: Product Overview */}
               {previewPage === 1 && (
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    {previewProduct.images?.[0] && (
-                      <img 
-                        src={previewProduct.images[0]} 
-                        alt={previewProduct.name}
-                        className="w-full rounded-lg shadow-lg"
-                      />
-                    )}
-                    <div className="flex items-center gap-2 text-sm text-gray-500">
-                      <ImageIcon className="h-4 w-4" />
-                      <span>{previewProduct.images?.length || 0} images available</span>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <h2 className="text-xl font-semibold" dir="ltr">{previewProduct.name}</h2>
-                    <p className="text-sm text-gray-500">
-                      <span className="font-medium">Supplier SKU:</span>{" "}
-                      <span className="font-mono text-blue-600">{previewProduct.cjSku}</span>
-                    </p>
-                    
-                    <div className="bg-green-50 rounded-lg p-4 space-y-2">
-                      <div className="flex justify-between text-lg font-bold">
-                        <span>Sell Price Range:</span>
-                        <span className="text-green-700">
-                          {previewProduct.minPriceSAR.toFixed(0)} - {previewProduct.maxPriceSAR.toFixed(0)} SAR
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Average Price:</span>
-                        <span className="font-semibold">{previewProduct.avgPriceSAR.toFixed(0)} SAR</span>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                      Use the arrows or dots above to navigate through all product details, images, and pricing information.
-                    </div>
-                  </div>
-                </div>
+                <PreviewPageOne product={previewProduct} />
               )}
               
               {/* Page 2: Image Gallery */}
