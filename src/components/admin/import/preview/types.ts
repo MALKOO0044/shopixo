@@ -36,4 +36,8 @@ export type PricedProduct = {
   packHeight?: number;
   material?: string;
   productType?: string;
+  productInfo?: string;
+  productNote?: string;
+  packingList?: string;
+  sizeChartImages?: string[];
 };

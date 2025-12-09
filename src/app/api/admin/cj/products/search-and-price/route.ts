@@ -46,6 +46,10 @@ type PricedProduct = {
   packHeight?: number;
   material?: string;
   productType?: string;
+  productInfo?: string;
+  productNote?: string;
+  packingList?: string;
+  sizeChartImages?: string[];
 };
 
 async function fetchCjProductPage(
@@ -439,6 +443,41 @@ export async function GET(req: Request) {
       const material = String(source.material || source.productMaterial || '').trim() || undefined;
       const productType = String(source.productType || source.type || source.productTypeName || '').trim() || undefined;
       
+      // Extract Product Information (CJ description field contains HTML with product info)
+      const productInfo = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim() || undefined;
+      
+      // Extract Product Note (sizing/color notes from CJ)
+      const productNote = String(source.productNote || source.note || source.notes || source.remark || source.memo || '').trim() || undefined;
+      
+      // Extract Packing List
+      const packingList = String(source.packingList || source.packing || source.packageContent || source.packageList || '').trim() || undefined;
+      
+      // Extract Size Chart Images (CJ provides these as separate images)
+      const sizeChartImages: string[] = [];
+      const sizeChartFields = ['sizeChartImage', 'sizeChart', 'sizeImage', 'measurementImage', 'chartImage'];
+      for (const field of sizeChartFields) {
+        const val = source[field];
+        if (typeof val === 'string' && val.startsWith('http')) {
+          sizeChartImages.push(val);
+        } else if (Array.isArray(val)) {
+          for (const img of val) {
+            if (typeof img === 'string' && img.startsWith('http')) {
+              sizeChartImages.push(img);
+            }
+          }
+        }
+      }
+      // Also check detailImageList for size chart images (often contain measurement diagrams)
+      const detailImages = source.detailImageList || source.descriptionImages || [];
+      if (Array.isArray(detailImages)) {
+        for (const img of detailImages) {
+          const url = typeof img === 'string' ? img : (img?.url || img?.imageUrl || '');
+          if (typeof url === 'string' && url.startsWith('http') && /size|chart|measure|dimension/i.test(url)) {
+            sizeChartImages.push(url);
+          }
+        }
+      }
+      
       // Fetch variants - CJ returns only purchasable variants in this API
       const variants = await getVariantsForProduct(token, base, pid);
       
@@ -652,6 +691,10 @@ export async function GET(req: Request) {
         packHeight,
         material,
         productType,
+        productInfo,
+        productNote,
+        packingList,
+        sizeChartImages: sizeChartImages.length > 0 ? sizeChartImages : undefined,
       });
     }
     
