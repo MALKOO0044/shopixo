@@ -60,23 +60,16 @@ async function fetchCjProductPage(
   categoryId: string | null,
   pageNum: number
 ): Promise<{ list: any[]; total: number }> {
+  // Use the original product/list endpoint which is stable and reliable
   const params = new URLSearchParams();
-  params.set('page', String(pageNum));
-  params.set('size', '20');
-  // Note: features parameter removed for stable search - descriptions fetched via hydration step
+  params.set('pageNum', String(pageNum));
   
   if (categoryId && categoryId !== 'all' && !categoryId.startsWith('first-') && !categoryId.startsWith('second-')) {
-    if (categoryId.startsWith('lv2-')) {
-      params.set('lv2categoryList', categoryId.replace('lv2-', ''));
-    } else if (categoryId.startsWith('lv3-')) {
-      params.set('lv3categoryList', categoryId.replace('lv3-', ''));
-    } else {
-      params.set('categoryId', categoryId);
-    }
+    params.set('categoryId', categoryId);
   }
   
-  const url = `${base}/product/listV2?${params}`;
-  console.log(`[Search&Price] Fetching listV2: ${url}`);
+  const url = `${base}/product/list?${params}`;
+  console.log(`[Search&Price] Fetching: ${url}`);
   
   try {
     const res = await fetchJson<any>(url, {
@@ -88,76 +81,18 @@ async function fetchCjProductPage(
       timeoutMs: 30000,
     });
     
-    // Handle multiple possible response structures from CJ listV2 API
-    let productList: any[] = [];
-    let total = 0;
+    const list = res?.data?.list || [];
+    const total = res?.data?.total || 0;
+    console.log(`[Search&Price] Page ${pageNum} returned ${list.length} items (total: ${total})`);
     
-    const content = res?.data?.content;
-    
-    // Structure 1: data.content[0].productList (content is array with productList inside)
-    if (Array.isArray(content) && content[0]?.productList) {
-      productList = content[0].productList;
-      total = res?.data?.totalRecords || content[0]?.totalRecords || 0;
-    }
-    // Structure 2: data.content.productList (content is object with productList)
-    else if (content && !Array.isArray(content) && content.productList) {
-      productList = content.productList;
-      total = res?.data?.totalRecords || content.totalRecords || 0;
-    }
-    // Structure 3: data.content.list (content is object with list)
-    else if (content && !Array.isArray(content) && content.list) {
-      productList = content.list;
-      total = res?.data?.totalRecords || content.totalRecords || content.total || 0;
-    }
-    // Structure 4: data.list (fallback format)
-    else if (res?.data?.list) {
-      productList = res.data.list;
-      total = res?.data?.total || res?.data?.totalRecords || 0;
-    }
-    // Structure 5: data is the array directly
-    else if (Array.isArray(res?.data)) {
-      productList = res.data;
-      total = productList.length;
+    if (list.length > 0) {
+      console.log(`[Search&Price] Sample product: pid=${list[0].pid}, name=${list[0].productNameEn?.slice(0, 50)}, price=${list[0].sellPrice}, listedNum=${list[0].listedNum}`);
     }
     
-    console.log(`[Search&Price] Page ${pageNum} returned ${productList.length} items (total: ${total})`);
-    
-    if (productList.length > 0) {
-      const sample = productList[0];
-      console.log(`[Search&Price] Sample product: pid=${sample.id || sample.pid}, name=${sample.nameEn?.slice(0, 50)}, desc=${sample.description ? 'YES' : 'NO'}`);
-      console.log(`[Search&Price] Sample fields: ${Object.keys(sample).slice(0, 15).join(', ')}`);
-    } else {
-      console.log(`[Search&Price] Response structure: ${JSON.stringify(Object.keys(res?.data || {}))}`);
-    }
-    
-    return { list: productList, total };
+    return { list, total };
   } catch (e: any) {
-    console.error(`[Search&Price] ListV2 fetch error:`, e?.message);
-    console.log(`[Search&Price] Falling back to old list endpoint...`);
-    
-    const fallbackParams = new URLSearchParams();
-    fallbackParams.set('pageNum', String(pageNum));
-    if (categoryId && categoryId !== 'all' && !categoryId.startsWith('first-') && !categoryId.startsWith('second-')) {
-      fallbackParams.set('categoryId', categoryId);
-    }
-    
-    try {
-      const fallbackRes = await fetchJson<any>(`${base}/product/list?${fallbackParams}`, {
-        headers: {
-          'CJ-Access-Token': token,
-          'Content-Type': 'application/json',
-        },
-        cache: 'no-store',
-        timeoutMs: 30000,
-      });
-      
-      const list = fallbackRes?.data?.list || [];
-      const total = fallbackRes?.data?.total || 0;
-      return { list, total };
-    } catch (e2: any) {
-      console.error(`[Search&Price] Fallback fetch error:`, e2?.message);
-      return { list: [], total: 0 };
-    }
+    console.error(`[Search&Price] Fetch error:`, e?.message);
+    return { list: [], total: 0 };
   }
 }
 
