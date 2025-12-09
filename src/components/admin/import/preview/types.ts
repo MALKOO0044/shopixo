@@ -28,6 +28,11 @@ export type PricedProduct = {
   successfulVariants: number;
   totalVariants: number;
   description?: string;
+  overview?: string;
+  productInfo?: string;
+  sizeInfo?: string;
+  productNote?: string;
+  packingList?: string;
   rating?: number;
   categoryName?: string;
   productWeight?: number;
@@ -36,8 +41,5 @@ export type PricedProduct = {
   packHeight?: number;
   material?: string;
   productType?: string;
-  productInfo?: string;
-  productNote?: string;
-  packingList?: string;
   sizeChartImages?: string[];
 };

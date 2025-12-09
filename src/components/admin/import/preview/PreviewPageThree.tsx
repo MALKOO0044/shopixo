@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { FileText, Ruler, Package, AlertCircle, Info } from "lucide-react";
+import { FileText, Ruler, Package, AlertCircle, Info, BookOpen, List } from "lucide-react";
 import type { PricedProduct } from "./types";
 
 type PreviewPageThreeProps = {
@@ -74,12 +74,15 @@ function NoDataFallback() {
 }
 
 export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
+  const hasDescription = product.description && product.description.trim().length > 0;
+  const hasOverview = product.overview && product.overview.trim().length > 0;
   const hasProductInfo = product.productInfo && product.productInfo.trim().length > 0;
+  const hasSizeInfo = product.sizeInfo && product.sizeInfo.trim().length > 0;
   const hasSizeChartImages = product.sizeChartImages && product.sizeChartImages.length > 0;
-  const hasPackingList = product.packingList && product.packingList.trim().length > 0;
   const hasProductNote = product.productNote && product.productNote.trim().length > 0;
+  const hasPackingList = product.packingList && product.packingList.trim().length > 0;
   
-  const hasAnyContent = hasProductInfo || hasSizeChartImages || hasPackingList || hasProductNote;
+  const hasAnyContent = hasDescription || hasOverview || hasProductInfo || hasSizeInfo || hasSizeChartImages || hasProductNote || hasPackingList;
 
   if (!hasAnyContent) {
     return <NoDataFallback />;
@@ -87,6 +90,33 @@ export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" dir="rtl">
+      {hasDescription && (
+        <SectionCard
+          title="وصف المنتج"
+          icon={<BookOpen className="h-5 w-5" />}
+          bgColor="bg-white"
+          borderColor="border-indigo-100"
+          iconBgColor="bg-indigo-50"
+          iconColor="text-indigo-600"
+          fullWidth
+        >
+          <HtmlContent html={product.description!} />
+        </SectionCard>
+      )}
+
+      {hasOverview && (
+        <SectionCard
+          title="نظرة عامة"
+          icon={<List className="h-5 w-5" />}
+          bgColor="bg-white"
+          borderColor="border-teal-100"
+          iconBgColor="bg-teal-50"
+          iconColor="text-teal-600"
+        >
+          <HtmlContent html={product.overview!} />
+        </SectionCard>
+      )}
+
       {hasProductInfo && (
         <SectionCard
           title="معلومات المنتج"
@@ -95,47 +125,40 @@ export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
           borderColor="border-blue-100"
           iconBgColor="bg-blue-50"
           iconColor="text-blue-600"
-          fullWidth={!hasSizeChartImages && !hasPackingList && !hasProductNote}
         >
           <HtmlContent html={product.productInfo!} />
         </SectionCard>
       )}
 
-      {hasSizeChartImages && (
+      {(hasSizeInfo || hasSizeChartImages) && (
         <SectionCard
-          title="جدول المقاسات"
+          title="معلومات المقاسات"
           icon={<Ruler className="h-5 w-5" />}
           bgColor="bg-white"
           borderColor="border-purple-100"
           iconBgColor="bg-purple-50"
           iconColor="text-purple-600"
-          fullWidth={product.sizeChartImages!.length > 1}
+          fullWidth={hasSizeChartImages && (product.sizeChartImages?.length ?? 0) > 1}
         >
-          <div className={`grid gap-3 ${product.sizeChartImages!.length > 1 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
-            {product.sizeChartImages!.map((imgUrl, index) => (
-              <div key={index} className="rounded-lg overflow-hidden border border-gray-100 bg-gray-50">
-                <img
-                  src={imgUrl}
-                  alt={`جدول المقاسات ${index + 1}`}
-                  className="w-full h-auto object-contain"
-                  loading="lazy"
-                />
+          <div className="space-y-4">
+            {hasSizeInfo && (
+              <HtmlContent html={product.sizeInfo!} />
+            )}
+            {hasSizeChartImages && (
+              <div className={`grid gap-3 ${(product.sizeChartImages?.length ?? 0) > 1 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+                {product.sizeChartImages!.map((imgUrl, index) => (
+                  <div key={index} className="rounded-lg overflow-hidden border border-gray-100 bg-gray-50">
+                    <img
+                      src={imgUrl}
+                      alt={`جدول المقاسات ${index + 1}`}
+                      className="w-full h-auto object-contain"
+                      loading="lazy"
+                    />
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        </SectionCard>
-      )}
-
-      {hasPackingList && (
-        <SectionCard
-          title="محتويات العبوة"
-          icon={<Package className="h-5 w-5" />}
-          bgColor="bg-white"
-          borderColor="border-green-100"
-          iconBgColor="bg-green-50"
-          iconColor="text-green-600"
-        >
-          <HtmlContent html={product.packingList!} />
         </SectionCard>
       )}
 
@@ -149,6 +172,19 @@ export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
           iconColor="text-amber-600"
         >
           <HtmlContent html={product.productNote!} />
+        </SectionCard>
+      )}
+
+      {hasPackingList && (
+        <SectionCard
+          title="محتويات العبوة"
+          icon={<Package className="h-5 w-5" />}
+          bgColor="bg-white"
+          borderColor="border-green-100"
+          iconBgColor="bg-green-50"
+          iconColor="text-green-600"
+        >
+          <HtmlContent html={product.packingList!} />
         </SectionCard>
       )}
     </div>

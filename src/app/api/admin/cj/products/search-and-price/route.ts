@@ -38,6 +38,11 @@ type PricedProduct = {
   successfulVariants: number;
   totalVariants: number;
   description?: string;
+  overview?: string;
+  productInfo?: string;
+  sizeInfo?: string;
+  productNote?: string;
+  packingList?: string;
   rating?: number;
   categoryName?: string;
   productWeight?: number;
@@ -46,9 +51,6 @@ type PricedProduct = {
   packHeight?: number;
   material?: string;
   productType?: string;
-  productInfo?: string;
-  productNote?: string;
-  packingList?: string;
   sizeChartImages?: string[];
 };
 
@@ -59,14 +61,22 @@ async function fetchCjProductPage(
   pageNum: number
 ): Promise<{ list: any[]; total: number }> {
   const params = new URLSearchParams();
-  params.set('pageNum', String(pageNum));
+  params.set('page', String(pageNum));
+  params.set('size', '20');
+  params.set('features', 'enable_description,enable_category');
   
   if (categoryId && categoryId !== 'all' && !categoryId.startsWith('first-') && !categoryId.startsWith('second-')) {
-    params.set('categoryId', categoryId);
+    if (categoryId.startsWith('lv2-')) {
+      params.set('lv2categoryList', categoryId.replace('lv2-', ''));
+    } else if (categoryId.startsWith('lv3-')) {
+      params.set('lv3categoryList', categoryId.replace('lv3-', ''));
+    } else {
+      params.set('categoryId', categoryId);
+    }
   }
   
-  const url = `${base}/product/list?${params}`;
-  console.log(`[Search&Price] Fetching: ${url}`);
+  const url = `${base}/product/listV2?${params}`;
+  console.log(`[Search&Price] Fetching listV2: ${url}`);
   
   try {
     const res = await fetchJson<any>(url, {
@@ -78,18 +88,45 @@ async function fetchCjProductPage(
       timeoutMs: 30000,
     });
     
-    const list = res?.data?.list || [];
-    const total = res?.data?.total || 0;
-    console.log(`[Search&Price] Page ${pageNum} returned ${list.length} items (total: ${total})`);
+    const content = res?.data?.content || [];
+    const productList = content[0]?.productList || [];
+    const total = res?.data?.totalRecords || 0;
+    console.log(`[Search&Price] Page ${pageNum} returned ${productList.length} items (total: ${total})`);
     
-    if (list.length > 0) {
-      console.log(`[Search&Price] Sample product: pid=${list[0].pid}, name=${list[0].productNameEn?.slice(0, 50)}, price=${list[0].sellPrice}, listedNum=${list[0].listedNum}`);
+    if (productList.length > 0) {
+      const sample = productList[0];
+      console.log(`[Search&Price] Sample product: pid=${sample.id || sample.pid}, name=${sample.nameEn?.slice(0, 50)}, desc=${sample.description ? 'YES' : 'NO'}`);
+      console.log(`[Search&Price] Sample fields: ${Object.keys(sample).slice(0, 15).join(', ')}`);
     }
     
-    return { list, total };
+    return { list: productList, total };
   } catch (e: any) {
-    console.error(`[Search&Price] Fetch error:`, e?.message);
-    return { list: [], total: 0 };
+    console.error(`[Search&Price] ListV2 fetch error:`, e?.message);
+    console.log(`[Search&Price] Falling back to old list endpoint...`);
+    
+    const fallbackParams = new URLSearchParams();
+    fallbackParams.set('pageNum', String(pageNum));
+    if (categoryId && categoryId !== 'all' && !categoryId.startsWith('first-') && !categoryId.startsWith('second-')) {
+      fallbackParams.set('categoryId', categoryId);
+    }
+    
+    try {
+      const fallbackRes = await fetchJson<any>(`${base}/product/list?${fallbackParams}`, {
+        headers: {
+          'CJ-Access-Token': token,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        timeoutMs: 30000,
+      });
+      
+      const list = fallbackRes?.data?.list || [];
+      const total = fallbackRes?.data?.total || 0;
+      return { list, total };
+    } catch (e2: any) {
+      console.error(`[Search&Price] Fallback fetch error:`, e2?.message);
+      return { list: [], total: 0 };
+    }
   }
 }
 
@@ -433,7 +470,7 @@ export async function GET(req: Request) {
       
       // Extract additional product info from fullDetails or item
       const source = fullDetails || item;
-      const description = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim() || undefined;
+      const rawDescriptionHtml = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
       const rating = source.rating !== undefined ? Number(source.rating) : (source.score !== undefined ? Number(source.score) : undefined);
       const categoryName = String(source.categoryName || source.categoryNameEn || source.category || '').trim() || undefined;
       const productWeight = source.productWeight !== undefined ? Number(source.productWeight) : (source.weight !== undefined ? Number(source.weight) : undefined);
@@ -613,6 +650,9 @@ export async function GET(req: Request) {
         return specs.join('<br/>');
       };
       
+      // Sanitize the description HTML (apply after sanitizeHtml is defined)
+      const description = sanitizeHtml(rawDescriptionHtml);
+      
       // Extract Product Information - check multiple sources
       let rawProductInfo = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
       const descriptionHtml = rawProductInfo; // Save for later extraction
@@ -694,6 +734,63 @@ export async function GET(req: Request) {
       
       const packingList = sanitizeHtml(rawPackingList) || (rawPackingList && rawPackingList.length > 2 && !/[\u4e00-\u9fff]/.test(rawPackingList) ? rawPackingList : undefined);
       
+      // Extract Overview - short product summary from name/category
+      let overview: string | undefined;
+      const categoryDisplay = source.threeCategoryName || source.twoCategoryName || source.oneCategoryName || categoryName || '';
+      const overviewParts: string[] = [];
+      if (categoryDisplay && !categoryDisplay.includes('_')) {
+        overviewParts.push(`Category: ${categoryDisplay}`);
+      }
+      if (material && material.length > 1 && !/[\u4e00-\u9fff]/.test(material)) {
+        overviewParts.push(`Material: ${material}`);
+      }
+      if (productWeight && productWeight > 0) {
+        overviewParts.push(`Weight: ${productWeight}g`);
+      }
+      if (source.deliveryCycle) {
+        overviewParts.push(`Delivery: ${source.deliveryCycle} days`);
+      }
+      if (overviewParts.length > 0) {
+        overview = overviewParts.join('<br/>');
+      }
+      
+      // Extract Size Info - dimensions, size options from properties and variants
+      let sizeInfo: string | undefined;
+      const sizeLines: string[] = [];
+      
+      // Add pack dimensions if available
+      if (packLength && packWidth && packHeight) {
+        sizeLines.push(`Package Size: ${packLength} × ${packWidth} × ${packHeight} cm`);
+      }
+      
+      // Extract size properties from propertyList
+      const sizePropList = source.productPropertyList || source.propertyList || [];
+      if (Array.isArray(sizePropList)) {
+        for (const prop of sizePropList) {
+          const propName = String(prop.propertyNameEn || prop.propertyName || prop.name || '').toLowerCase();
+          if (propName.includes('size') || propName.includes('dimension') || propName.includes('length') || 
+              propName.includes('width') || propName.includes('height') || propName.includes('bust') || 
+              propName.includes('waist') || propName.includes('hip')) {
+            const valueList = prop.propertyValueList || prop.values || [];
+            if (Array.isArray(valueList) && valueList.length > 0) {
+              const values: string[] = [];
+              for (const v of valueList) {
+                const val = String(v.propertyValueNameEn || v.propertyValueName || v.value || '').trim();
+                if (val && !/^[\u4e00-\u9fff]+$/.test(val)) values.push(val);
+              }
+              if (values.length > 0) {
+                const displayName = prop.propertyNameEn || prop.propertyName || 'Size';
+                sizeLines.push(`${displayName}: ${values.join(', ')}`);
+              }
+            }
+          }
+        }
+      }
+      
+      if (sizeLines.length > 0) {
+        sizeInfo = sizeLines.join('<br/>');
+      }
+      
       // Extract Size Chart Images (CJ provides these as separate images)
       const sizeChartImages: string[] = [];
       const sizeChartFields = ['sizeChartImage', 'sizeChart', 'sizeImage', 'measurementImage', 'chartImage'];
@@ -720,8 +817,15 @@ export async function GET(req: Request) {
         }
       }
       
-      // Log what we found for debugging
-      console.log(`[Search&Price] Product ${pid} initial specs: productInfo=${!!productInfo} (len=${productInfo?.length || 0}), packingList=${!!packingList}, productNote=${!!productNote}, sizeChartImages=${sizeChartImages.length}`);
+      // Log what we found for debugging - all 6 Page 3 fields
+      console.log(`[Search&Price] Product ${pid} Page 3 fields:`);
+      console.log(`  - description: ${description ? `YES (${description.length} chars)` : 'NO'}`);
+      console.log(`  - overview: ${overview ? `YES (${overview.length} chars)` : 'NO'}`);
+      console.log(`  - productInfo: ${productInfo ? `YES (${productInfo.length} chars)` : 'NO'}`);
+      console.log(`  - sizeInfo: ${sizeInfo ? `YES (${sizeInfo.length} chars)` : 'NO'}`);
+      console.log(`  - productNote: ${productNote ? `YES (${productNote.length} chars)` : 'NO'}`);
+      console.log(`  - packingList: ${packingList ? `YES (${packingList.length} chars)` : 'NO'}`);
+      console.log(`  - sizeChartImages: ${sizeChartImages.length}`);
       
       // Fetch variants - CJ returns only purchasable variants in this API
       const variants = await getVariantsForProduct(token, base, pid);
@@ -1005,6 +1109,11 @@ export async function GET(req: Request) {
         successfulVariants,
         totalVariants: pricedVariants.length,
         description,
+        overview,
+        productInfo: finalProductInfo,
+        sizeInfo,
+        productNote,
+        packingList,
         rating,
         categoryName,
         productWeight,
@@ -1013,9 +1122,6 @@ export async function GET(req: Request) {
         packHeight,
         material,
         productType,
-        productInfo: finalProductInfo,
-        productNote,
-        packingList,
         sizeChartImages: sizeChartImages.length > 0 ? sizeChartImages : undefined,
       });
     }
