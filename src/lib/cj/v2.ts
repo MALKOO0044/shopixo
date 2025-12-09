@@ -570,13 +570,46 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
   if (!pid) return null;
   
   try {
-    // Fetch product details
+    // Fetch product details from /product/query
     const pr = await cjFetch<any>(`/product/query?pid=${encodeURIComponent(pid)}`);
     let productData = pr?.data || pr?.content || pr || null;
     
     if (!productData) return null;
     
-    // Log available data fields for debugging (specs, description, etc.)
+    // Also try to fetch description from listV2 with features parameter
+    // The /product/query endpoint may not return description, but listV2 with features=enable_description does
+    if (!productData.description) {
+      try {
+        const sku = productData.productSku || productData.sku || '';
+        const searchTerm = sku || pid;
+        const listV2Res = await cjFetch<any>(`/product/listV2?keyWord=${encodeURIComponent(searchTerm)}&page=1&size=5&features=enable_description`);
+        
+        // Parse listV2 response to find matching product
+        const content = listV2Res?.data?.content;
+        let productList: any[] = [];
+        if (Array.isArray(content) && content[0]?.productList) {
+          productList = content[0].productList;
+        } else if (content && !Array.isArray(content) && content.productList) {
+          productList = content.productList;
+        } else if (listV2Res?.data?.list) {
+          productList = listV2Res.data.list;
+        }
+        
+        // Find matching product by pid or sku
+        const match = productList.find((p: any) => 
+          p.id === pid || p.pid === pid || p.sku === sku || p.productSku === sku
+        );
+        
+        if (match?.description) {
+          productData.description = match.description;
+          console.log(`[CJ Details] Got description from listV2 for ${pid}: ${match.description.slice(0, 100)}...`);
+        }
+      } catch (e: any) {
+        console.log(`[CJ Details] listV2 description fetch failed for ${pid}:`, e?.message);
+      }
+    }
+    
+    // Log available data fields for debugging
     const specFields = ['description', 'productDescription', 'descriptionEn', 'productNote', 'remark', 'packingList', 'packingNameEn', 'materialNameEn'];
     const availableSpecs: Record<string, string> = {};
     for (const field of specFields) {
@@ -586,29 +619,6 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
       }
     }
     console.log(`[CJ Details] Product ${pid} spec fields:`, JSON.stringify(availableSpecs));
-    
-    // Log available image fields for debugging
-    const imageFields = ['productImage', 'productImageList', 'imageList', 'bigImage', 'mainImage', 'productImages', 'detailImageList'];
-    const availableImages: Record<string, any> = {};
-    for (const field of imageFields) {
-      if (productData[field]) {
-        availableImages[field] = Array.isArray(productData[field]) 
-          ? `[${productData[field].length} items]` 
-          : typeof productData[field];
-      }
-    }
-    console.log(`[CJ Details] Product ${pid} image fields:`, JSON.stringify(availableImages));
-    
-    // Log property lists (where specs/color images often are)
-    const propFields = ['productPropertyList', 'propertyList', 'productOptions', 'options', 'specs', 'attributes'];
-    for (const field of propFields) {
-      if (productData[field] && Array.isArray(productData[field])) {
-        console.log(`[CJ Details] Product ${pid} ${field}: ${productData[field].length} items`);
-        if (productData[field][0]) {
-          console.log(`[CJ Details] Sample ${field} item:`, JSON.stringify(productData[field][0]).slice(0, 500));
-        }
-      }
-    }
     
     // Log all top-level keys for debugging
     const allKeys = Object.keys(productData);
@@ -620,17 +630,6 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
       const variantList = Array.isArray(vr?.data) ? vr.data : (vr?.data?.list || []);
       if (variantList.length > 0) {
         console.log(`[CJ Details] Product ${pid} has ${variantList.length} variants`);
-        if (variantList[0]) {
-          // Log variant image fields
-          const variantImageFields = ['variantImage', 'image', 'whiteImage', 'bigImage', 'variantImageList'];
-          const variantImages: string[] = [];
-          for (const field of variantImageFields) {
-            if (variantList[0][field]) {
-              variantImages.push(`${field}=${typeof variantList[0][field]}`);
-            }
-          }
-          console.log(`[CJ Details] Sample variant image fields:`, variantImages.join(', ') || 'none');
-        }
         productData = { ...productData, variantList };
       }
     } catch {
