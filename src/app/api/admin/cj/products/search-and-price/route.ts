@@ -478,20 +478,6 @@ export async function GET(req: Request) {
       }
       packingInfo = packingInfo.trim() || undefined;
       
-      // Debug log - what fields are available for Overview section?
-      console.log(`[Search&Price] Product ${pid} Overview data:`, {
-        categoryName,
-        material: material || 'NONE',
-        packingInfo: packingInfo || 'NONE',
-        productWeight,
-        packDimensions: (packLength && packWidth && packHeight) ? `${packLength}x${packWidth}x${packHeight}` : 'NONE',
-        deliveryCycle: source.deliveryCycle || 'NONE',
-        productType,
-        hasThreeCategoryName: !!source.threeCategoryName,
-        hasMaterialParsed: !!source.materialParsed,
-        hasPackingParsed: !!source.packingParsed,
-      });
-      
       // Helper: Sanitize HTML - remove supplier links/contacts but keep usable content
       const sanitizeHtml = (html: string): string | undefined => {
         if (!html || typeof html !== 'string') return undefined;
@@ -812,11 +798,18 @@ export async function GET(req: Request) {
       // try to use synthesizedInfo which was built in fetchProductDetailsByPid with this data
       if (overviewParts.length <= 1 && source.synthesizedInfo) {
         // synthesizedInfo contains Material, Package, Weight, Dimensions, Category, Delivery, HS Code
-        // Use it directly as Overview since it has all the relevant info
-        const cleanedSynthesized = sanitizeHtml(source.synthesizedInfo);
-        if (cleanedSynthesized && cleanedSynthesized.length > 10) {
-          overview = cleanedSynthesized;
-          console.log(`[Search&Price] Product ${pid}: Using synthesizedInfo as Overview (${cleanedSynthesized.length} chars)`);
+        // Split on <br/> BEFORE sanitizing to preserve line structure, then sanitize each line
+        const synthLines = String(source.synthesizedInfo).split(/<br\s*\/?>/i);
+        const cleanedLines: string[] = [];
+        for (const line of synthLines) {
+          const cleaned = sanitizeHtml(line);
+          if (cleaned && cleaned.length > 2) {
+            cleanedLines.push(cleaned);
+          }
+        }
+        if (cleanedLines.length > 1) {
+          overview = cleanedLines.join('<br/>');
+          console.log(`[Search&Price] Product ${pid}: Using synthesizedInfo as Overview (${cleanedLines.length} lines)`);
         }
       }
       
@@ -942,8 +935,19 @@ export async function GET(req: Request) {
       // First, add base product specs (material, packing, weight, etc.)
       let baseSpecs = productInfo;
       if (!baseSpecs && source.synthesizedInfo) {
-        baseSpecs = sanitizeHtml(source.synthesizedInfo);
-        console.log(`[Search&Price] Product ${pid}: Using synthesizedInfo for base specs`);
+        // Split on <br/> BEFORE sanitizing to preserve line structure
+        const synthLines = String(source.synthesizedInfo).split(/<br\s*\/?>/i);
+        const cleanedLines: string[] = [];
+        for (const line of synthLines) {
+          const cleaned = sanitizeHtml(line);
+          if (cleaned && cleaned.length > 2) {
+            cleanedLines.push(cleaned);
+          }
+        }
+        if (cleanedLines.length > 0) {
+          baseSpecs = cleanedLines.join('<br/>');
+          console.log(`[Search&Price] Product ${pid}: Using synthesizedInfo for base specs (${cleanedLines.length} lines)`);
+        }
       }
       if (!baseSpecs) {
         const basicSpecs = buildBasicSpecs();
