@@ -745,21 +745,51 @@ export async function GET(req: Request) {
       const packingList = sanitizeHtml(rawPackingList) || (rawPackingList && rawPackingList.length > 2 && !/[\u4e00-\u9fff]/.test(rawPackingList) ? rawPackingList : undefined);
       
       // Extract Overview - short product summary from name/category
+      // ALWAYS build overview with whatever data we have - this ensures Page 3 shows something
       let overview: string | undefined;
       const categoryDisplay = source.threeCategoryName || source.twoCategoryName || source.oneCategoryName || categoryName || '';
       const overviewParts: string[] = [];
+      
+      // Category - always include if available
       if (categoryDisplay && !categoryDisplay.includes('_')) {
         overviewParts.push(`Category: ${categoryDisplay}`);
       }
+      
+      // Material - include if available and not Chinese-only
       if (material && material.length > 1 && !/[\u4e00-\u9fff]/.test(material)) {
         overviewParts.push(`Material: ${material}`);
       }
+      
+      // Packing/Package info
+      if (packingInfo && packingInfo.length > 1 && !/[\u4e00-\u9fff]/.test(packingInfo)) {
+        overviewParts.push(`Package: ${packingInfo}`);
+      }
+      
+      // Weight
       if (productWeight && productWeight > 0) {
         overviewParts.push(`Weight: ${productWeight}g`);
       }
+      
+      // Dimensions
+      if (packLength && packWidth && packHeight) {
+        overviewParts.push(`Dimensions: ${packLength} × ${packWidth} × ${packHeight} cm`);
+      }
+      
+      // Delivery cycle
       if (source.deliveryCycle) {
         overviewParts.push(`Delivery: ${source.deliveryCycle} days`);
       }
+      
+      // HS Code for customs info
+      if (source.entryCode && source.entryNameEn) {
+        overviewParts.push(`HS Code: ${source.entryCode}`);
+      }
+      
+      // Product type
+      if (productType && productType.length > 1 && productType !== 'ORDINARY_PRODUCT') {
+        overviewParts.push(`Type: ${productType}`);
+      }
+      
       if (overviewParts.length > 0) {
         overview = overviewParts.join('<br/>');
       }
@@ -978,12 +1008,12 @@ export async function GET(req: Request) {
       }
       
       // Combine all specs into finalProductInfo
+      // Note: productInfo should contain variant specs (colors, sizes) while Overview has basic product specs
+      // This prevents duplication between the two sections
       let finalProductInfo: string | undefined = allSpecs.length > 0 ? allSpecs.join('<br/>') : undefined;
       
-      // If still no product info, set to undefined (don't show empty section)
-      if (!finalProductInfo || finalProductInfo.trim().length === 0) {
-        finalProductInfo = undefined;
-      }
+      // Don't add duplicate fallback here - Overview already shows Category, Material, Weight etc.
+      // productInfo is specifically for variant/specification details not shown in Overview
       
       // Use variant images if we have them, otherwise keep original images
       if (variantImages.length > 1) {
