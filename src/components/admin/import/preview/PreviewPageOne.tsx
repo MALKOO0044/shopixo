@@ -81,15 +81,31 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
           </h2>
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-500">رمز المورد:</span>
-          <span className="font-mono text-sm bg-blue-50 text-blue-700 px-2 py-1 rounded">
-            {product.cjSku}
-          </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">رمز المورد:</span>
+            <span className="font-mono text-sm bg-blue-50 text-blue-700 px-2 py-1 rounded">
+              {product.cjSku}
+            </span>
+          </div>
+          {product.categoryName && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">الفئة:</span>
+              <span className="text-sm bg-gray-50 text-gray-700 px-2 py-1 rounded">
+                {product.categoryName}
+              </span>
+            </div>
+          )}
         </div>
 
-        <div>
+        <div className="flex items-center gap-4 flex-wrap">
           <StarRating rating={product.rating} />
+          {product.originCountry && (
+            <div className="flex items-center gap-1 text-sm text-gray-500">
+              <span>المنشأ:</span>
+              <span className="font-medium text-gray-700">{product.originCountry}</span>
+            </div>
+          )}
         </div>
 
         <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5 space-y-3">

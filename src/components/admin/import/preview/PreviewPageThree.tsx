@@ -59,7 +59,36 @@ function HtmlContent({ html }: { html: string }) {
   );
 }
 
-function NoDataFallback() {
+function NoDataFallback({ product }: { product?: PricedProduct }) {
+  // Even with no structured data, show basic info from product fields if available
+  const basicInfo: string[] = [];
+  if (product?.material) basicInfo.push(`المادة: ${product.material}`);
+  if (product?.productWeight) basicInfo.push(`الوزن: ${product.productWeight}g`);
+  if (product?.packLength && product?.packWidth && product?.packHeight) {
+    basicInfo.push(`الأبعاد: ${product.packLength} × ${product.packWidth} × ${product.packHeight} سم`);
+  }
+  if (product?.categoryName) basicInfo.push(`الفئة: ${product.categoryName}`);
+  if (product?.hsCode) basicInfo.push(`رمز HS: ${product.hsCode}`);
+  if (product?.originCountry) basicInfo.push(`بلد المنشأ: ${product.originCountry}`);
+
+  if (basicInfo.length > 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="bg-blue-100 text-blue-600 p-2 rounded-lg">
+            <Info className="h-5 w-5" />
+          </div>
+          <h3 className="text-base font-bold text-gray-800">معلومات أساسية</h3>
+        </div>
+        <div className="space-y-2">
+          {basicInfo.map((info, idx) => (
+            <p key={idx} className="text-gray-700 text-sm">{info}</p>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col items-center justify-center py-16 px-8">
       <div className="bg-gray-100 p-4 rounded-full mb-4">
@@ -85,7 +114,7 @@ export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
   const hasAnyContent = hasDescription || hasOverview || hasProductInfo || hasSizeInfo || hasSizeChartImages || hasProductNote || hasPackingList;
 
   if (!hasAnyContent) {
-    return <NoDataFallback />;
+    return <NoDataFallback product={product} />;
   }
 
   return (

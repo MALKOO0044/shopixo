@@ -52,6 +52,13 @@ type PricedProduct = {
   material?: string;
   productType?: string;
   sizeChartImages?: string[];
+  processingTimeHours?: number;
+  deliveryTimeHours?: number;
+  estimatedProcessingDays?: string;
+  estimatedDeliveryDays?: string;
+  originCountry?: string;
+  hsCode?: string;
+  videoUrl?: string;
 };
 
 async function fetchCjProductPage(
@@ -1194,6 +1201,42 @@ export async function GET(req: Request) {
       const maxPriceSAR = Math.max(...prices);
       const avgPriceSAR = Math.round(prices.reduce((a, b) => a + b, 0) / prices.length);
       
+      // Extract processing/delivery time estimates from CJ data
+      const deliveryCycle = source.deliveryCycle;
+      const processDay = source.processDay || source.processingTime || source.processTime || source.prepareDay;
+      
+      // Helper to parse time values (can be "3", "2-7", "3-7 days", etc.)
+      const parseTimeValue = (val: any): { display: string | undefined; hours: number | undefined } => {
+        if (!val) return { display: undefined, hours: undefined };
+        const strVal = String(val).trim();
+        if (!strVal) return { display: undefined, hours: undefined };
+        
+        // Check if already has time units
+        const hasUnits = /day|hour|week/i.test(strVal);
+        const display = hasUnits ? strVal : `${strVal} days`;
+        
+        // Extract first number for hours calculation (if pure number or range start)
+        const numMatch = strVal.match(/^(\d+)/);
+        const hours = numMatch ? Number(numMatch[1]) * 24 : undefined;
+        
+        return { display, hours: (hours && !isNaN(hours)) ? hours : undefined };
+      };
+      
+      const processingParsed = parseTimeValue(processDay);
+      const deliveryParsed = parseTimeValue(deliveryCycle);
+      
+      const estimatedProcessingDays = processingParsed.display;
+      const estimatedDeliveryDays = deliveryParsed.display;
+      const processingTimeHours = processingParsed.hours;
+      const deliveryTimeHours = deliveryParsed.hours;
+      
+      // Extract origin country and HS code
+      const originCountry = String(source.originCountry || source.countryOrigin || source.originArea || '').trim() || undefined;
+      const hsCode = source.entryCode ? `${source.entryCode}${source.entryNameEn ? ` (${source.entryNameEn})` : ''}` : undefined;
+      
+      // Extract video URL if available
+      const videoUrl = String(source.videoUrl || source.video || source.productVideo || '').trim() || undefined;
+      
       pricedProducts.push({
         pid,
         cjSku,
@@ -1222,6 +1265,13 @@ export async function GET(req: Request) {
         material,
         productType,
         sizeChartImages: sizeChartImages.length > 0 ? sizeChartImages : undefined,
+        processingTimeHours,
+        deliveryTimeHours,
+        estimatedProcessingDays,
+        estimatedDeliveryDays,
+        originCountry,
+        hsCode,
+        videoUrl,
       });
     }
     

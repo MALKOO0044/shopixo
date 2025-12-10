@@ -12,6 +12,8 @@ export type PricedVariant = {
   profitSAR: number;
   error?: string;
   stock?: number;
+  variantName?: string;
+  variantImage?: string;
 };
 
 export type PricedProduct = {
@@ -42,4 +44,11 @@ export type PricedProduct = {
   material?: string;
   productType?: string;
   sizeChartImages?: string[];
+  processingTimeHours?: number;
+  deliveryTimeHours?: number;
+  estimatedProcessingDays?: string;
+  estimatedDeliveryDays?: string;
+  originCountry?: string;
+  hsCode?: string;
+  videoUrl?: string;
 };

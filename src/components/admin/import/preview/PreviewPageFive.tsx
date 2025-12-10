@@ -1,6 +1,6 @@
 "use client";
 
-import { Truck, Clock, DollarSign, CheckCircle, XCircle, MapPin } from "lucide-react";
+import { Truck, Clock, DollarSign, CheckCircle, XCircle, MapPin, Timer, Package } from "lucide-react";
 import type { PricedProduct } from "./types";
 
 type PreviewPageFiveProps = {
@@ -34,6 +34,36 @@ export default function PreviewPageFive({ product }: PreviewPageFiveProps) {
 
   return (
     <div className="space-y-6" dir="rtl">
+      {/* Processing Time Card - NEW */}
+      {(product.estimatedProcessingDays || product.estimatedDeliveryDays) && (
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-200 p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <Timer className="h-5 w-5 text-amber-600" />
+            <h3 className="text-lg font-bold text-amber-900">وقت التجهيز والمعالجة</h3>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            {product.estimatedProcessingDays && (
+              <div className="bg-white/70 rounded-lg px-4 py-3">
+                <span className="text-sm text-amber-700 block mb-1">وقت التجهيز</span>
+                <span className="text-lg font-bold text-amber-800">{product.estimatedProcessingDays}</span>
+              </div>
+            )}
+            {product.estimatedDeliveryDays && (
+              <div className="bg-white/70 rounded-lg px-4 py-3">
+                <span className="text-sm text-amber-700 block mb-1">دورة التوصيل</span>
+                <span className="text-lg font-bold text-amber-800">{product.estimatedDeliveryDays}</span>
+              </div>
+            )}
+          </div>
+          {product.originCountry && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-amber-700">
+              <Package className="h-4 w-4" />
+              <span>بلد المنشأ: {product.originCountry}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid md:grid-cols-2 gap-5">
         <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-200 p-5">
           <div className="flex items-center gap-3 mb-4">
@@ -51,6 +81,10 @@ export default function PreviewPageFive({ product }: PreviewPageFiveProps) {
                   {time}
                 </div>
               ))}
+            </div>
+          ) : product.estimatedDeliveryDays ? (
+            <div className="bg-white/70 rounded-lg px-4 py-2 text-blue-800 font-medium">
+              {product.estimatedDeliveryDays}
             </div>
           ) : (
             <p className="text-blue-600 italic">غير محدد</p>
