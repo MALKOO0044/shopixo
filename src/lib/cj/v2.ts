@@ -576,36 +576,90 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
     
     if (!productData) return null;
     
+    // Get the SKU for more targeted search
+    const sku = productData.productSku || productData.sku || '';
+    
     // Also try to fetch description from listV2 with features parameter
     // The /product/query endpoint may not return description, but listV2 with features=enable_description does
     if (!productData.description) {
-      try {
-        const sku = productData.productSku || productData.sku || '';
-        const searchTerm = sku || pid;
-        const listV2Res = await cjFetch<any>(`/product/listV2?keyWord=${encodeURIComponent(searchTerm)}&page=1&size=5&features=enable_description`);
-        
-        // Parse listV2 response to find matching product
-        const content = listV2Res?.data?.content;
-        let productList: any[] = [];
-        if (Array.isArray(content) && content[0]?.productList) {
-          productList = content[0].productList;
-        } else if (content && !Array.isArray(content) && content.productList) {
-          productList = content.productList;
-        } else if (listV2Res?.data?.list) {
-          productList = listV2Res.data.list;
+      // Strategy 1: Search by exact SKU (most reliable)
+      if (sku) {
+        try {
+          // Use features=enable_description per CJ API docs
+          const listV2Res = await cjFetch<any>(`/product/listV2?keyWord=${encodeURIComponent(sku)}&page=1&size=10&features=enable_description`);
+          
+          // Parse listV2 response to find matching product
+          const content = listV2Res?.data?.content;
+          let productList: any[] = [];
+          if (Array.isArray(content) && content[0]?.productList) {
+            productList = content[0].productList;
+          } else if (content && !Array.isArray(content) && content.productList) {
+            productList = content.productList;
+          } else if (listV2Res?.data?.list) {
+            productList = listV2Res.data.list;
+          }
+          
+          // Find exact match by PID (most reliable) or SKU
+          const match = productList.find((p: any) => 
+            p.id === pid || p.pid === pid || p.sku === sku || p.productSku === sku
+          );
+          
+          if (match) {
+            // Copy all useful fields from listV2 response that might not be in /product/query
+            if (match.description) {
+              productData.description = match.description;
+              console.log(`[CJ Details] Got description from listV2 (SKU search) for ${pid}: ${match.description.slice(0, 100)}...`);
+            }
+            // Copy category info
+            if (match.threeCategoryName) productData.threeCategoryName = match.threeCategoryName;
+            if (match.twoCategoryName) productData.twoCategoryName = match.twoCategoryName;
+            if (match.oneCategoryName) productData.oneCategoryName = match.oneCategoryName;
+            if (match.deliveryCycle) productData.deliveryCycle = match.deliveryCycle;
+          }
+        } catch (e: any) {
+          console.log(`[CJ Details] listV2 SKU search failed for ${pid}:`, e?.message);
         }
-        
-        // Find matching product by pid or sku
-        const match = productList.find((p: any) => 
-          p.id === pid || p.pid === pid || p.sku === sku || p.productSku === sku
-        );
-        
-        if (match?.description) {
-          productData.description = match.description;
-          console.log(`[CJ Details] Got description from listV2 for ${pid}: ${match.description.slice(0, 100)}...`);
+      }
+      
+      // Strategy 2: Try searching by product name if we still don't have description
+      if (!productData.description) {
+        try {
+          const productName = productData.productNameEn || productData.productName || productData.nameEn || '';
+          if (productName && productName.length > 5) {
+            // Use first 30 chars of product name for search
+            const searchTerm = productName.slice(0, 30);
+            const listV2Res = await cjFetch<any>(`/product/listV2?keyWord=${encodeURIComponent(searchTerm)}&page=1&size=20&features=enable_description`);
+            
+            const content = listV2Res?.data?.content;
+            let productList: any[] = [];
+            if (Array.isArray(content) && content[0]?.productList) {
+              productList = content[0].productList;
+            } else if (content && !Array.isArray(content) && content.productList) {
+              productList = content.productList;
+            } else if (listV2Res?.data?.list) {
+              productList = listV2Res.data.list;
+            }
+            
+            // Find exact match by PID
+            const match = productList.find((p: any) => 
+              p.id === pid || p.pid === pid
+            );
+            
+            if (match) {
+              // Copy all useful fields from listV2 response
+              if (match.description) {
+                productData.description = match.description;
+                console.log(`[CJ Details] Got description from listV2 (name search) for ${pid}: ${match.description.slice(0, 100)}...`);
+              }
+              if (match.threeCategoryName) productData.threeCategoryName = match.threeCategoryName;
+              if (match.twoCategoryName) productData.twoCategoryName = match.twoCategoryName;
+              if (match.oneCategoryName) productData.oneCategoryName = match.oneCategoryName;
+              if (match.deliveryCycle) productData.deliveryCycle = match.deliveryCycle;
+            }
+          }
+        } catch (e: any) {
+          console.log(`[CJ Details] listV2 name search failed for ${pid}:`, e?.message);
         }
-      } catch (e: any) {
-        console.log(`[CJ Details] listV2 description fetch failed for ${pid}:`, e?.message);
       }
     }
     
