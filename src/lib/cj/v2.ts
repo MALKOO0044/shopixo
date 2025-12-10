@@ -565,6 +565,56 @@ async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
+// Helper: Parse JSON array fields from CJ API (e.g., materialNameEn: '["","metal"]')
+function parseCjJsonArray(val: any): string[] {
+  if (!val) return [];
+  if (Array.isArray(val)) return val.filter(Boolean).map(String);
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (trimmed.startsWith('[')) {
+      try {
+        const arr = JSON.parse(trimmed);
+        if (Array.isArray(arr)) return arr.filter(Boolean).map(String);
+      } catch {}
+    }
+    return trimmed ? [trimmed] : [];
+  }
+  return [];
+}
+
+// Helper: Extract product list from listV2 response (handles various response structures)
+function extractListV2Products(res: any): any[] {
+  const content = res?.data?.content;
+  if (Array.isArray(content) && content[0]?.productList) {
+    return content[0].productList;
+  }
+  if (content && !Array.isArray(content) && content.productList) {
+    return content.productList;
+  }
+  if (res?.data?.list) {
+    return res.data.list;
+  }
+  if (Array.isArray(res?.data)) {
+    return res.data;
+  }
+  return [];
+}
+
+// Helper: Copy useful fields from listV2 match to product data
+function mergeListV2Fields(productData: any, match: any, source: string): void {
+  if (match.description && !productData.description) {
+    productData.description = match.description;
+    console.log(`[CJ Details] Got description from listV2 (${source}): ${match.description.slice(0, 80)}...`);
+  }
+  if (match.threeCategoryName) productData.threeCategoryName = match.threeCategoryName;
+  if (match.twoCategoryName) productData.twoCategoryName = match.twoCategoryName;
+  if (match.oneCategoryName) productData.oneCategoryName = match.oneCategoryName;
+  if (match.deliveryCycle) productData.deliveryCycle = match.deliveryCycle;
+  if (match.categoryId && !productData.categoryId) productData.categoryId = match.categoryId;
+  if (match.listedNum && !productData.listedNum) productData.listedNum = match.listedNum;
+  if (match.addMarkStatus !== undefined) productData.addMarkStatus = match.addMarkStatus;
+}
+
 // Fetch full product details by PID - returns complete product with all images and variants
 export async function fetchProductDetailsByPid(pid: string): Promise<any | null> {
   if (!pid) return null;
@@ -579,104 +629,158 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
     // Get the SKU for more targeted search
     const sku = productData.productSku || productData.sku || '';
     
+    // Parse JSON array fields from /product/query (CJ returns some as JSON strings)
+    // These contain material, packing info etc that we need for product specs
+    const materialArr = parseCjJsonArray(productData.materialNameEn || productData.materialName);
+    const packingArr = parseCjJsonArray(productData.packingNameEn || productData.packingName);
+    const productKeyArr = parseCjJsonArray(productData.productKeyEn || productData.productKey);
+    
+    // Store parsed arrays as readable strings for display
+    if (materialArr.length > 0 && !productData.materialParsed) {
+      productData.materialParsed = materialArr.filter(m => m && m.length > 0).join(', ');
+    }
+    if (packingArr.length > 0 && !productData.packingParsed) {
+      productData.packingParsed = packingArr.filter(p => p && p.length > 0).join(', ');
+    }
+    if (productKeyArr.length > 0 && !productData.productKeyParsed) {
+      productData.productKeyParsed = productKeyArr.filter(k => k && k.length > 0).join(', ');
+    }
+    
     // Also try to fetch description from listV2 with features parameter
-    // The /product/query endpoint may not return description, but listV2 with features=enable_description does
+    // The /product/query endpoint does NOT return description, but listV2 with features=enable_description does
+    // Use features=enable_description,enable_category for maximum data
+    const listV2Features = 'enable_description,enable_category';
+    
     if (!productData.description) {
-      // Strategy 1: Search by exact SKU (most reliable)
-      if (sku) {
-        try {
-          // Use features=enable_description per CJ API docs
-          const listV2Res = await cjFetch<any>(`/product/listV2?keyWord=${encodeURIComponent(sku)}&page=1&size=10&features=enable_description`);
+      // Strategy 1: Direct search by PID (most reliable if CJ indexes by PID)
+      try {
+        const listV2Res = await cjFetch<any>(`/product/listV2?keyWord=${encodeURIComponent(pid)}&page=1&size=5&features=${listV2Features}`);
+        const productList = extractListV2Products(listV2Res);
+        const match = productList.find((p: any) => p.id === pid || p.pid === pid);
+        if (match) {
+          mergeListV2Fields(productData, match, `PID search ${pid}`);
+        }
+      } catch (e: any) {
+        console.log(`[CJ Details] listV2 PID search failed for ${pid}:`, e?.message);
+      }
+    }
+    
+    // Strategy 2: Search by exact SKU (reliable for products with unique SKUs)
+    if (!productData.description && sku) {
+      try {
+        const listV2Res = await cjFetch<any>(`/product/listV2?keyWord=${encodeURIComponent(sku)}&page=1&size=10&features=${listV2Features}`);
+        const productList = extractListV2Products(listV2Res);
+        // Find exact match by PID or SKU
+        const match = productList.find((p: any) => 
+          p.id === pid || p.pid === pid || p.sku === sku || p.productSku === sku
+        );
+        if (match) {
+          mergeListV2Fields(productData, match, `SKU search ${sku}`);
+        }
+      } catch (e: any) {
+        console.log(`[CJ Details] listV2 SKU search failed for ${pid}:`, e?.message);
+      }
+    }
+    
+    // Strategy 3: Search by product name if we still don't have description
+    if (!productData.description) {
+      try {
+        const productName = productData.productNameEn || productData.productName || productData.nameEn || '';
+        if (productName && productName.length > 5) {
+          // Use first 40 chars of product name for search (increased from 30)
+          const searchTerm = productName.slice(0, 40).trim();
+          const listV2Res = await cjFetch<any>(`/product/listV2?keyWord=${encodeURIComponent(searchTerm)}&page=1&size=20&features=${listV2Features}`);
+          const productList = extractListV2Products(listV2Res);
           
-          // Parse listV2 response to find matching product
-          const content = listV2Res?.data?.content;
-          let productList: any[] = [];
-          if (Array.isArray(content) && content[0]?.productList) {
-            productList = content[0].productList;
-          } else if (content && !Array.isArray(content) && content.productList) {
-            productList = content.productList;
-          } else if (listV2Res?.data?.list) {
-            productList = listV2Res.data.list;
+          // Find exact match by PID first
+          let match = productList.find((p: any) => p.id === pid || p.pid === pid);
+          
+          // If no PID match, try SKU match
+          if (!match && sku) {
+            match = productList.find((p: any) => p.sku === sku || p.productSku === sku);
           }
-          
-          // Find exact match by PID (most reliable) or SKU
-          const match = productList.find((p: any) => 
-            p.id === pid || p.pid === pid || p.sku === sku || p.productSku === sku
-          );
           
           if (match) {
-            // Copy all useful fields from listV2 response that might not be in /product/query
-            if (match.description) {
-              productData.description = match.description;
-              console.log(`[CJ Details] Got description from listV2 (SKU search) for ${pid}: ${match.description.slice(0, 100)}...`);
-            }
-            // Copy category info
-            if (match.threeCategoryName) productData.threeCategoryName = match.threeCategoryName;
-            if (match.twoCategoryName) productData.twoCategoryName = match.twoCategoryName;
-            if (match.oneCategoryName) productData.oneCategoryName = match.oneCategoryName;
-            if (match.deliveryCycle) productData.deliveryCycle = match.deliveryCycle;
+            mergeListV2Fields(productData, match, `name search "${searchTerm.slice(0, 20)}..."`);
           }
-        } catch (e: any) {
-          console.log(`[CJ Details] listV2 SKU search failed for ${pid}:`, e?.message);
         }
+      } catch (e: any) {
+        console.log(`[CJ Details] listV2 name search failed for ${pid}:`, e?.message);
+      }
+    }
+    
+    // Build synthesized productInfo from all available fields (used if no description HTML)
+    // This ensures we always have SOMETHING to show on Page 3
+    if (!productData.synthesizedInfo) {
+      const infoLines: string[] = [];
+      
+      // Material info
+      if (productData.materialParsed) {
+        infoLines.push(`Material: ${productData.materialParsed}`);
       }
       
-      // Strategy 2: Try searching by product name if we still don't have description
-      if (!productData.description) {
-        try {
-          const productName = productData.productNameEn || productData.productName || productData.nameEn || '';
-          if (productName && productName.length > 5) {
-            // Use first 30 chars of product name for search
-            const searchTerm = productName.slice(0, 30);
-            const listV2Res = await cjFetch<any>(`/product/listV2?keyWord=${encodeURIComponent(searchTerm)}&page=1&size=20&features=enable_description`);
-            
-            const content = listV2Res?.data?.content;
-            let productList: any[] = [];
-            if (Array.isArray(content) && content[0]?.productList) {
-              productList = content[0].productList;
-            } else if (content && !Array.isArray(content) && content.productList) {
-              productList = content.productList;
-            } else if (listV2Res?.data?.list) {
-              productList = listV2Res.data.list;
-            }
-            
-            // Find exact match by PID
-            const match = productList.find((p: any) => 
-              p.id === pid || p.pid === pid
-            );
-            
-            if (match) {
-              // Copy all useful fields from listV2 response
-              if (match.description) {
-                productData.description = match.description;
-                console.log(`[CJ Details] Got description from listV2 (name search) for ${pid}: ${match.description.slice(0, 100)}...`);
-              }
-              if (match.threeCategoryName) productData.threeCategoryName = match.threeCategoryName;
-              if (match.twoCategoryName) productData.twoCategoryName = match.twoCategoryName;
-              if (match.oneCategoryName) productData.oneCategoryName = match.oneCategoryName;
-              if (match.deliveryCycle) productData.deliveryCycle = match.deliveryCycle;
-            }
-          }
-        } catch (e: any) {
-          console.log(`[CJ Details] listV2 name search failed for ${pid}:`, e?.message);
-        }
+      // Packing/package info
+      if (productData.packingParsed) {
+        infoLines.push(`Package: ${productData.packingParsed}`);
+      }
+      
+      // Product weight
+      const weight = productData.productWeight || productData.packingWeight;
+      if (weight && Number(weight) > 0) {
+        infoLines.push(`Weight: ${weight}g`);
+      }
+      
+      // Dimensions from packing
+      const pL = productData.packLength;
+      const pW = productData.packWidth;
+      const pH = productData.packHeight;
+      if (pL && pW && pH && Number(pL) > 0 && Number(pW) > 0 && Number(pH) > 0) {
+        infoLines.push(`Package Size: ${pL} × ${pW} × ${pH} cm`);
+      }
+      
+      // Product attributes (color, size options from productKeyEn)
+      if (productData.productKeyParsed) {
+        infoLines.push(`Attributes: ${productData.productKeyParsed}`);
+      }
+      
+      // Category path
+      const category = productData.threeCategoryName || productData.twoCategoryName || productData.categoryName || '';
+      if (category && !category.includes('_')) {
+        infoLines.push(`Category: ${category}`);
+      }
+      
+      // Delivery cycle
+      if (productData.deliveryCycle) {
+        infoLines.push(`Delivery: ${productData.deliveryCycle} days`);
+      }
+      
+      // HS code for customs (useful for international shipping)
+      if (productData.entryCode && productData.entryNameEn) {
+        infoLines.push(`HS Code: ${productData.entryCode} (${productData.entryNameEn})`);
+      }
+      
+      if (infoLines.length > 0) {
+        productData.synthesizedInfo = infoLines.join('<br/>');
+        console.log(`[CJ Details] Built synthesizedInfo for ${pid}: ${infoLines.length} fields`);
       }
     }
     
     // Log available data fields for debugging
-    const specFields = ['description', 'productDescription', 'descriptionEn', 'productNote', 'remark', 'packingList', 'packingNameEn', 'materialNameEn'];
+    const specFields = ['description', 'synthesizedInfo', 'materialParsed', 'packingParsed', 'productPropertyList', 'productWeight'];
     const availableSpecs: Record<string, string> = {};
     for (const field of specFields) {
       if (productData[field]) {
         const val = productData[field];
-        availableSpecs[field] = typeof val === 'string' ? `"${val.slice(0, 50)}..."` : typeof val;
+        if (typeof val === 'string') {
+          availableSpecs[field] = `"${val.slice(0, 40)}..."`;
+        } else if (Array.isArray(val)) {
+          availableSpecs[field] = `[${val.length} items]`;
+        } else {
+          availableSpecs[field] = typeof val;
+        }
       }
     }
     console.log(`[CJ Details] Product ${pid} spec fields:`, JSON.stringify(availableSpecs));
-    
-    // Log all top-level keys for debugging
-    const allKeys = Object.keys(productData);
-    console.log(`[CJ Details] Product ${pid} all keys: [${allKeys.slice(0, 30).join(', ')}${allKeys.length > 30 ? '...' : ''}]`);
     
     // Fetch variants separately to get complete variant data with images
     try {

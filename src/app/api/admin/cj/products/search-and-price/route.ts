@@ -652,6 +652,14 @@ export async function GET(req: Request) {
         }
       }
       
+      // Try synthesizedInfo from fetchProductDetailsByPid (contains parsed material, packing, weight, etc.)
+      if (!rawProductInfo || rawProductInfo.length < 10) {
+        if (source.synthesizedInfo) {
+          rawProductInfo = source.synthesizedInfo;
+          console.log(`[Search&Price] Product ${pid}: Using synthesizedInfo as productInfo fallback`);
+        }
+      }
+      
       // Last resort: build basic specs from known fields
       if (!rawProductInfo || rawProductInfo.length < 10) {
         const basicSpecs = buildBasicSpecs();
@@ -835,8 +843,12 @@ export async function GET(req: Request) {
       
       console.log(`[Search&Price] Product ${pid}: ${variantImages.length} images from ${variants.length} variants`);
       
-      // If productInfo is still empty, try to build specs from variant data
+      // If productInfo is still empty, try synthesizedInfo first, then build specs from variant data
       let finalProductInfo = productInfo;
+      if (!finalProductInfo && source.synthesizedInfo) {
+        finalProductInfo = source.synthesizedInfo;
+        console.log(`[Search&Price] Product ${pid}: Using synthesizedInfo for finalProductInfo`);
+      }
       if (!finalProductInfo && variants.length > 0) {
         const variantSpecs: string[] = [];
         const colors = new Set<string>();
