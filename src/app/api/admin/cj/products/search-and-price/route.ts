@@ -478,6 +478,20 @@ export async function GET(req: Request) {
       }
       packingInfo = packingInfo.trim() || undefined;
       
+      // Debug log - what fields are available for Overview section?
+      console.log(`[Search&Price] Product ${pid} Overview data:`, {
+        categoryName,
+        material: material || 'NONE',
+        packingInfo: packingInfo || 'NONE',
+        productWeight,
+        packDimensions: (packLength && packWidth && packHeight) ? `${packLength}x${packWidth}x${packHeight}` : 'NONE',
+        deliveryCycle: source.deliveryCycle || 'NONE',
+        productType,
+        hasThreeCategoryName: !!source.threeCategoryName,
+        hasMaterialParsed: !!source.materialParsed,
+        hasPackingParsed: !!source.packingParsed,
+      });
+      
       // Helper: Sanitize HTML - remove supplier links/contacts but keep usable content
       const sanitizeHtml = (html: string): string | undefined => {
         if (!html || typeof html !== 'string') return undefined;
@@ -792,6 +806,18 @@ export async function GET(req: Request) {
       
       if (overviewParts.length > 0) {
         overview = overviewParts.join('<br/>');
+      }
+      
+      // If Overview only has Category (meaning we didn't find material/weight/etc from raw fields),
+      // try to use synthesizedInfo which was built in fetchProductDetailsByPid with this data
+      if (overviewParts.length <= 1 && source.synthesizedInfo) {
+        // synthesizedInfo contains Material, Package, Weight, Dimensions, Category, Delivery, HS Code
+        // Use it directly as Overview since it has all the relevant info
+        const cleanedSynthesized = sanitizeHtml(source.synthesizedInfo);
+        if (cleanedSynthesized && cleanedSynthesized.length > 10) {
+          overview = cleanedSynthesized;
+          console.log(`[Search&Price] Product ${pid}: Using synthesizedInfo as Overview (${cleanedSynthesized.length} chars)`);
+        }
       }
       
       // Extract Size Info - dimensions, size options from properties and variants
