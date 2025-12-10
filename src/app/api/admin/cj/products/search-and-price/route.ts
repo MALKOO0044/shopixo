@@ -443,8 +443,40 @@ export async function GET(req: Request) {
       const packLength = source.packLength !== undefined ? Number(source.packLength) : (source.length !== undefined ? Number(source.length) : undefined);
       const packWidth = source.packWidth !== undefined ? Number(source.packWidth) : (source.width !== undefined ? Number(source.width) : undefined);
       const packHeight = source.packHeight !== undefined ? Number(source.packHeight) : (source.height !== undefined ? Number(source.height) : undefined);
-      const material = String(source.material || source.productMaterial || source.materialNameEn || source.materialName || '').trim() || undefined;
       const productType = String(source.productType || source.type || source.productTypeName || '').trim() || undefined;
+      
+      // Helper: Parse CJ JSON array fields like '["","metal"]' into readable string
+      const parseCjJsonArray = (val: any): string => {
+        if (!val) return '';
+        if (Array.isArray(val)) return val.filter(Boolean).map(String).join(', ');
+        if (typeof val === 'string') {
+          const trimmed = val.trim();
+          if (trimmed.startsWith('[')) {
+            try {
+              const arr = JSON.parse(trimmed);
+              if (Array.isArray(arr)) return arr.filter(Boolean).map(String).join(', ');
+            } catch {}
+          }
+          return trimmed;
+        }
+        return '';
+      };
+      
+      // Try to get material - first try parsed arrays (from fullDetails), then raw field, then parse locally
+      let material = source.materialParsed || '';
+      if (!material) {
+        const rawMaterial = source.material || source.productMaterial || source.materialNameEn || source.materialName || '';
+        material = parseCjJsonArray(rawMaterial);
+      }
+      material = material.trim() || undefined;
+      
+      // Try to get packing info similarly
+      let packingInfo = source.packingParsed || '';
+      if (!packingInfo) {
+        const rawPacking = source.packingNameEn || source.packingName || source.packingList || '';
+        packingInfo = parseCjJsonArray(rawPacking);
+      }
+      packingInfo = packingInfo.trim() || undefined;
       
       // Helper: Sanitize HTML - remove supplier links/contacts but keep usable content
       const sanitizeHtml = (html: string): string | undefined => {
@@ -603,16 +635,20 @@ export async function GET(req: Request) {
       const buildBasicSpecs = (): string => {
         const specs: string[] = [];
         if (material && material.length > 1) specs.push(`Material: ${material}`);
+        if (packingInfo && packingInfo.length > 1) specs.push(`Package: ${packingInfo}`);
         if (productWeight && productWeight > 0) specs.push(`Weight: ${productWeight}g`);
         if (packLength && packWidth && packHeight) {
-          specs.push(`Dimensions: ${packLength} × ${packWidth} × ${packHeight} cm`);
+          specs.push(`Package Size: ${packLength} × ${packWidth} × ${packHeight} cm`);
         }
-        // Don't include Category or Type alone - not useful as standalone specs
+        // Add delivery cycle if available
+        const deliveryCycle = source.deliveryCycle;
+        if (deliveryCycle) {
+          specs.push(`Delivery: ${deliveryCycle} days`);
+        }
         // Only include category if we have other specs too
         if (specs.length > 0 && categoryName && !categoryName.includes('_')) {
           specs.push(`Category: ${categoryName}`);
         }
-        // Never include internal type like "ORDINARY_PRODUCT"
         return specs.join('<br/>');
       };
       
@@ -843,14 +879,31 @@ export async function GET(req: Request) {
       
       console.log(`[Search&Price] Product ${pid}: ${variantImages.length} images from ${variants.length} variants`);
       
-      // If productInfo is still empty, try synthesizedInfo first, then build specs from variant data
-      let finalProductInfo = productInfo;
-      if (!finalProductInfo && source.synthesizedInfo) {
-        finalProductInfo = source.synthesizedInfo;
-        console.log(`[Search&Price] Product ${pid}: Using synthesizedInfo for finalProductInfo`);
+      // Build combined product info: start with productInfo, then add variant colors/sizes
+      // This ensures we show BOTH material/packing specs AND variant options
+      const allSpecs: string[] = [];
+      
+      // First, add base product specs (material, packing, weight, etc.)
+      let baseSpecs = productInfo;
+      if (!baseSpecs && source.synthesizedInfo) {
+        baseSpecs = sanitizeHtml(source.synthesizedInfo);
+        console.log(`[Search&Price] Product ${pid}: Using synthesizedInfo for base specs`);
       }
-      if (!finalProductInfo && variants.length > 0) {
-        const variantSpecs: string[] = [];
+      if (!baseSpecs) {
+        const basicSpecs = buildBasicSpecs();
+        if (basicSpecs && basicSpecs.length > 10) {
+          baseSpecs = basicSpecs;
+          console.log(`[Search&Price] Product ${pid}: Using buildBasicSpecs for base specs`);
+        }
+      }
+      
+      // Add base specs to allSpecs
+      if (baseSpecs) {
+        allSpecs.push(baseSpecs);
+      }
+      
+      // Now extract variant colors/sizes and ADD them (not replace)
+      if (variants.length > 0) {
         const colors = new Set<string>();
         const sizes = new Set<string>();
         
@@ -892,7 +945,6 @@ export async function GET(req: Request) {
               const propValue = String(p.propertyValueNameEn || p.propertyValueName || p.value || p.name || '').trim();
               if (propValue && propValue.length > 0) {
                 if (propName.includes('color') || propName.includes('colour')) {
-                  // Clean the color value
                   const cleanColor = propValue.replace(/[\u4e00-\u9fff]/g, '').trim();
                   if (cleanColor && /[a-zA-Z]/.test(cleanColor)) {
                     colors.add(cleanColor);
@@ -908,16 +960,25 @@ export async function GET(req: Request) {
           }
         }
         
-        if (colors.size > 0) variantSpecs.push(`Colors: ${[...colors].slice(0, 15).join(', ')}`);
-        if (sizes.size > 0) variantSpecs.push(`Sizes: ${[...sizes].slice(0, 15).join(', ')}`);
+        // Sanitize color/size values - strip any HTML/script tags
+        const stripHtml = (s: string) => s.replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, ' ').trim();
+        const safeColors = [...colors].map(stripHtml).filter(c => c.length > 0 && c.length < 50);
+        const safeSizes = [...sizes].map(stripHtml).filter(s => s.length > 0 && s.length < 30);
         
-        if (variantSpecs.length > 0) {
-          finalProductInfo = variantSpecs.join('<br/>');
-          console.log(`[Search&Price] Product ${pid}: Built specs from ${variants.length} variants - ${colors.size} colors, ${sizes.size} sizes`);
-        } else {
-          console.log(`[Search&Price] Product ${pid}: No colors/sizes found in ${variants.length} variants`);
+        // Only add colors/sizes if not already in baseSpecs (avoid duplicates)
+        const baseSpecsLower = (baseSpecs || '').toLowerCase();
+        if (safeColors.length > 0 && !baseSpecsLower.includes('colors:')) {
+          allSpecs.push(`Colors: ${safeColors.slice(0, 15).join(', ')}`);
         }
+        if (safeSizes.length > 0 && !baseSpecsLower.includes('sizes:')) {
+          allSpecs.push(`Sizes: ${safeSizes.slice(0, 15).join(', ')}`);
+        }
+        
+        console.log(`[Search&Price] Product ${pid}: ${safeColors.length} colors, ${safeSizes.length} sizes from ${variants.length} variants`);
       }
+      
+      // Combine all specs into finalProductInfo
+      let finalProductInfo: string | undefined = allSpecs.length > 0 ? allSpecs.join('<br/>') : undefined;
       
       // If still no product info, set to undefined (don't show empty section)
       if (!finalProductInfo || finalProductInfo.trim().length === 0) {
