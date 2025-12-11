@@ -12,9 +12,9 @@ function StarRating({ rating }: { rating?: number }) {
   const hasRating = typeof rating === "number" && rating > 0;
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-col gap-2">
       {hasRating ? (
-        <>
+        <div className="flex items-center gap-3">
           <div className="flex gap-1">
             {[1, 2, 3, 4, 5].map((i) => (
               <Star
@@ -28,11 +28,15 @@ function StarRating({ rating }: { rating?: number }) {
             ))}
           </div>
           <span className="text-xl font-bold text-gray-800">{rating!.toFixed(1)}</span>
-        </>
+        </div>
       ) : (
-        <div className="flex items-center gap-2 text-gray-400">
-          <span className="text-lg">غير متوفر من المورد</span>
-          <span className="text-sm">(CJ لا يوفر بيانات التقييم)</span>
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+          <p className="text-amber-700 text-sm">
+            تقييم المنتج غير متوفر في API المورد
+          </p>
+          <p className="text-amber-600 text-xs mt-1">
+            يمكنك مراجعة التقييمات على موقع CJ مباشرة
+          </p>
         </div>
       )}
     </div>

@@ -506,16 +506,23 @@ export default function ProductDiscoveryPage() {
             <label className="block text-sm text-gray-600 mb-2 flex items-center gap-1">
               <Star className="h-4 w-4 text-amber-500" />
               Min Rating
+              <span className="text-xs text-amber-600">(limited)</span>
             </label>
             <select
               value={minRating}
               onChange={(e) => setMinRating(Number(e.target.value))}
               className="w-full px-3 py-2 border border-gray-300 rounded"
+              title="CJ API doesn't provide product ratings directly - this filter has limited effectiveness"
             >
               {ratingOptions.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
+            {minRating > 0 && (
+              <p className="text-xs text-amber-600 mt-1">
+                Note: CJ API has limited rating data
+              </p>
+            )}
           </div>
         </div>
         
