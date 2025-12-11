@@ -1332,14 +1332,22 @@ export async function GET(req: Request) {
     // Filter by minimum rating
     if (minRating > 0) {
       const beforeCount = filteredProducts.length;
+      console.log(`[Search&Price] Applying minRating filter: ${minRating}. Before filter: ${beforeCount} products`);
+      
+      // Log rating values before filtering
+      for (const p of filteredProducts) {
+        console.log(`[Search&Price] Product ${p.pid}: rating=${p.rating} (type: ${typeof p.rating}), reviewCount=${p.reviewCount}`);
+      }
+      
       filteredProducts = filteredProducts.filter(p => {
         // When rating filter is active, ONLY include products that have valid numeric ratings AND meet the minimum
         const ratingValue = Number(p.rating);
-        if (!Number.isFinite(ratingValue) || ratingValue <= 0) return false;
-        return ratingValue >= minRating;
+        const passes = Number.isFinite(ratingValue) && ratingValue > 0 && ratingValue >= minRating;
+        console.log(`[Search&Price] Filter check: pid=${p.pid}, rating=${p.rating}, ratingValue=${ratingValue}, minRating=${minRating}, passes=${passes}`);
+        return passes;
       });
       filteredByRating = beforeCount - filteredProducts.length;
-      console.log(`[Search&Price] Filtered ${filteredByRating} products without rating or rating < ${minRating}`);
+      console.log(`[Search&Price] Filtered ${filteredByRating} products. After filter: ${filteredProducts.length} products with rating >= ${minRating}`);
     }
     
     // Filter by requested sizes
