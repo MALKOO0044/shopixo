@@ -452,36 +452,60 @@ export async function GET(req: Request) {
       const source = fullDetails || item;
       const rawDescriptionHtml = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
       // Extract rating - check multiple possible field names from CJ API
-      // CJ uses supplierRating, productScore, score, rating in different endpoints
+      // CJ uses various field names across endpoints: supplierRating, productScore, ratingScore, etc.
       let rating: number | undefined = undefined;
-      const ratingFields = ['supplierRating', 'productScore', 'rating', 'score', 'productRating', 'avgRating', 'averageRating', 'starRating', 'rate'];
+      const ratingFields = [
+        // Priority fields from listV2 responses
+        'ratingScore', 'supplierScore', 'productRatingScore', 'starScore',
+        // Standard fields
+        'supplierRating', 'productScore', 'rating', 'score', 
+        'productRating', 'avgRating', 'averageRating', 'starRating', 'rate',
+        // Additional possible fields
+        'reviewScore', 'qualityScore', 'sellerRating', 'vendorRating'
+      ];
       
       // Check both source (fullDetails) and item (original listing) since rating might be in either
       for (const field of ratingFields) {
         // Check fullDetails first
         let val = source[field];
-        if (val !== undefined && val !== null && val !== '' && val !== 0) {
+        if (val !== undefined && val !== null && val !== '') {
           const numVal = Number(val);
-          if (!isNaN(numVal) && numVal > 0) {
-            rating = numVal;
-            console.log(`[Search&Price] Product ${pid}: Found rating ${rating} in source.${field}`);
+          // Normalize: if value > 5, it might be percentage (e.g., 97) or scaled (e.g., 4.8 * 10)
+          let normalizedRating = numVal;
+          if (numVal > 5 && numVal <= 50) {
+            normalizedRating = numVal / 10; // e.g., 48 -> 4.8
+          } else if (numVal > 50 && numVal <= 100) {
+            normalizedRating = numVal / 20; // e.g., 97 -> 4.85
+          }
+          if (!isNaN(normalizedRating) && normalizedRating > 0 && normalizedRating <= 5) {
+            rating = Math.round(normalizedRating * 10) / 10; // Round to 1 decimal
+            console.log(`[Search&Price] Product ${pid}: Found rating ${rating} in source.${field} (raw: ${numVal})`);
             break;
           }
         }
         // Also check original item (listing data may have rating not in details)
         val = item[field];
-        if (val !== undefined && val !== null && val !== '' && val !== 0) {
+        if (val !== undefined && val !== null && val !== '') {
           const numVal = Number(val);
-          if (!isNaN(numVal) && numVal > 0) {
-            rating = numVal;
-            console.log(`[Search&Price] Product ${pid}: Found rating ${rating} in item.${field}`);
+          let normalizedRating = numVal;
+          if (numVal > 5 && numVal <= 50) {
+            normalizedRating = numVal / 10;
+          } else if (numVal > 50 && numVal <= 100) {
+            normalizedRating = numVal / 20;
+          }
+          if (!isNaN(normalizedRating) && normalizedRating > 0 && normalizedRating <= 5) {
+            rating = Math.round(normalizedRating * 10) / 10;
+            console.log(`[Search&Price] Product ${pid}: Found rating ${rating} in item.${field} (raw: ${numVal})`);
             break;
           }
         }
       }
       
-      // Debug: Log all potential rating fields
-      console.log(`[Search&Price] Product ${pid} rating check: source.supplierRating=${source.supplierRating}, source.productScore=${source.productScore}, source.rating=${source.rating}, item.supplierRating=${item.supplierRating}, item.productScore=${item.productScore}, item.rating=${item.rating}`);
+      // Debug: Log all potential rating fields from both source and item
+      const debugRatingFields = ['ratingScore', 'supplierScore', 'productRatingScore', 'supplierRating', 'productScore', 'rating', 'score'];
+      const srcRatings = debugRatingFields.map(f => `${f}=${source[f]}`).join(', ');
+      const itemRatings = debugRatingFields.map(f => `${f}=${item[f]}`).join(', ');
+      console.log(`[Search&Price] Product ${pid} ratings - source: {${srcRatings}} | item: {${itemRatings}}`);
       
       const categoryName = String(source.categoryName || source.categoryNameEn || source.category || '').trim() || undefined;
       const productWeight = source.productWeight !== undefined ? Number(source.productWeight) : (source.weight !== undefined ? Number(source.weight) : undefined);
