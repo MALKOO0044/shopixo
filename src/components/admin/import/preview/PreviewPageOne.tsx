@@ -13,35 +13,42 @@ function StarRating({ rating }: { rating?: number }) {
 
   return (
     <div className="flex items-center gap-3">
-      <div className="flex gap-1">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <Star
-            key={i}
-            className={`h-6 w-6 ${
-              hasRating && i <= stars
-                ? "text-amber-400 fill-amber-400"
-                : "text-gray-300"
-            }`}
-          />
-        ))}
-      </div>
       {hasRating ? (
-        <span className="text-xl font-bold text-gray-800">{rating!.toFixed(1)}</span>
+        <>
+          <div className="flex gap-1">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Star
+                key={i}
+                className={`h-6 w-6 ${
+                  i <= stars
+                    ? "text-amber-400 fill-amber-400"
+                    : "text-gray-300"
+                }`}
+              />
+            ))}
+          </div>
+          <span className="text-xl font-bold text-gray-800">{rating!.toFixed(1)}</span>
+        </>
       ) : (
-        <span className="text-lg text-gray-400">لا يوجد تقييم</span>
+        <div className="flex items-center gap-2 text-gray-400">
+          <span className="text-lg">غير متوفر من المورد</span>
+          <span className="text-sm">(CJ لا يوفر بيانات التقييم)</span>
+        </div>
       )}
     </div>
   );
 }
 
 export default function PreviewPageOne({ product }: PreviewPageOneProps) {
-  const uniqueSizes = [...new Set(
-    product.variants
-      .map((v) => v.variantName)
-      .filter((s): s is string => !!s && s.trim() !== "")
-  )];
+  // Use availableSizes from API (extracted from variants) - these are the normalized sizes
+  const uniqueSizes = product.availableSizes && product.availableSizes.length > 0
+    ? product.availableSizes
+    : [];
 
   const imageCount = product.images?.length || 0;
+  
+  // Debug logging
+  console.log(`[PreviewPageOne] Product ${product.cjSku}: rating=${product.rating}, sizes=${uniqueSizes.join(',')}, availableSizes=${product.availableSizes?.join(',') || 'none'}`);
 
   return (
     <div className="flex flex-col lg:flex-row gap-8 p-4" dir="rtl">

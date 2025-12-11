@@ -451,7 +451,23 @@ export async function GET(req: Request) {
       // Extract additional product info from fullDetails or item
       const source = fullDetails || item;
       const rawDescriptionHtml = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
-      const rating = source.rating !== undefined ? Number(source.rating) : (source.score !== undefined ? Number(source.score) : undefined);
+      // Extract rating - check multiple possible field names from CJ API
+      let rating: number | undefined = undefined;
+      const ratingFields = ['rating', 'score', 'productRating', 'avgRating', 'averageRating', 'starRating', 'rate'];
+      for (const field of ratingFields) {
+        const val = source[field];
+        if (val !== undefined && val !== null && val !== '' && val !== 0) {
+          const numVal = Number(val);
+          if (!isNaN(numVal) && numVal > 0) {
+            rating = numVal;
+            console.log(`[Search&Price] Product ${pid}: Found rating ${rating} in field '${field}'`);
+            break;
+          }
+        }
+      }
+      // Also log all potential rating fields for debugging
+      console.log(`[Search&Price] Product ${pid} rating fields: rating=${source.rating}, score=${source.score}, productRating=${source.productRating}, avgRating=${source.avgRating}`);
+      
       const categoryName = String(source.categoryName || source.categoryNameEn || source.category || '').trim() || undefined;
       const productWeight = source.productWeight !== undefined ? Number(source.productWeight) : (source.weight !== undefined ? Number(source.weight) : undefined);
       const packLength = source.packLength !== undefined ? Number(source.packLength) : (source.length !== undefined ? Number(source.length) : undefined);
@@ -982,6 +998,11 @@ export async function GET(req: Request) {
       
       // Now extract variant colors/sizes and ADD them (not replace)
       if (variants.length > 0) {
+        // Debug: Log first variant structure to understand CJ format
+        const sampleVariant = variants[0];
+        console.log(`[Search&Price] Product ${pid}: Sample variant keys: ${Object.keys(sampleVariant).join(', ')}`);
+        console.log(`[Search&Price] Product ${pid}: Sample variant data: ${JSON.stringify(sampleVariant).substring(0, 500)}`);
+        
         const colors = new Set<string>();
         const sizes = new Set<string>();
         
