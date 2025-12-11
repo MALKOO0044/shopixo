@@ -38,6 +38,7 @@ export type PricedProduct = {
   productNote?: string;
   packingList?: string;
   rating?: number;
+  reviewCount?: number;
   categoryName?: string;
   productWeight?: number;
   packLength?: number;

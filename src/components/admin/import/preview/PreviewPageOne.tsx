@@ -7,7 +7,7 @@ type PreviewPageOneProps = {
   product: PricedProduct;
 };
 
-function StarRating({ rating }: { rating?: number }) {
+function StarRating({ rating, reviewCount }: { rating?: number; reviewCount?: number }) {
   const stars = rating ? Math.round(rating) : 0;
   const hasRating = typeof rating === "number" && rating > 0;
 
@@ -28,15 +28,13 @@ function StarRating({ rating }: { rating?: number }) {
             ))}
           </div>
           <span className="text-xl font-bold text-gray-800">{rating!.toFixed(1)}</span>
+          {reviewCount !== undefined && reviewCount > 0 && (
+            <span className="text-gray-500 text-sm">({reviewCount} تقييم)</span>
+          )}
         </div>
       ) : (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-          <p className="text-amber-700 text-sm">
-            تقييم المنتج غير متوفر في API المورد
-          </p>
-          <p className="text-amber-600 text-xs mt-1">
-            يمكنك مراجعة التقييمات على موقع CJ مباشرة
-          </p>
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
+          <p className="text-gray-500 text-sm">لا توجد تقييمات بعد</p>
         </div>
       )}
     </div>
@@ -135,7 +133,7 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
             <Star className="h-5 w-5 text-amber-500" />
             <span className="text-gray-500 font-medium">التقييم</span>
           </div>
-          <StarRating rating={product.rating} />
+          <StarRating rating={product.rating} reviewCount={product.reviewCount} />
         </div>
 
         {/* Price */}

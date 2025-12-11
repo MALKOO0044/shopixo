@@ -565,6 +565,63 @@ async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
+// --- Product Rating from Comments ---
+export async function getProductRating(pid: string): Promise<{ rating: number | null; reviewCount: number }> {
+  try {
+    const res = await cjFetch<any>(`/product/productComments?pid=${encodeURIComponent(pid)}&pageNum=1&pageSize=100`);
+    const data = res?.data;
+    const total = parseInt(data?.total || '0', 10);
+    const list = Array.isArray(data?.list) ? data.list : [];
+    
+    if (list.length === 0) {
+      return { rating: null, reviewCount: 0 };
+    }
+    
+    let sumScore = 0;
+    let countScores = 0;
+    for (const comment of list) {
+      const score = parseFloat(comment?.score || '0');
+      if (score > 0 && score <= 5) {
+        sumScore += score;
+        countScores++;
+      }
+    }
+    
+    if (countScores === 0) {
+      return { rating: null, reviewCount: total };
+    }
+    
+    const avgRating = sumScore / countScores;
+    return { rating: Math.round(avgRating * 10) / 10, reviewCount: total };
+  } catch (e) {
+    console.error('[CJ] Failed to fetch product rating:', e);
+    return { rating: null, reviewCount: 0 };
+  }
+}
+
+// Batch fetch ratings for multiple products (with concurrency limit)
+export async function getProductRatings(pids: string[]): Promise<Map<string, { rating: number | null; reviewCount: number }>> {
+  const results = new Map<string, { rating: number | null; reviewCount: number }>();
+  const BATCH_SIZE = 5; // Limit concurrent requests
+  
+  for (let i = 0; i < pids.length; i += BATCH_SIZE) {
+    const batch = pids.slice(i, i + BATCH_SIZE);
+    const promises = batch.map(async (pid) => {
+      const result = await getProductRating(pid);
+      return { pid, result };
+    });
+    
+    const batchResults = await Promise.allSettled(promises);
+    for (const res of batchResults) {
+      if (res.status === 'fulfilled') {
+        results.set(res.value.pid, res.value.result);
+      }
+    }
+  }
+  
+  return results;
+}
+
 // Helper: Parse JSON array fields from CJ API (e.g., materialNameEn: '["","metal"]')
 function parseCjJsonArray(val: any): string[] {
   if (!val) return [];

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAccessToken, freightCalculate, fetchProductDetailsBatch } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsBatch, getProductRatings } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
@@ -44,6 +44,7 @@ type PricedProduct = {
   productNote?: string;
   packingList?: string;
   rating?: number;
+  reviewCount?: number;
   categoryName?: string;
   productWeight?: number;
   packLength?: number;
@@ -431,8 +432,15 @@ export async function GET(req: Request) {
     // Fetch full product details to get all images
     const pidsToHydrate = productsToPrice.map(p => String(p.pid || p.productId || '')).filter(Boolean);
     console.log(`[Search&Price] Hydrating ${pidsToHydrate.length} products with full details...`);
-    const productDetailsMap = await fetchProductDetailsBatch(pidsToHydrate, 5);
+    
+    // Fetch product details and ratings in parallel
+    const [productDetailsMap, productRatingsMap] = await Promise.all([
+      fetchProductDetailsBatch(pidsToHydrate, 5),
+      getProductRatings(pidsToHydrate)
+    ]);
+    
     console.log(`[Search&Price] Successfully hydrated ${productDetailsMap.size} products`);
+    console.log(`[Search&Price] Successfully fetched ratings for ${productRatingsMap.size} products`);
     
     const pricedProducts: PricedProduct[] = [];
     
@@ -451,61 +459,16 @@ export async function GET(req: Request) {
       // Extract additional product info from fullDetails or item
       const source = fullDetails || item;
       const rawDescriptionHtml = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
-      // Extract rating - check multiple possible field names from CJ API
-      // CJ uses various field names across endpoints: supplierRating, productScore, ratingScore, etc.
+      
+      // Get rating from productComments API (reliable source)
       let rating: number | undefined = undefined;
-      const ratingFields = [
-        // Priority fields from listV2 responses
-        'ratingScore', 'supplierScore', 'productRatingScore', 'starScore',
-        // Standard fields
-        'supplierRating', 'productScore', 'rating', 'score', 
-        'productRating', 'avgRating', 'averageRating', 'starRating', 'rate',
-        // Additional possible fields
-        'reviewScore', 'qualityScore', 'sellerRating', 'vendorRating'
-      ];
-      
-      // Check both source (fullDetails) and item (original listing) since rating might be in either
-      for (const field of ratingFields) {
-        // Check fullDetails first
-        let val = source[field];
-        if (val !== undefined && val !== null && val !== '') {
-          const numVal = Number(val);
-          // Normalize: if value > 5, it might be percentage (e.g., 97) or scaled (e.g., 4.8 * 10)
-          let normalizedRating = numVal;
-          if (numVal > 5 && numVal <= 50) {
-            normalizedRating = numVal / 10; // e.g., 48 -> 4.8
-          } else if (numVal > 50 && numVal <= 100) {
-            normalizedRating = numVal / 20; // e.g., 97 -> 4.85
-          }
-          if (!isNaN(normalizedRating) && normalizedRating > 0 && normalizedRating <= 5) {
-            rating = Math.round(normalizedRating * 10) / 10; // Round to 1 decimal
-            console.log(`[Search&Price] Product ${pid}: Found rating ${rating} in source.${field} (raw: ${numVal})`);
-            break;
-          }
-        }
-        // Also check original item (listing data may have rating not in details)
-        val = item[field];
-        if (val !== undefined && val !== null && val !== '') {
-          const numVal = Number(val);
-          let normalizedRating = numVal;
-          if (numVal > 5 && numVal <= 50) {
-            normalizedRating = numVal / 10;
-          } else if (numVal > 50 && numVal <= 100) {
-            normalizedRating = numVal / 20;
-          }
-          if (!isNaN(normalizedRating) && normalizedRating > 0 && normalizedRating <= 5) {
-            rating = Math.round(normalizedRating * 10) / 10;
-            console.log(`[Search&Price] Product ${pid}: Found rating ${rating} in item.${field} (raw: ${numVal})`);
-            break;
-          }
-        }
+      const ratingData = productRatingsMap.get(pid);
+      if (ratingData && ratingData.rating !== null) {
+        rating = ratingData.rating;
+        console.log(`[Search&Price] Product ${pid}: Rating ${rating} from comments API (${ratingData.reviewCount} reviews)`);
+      } else {
+        console.log(`[Search&Price] Product ${pid}: No rating available from comments API`);
       }
-      
-      // Debug: Log all potential rating fields from both source and item
-      const debugRatingFields = ['ratingScore', 'supplierScore', 'productRatingScore', 'supplierRating', 'productScore', 'rating', 'score'];
-      const srcRatings = debugRatingFields.map(f => `${f}=${source[f]}`).join(', ');
-      const itemRatings = debugRatingFields.map(f => `${f}=${item[f]}`).join(', ');
-      console.log(`[Search&Price] Product ${pid} ratings - source: {${srcRatings}} | item: {${itemRatings}}`);
       
       const categoryName = String(source.categoryName || source.categoryNameEn || source.category || '').trim() || undefined;
       const productWeight = source.productWeight !== undefined ? Number(source.productWeight) : (source.weight !== undefined ? Number(source.weight) : undefined);
@@ -1332,6 +1295,7 @@ export async function GET(req: Request) {
         productNote,
         packingList,
         rating,
+        reviewCount: ratingData?.reviewCount ?? 0,
         categoryName,
         productWeight,
         packLength,
