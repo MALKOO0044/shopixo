@@ -1,30 +1,19 @@
 "use client";
 
-import { Star, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign, TrendingUp, Users } from "lucide-react";
+import { Star, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign } from "lucide-react";
 import type { PricedProduct } from "./types";
 
 type PreviewPageOneProps = {
   product: PricedProduct;
 };
 
-function PopularityIndicator({ listedNum, rating, reviewCount }: { listedNum?: number; rating?: number; reviewCount?: number }) {
+function StarRating({ rating, reviewCount }: { rating?: number; reviewCount?: number }) {
+  const stars = rating ? Math.round(rating) : 0;
   const hasRating = typeof rating === "number" && rating > 0;
-  const hasListedNum = typeof listedNum === "number" && listedNum > 0;
-  
-  // Calculate popularity level based on listedNum
-  const getPopularityLevel = (num: number): { label: string; color: string; stars: number } => {
-    if (num >= 1000) return { label: "شائع جداً", color: "text-green-600 bg-green-50", stars: 5 };
-    if (num >= 500) return { label: "شائع", color: "text-emerald-600 bg-emerald-50", stars: 4 };
-    if (num >= 100) return { label: "جيد", color: "text-blue-600 bg-blue-50", stars: 3 };
-    if (num >= 50) return { label: "متوسط", color: "text-amber-600 bg-amber-50", stars: 2 };
-    return { label: "جديد", color: "text-gray-600 bg-gray-50", stars: 1 };
-  };
 
-  // If we have actual rating data from reviews, show stars
-  if (hasRating) {
-    const stars = Math.round(rating!);
-    return (
-      <div className="flex flex-col gap-2">
+  return (
+    <div className="flex flex-col gap-2">
+      {hasRating ? (
         <div className="flex items-center gap-3">
           <div className="flex gap-1">
             {[1, 2, 3, 4, 5].map((i) => (
@@ -43,45 +32,11 @@ function PopularityIndicator({ listedNum, rating, reviewCount }: { listedNum?: n
             <span className="text-gray-500 text-sm">({reviewCount} تقييم)</span>
           )}
         </div>
-      </div>
-    );
-  }
-
-  // Show popularity based on listedNum (how many sellers list this product)
-  if (hasListedNum) {
-    const popularity = getPopularityLevel(listedNum!);
-    return (
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-3">
-          <div className={`flex items-center gap-2 px-4 py-2 rounded-full ${popularity.color}`}>
-            <TrendingUp className="h-5 w-5" />
-            <span className="font-bold">{popularity.label}</span>
-          </div>
-          <div className="flex gap-1">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <Star
-                key={i}
-                className={`h-5 w-5 ${
-                  i <= popularity.stars
-                    ? "text-amber-400 fill-amber-400"
-                    : "text-gray-300"
-                }`}
-              />
-            ))}
-          </div>
+      ) : (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
+          <p className="text-gray-500 text-sm">لا توجد تقييمات بعد</p>
         </div>
-        <div className="flex items-center gap-2 text-gray-500 text-sm">
-          <Users className="h-4 w-4" />
-          <span>{listedNum!.toLocaleString()} بائع يعرض هذا المنتج</span>
-        </div>
-      </div>
-    );
-  }
-
-  // No data available
-  return (
-    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
-      <p className="text-gray-500 text-sm">لا توجد بيانات شعبية متاحة</p>
+      )}
     </div>
   );
 }
@@ -172,13 +127,13 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
           </p>
         </div>
 
-        {/* Popularity */}
+        {/* Rating */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-4">
-            <TrendingUp className="h-5 w-5 text-amber-500" />
-            <span className="text-gray-500 font-medium">الشعبية</span>
+            <Star className="h-5 w-5 text-amber-500" />
+            <span className="text-gray-500 font-medium">التقييم</span>
           </div>
-          <PopularityIndicator listedNum={product.listedNum} rating={product.rating} reviewCount={product.reviewCount} />
+          <StarRating rating={product.rating} reviewCount={product.reviewCount} />
         </div>
 
         {/* Price */}
