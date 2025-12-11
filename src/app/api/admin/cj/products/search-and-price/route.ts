@@ -1325,12 +1325,12 @@ export async function GET(req: Request) {
     if (minRating > 0) {
       const beforeCount = filteredProducts.length;
       filteredProducts = filteredProducts.filter(p => {
-        // Products without rating pass through (don't exclude them)
-        if (p.rating === undefined || p.rating === null) return true;
+        // When rating filter is active, ONLY include products that have ratings AND meet the minimum
+        if (p.rating === undefined || p.rating === null) return false;
         return p.rating >= minRating;
       });
       filteredByRating = beforeCount - filteredProducts.length;
-      console.log(`[Search&Price] Filtered ${filteredByRating} products with rating < ${minRating}`);
+      console.log(`[Search&Price] Filtered ${filteredByRating} products without rating or rating < ${minRating}`);
     }
     
     // Filter by requested sizes
