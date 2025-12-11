@@ -34,6 +34,8 @@ export default function ProductDiscoveryPage() {
   const [profitMargin, setProfitMargin] = useState(8);
   const [popularity, setPopularity] = useState("any");
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
+  const [minRating, setMinRating] = useState(0);
+  const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
   
   const [loading, setLoading] = useState(false);
   const [searchProgress, setSearchProgress] = useState("");
@@ -60,6 +62,13 @@ export default function ProductDiscoveryPage() {
 
   const quantityPresets = [1000, 500, 250, 100, 50, 25, 10];
   const profitPresets = [100, 50, 25, 15, 8];
+  const ratingOptions = [
+    { value: 0, label: "Any Rating" },
+    { value: 3, label: "3+ Stars" },
+    { value: 4, label: "4+ Stars" },
+    { value: 5, label: "5 Stars" },
+  ];
+  const commonSizes = ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "2XL", "3XL", "4XL", "5XL", "6XL"];
 
   const testConnection = async () => {
     const start = Date.now();
@@ -166,6 +175,8 @@ export default function ProductDiscoveryPage() {
         profitMargin: profitMargin.toString(),
         popularity: popularity,
         freeShippingOnly: freeShippingOnly ? "1" : "0",
+        minRating: minRating.toString(),
+        sizes: selectedSizes.join(","),
       });
       
       const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
@@ -443,7 +454,7 @@ export default function ProductDiscoveryPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-6">
+        <div className="grid grid-cols-5 gap-6">
           <div>
             <label className="block text-sm text-gray-600 mb-2">Min Price (USD)</label>
             <input
@@ -490,6 +501,62 @@ export default function ProductDiscoveryPage() {
               <option value="low">Low (&lt;100 listed)</option>
             </select>
           </div>
+          
+          <div>
+            <label className="block text-sm text-gray-600 mb-2 flex items-center gap-1">
+              <Star className="h-4 w-4 text-amber-500" />
+              Min Rating
+            </label>
+            <select
+              value={minRating}
+              onChange={(e) => setMinRating(Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded"
+            >
+              {ratingOptions.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        
+        <div>
+          <label className="block text-sm text-gray-600 mb-2">
+            Filter by Sizes (optional - leave empty for all sizes)
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {commonSizes.map(size => (
+              <button
+                key={size}
+                onClick={() => {
+                  setSelectedSizes(prev => 
+                    prev.includes(size) 
+                      ? prev.filter(s => s !== size) 
+                      : [...prev, size]
+                  );
+                }}
+                className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                  selectedSizes.includes(size)
+                    ? "bg-purple-500 text-white border-purple-500"
+                    : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                }`}
+              >
+                {size}
+              </button>
+            ))}
+            {selectedSizes.length > 0 && (
+              <button
+                onClick={() => setSelectedSizes([])}
+                className="px-3 py-1.5 text-sm rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
+              >
+                Clear All
+              </button>
+            )}
+          </div>
+          {selectedSizes.length > 0 && (
+            <p className="text-xs text-purple-600 mt-2">
+              Filtering for products with sizes: {selectedSizes.join(", ")}
+            </p>
+          )}
         </div>
 
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">

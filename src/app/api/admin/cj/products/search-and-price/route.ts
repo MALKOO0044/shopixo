@@ -59,6 +59,8 @@ type PricedProduct = {
   originCountry?: string;
   hsCode?: string;
   videoUrl?: string;
+  availableSizes?: string[];
+  availableColors?: string[];
 };
 
 async function fetchCjProductPage(
@@ -304,6 +306,9 @@ export async function GET(req: Request) {
     const profitMargin = Math.max(1, Number(searchParams.get('profitMargin') || 8));
     const popularity = searchParams.get('popularity') || 'any';
     const freeShippingOnly = searchParams.get('freeShippingOnly') === '1';
+    const minRating = Number(searchParams.get('minRating') || 0);
+    const sizesParam = searchParams.get('sizes') || '';
+    const requestedSizes = sizesParam ? sizesParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : [];
 
     console.log(`[Search&Price] ========================================`);
     console.log(`[Search&Price] Starting search with params:`);
@@ -313,6 +318,8 @@ export async function GET(req: Request) {
     console.log(`[Search&Price]   minStock: ${minStock}`);
     console.log(`[Search&Price]   popularity: ${popularity}`);
     console.log(`[Search&Price]   profitMargin: ${profitMargin}%`);
+    console.log(`[Search&Price]   minRating: ${minRating}`);
+    console.log(`[Search&Price]   sizes filter: ${requestedSizes.length > 0 ? requestedSizes.join(',') : 'none'}`);
     console.log(`[Search&Price] ========================================`);
 
     const token = await getAccessToken();
@@ -939,6 +946,10 @@ export async function GET(req: Request) {
       // This ensures we show BOTH material/packing specs AND variant options
       const allSpecs: string[] = [];
       
+      // Initialize extracted sizes/colors for filtering
+      let extractedSizes: string[] = [];
+      let extractedColors: string[] = [];
+      
       // First, add base product specs (material, packing, weight, etc.)
       let baseSpecs = productInfo;
       if (!baseSpecs && source.synthesizedInfo) {
@@ -1042,6 +1053,10 @@ export async function GET(req: Request) {
         }
         
         console.log(`[Search&Price] Product ${pid}: ${safeColors.length} colors, ${safeSizes.length} sizes from ${variants.length} variants`);
+        
+        // Store sizes and colors in local variables for later use
+        extractedSizes = safeSizes;
+        extractedColors = safeColors;
       }
       
       // Combine all specs into finalProductInfo
@@ -1272,16 +1287,50 @@ export async function GET(req: Request) {
         originCountry,
         hsCode,
         videoUrl,
+        availableSizes: extractedSizes,
+        availableColors: extractedColors,
       });
     }
     
+    // Apply post-hydration filters (rating and sizes)
+    let filteredProducts = pricedProducts;
+    let filteredByRating = 0;
+    let filteredBySizes = 0;
+    
+    // Filter by minimum rating
+    if (minRating > 0) {
+      const beforeCount = filteredProducts.length;
+      filteredProducts = filteredProducts.filter(p => {
+        // Products without rating pass through (don't exclude them)
+        if (p.rating === undefined || p.rating === null) return true;
+        return p.rating >= minRating;
+      });
+      filteredByRating = beforeCount - filteredProducts.length;
+      console.log(`[Search&Price] Filtered ${filteredByRating} products with rating < ${minRating}`);
+    }
+    
+    // Filter by requested sizes
+    if (requestedSizes.length > 0) {
+      const beforeCount = filteredProducts.length;
+      filteredProducts = filteredProducts.filter(p => {
+        const productSizes = (p as any).availableSizes || [];
+        // Products without sizes (e.g., electronics) pass through
+        if (productSizes.length === 0) return true;
+        // Check if any requested size matches product sizes
+        const normalizedProductSizes = productSizes.map((s: string) => s.toUpperCase());
+        return requestedSizes.some(rs => normalizedProductSizes.includes(rs));
+      });
+      filteredBySizes = beforeCount - filteredProducts.length;
+      console.log(`[Search&Price] Filtered ${filteredBySizes} products not matching sizes: ${requestedSizes.join(',')}`);
+    }
+    
     const duration = Date.now() - startTime;
-    console.log(`[Search&Price] Complete: ${pricedProducts.length} products priced in ${duration}ms`);
+    console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${filteredByRating} filtered by rating, ${filteredBySizes} filtered by size) in ${duration}ms`);
     
     const r = NextResponse.json({
       ok: true,
-      products: pricedProducts,
-      count: pricedProducts.length,
+      products: filteredProducts,
+      count: filteredProducts.length,
       duration,
     }, { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);

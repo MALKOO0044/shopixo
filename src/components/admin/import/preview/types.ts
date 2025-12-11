@@ -14,6 +14,8 @@ export type PricedVariant = {
   stock?: number;
   variantName?: string;
   variantImage?: string;
+  size?: string;
+  color?: string;
 };
 
 export type PricedProduct = {
@@ -51,4 +53,6 @@ export type PricedProduct = {
   originCountry?: string;
   hsCode?: string;
   videoUrl?: string;
+  availableSizes?: string[];
+  availableColors?: string[];
 };
