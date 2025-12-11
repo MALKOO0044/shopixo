@@ -452,21 +452,36 @@ export async function GET(req: Request) {
       const source = fullDetails || item;
       const rawDescriptionHtml = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
       // Extract rating - check multiple possible field names from CJ API
+      // CJ uses supplierRating, productScore, score, rating in different endpoints
       let rating: number | undefined = undefined;
-      const ratingFields = ['rating', 'score', 'productRating', 'avgRating', 'averageRating', 'starRating', 'rate'];
+      const ratingFields = ['supplierRating', 'productScore', 'rating', 'score', 'productRating', 'avgRating', 'averageRating', 'starRating', 'rate'];
+      
+      // Check both source (fullDetails) and item (original listing) since rating might be in either
       for (const field of ratingFields) {
-        const val = source[field];
+        // Check fullDetails first
+        let val = source[field];
         if (val !== undefined && val !== null && val !== '' && val !== 0) {
           const numVal = Number(val);
           if (!isNaN(numVal) && numVal > 0) {
             rating = numVal;
-            console.log(`[Search&Price] Product ${pid}: Found rating ${rating} in field '${field}'`);
+            console.log(`[Search&Price] Product ${pid}: Found rating ${rating} in source.${field}`);
+            break;
+          }
+        }
+        // Also check original item (listing data may have rating not in details)
+        val = item[field];
+        if (val !== undefined && val !== null && val !== '' && val !== 0) {
+          const numVal = Number(val);
+          if (!isNaN(numVal) && numVal > 0) {
+            rating = numVal;
+            console.log(`[Search&Price] Product ${pid}: Found rating ${rating} in item.${field}`);
             break;
           }
         }
       }
-      // Also log all potential rating fields for debugging
-      console.log(`[Search&Price] Product ${pid} rating fields: rating=${source.rating}, score=${source.score}, productRating=${source.productRating}, avgRating=${source.avgRating}`);
+      
+      // Debug: Log all potential rating fields
+      console.log(`[Search&Price] Product ${pid} rating check: source.supplierRating=${source.supplierRating}, source.productScore=${source.productScore}, source.rating=${source.rating}, item.supplierRating=${item.supplierRating}, item.productScore=${item.productScore}, item.rating=${item.rating}`);
       
       const categoryName = String(source.categoryName || source.categoryNameEn || source.category || '').trim() || undefined;
       const productWeight = source.productWeight !== undefined ? Number(source.productWeight) : (source.weight !== undefined ? Number(source.weight) : undefined);
