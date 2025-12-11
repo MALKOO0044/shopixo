@@ -462,10 +462,18 @@ export async function GET(req: Request) {
       
       // Get rating from productComments API (reliable source)
       let rating: number | undefined = undefined;
+      let reviewCount = 0;
       const ratingData = productRatingsMap.get(pid);
-      if (ratingData && ratingData.rating !== null) {
-        rating = ratingData.rating;
-        console.log(`[Search&Price] Product ${pid}: Rating ${rating} from comments API (${ratingData.reviewCount} reviews)`);
+      if (ratingData && ratingData.rating !== null && ratingData.rating !== undefined) {
+        // Ensure rating is a number (CJ API may return strings)
+        const parsedRating = Number(ratingData.rating);
+        if (Number.isFinite(parsedRating) && parsedRating > 0) {
+          rating = parsedRating;
+          reviewCount = Number(ratingData.reviewCount) || 0;
+          console.log(`[Search&Price] Product ${pid}: Rating ${rating} from comments API (${reviewCount} reviews)`);
+        } else {
+          console.log(`[Search&Price] Product ${pid}: Invalid rating value: ${ratingData.rating}`);
+        }
       } else {
         console.log(`[Search&Price] Product ${pid}: No rating available from comments API`);
       }
@@ -1295,7 +1303,7 @@ export async function GET(req: Request) {
         productNote,
         packingList,
         rating,
-        reviewCount: ratingData?.reviewCount ?? 0,
+        reviewCount,
         categoryName,
         productWeight,
         packLength,
@@ -1325,9 +1333,10 @@ export async function GET(req: Request) {
     if (minRating > 0) {
       const beforeCount = filteredProducts.length;
       filteredProducts = filteredProducts.filter(p => {
-        // When rating filter is active, ONLY include products that have ratings AND meet the minimum
-        if (p.rating === undefined || p.rating === null) return false;
-        return p.rating >= minRating;
+        // When rating filter is active, ONLY include products that have valid numeric ratings AND meet the minimum
+        const ratingValue = Number(p.rating);
+        if (!Number.isFinite(ratingValue) || ratingValue <= 0) return false;
+        return ratingValue >= minRating;
       });
       filteredByRating = beforeCount - filteredProducts.length;
       console.log(`[Search&Price] Filtered ${filteredByRating} products without rating or rating < ${minRating}`);
