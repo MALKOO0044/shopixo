@@ -568,10 +568,28 @@ async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
 // --- Product Rating from Comments ---
 export async function getProductRating(pid: string): Promise<{ rating: number | null; reviewCount: number }> {
   try {
-    const res = await cjFetch<any>(`/product/productComments?pid=${encodeURIComponent(pid)}&pageNum=1&pageSize=100`);
+    console.log(`[CJ Rating] Fetching comments for pid: ${pid}`);
+    const res = await cjFetch<any>(`/product/productComments?pid=${encodeURIComponent(pid)}`);
+    console.log(`[CJ Rating] Response for pid ${pid}:`, JSON.stringify(res).slice(0, 800));
+    
+    // Handle various response structures from CJ API
+    // Can be: { data: { list: [], total: X } } or { data: [] } or { list: [] }
     const data = res?.data;
-    const total = parseInt(data?.total || '0', 10);
-    const list = Array.isArray(data?.list) ? data.list : [];
+    let list: any[] = [];
+    let total = 0;
+    
+    if (Array.isArray(data)) {
+      list = data;
+      total = data.length;
+    } else if (data?.list && Array.isArray(data.list)) {
+      list = data.list;
+      total = parseInt(data?.total || String(data.list.length), 10);
+    } else if (Array.isArray(res)) {
+      list = res;
+      total = res.length;
+    }
+    
+    console.log(`[CJ Rating] pid ${pid}: total=${total}, listLength=${list.length}`);
     
     if (list.length === 0) {
       return { rating: null, reviewCount: 0 };
@@ -580,7 +598,9 @@ export async function getProductRating(pid: string): Promise<{ rating: number | 
     let sumScore = 0;
     let countScores = 0;
     for (const comment of list) {
-      const score = parseFloat(comment?.score || '0');
+      // Try multiple possible field names for score
+      const scoreVal = comment?.score || comment?.rating || comment?.starScore || comment?.commentScore;
+      const score = parseFloat(String(scoreVal || '0'));
       if (score > 0 && score <= 5) {
         sumScore += score;
         countScores++;
@@ -592,9 +612,10 @@ export async function getProductRating(pid: string): Promise<{ rating: number | 
     }
     
     const avgRating = sumScore / countScores;
+    console.log(`[CJ Rating] pid ${pid}: avgRating=${avgRating}, reviewCount=${total}`);
     return { rating: Math.round(avgRating * 10) / 10, reviewCount: total };
-  } catch (e) {
-    console.error('[CJ] Failed to fetch product rating:', e);
+  } catch (e: any) {
+    console.error('[CJ Rating] Failed to fetch product rating:', e?.message || e);
     return { rating: null, reviewCount: 0 };
   }
 }
