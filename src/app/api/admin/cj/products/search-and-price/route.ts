@@ -306,8 +306,21 @@ export async function GET(req: Request) {
     const minStock = Number(searchParams.get('minStock') || 0);
     const profitMargin = Math.max(1, Number(searchParams.get('profitMargin') || 8));
     const popularity = searchParams.get('popularity') || 'any';
+    const minRating = searchParams.get('minRating') || 'any';
     const freeShippingOnly = searchParams.get('freeShippingOnly') === '1';
     const sizesParam = searchParams.get('sizes') || '';
+    
+    // Rating estimation function (same algorithm as preview)
+    function calculateEstimatedRating(listedNum: number): number {
+      if (listedNum >= 2000) return 4.8;
+      if (listedNum >= 1000) return 4.7;
+      if (listedNum >= 500) return 4.5;
+      if (listedNum >= 200) return 4.3;
+      if (listedNum >= 100) return 4.2;
+      if (listedNum >= 50) return 4.0;
+      if (listedNum >= 20) return 3.9;
+      return 3.8;
+    }
     const requestedSizes = sizesParam ? sizesParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : [];
 
     console.log(`[Search&Price] ========================================`);
@@ -317,6 +330,7 @@ export async function GET(req: Request) {
     console.log(`[Search&Price]   price range: $${minPrice} - $${maxPrice}`);
     console.log(`[Search&Price]   minStock: ${minStock}`);
     console.log(`[Search&Price]   popularity: ${popularity}`);
+    console.log(`[Search&Price]   minRating: ${minRating}`);
     console.log(`[Search&Price]   profitMargin: ${profitMargin}%`);
     console.log(`[Search&Price]   sizes filter: ${requestedSizes.length > 0 ? requestedSizes.join(',') : 'none'}`);
     console.log(`[Search&Price] ========================================`);
@@ -337,7 +351,7 @@ export async function GET(req: Request) {
     const startTime = Date.now();
     const maxDurationMs = 90000;
     
-    let totalFiltered = { price: 0, stock: 0, popularity: 0 };
+    let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0 };
     
     for (const catId of categoryIds) {
       if (candidateProducts.length >= quantity * 2) break;
@@ -394,6 +408,16 @@ export async function GET(req: Request) {
             continue;
           }
           
+          // Filter by estimated rating (based on listedNum)
+          if (minRating !== 'any') {
+            const estimatedRating = calculateEstimatedRating(listedNum);
+            const requiredRating = parseFloat(minRating);
+            if (estimatedRating < requiredRating) {
+              totalFiltered.rating++;
+              continue;
+            }
+          }
+          
           candidateProducts.push(item);
         }
       }
@@ -405,6 +429,7 @@ export async function GET(req: Request) {
     console.log(`[Search&Price]   Filtered by price: ${totalFiltered.price}`);
     console.log(`[Search&Price]   Filtered by stock: ${totalFiltered.stock}`);
     console.log(`[Search&Price]   Filtered by popularity: ${totalFiltered.popularity}`);
+    console.log(`[Search&Price]   Filtered by rating: ${totalFiltered.rating}`);
     console.log(`[Search&Price] ----------------------------------------`);
     
     if (candidateProducts.length === 0) {

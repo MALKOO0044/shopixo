@@ -16,7 +16,11 @@ Shopixo is a modern, professional e-commerce platform designed for the Saudi Ara
   - 2000+ → 4.8 stars, 1000-1999 → 4.7 stars, 500-999 → 4.5 stars
   - 200-499 → 4.3 stars, 100-199 → 4.2 stars, 50-99 → 4.0 stars
   - 20-49 → 3.9 stars, <20 → 3.8 stars
-- **File**: `src/components/admin/import/preview/PreviewPageOne.tsx`
+- **Rating Filter on Discover Page**: Filter by minimum rating (3+, 3.5+, 4+, 4.5+ stars)
+- **Files Modified**:
+  - `src/components/admin/import/preview/PreviewPageOne.tsx` - Star rating display
+  - `src/app/admin/import/discover/page.tsx` - Rating filter dropdown
+  - `src/app/api/admin/cj/products/search-and-price/route.ts` - Rating filter logic
 
 # User Preferences
 

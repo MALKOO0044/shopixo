@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Package, Loader2, CheckCircle, Trash2, Eye, X, Play, TrendingUp, ChevronLeft, ChevronRight, Image as ImageIcon, BarChart3, DollarSign, Grid3X3, FileText, Truck } from "lucide-react";
+import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, TrendingUp, ChevronLeft, ChevronRight, Image as ImageIcon, BarChart3, DollarSign, Grid3X3, FileText, Truck } from "lucide-react";
 import PreviewPageOne from "@/components/admin/import/preview/PreviewPageOne";
 import PreviewPageThree from "@/components/admin/import/preview/PreviewPageThree";
 import PreviewPageFour from "@/components/admin/import/preview/PreviewPageFour";
@@ -33,6 +33,7 @@ export default function ProductDiscoveryPage() {
   const [minPrice, setMinPrice] = useState(0);
   const [profitMargin, setProfitMargin] = useState(8);
   const [popularity, setPopularity] = useState("any");
+  const [minRating, setMinRating] = useState("any");
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
   const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
   
@@ -167,6 +168,7 @@ export default function ProductDiscoveryPage() {
         minStock: minStock.toString(),
         profitMargin: profitMargin.toString(),
         popularity: popularity,
+        minRating: minRating,
         freeShippingOnly: freeShippingOnly ? "1" : "0",
         sizes: selectedSizes.join(","),
       });
@@ -446,7 +448,7 @@ export default function ProductDiscoveryPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-5 gap-6">
+        <div className="grid grid-cols-6 gap-4">
           <div>
             <label className="block text-sm text-gray-600 mb-2">Min Price (USD)</label>
             <input
@@ -491,6 +493,24 @@ export default function ProductDiscoveryPage() {
               <option value="high">High (1000+ listed)</option>
               <option value="medium">Medium (100-999 listed)</option>
               <option value="low">Low (&lt;100 listed)</option>
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm text-gray-600 mb-2 flex items-center gap-1">
+              <Star className="h-4 w-4 text-amber-500" />
+              Min Rating
+            </label>
+            <select
+              value={minRating}
+              onChange={(e) => setMinRating(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded"
+            >
+              <option value="any">Any Rating</option>
+              <option value="4.5">4.5+ Stars</option>
+              <option value="4">4+ Stars</option>
+              <option value="3.5">3.5+ Stars</option>
+              <option value="3">3+ Stars</option>
             </select>
           </div>
           
