@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, TrendingUp, ChevronLeft, ChevronRight, Image as ImageIcon, BarChart3, DollarSign, Grid3X3, FileText, Truck } from "lucide-react";
+import { Package, Loader2, CheckCircle, Trash2, Eye, X, Play, TrendingUp, ChevronLeft, ChevronRight, Image as ImageIcon, BarChart3, DollarSign, Grid3X3, FileText, Truck } from "lucide-react";
 import PreviewPageOne from "@/components/admin/import/preview/PreviewPageOne";
 import PreviewPageThree from "@/components/admin/import/preview/PreviewPageThree";
 import PreviewPageFour from "@/components/admin/import/preview/PreviewPageFour";
@@ -34,7 +34,6 @@ export default function ProductDiscoveryPage() {
   const [profitMargin, setProfitMargin] = useState(8);
   const [popularity, setPopularity] = useState("any");
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
-  const [minRating, setMinRating] = useState(0);
   const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
   
   const [loading, setLoading] = useState(false);
@@ -62,12 +61,6 @@ export default function ProductDiscoveryPage() {
 
   const quantityPresets = [1000, 500, 250, 100, 50, 25, 10];
   const profitPresets = [100, 50, 25, 15, 8];
-  const ratingOptions = [
-    { value: 0, label: "Any Rating" },
-    { value: 3, label: "3+ Stars" },
-    { value: 4, label: "4+ Stars" },
-    { value: 5, label: "5 Stars" },
-  ];
   const commonSizes = ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "2XL", "3XL", "4XL", "5XL", "6XL"];
 
   const testConnection = async () => {
@@ -175,7 +168,6 @@ export default function ProductDiscoveryPage() {
         profitMargin: profitMargin.toString(),
         popularity: popularity,
         freeShippingOnly: freeShippingOnly ? "1" : "0",
-        minRating: minRating.toString(),
         sizes: selectedSizes.join(","),
       });
       
@@ -502,21 +494,6 @@ export default function ProductDiscoveryPage() {
             </select>
           </div>
           
-          <div>
-            <label className="block text-sm text-gray-600 mb-2 flex items-center gap-1">
-              <Star className="h-4 w-4 text-amber-500" />
-              Min Rating
-            </label>
-            <select
-              value={minRating}
-              onChange={(e) => setMinRating(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded"
-            >
-              {ratingOptions.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
         </div>
         
         <div>

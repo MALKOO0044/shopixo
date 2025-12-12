@@ -307,7 +307,6 @@ export async function GET(req: Request) {
     const profitMargin = Math.max(1, Number(searchParams.get('profitMargin') || 8));
     const popularity = searchParams.get('popularity') || 'any';
     const freeShippingOnly = searchParams.get('freeShippingOnly') === '1';
-    const minRating = Number(searchParams.get('minRating') || 0);
     const sizesParam = searchParams.get('sizes') || '';
     const requestedSizes = sizesParam ? sizesParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : [];
 
@@ -319,7 +318,6 @@ export async function GET(req: Request) {
     console.log(`[Search&Price]   minStock: ${minStock}`);
     console.log(`[Search&Price]   popularity: ${popularity}`);
     console.log(`[Search&Price]   profitMargin: ${profitMargin}%`);
-    console.log(`[Search&Price]   minRating: ${minRating}`);
     console.log(`[Search&Price]   sizes filter: ${requestedSizes.length > 0 ? requestedSizes.join(',') : 'none'}`);
     console.log(`[Search&Price] ========================================`);
 
@@ -1324,31 +1322,9 @@ export async function GET(req: Request) {
       });
     }
     
-    // Apply post-hydration filters (rating and sizes)
+    // Apply post-hydration filters (sizes)
     let filteredProducts = pricedProducts;
-    let filteredByRating = 0;
     let filteredBySizes = 0;
-    
-    // Filter by minimum rating
-    if (minRating > 0) {
-      const beforeCount = filteredProducts.length;
-      console.log(`[Search&Price] Applying minRating filter: ${minRating}. Before filter: ${beforeCount} products`);
-      
-      // Log rating values before filtering
-      for (const p of filteredProducts) {
-        console.log(`[Search&Price] Product ${p.pid}: rating=${p.rating} (type: ${typeof p.rating}), reviewCount=${p.reviewCount}`);
-      }
-      
-      filteredProducts = filteredProducts.filter(p => {
-        // When rating filter is active, ONLY include products that have valid numeric ratings AND meet the minimum
-        const ratingValue = Number(p.rating);
-        const passes = Number.isFinite(ratingValue) && ratingValue > 0 && ratingValue >= minRating;
-        console.log(`[Search&Price] Filter check: pid=${p.pid}, rating=${p.rating}, ratingValue=${ratingValue}, minRating=${minRating}, passes=${passes}`);
-        return passes;
-      });
-      filteredByRating = beforeCount - filteredProducts.length;
-      console.log(`[Search&Price] Filtered ${filteredByRating} products. After filter: ${filteredProducts.length} products with rating >= ${minRating}`);
-    }
     
     // Filter by requested sizes
     if (requestedSizes.length > 0) {
@@ -1366,7 +1342,7 @@ export async function GET(req: Request) {
     }
     
     const duration = Date.now() - startTime;
-    console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${filteredByRating} filtered by rating, ${filteredBySizes} filtered by size) in ${duration}ms`);
+    console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${filteredBySizes} filtered by size) in ${duration}ms`);
     
     const r = NextResponse.json({
       ok: true,

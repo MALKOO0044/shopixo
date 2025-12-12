@@ -1,42 +1,48 @@
 "use client";
 
-import { Star, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign } from "lucide-react";
+import { TrendingUp, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign } from "lucide-react";
 import type { PricedProduct } from "./types";
 
 type PreviewPageOneProps = {
   product: PricedProduct;
 };
 
-function StarRating({ rating, reviewCount }: { rating?: number; reviewCount?: number }) {
-  const stars = rating ? Math.round(rating) : 0;
-  const hasRating = typeof rating === "number" && rating > 0;
+function getPopularityInfo(listedNum: number): { label: string; level: number; color: string; bgColor: string } {
+  if (listedNum >= 1000) {
+    return { label: "شائع جداً", level: 5, color: "text-green-700", bgColor: "bg-green-100" };
+  }
+  if (listedNum >= 500) {
+    return { label: "شائع", level: 4, color: "text-emerald-700", bgColor: "bg-emerald-100" };
+  }
+  if (listedNum >= 100) {
+    return { label: "متوسط الشعبية", level: 3, color: "text-blue-700", bgColor: "bg-blue-100" };
+  }
+  if (listedNum >= 20) {
+    return { label: "قليل الشعبية", level: 2, color: "text-amber-700", bgColor: "bg-amber-100" };
+  }
+  return { label: "جديد", level: 1, color: "text-gray-700", bgColor: "bg-gray-100" };
+}
 
+function PopularityDisplay({ listedNum }: { listedNum: number }) {
+  const info = getPopularityInfo(listedNum);
+  
   return (
-    <div className="flex flex-col gap-2">
-      {hasRating ? (
-        <div className="flex items-center gap-3">
-          <div className="flex gap-1">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <Star
-                key={i}
-                className={`h-6 w-6 ${
-                  i <= stars
-                    ? "text-amber-400 fill-amber-400"
-                    : "text-gray-300"
-                }`}
-              />
-            ))}
-          </div>
-          <span className="text-xl font-bold text-gray-800">{rating!.toFixed(1)}</span>
-          {reviewCount !== undefined && reviewCount > 0 && (
-            <span className="text-gray-500 text-sm">({reviewCount} تقييم)</span>
-          )}
-        </div>
-      ) : (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
-          <p className="text-gray-500 text-sm">لا توجد تقييمات بعد</p>
-        </div>
-      )}
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-4">
+        <span className={`px-4 py-2 rounded-lg font-semibold ${info.bgColor} ${info.color}`}>
+          {info.label}
+        </span>
+        <span className="text-xl font-bold text-gray-800">{listedNum.toLocaleString()}</span>
+        <span className="text-gray-500 text-sm">مرة تم إدراجه</span>
+      </div>
+      <div className="flex gap-1">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div
+            key={i}
+            className={`h-2 w-8 rounded ${i <= info.level ? 'bg-amber-400' : 'bg-gray-200'}`}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -50,7 +56,7 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
   const imageCount = product.images?.length || 0;
   
   // Debug logging
-  console.log(`[PreviewPageOne] Product ${product.cjSku}: rating=${product.rating}, sizes=${uniqueSizes.join(',')}, availableSizes=${product.availableSizes?.join(',') || 'none'}`);
+  console.log(`[PreviewPageOne] Product ${product.cjSku}: listedNum=${product.listedNum}, sizes=${uniqueSizes.join(',')}, availableSizes=${product.availableSizes?.join(',') || 'none'}`);
 
   return (
     <div className="flex flex-col lg:flex-row gap-8 p-4" dir="rtl">
@@ -127,13 +133,13 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
           </p>
         </div>
 
-        {/* Rating */}
+        {/* Popularity */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-4">
-            <Star className="h-5 w-5 text-amber-500" />
-            <span className="text-gray-500 font-medium">التقييم</span>
+            <TrendingUp className="h-5 w-5 text-amber-500" />
+            <span className="text-gray-500 font-medium">الشعبية</span>
           </div>
-          <StarRating rating={product.rating} reviewCount={product.reviewCount} />
+          <PopularityDisplay listedNum={product.listedNum} />
         </div>
 
         {/* Price */}
