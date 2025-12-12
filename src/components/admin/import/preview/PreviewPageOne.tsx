@@ -1,11 +1,77 @@
 "use client";
 
-import { TrendingUp, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign } from "lucide-react";
+import { Star, TrendingUp, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign, Info } from "lucide-react";
 import type { PricedProduct } from "./types";
 
 type PreviewPageOneProps = {
   product: PricedProduct;
 };
+
+function calculateEstimatedRating(listedNum: number): { rating: number; reviewCount: number } {
+  let rating: number;
+  if (listedNum >= 2000) {
+    rating = 4.8;
+  } else if (listedNum >= 1000) {
+    rating = 4.7;
+  } else if (listedNum >= 500) {
+    rating = 4.5;
+  } else if (listedNum >= 200) {
+    rating = 4.3;
+  } else if (listedNum >= 100) {
+    rating = 4.2;
+  } else if (listedNum >= 50) {
+    rating = 4.0;
+  } else if (listedNum >= 20) {
+    rating = 3.9;
+  } else {
+    rating = 3.8;
+  }
+  
+  const reviewCount = listedNum >= 10 
+    ? Math.round(listedNum * 0.15) 
+    : Math.max(5, Math.round(listedNum * 0.5 + 3));
+  
+  return { rating, reviewCount };
+}
+
+function StarRating({ rating, reviewCount }: { rating: number; reviewCount: number }) {
+  const fullStars = Math.floor(rating);
+  const hasHalfStar = rating - fullStars >= 0.3;
+  const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-1">
+          {[...Array(fullStars)].map((_, i) => (
+            <Star key={`full-${i}`} className="h-6 w-6 fill-amber-400 text-amber-400" />
+          ))}
+          {hasHalfStar && (
+            <div className="relative">
+              <Star className="h-6 w-6 text-gray-300" />
+              <div className="absolute inset-0 overflow-hidden w-1/2">
+                <Star className="h-6 w-6 fill-amber-400 text-amber-400" />
+              </div>
+            </div>
+          )}
+          {[...Array(emptyStars)].map((_, i) => (
+            <Star key={`empty-${i}`} className="h-6 w-6 text-gray-300" />
+          ))}
+        </div>
+        <span className="text-2xl font-bold text-gray-800">{rating.toFixed(1)}</span>
+      </div>
+      <div className="flex items-center gap-2 text-gray-600">
+        <span className="font-medium">{reviewCount.toLocaleString()} تقييم</span>
+        <div className="group relative">
+          <Info className="h-4 w-4 text-gray-400 cursor-help" />
+          <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-64 p-3 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10">
+            تقييم تقديري من Shopixo بناءً على بيانات المورد وشعبية المنتج
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function getPopularityInfo(listedNum: number): { label: string; level: number; color: string; bgColor: string } {
   if (listedNum >= 1000) {
@@ -48,15 +114,14 @@ function PopularityDisplay({ listedNum }: { listedNum: number }) {
 }
 
 export default function PreviewPageOne({ product }: PreviewPageOneProps) {
-  // Use availableSizes from API (extracted from variants) - these are the normalized sizes
   const uniqueSizes = product.availableSizes && product.availableSizes.length > 0
     ? product.availableSizes
     : [];
 
   const imageCount = product.images?.length || 0;
+  const { rating, reviewCount } = calculateEstimatedRating(product.listedNum);
   
-  // Debug logging
-  console.log(`[PreviewPageOne] Product ${product.cjSku}: listedNum=${product.listedNum}, sizes=${uniqueSizes.join(',')}, availableSizes=${product.availableSizes?.join(',') || 'none'}`);
+  console.log(`[PreviewPageOne] Product ${product.cjSku}: listedNum=${product.listedNum}, rating=${rating}, reviewCount=${reviewCount}, sizes=${uniqueSizes.join(',')}`);
 
   return (
     <div className="flex flex-col lg:flex-row gap-8 p-4" dir="rtl">
@@ -89,6 +154,15 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
       {/* Product Details Section */}
       <div className="lg:w-1/2 space-y-8">
         
+        {/* Rating */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-4">
+            <Star className="h-5 w-5 text-amber-500" />
+            <span className="text-gray-500 font-medium">التقييم</span>
+          </div>
+          <StarRating rating={rating} reviewCount={reviewCount} />
+        </div>
+
         {/* SKU */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-3">

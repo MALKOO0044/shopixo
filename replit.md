@@ -2,6 +2,22 @@
 
 Shopixo is a modern, professional e-commerce platform designed for the Saudi Arabian market. It provides a bilingual (Arabic/English with RTL support) shopping experience, secure payment processing, and efficient dropshipping fulfillment. The platform aims to offer a curated selection of products, emphasizing security, speed, and a strong content policy.
 
+# Recent Changes (December 2025)
+
+## Estimated Rating System for All Products (December 12, 2025)
+- **Issue**: CJ Dropshipping deprecated their reviews/comments API in June 2024 - no real rating data available
+- **Solution**: Implemented "Shopixo Estimated Rating" based on product popularity (listedNum)
+- **How it works**:
+  - All products now display star ratings (3.8 - 4.8 range)
+  - Rating is deterministic based on listedNum popularity metric
+  - Review count estimated as 15% of listings
+  - Tooltip explains it's an estimated rating based on supplier data
+- **Rating Algorithm** (listedNum thresholds):
+  - 2000+ → 4.8 stars, 1000-1999 → 4.7 stars, 500-999 → 4.5 stars
+  - 200-499 → 4.3 stars, 100-199 → 4.2 stars, 50-99 → 4.0 stars
+  - 20-49 → 3.9 stars, <20 → 3.8 stars
+- **File**: `src/components/admin/import/preview/PreviewPageOne.tsx`
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
