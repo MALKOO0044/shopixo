@@ -62,7 +62,173 @@ export default function ProductDiscoveryPage() {
 
   const quantityPresets = [1000, 500, 250, 100, 50, 25, 10];
   const profitPresets = [100, 50, 25, 15, 8];
-  const commonSizes = ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "2XL", "3XL", "4XL", "5XL", "6XL"];
+  
+  // Category-specific size/feature options
+  const categorySizeMap: Record<string, { label: string; sizes: string[] }> = {
+    // Women's Clothing
+    "women": { label: "Clothing Sizes", sizes: ["XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL", "6XL"] },
+    "plus-size": { label: "Plus Sizes", sizes: ["L", "XL", "XXL", "3XL", "4XL", "5XL", "6XL", "7XL", "8XL"] },
+    // Men's Clothing
+    "men": { label: "Clothing Sizes", sizes: ["XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL", "6XL"] },
+    "men-plus-size": { label: "Plus Sizes", sizes: ["L", "XL", "XXL", "3XL", "4XL", "5XL", "6XL", "7XL", "8XL"] },
+    // Shoes
+    "womens-shoes": { label: "Shoe Sizes", sizes: ["35", "36", "37", "38", "39", "40", "41", "42", "43"] },
+    "mens-shoes": { label: "Shoe Sizes", sizes: ["38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48"] },
+    "kids-shoes": { label: "Kids Shoe Sizes", sizes: ["20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35"] },
+    // Phones & Accessories
+    "mobile-accessories": { label: "Phone Models", sizes: ["iPhone 14", "iPhone 14 Pro", "iPhone 14 Pro Max", "iPhone 15", "iPhone 15 Pro", "iPhone 15 Pro Max", "iPhone 16", "iPhone 16 Pro", "iPhone 16 Pro Max", "Samsung S23", "Samsung S24", "Samsung S24 Ultra", "Xiaomi", "Huawei"] },
+    // Jewelry & Watches
+    "jewelry-accessories": { label: "Watch/Ring Sizes", sizes: ["Ring 5", "Ring 6", "Ring 7", "Ring 8", "Ring 9", "Ring 10", "Ring 11", "Ring 12", "38mm", "40mm", "42mm", "44mm", "46mm", "48mm"] },
+    // Kids & Baby
+    "kids-fashion": { label: "Kids Sizes", sizes: ["0-6M", "6-12M", "1-2Y", "2-3Y", "3-4Y", "4-5Y", "5-6Y", "6-7Y", "7-8Y", "8-10Y", "10-12Y"] },
+    "baby-maternity": { label: "Baby Sizes", sizes: ["Newborn", "0-3M", "3-6M", "6-9M", "9-12M", "12-18M", "18-24M"] },
+    "toys": { label: "Age Groups", sizes: ["0-6M", "6-12M", "1-2Y", "2-3Y", "3-5Y", "5-8Y", "8-12Y", "12+Y"] },
+    // Pet Supplies
+    "pet-supplies": { label: "Pet Sizes", sizes: ["XS", "S", "M", "L", "XL", "XXL"] },
+    // Sports & Outdoor
+    "sports": { label: "Sizes", sizes: ["XS", "S", "M", "L", "XL", "XXL", "3XL"] },
+    // Underwear & Sleepwear
+    "underwear-sleepwear": { label: "Sizes", sizes: ["XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL"] },
+    "men-underwear": { label: "Sizes", sizes: ["S", "M", "L", "XL", "XXL", "3XL", "4XL"] },
+    // Bags
+    "bags-luggage": { label: "Bag Sizes", sizes: ["Small", "Medium", "Large", "XL"] },
+  };
+  
+  // Categories that don't need size filters
+  const noSizeCategories = [
+    "home-kitchen", "furniture", "health-beauty", "health-household", 
+    "electronics", "tools-home-improvement", "automotive", "smart-home",
+    "appliances", "office-school", "musical-instruments", "yard-garden",
+    "business-industry-science", "arts-crafts-sewing"
+  ];
+  
+  // Get sizes based on selected category/feature name
+  const detectCategoryType = (name: string): string | null => {
+    const n = name.toLowerCase();
+    
+    // No-size categories (return null)
+    if (n.includes("electronic") || n.includes("إلكترون")) return null;
+    if (n.includes("home") && (n.includes("kitchen") || n.includes("مطبخ"))) return null;
+    if (n.includes("furniture") || n.includes("أثاث")) return null;
+    if (n.includes("tool") || n.includes("أدوات")) return null;
+    if (n.includes("auto") || n.includes("سيار") || n.includes("motor")) return null;
+    if (n.includes("smart home") || n.includes("ذكي")) return null;
+    if (n.includes("appliance") || n.includes("أجهزة")) return null;
+    if (n.includes("office") || n.includes("مكتب")) return null;
+    if (n.includes("music") || n.includes("موسيق")) return null;
+    if (n.includes("garden") || n.includes("حديقة")) return null;
+    if (n.includes("business") || n.includes("industry") || n.includes("science")) return null;
+    if (n.includes("craft") || n.includes("sewing") || n.includes("حرف")) return null;
+    if (n.includes("health") || n.includes("beauty") || n.includes("صحة") || n.includes("جمال")) return null;
+    
+    // Shoes
+    if (n.includes("shoe") || n.includes("أحذية")) {
+      if (n.includes("kid") || n.includes("أطفال") || n.includes("child")) return "kids-shoes";
+      if (n.includes("men") || n.includes("رجال")) return "mens-shoes";
+      return "womens-shoes";
+    }
+    
+    // Phones & Mobile
+    if (n.includes("phone") || n.includes("mobile") || n.includes("هاتف") || n.includes("جوال") || n.includes("case")) {
+      return "mobile-accessories";
+    }
+    
+    // Jewelry & Watches
+    if (n.includes("watch") || n.includes("jewelry") || n.includes("ساعات") || n.includes("مجوهرات") || n.includes("ring") || n.includes("خاتم")) {
+      return "jewelry-accessories";
+    }
+    
+    // Pet Supplies
+    if (n.includes("pet") || n.includes("حيوان") || n.includes("dog") || n.includes("cat")) {
+      return "pet-supplies";
+    }
+    
+    // Baby & Maternity
+    if (n.includes("baby") || n.includes("رضيع") || n.includes("maternity") || n.includes("أمومة")) {
+      return "baby-maternity";
+    }
+    
+    // Kids Fashion
+    if (n.includes("kid") || n.includes("أطفال") || n.includes("child") || n.includes("boy") || n.includes("girl")) {
+      return "kids-fashion";
+    }
+    
+    // Toys
+    if (n.includes("toy") || n.includes("ألعاب") || n.includes("game")) {
+      return "toys";
+    }
+    
+    // Sports
+    if (n.includes("sport") || n.includes("رياض") || n.includes("outdoor") || n.includes("fitness")) {
+      return "sports";
+    }
+    
+    // Bags & Luggage
+    if (n.includes("bag") || n.includes("حقيب") || n.includes("luggage") || n.includes("backpack")) {
+      return "bags-luggage";
+    }
+    
+    // Underwear & Sleepwear
+    if (n.includes("underwear") || n.includes("sleepwear") || n.includes("داخلي") || n.includes("نوم") || n.includes("pajama")) {
+      if (n.includes("men") || n.includes("رجال")) return "men-underwear";
+      return "underwear-sleepwear";
+    }
+    
+    // Plus Size
+    if (n.includes("plus") || n.includes("كبير")) {
+      if (n.includes("men") || n.includes("رجال")) return "men-plus-size";
+      return "plus-size";
+    }
+    
+    // Men's Clothing
+    if (n.includes("men") || n.includes("رجال")) {
+      return "men";
+    }
+    
+    // Women's Clothing (default for clothing)
+    if (n.includes("women") || n.includes("نساء") || n.includes("نسائ") || n.includes("dress") || n.includes("فستان") || 
+        n.includes("blouse") || n.includes("shirt") || n.includes("skirt") || n.includes("pant") || n.includes("jacket")) {
+      return "women";
+    }
+    
+    // If clothing-related but not specific, return women as default
+    if (n.includes("cloth") || n.includes("ملابس") || n.includes("fashion") || n.includes("أزياء")) {
+      return "women";
+    }
+    
+    // Unknown category - return null (no size filter)
+    return null;
+  };
+  
+  const getAvailableSizes = (): { label: string; sizes: string[] } | null => {
+    // Check selected features first (more specific)
+    for (const featureId of selectedFeatures) {
+      const feature = features.find(f => f.id === featureId);
+      if (feature) {
+        const catType = detectCategoryType(feature.name);
+        if (catType === null) return null;
+        if (categorySizeMap[catType]) return categorySizeMap[catType];
+      }
+    }
+    
+    // Check main category
+    if (category !== "all") {
+      const catName = categories.find(c => c.categoryId === category)?.categoryName || "";
+      const catType = detectCategoryType(catName);
+      if (catType === null) return null;
+      if (categorySizeMap[catType]) return categorySizeMap[catType];
+    }
+    
+    // Default: show clothing sizes (most common use case)
+    return categorySizeMap["women"];
+  };
+  
+  const availableSizeConfig = getAvailableSizes();
+  
+  // Clear selected sizes when category changes
+  useEffect(() => {
+    setSelectedSizes([]);
+  }, [category, selectedFeatures.length]);
 
   const testConnection = async () => {
     const start = Date.now();
@@ -516,45 +682,55 @@ export default function ProductDiscoveryPage() {
           
         </div>
         
-        <div>
-          <label className="block text-sm text-gray-600 mb-2">
-            Filter by Sizes (optional - leave empty for all sizes)
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {commonSizes.map(size => (
-              <button
-                key={size}
-                onClick={() => {
-                  setSelectedSizes(prev => 
-                    prev.includes(size) 
-                      ? prev.filter(s => s !== size) 
-                      : [...prev, size]
-                  );
-                }}
-                className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
-                  selectedSizes.includes(size)
-                    ? "bg-purple-500 text-white border-purple-500"
-                    : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-                }`}
-              >
-                {size}
-              </button>
-            ))}
+        {availableSizeConfig && (
+          <div>
+            <label className="block text-sm text-gray-600 mb-2">
+              Filter by {availableSizeConfig.label} (optional - leave empty for all)
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {availableSizeConfig.sizes.map(size => (
+                <button
+                  key={size}
+                  onClick={() => {
+                    setSelectedSizes(prev => 
+                      prev.includes(size) 
+                        ? prev.filter(s => s !== size) 
+                        : [...prev, size]
+                    );
+                  }}
+                  className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                    selectedSizes.includes(size)
+                      ? "bg-purple-500 text-white border-purple-500"
+                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  {size}
+                </button>
+              ))}
+              {selectedSizes.length > 0 && (
+                <button
+                  onClick={() => setSelectedSizes([])}
+                  className="px-3 py-1.5 text-sm rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
             {selectedSizes.length > 0 && (
-              <button
-                onClick={() => setSelectedSizes([])}
-                className="px-3 py-1.5 text-sm rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
-              >
-                Clear All
-              </button>
+              <p className="text-xs text-purple-600 mt-2">
+                Filtering for: {selectedSizes.join(", ")}
+              </p>
             )}
           </div>
-          {selectedSizes.length > 0 && (
-            <p className="text-xs text-purple-600 mt-2">
-              Filtering for products with sizes: {selectedSizes.join(", ")}
+        )}
+        
+        {!availableSizeConfig && (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+            <p className="text-sm text-gray-500">
+              Size filter not applicable for this category
             </p>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
           <div className="flex items-center justify-between">
