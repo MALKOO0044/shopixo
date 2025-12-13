@@ -22,6 +22,23 @@ Shopixo is a modern, professional e-commerce platform designed for the Saudi Ara
   - `src/app/admin/import/discover/page.tsx` - Rating filter dropdown
   - `src/app/api/admin/cj/products/search-and-price/route.ts` - Rating filter logic
 
+## Category-Specific Size Filters (December 12, 2025)
+- **Dynamic Size Options**: Size filter now changes based on selected category:
+  - Women's/Men's Clothing: XS, S, M, L, XL, XXL, 3XL, 4XL, 5XL, 6XL
+  - Women's Shoes: 35, 36, 37, 38, 39, 40, 41, 42, 43
+  - Men's Shoes: 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48
+  - Kids Shoes: 20-35
+  - Phone Accessories: iPhone 14/15/16 models, Samsung S23/S24, Xiaomi, Huawei
+  - Jewelry & Watches: Ring sizes (5-12), Watch sizes (38mm-48mm)
+  - Kids Fashion: Age sizes (0-6M to 10-12Y)
+  - Baby & Maternity: Newborn to 18-24M
+  - Pet Supplies: XS, S, M, L, XL, XXL
+  - Sports: XS-3XL
+  - Bags: Small, Medium, Large, XL
+- **No-Size Categories**: Electronics, Home & Kitchen, Furniture, Tools, Automotive, etc. hide size filter
+- **Auto-Clear**: Selected sizes reset when changing categories
+- **File Modified**: `src/app/admin/import/discover/page.tsx`
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
