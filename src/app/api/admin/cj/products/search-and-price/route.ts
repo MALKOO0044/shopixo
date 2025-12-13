@@ -1043,49 +1043,97 @@ export async function GET(req: Request) {
         const colorPattern = /\b(Black|White|Red|Blue|Green|Yellow|Pink|Purple|Orange|Brown|Grey|Gray|Beige|Navy|Khaki|Apricot|Wine|Coffee|Camel|Cream|Rose|Gold|Silver|Ivory|Mint|Coral|Burgundy|Maroon|Olive|Teal|Turquoise|Lavender|Lilac|Peach|Tan|Charcoal|Sky Blue|Dark Blue|Light Blue|Light Green|Dark Green|Light Pink|Dark Pink|Off White|Nude)\b/gi;
         
         for (const v of variants) {
-          // Check multiple variant fields for color/size info
-          const fieldsToCheck = [
-            v.variantNameEn, v.variantName, v.name,
-            v.variantKey, v.variantSku, v.sku,
-            v.color, v.colour, v.colorNameEn, v.colorName,
-            v.size, v.sizeNameEn, v.sizeName
-          ].filter(Boolean).map(x => String(x).trim());
+          let foundSizeForVariant = false;
           
-          for (const field of fieldsToCheck) {
-            // Extract colors
-            const colorMatches = field.match(colorPattern);
-            if (colorMatches) {
-              for (const c of colorMatches) {
-                colors.add(c.charAt(0).toUpperCase() + c.slice(1).toLowerCase());
-              }
-            }
-            
-            // Extract sizes - be more flexible
-            const sizeMatches = field.match(/\b(XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|6XL|One Size|Free Size|EU\s*\d+|US\s*\d+|\d+(?:cm)?)\b/gi);
-            if (sizeMatches) {
-              for (const s of sizeMatches) {
-                sizes.add(s.toUpperCase());
-              }
+          // 1. First try explicit size/color fields (most reliable)
+          const explicitSize = v.size || v.sizeNameEn || v.sizeName;
+          const explicitColor = v.color || v.colour || v.colorNameEn || v.colorName;
+          
+          if (explicitSize) {
+            const cleanSize = String(explicitSize).replace(/[\u4e00-\u9fff]/g, '').trim();
+            if (cleanSize && cleanSize.length > 0 && cleanSize.length < 50) {
+              sizes.add(cleanSize);
+              foundSizeForVariant = true;
             }
           }
           
-          // Check variant properties
+          if (explicitColor) {
+            const cleanColor = String(explicitColor).replace(/[\u4e00-\u9fff]/g, '').trim();
+            if (cleanColor && cleanColor.length > 0 && cleanColor.length < 50 && /[a-zA-Z]/.test(cleanColor)) {
+              colors.add(cleanColor);
+            }
+          }
+          
+          // 2. Check variant properties (structured data)
           const vProps = v.variantPropertyList || v.propertyList || v.properties || [];
           if (Array.isArray(vProps)) {
             for (const p of vProps) {
               const propName = String(p.propertyNameEn || p.propertyName || p.name || '').toLowerCase();
               const propValue = String(p.propertyValueNameEn || p.propertyValueName || p.value || p.name || '').trim();
-              if (propValue && propValue.length > 0) {
+              if (propValue && propValue.length > 0 && propValue.length < 50) {
+                const cleanValue = propValue.replace(/[\u4e00-\u9fff]/g, '').trim();
+                if (!cleanValue) continue;
+                
                 if (propName.includes('color') || propName.includes('colour')) {
-                  const cleanColor = propValue.replace(/[\u4e00-\u9fff]/g, '').trim();
-                  if (cleanColor && /[a-zA-Z]/.test(cleanColor)) {
-                    colors.add(cleanColor);
+                  if (/[a-zA-Z]/.test(cleanValue)) {
+                    colors.add(cleanValue);
                   }
-                } else if (propName.includes('size')) {
-                  const cleanSize = propValue.replace(/[\u4e00-\u9fff]/g, '').trim();
-                  if (cleanSize) {
-                    sizes.add(cleanSize);
-                  }
+                } else if (propName.includes('size') || propName.includes('model') || propName.includes('type') || propName.includes('version')) {
+                  sizes.add(cleanValue);
+                  foundSizeForVariant = true;
+                }
+              }
+            }
+          }
+          
+          // 3. Use variantKey as size if no explicit size found for THIS variant
+          // This captures phone models like "iPhone 13Pro", shoe sizes, etc.
+          if (!foundSizeForVariant && v.variantKey) {
+            const variantKey = String(v.variantKey).trim();
+            // Skip if it's just a color name
+            const colorMatches = variantKey.match(colorPattern);
+            const isJustColor = colorMatches && colorMatches.some(c => c.toLowerCase() === variantKey.toLowerCase());
+            if (!isJustColor && variantKey.length > 0 && variantKey.length < 50) {
+              const cleanKey = variantKey.replace(/[\u4e00-\u9fff]/g, '').trim();
+              if (cleanKey && /[a-zA-Z0-9]/.test(cleanKey)) {
+                sizes.add(cleanKey);
+                foundSizeForVariant = true;
+              }
+            }
+          }
+          
+          // 4. Also check variantNameEn for sizes (fallback)
+          if (!foundSizeForVariant && v.variantNameEn) {
+            const variantName = String(v.variantNameEn).trim();
+            // Extract colors from name first
+            const colorMatches = variantName.match(colorPattern);
+            if (colorMatches) {
+              for (const c of colorMatches) {
+                colors.add(c.charAt(0).toUpperCase() + c.slice(1).toLowerCase());
+              }
+            }
+            // Remaining text after removing colors might be the size
+            let remaining = variantName;
+            if (colorMatches) {
+              for (const c of colorMatches) {
+                remaining = remaining.replace(new RegExp(c, 'gi'), '').trim();
+              }
+            }
+            remaining = remaining.replace(/[\u4e00-\u9fff]/g, '').replace(/[,\-_|/]+/g, ' ').trim();
+            if (remaining && remaining.length > 0 && remaining.length < 50) {
+              sizes.add(remaining);
+              foundSizeForVariant = true;
+            }
+          }
+          
+          // 5. Fall back to regex for standard clothing sizes if nothing found for this variant
+          if (!foundSizeForVariant) {
+            const fieldsToCheck = [v.variantNameEn, v.variantName, v.name, v.variantKey].filter(Boolean).map(x => String(x).trim());
+            for (const field of fieldsToCheck) {
+              const sizeMatches = field.match(/\b(XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|6XL|One Size|Free Size|EU\s*\d+|US\s*\d+|\d+(?:cm)?)\b/gi);
+              if (sizeMatches) {
+                for (const s of sizeMatches) {
+                  sizes.add(s.toUpperCase());
                 }
               }
             }
