@@ -22,22 +22,20 @@ Shopixo is a modern, professional e-commerce platform designed for the Saudi Ara
   - `src/app/admin/import/discover/page.tsx` - Rating filter dropdown
   - `src/app/api/admin/cj/products/search-and-price/route.ts` - Rating filter logic
 
-## Category-Specific Size Filters (December 12, 2025)
-- **Dynamic Size Options**: Size filter now changes based on selected category:
-  - Women's/Men's Clothing: XS, S, M, L, XL, XXL, 3XL, 4XL, 5XL, 6XL
-  - Women's Shoes: 35, 36, 37, 38, 39, 40, 41, 42, 43
-  - Men's Shoes: 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48
-  - Kids Shoes: 20-35
-  - Phone Accessories: iPhone 14/15/16 models, Samsung S23/S24, Xiaomi, Huawei
-  - Jewelry & Watches: Ring sizes (5-12), Watch sizes (38mm-48mm)
-  - Kids Fashion: Age sizes (0-6M to 10-12Y)
-  - Baby & Maternity: Newborn to 18-24M
-  - Pet Supplies: XS, S, M, L, XL, XXL
-  - Sports: XS-3XL
-  - Bags: Small, Medium, Large, XL
-- **No-Size Categories**: Electronics, Home & Kitchen, Furniture, Tools, Automotive, etc. hide size filter
-- **Auto-Clear**: Selected sizes reset when changing categories
-- **File Modified**: `src/app/admin/import/discover/page.tsx`
+## Real CJ Variant Sizes Display (December 13, 2025)
+- **Issue**: Static size filter showed wrong generic sizes instead of actual CJ variant data
+  - Example: Phone cases showed "12, 8, 7, XS, 11" instead of real sizes like "iPhone 13Pro, iPhone 7/8/SE"
+- **Solution**: Sizes are now extracted from real CJ variant data
+- **How it works**:
+  - API extracts sizes from explicit fields (v.size, v.sizeNameEn)
+  - Checks variant properties for size/model/type/version data
+  - Falls back to variantKey (captures phone models like "iPhone 13Pro")
+  - Final fallback to variantNameEn parsing
+- **UI Change**: Removed static pre-fetch size filter (sizes vary by product, not predictable)
+- **PreviewPageOne**: Shows actual `availableSizes` from CJ data
+- **Files Modified**:
+  - `src/app/api/admin/cj/products/search-and-price/route.ts` - Size extraction logic
+  - `src/app/admin/import/discover/page.tsx` - Removed static size filter
 
 # User Preferences
 
