@@ -56,4 +56,5 @@ export type PricedProduct = {
   videoUrl?: string;
   availableSizes?: string[];
   availableColors?: string[];
+  availableModels?: string[];
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { Star, TrendingUp, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign, Info } from "lucide-react";
+import { Star, TrendingUp, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign, Info, Palette, Smartphone } from "lucide-react";
 import type { PricedProduct } from "./types";
 
 type PreviewPageOneProps = {
@@ -117,11 +117,17 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
   const uniqueSizes = product.availableSizes && product.availableSizes.length > 0
     ? product.availableSizes
     : [];
+  const uniqueColors = product.availableColors && product.availableColors.length > 0
+    ? product.availableColors
+    : [];
+  const uniqueModels = product.availableModels && product.availableModels.length > 0
+    ? product.availableModels
+    : [];
 
   const imageCount = product.images?.length || 0;
   const { rating, reviewCount } = calculateEstimatedRating(product.listedNum);
   
-  console.log(`[PreviewPageOne] Product ${product.cjSku}: listedNum=${product.listedNum}, rating=${rating}, reviewCount=${reviewCount}, sizes=${uniqueSizes.join(',')}`);
+  console.log(`[PreviewPageOne] Product ${product.cjSku}: listedNum=${product.listedNum}, colors=${uniqueColors.length}, sizes=${uniqueSizes.length}, models=${uniqueModels.length}`);
 
   return (
     <div className="flex flex-col lg:flex-row gap-8 p-4" dir="rtl">
@@ -174,13 +180,56 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
           </p>
         </div>
 
-        {/* Sizes */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <div className="flex items-center gap-3 mb-4">
-            <Ruler className="h-5 w-5 text-purple-600" />
-            <span className="text-gray-500 font-medium">المقاسات المتاحة</span>
+        {/* Colors */}
+        {uniqueColors.length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center gap-3 mb-4">
+              <Palette className="h-5 w-5 text-pink-600" />
+              <span className="text-gray-500 font-medium">الألوان المتاحة</span>
+              <span className="text-sm text-gray-400">({uniqueColors.length})</span>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {uniqueColors.map((color, idx) => (
+                <span
+                  key={idx}
+                  className="bg-pink-50 text-pink-700 px-4 py-2 rounded-lg font-semibold text-lg border border-pink-200"
+                >
+                  {color}
+                </span>
+              ))}
+            </div>
           </div>
-          {uniqueSizes.length > 0 ? (
+        )}
+
+        {/* Compatible Devices/Models */}
+        {uniqueModels.length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center gap-3 mb-4">
+              <Smartphone className="h-5 w-5 text-blue-600" />
+              <span className="text-gray-500 font-medium">الأجهزة المتوافقة</span>
+              <span className="text-sm text-gray-400">({uniqueModels.length})</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {uniqueModels.map((model, idx) => (
+                <span
+                  key={idx}
+                  className="bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-medium text-sm border border-blue-200"
+                >
+                  {model}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Sizes (for clothing/shoes) */}
+        {uniqueSizes.length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center gap-3 mb-4">
+              <Ruler className="h-5 w-5 text-purple-600" />
+              <span className="text-gray-500 font-medium">المقاسات المتاحة</span>
+              <span className="text-sm text-gray-400">({uniqueSizes.length})</span>
+            </div>
             <div className="flex flex-wrap gap-3">
               {uniqueSizes.map((size, idx) => (
                 <span
@@ -191,10 +240,19 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
                 </span>
               ))}
             </div>
-          ) : (
+          </div>
+        )}
+
+        {/* No variants message */}
+        {uniqueColors.length === 0 && uniqueModels.length === 0 && uniqueSizes.length === 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center gap-3 mb-3">
+              <Ruler className="h-5 w-5 text-purple-600" />
+              <span className="text-gray-500 font-medium">المقاسات المتاحة</span>
+            </div>
             <p className="text-gray-400 text-lg">مقاس واحد</p>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Category */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">

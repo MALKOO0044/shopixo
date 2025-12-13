@@ -62,6 +62,7 @@ type PricedProduct = {
   videoUrl?: string;
   availableSizes?: string[];
   availableColors?: string[];
+  availableModels?: string[];
 };
 
 async function fetchCjProductPage(
@@ -1029,7 +1030,9 @@ export async function GET(req: Request) {
         allSpecs.push(baseSpecs);
       }
       
-      // Now extract variant colors/sizes and ADD them (not replace)
+      // Now extract variant colors/sizes/models and ADD them (not replace)
+      let extractedModels: string[] = [];
+      
       if (variants.length > 0) {
         // Debug: Log first variant structure to understand CJ format
         const sampleVariant = variants[0];
@@ -1038,29 +1041,129 @@ export async function GET(req: Request) {
         
         const colors = new Set<string>();
         const sizes = new Set<string>();
+        const models = new Set<string>();
         
-        // Extended color list
-        const colorPattern = /\b(Black|White|Red|Blue|Green|Yellow|Pink|Purple|Orange|Brown|Grey|Gray|Beige|Navy|Khaki|Apricot|Wine|Coffee|Camel|Cream|Rose|Gold|Silver|Ivory|Mint|Coral|Burgundy|Maroon|Olive|Teal|Turquoise|Lavender|Lilac|Peach|Tan|Charcoal|Sky Blue|Dark Blue|Light Blue|Light Green|Dark Green|Light Pink|Dark Pink|Off White|Nude)\b/gi;
+        // Extended color list for matching
+        const colorList = ['Black', 'White', 'Red', 'Blue', 'Green', 'Yellow', 'Pink', 'Purple', 'Orange', 'Brown', 'Grey', 'Gray', 'Beige', 'Navy', 'Khaki', 'Apricot', 'Wine', 'Coffee', 'Camel', 'Cream', 'Rose', 'Gold', 'Silver', 'Ivory', 'Mint', 'Coral', 'Burgundy', 'Maroon', 'Olive', 'Teal', 'Turquoise', 'Lavender', 'Lilac', 'Peach', 'Tan', 'Charcoal', 'Violet', 'Nude', 'Dark Grey', 'Light Grey', 'Dark Blue', 'Light Blue', 'Sky Blue', 'Dark Green', 'Light Green', 'Dark Pink', 'Light Pink', 'Off White'];
+        const colorSet = new Set(colorList.map(c => c.toLowerCase()));
+        const colorPattern = /\b(Black|White|Red|Blue|Green|Yellow|Pink|Purple|Orange|Brown|Grey|Gray|Beige|Navy|Khaki|Apricot|Wine|Coffee|Camel|Cream|Rose|Gold|Silver|Ivory|Mint|Coral|Burgundy|Maroon|Olive|Teal|Turquoise|Lavender|Lilac|Peach|Tan|Charcoal|Sky Blue|Dark Blue|Light Blue|Light Green|Dark Green|Light Pink|Dark Pink|Off White|Nude|Violet|Dark Grey|Light Grey)\b/gi;
         
-        for (const v of variants) {
-          let foundSizeForVariant = false;
+        // Device model patterns (phones, tablets, etc.)
+        const deviceModelPattern = /\b(iPhone\s*\d+\s*(?:Pro|Plus|Max|mini|SE)?(?:\s*Max)?|Samsung\s*(?:S|A|Note|Galaxy)\s*\d+(?:\s*(?:Plus|Ultra|FE))?|Xiaomi|Huawei|Redmi|OPPO|Vivo|OnePlus|Pixel|iPad|Galaxy\s*Tab)/i;
+        
+        // Standard clothing/shoe size pattern
+        const clothingSizePattern = /^(XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|6XL|One Size|Free Size)$/i;
+        const shoeSizePattern = /^(EU\s*\d+|US\s*\d+|\d{2,3}(?:cm)?)$/i;
+        
+        // Helper function to check if a string is a known color (use non-global regex to avoid lastIndex issues)
+        const isColor = (s: string): boolean => {
+          const lower = s.toLowerCase().trim();
+          if (colorSet.has(lower)) return true;
+          // Use non-global regex for test() to avoid lastIndex state issues
+          const colorTestPattern = /\b(Black|White|Red|Blue|Green|Yellow|Pink|Purple|Orange|Brown|Grey|Gray|Beige|Navy|Khaki|Apricot|Wine|Coffee|Camel|Cream|Rose|Gold|Silver|Ivory|Mint|Coral|Burgundy|Maroon|Olive|Teal|Turquoise|Lavender|Lilac|Peach|Tan|Charcoal|Sky Blue|Dark Blue|Light Blue|Light Green|Dark Green|Light Pink|Dark Pink|Off White|Nude|Violet|Dark Grey|Light Grey)\b/i;
+          return colorTestPattern.test(s);
+        };
+        
+        // Helper function to check if a string is a device model (use non-global regex)
+        const isDeviceModel = (s: string): boolean => {
+          const deviceTestPattern = /\b(iPhone\s*\d+\s*(?:Pro|Plus|Max|mini|SE)?(?:\s*Max)?|Samsung\s*(?:S|A|Note|Galaxy)\s*\d+(?:\s*(?:Plus|Ultra|FE))?|Xiaomi|Huawei|Redmi|OPPO|Vivo|OnePlus|Pixel|iPad|Galaxy\s*Tab)/i;
+          return deviceTestPattern.test(s);
+        };
+        
+        // Helper function to check if a string is a clothing/shoe size
+        const isClothingSize = (s: string): boolean => {
+          return clothingSizePattern.test(s.trim()) || shoeSizePattern.test(s.trim());
+        };
+        
+        // Helper to parse a combined value like "Violet-iPhone 11Pro Max"
+        const parseVariantValue = (value: string) => {
+          if (!value) return;
           
-          // 1. First try explicit size/color fields (most reliable)
-          const explicitSize = v.size || v.sizeNameEn || v.sizeName;
-          const explicitColor = v.color || v.colour || v.colorNameEn || v.colorName;
+          // Clean Chinese characters
+          let cleanVal = value.replace(/[\u4e00-\u9fff]/g, '').trim();
+          if (!cleanVal || cleanVal.length > 60) return;
           
-          if (explicitSize) {
-            const cleanSize = String(explicitSize).replace(/[\u4e00-\u9fff]/g, '').trim();
-            if (cleanSize && cleanSize.length > 0 && cleanSize.length < 50) {
-              sizes.add(cleanSize);
-              foundSizeForVariant = true;
+          // Try to split on common delimiters
+          const delimiters = ['-', '/', '|', '_'];
+          let parts: string[] = [cleanVal];
+          
+          for (const delim of delimiters) {
+            if (cleanVal.includes(delim)) {
+              // Split and check if first part looks like a color
+              const splitParts = cleanVal.split(delim).map(p => p.trim()).filter(Boolean);
+              if (splitParts.length >= 2 && isColor(splitParts[0])) {
+                parts = splitParts;
+                break;
+              }
             }
           }
+          
+          if (parts.length >= 2 && isColor(parts[0])) {
+            // First part is color, rest is model/size
+            colors.add(parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase());
+            const remainder = parts.slice(1).join(' ').trim();
+            if (remainder) {
+              if (isDeviceModel(remainder)) {
+                models.add(remainder);
+              } else if (isClothingSize(remainder)) {
+                sizes.add(remainder.toUpperCase());
+              } else {
+                // Could be a model or size - check further
+                if (/iPhone|Samsung|Xiaomi|Huawei|Redmi|OPPO|Vivo|OnePlus|Pixel|iPad|Galaxy/i.test(remainder)) {
+                  models.add(remainder);
+                } else {
+                  sizes.add(remainder);
+                }
+              }
+            }
+          } else if (parts.length === 1) {
+            // Single value - classify it
+            const val = parts[0];
+            if (isColor(val)) {
+              colors.add(val.charAt(0).toUpperCase() + val.slice(1).toLowerCase());
+            } else if (isDeviceModel(val)) {
+              models.add(val);
+            } else if (isClothingSize(val)) {
+              sizes.add(val.toUpperCase());
+            } else {
+              // Unknown - check if it looks like a device
+              if (/iPhone|Samsung|Xiaomi|Huawei|Redmi|OPPO|Vivo|OnePlus|Pixel|iPad|Galaxy/i.test(val)) {
+                models.add(val);
+              } else {
+                sizes.add(val);
+              }
+            }
+          }
+        };
+        
+        for (const v of variants) {
+          // 1. First try explicit fields (most reliable)
+          const explicitSize = v.size || v.sizeNameEn || v.sizeName;
+          const explicitColor = v.color || v.colour || v.colorNameEn || v.colorName;
+          const explicitModel = v.model || v.modelNameEn || v.modelName;
           
           if (explicitColor) {
             const cleanColor = String(explicitColor).replace(/[\u4e00-\u9fff]/g, '').trim();
             if (cleanColor && cleanColor.length > 0 && cleanColor.length < 50 && /[a-zA-Z]/.test(cleanColor)) {
               colors.add(cleanColor);
+            }
+          }
+          
+          if (explicitSize) {
+            const cleanSize = String(explicitSize).replace(/[\u4e00-\u9fff]/g, '').trim();
+            if (cleanSize && cleanSize.length > 0 && cleanSize.length < 50) {
+              if (isDeviceModel(cleanSize)) {
+                models.add(cleanSize);
+              } else {
+                sizes.add(cleanSize);
+              }
+            }
+          }
+          
+          if (explicitModel) {
+            const cleanModel = String(explicitModel).replace(/[\u4e00-\u9fff]/g, '').trim();
+            if (cleanModel && cleanModel.length > 0 && cleanModel.length < 50) {
+              models.add(cleanModel);
             }
           }
           
@@ -1078,87 +1181,54 @@ export async function GET(req: Request) {
                   if (/[a-zA-Z]/.test(cleanValue)) {
                     colors.add(cleanValue);
                   }
-                } else if (propName.includes('size') || propName.includes('model') || propName.includes('type') || propName.includes('version')) {
-                  sizes.add(cleanValue);
-                  foundSizeForVariant = true;
+                } else if (propName.includes('model') || propName.includes('device') || propName.includes('phone')) {
+                  models.add(cleanValue);
+                } else if (propName.includes('size') || propName.includes('type') || propName.includes('version')) {
+                  if (isDeviceModel(cleanValue)) {
+                    models.add(cleanValue);
+                  } else {
+                    sizes.add(cleanValue);
+                  }
                 }
               }
             }
           }
           
-          // 3. Use variantKey as size if no explicit size found for THIS variant
-          // This captures phone models like "iPhone 13Pro", shoe sizes, etc.
-          if (!foundSizeForVariant && v.variantKey) {
-            const variantKey = String(v.variantKey).trim();
-            // Skip if it's just a color name
-            const colorMatches = variantKey.match(colorPattern);
-            const isJustColor = colorMatches && colorMatches.some(c => c.toLowerCase() === variantKey.toLowerCase());
-            if (!isJustColor && variantKey.length > 0 && variantKey.length < 50) {
-              const cleanKey = variantKey.replace(/[\u4e00-\u9fff]/g, '').trim();
-              if (cleanKey && /[a-zA-Z0-9]/.test(cleanKey)) {
-                sizes.add(cleanKey);
-                foundSizeForVariant = true;
-              }
-            }
+          // 3. Parse variantKey (may contain combined color-model like "Violet-iPhone 11Pro")
+          if (v.variantKey) {
+            parseVariantValue(String(v.variantKey));
           }
           
-          // 4. Also check variantNameEn for sizes (fallback)
-          if (!foundSizeForVariant && v.variantNameEn) {
-            const variantName = String(v.variantNameEn).trim();
-            // Extract colors from name first
-            const colorMatches = variantName.match(colorPattern);
-            if (colorMatches) {
-              for (const c of colorMatches) {
-                colors.add(c.charAt(0).toUpperCase() + c.slice(1).toLowerCase());
-              }
-            }
-            // Remaining text after removing colors might be the size
-            let remaining = variantName;
-            if (colorMatches) {
-              for (const c of colorMatches) {
-                remaining = remaining.replace(new RegExp(c, 'gi'), '').trim();
-              }
-            }
-            remaining = remaining.replace(/[\u4e00-\u9fff]/g, '').replace(/[,\-_|/]+/g, ' ').trim();
-            if (remaining && remaining.length > 0 && remaining.length < 50) {
-              sizes.add(remaining);
-              foundSizeForVariant = true;
-            }
-          }
-          
-          // 5. Fall back to regex for standard clothing sizes if nothing found for this variant
-          if (!foundSizeForVariant) {
-            const fieldsToCheck = [v.variantNameEn, v.variantName, v.name, v.variantKey].filter(Boolean).map(x => String(x).trim());
-            for (const field of fieldsToCheck) {
-              const sizeMatches = field.match(/\b(XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|6XL|One Size|Free Size|EU\s*\d+|US\s*\d+|\d+(?:cm)?)\b/gi);
-              if (sizeMatches) {
-                for (const s of sizeMatches) {
-                  sizes.add(s.toUpperCase());
-                }
-              }
-            }
+          // 4. Parse variantNameEn as fallback
+          if (v.variantNameEn) {
+            parseVariantValue(String(v.variantNameEn));
           }
         }
         
-        // Sanitize color/size values - strip any HTML/script tags
+        // Sanitize values - strip any HTML/script tags
         const stripHtml = (s: string) => s.replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, ' ').trim();
         const safeColors = [...colors].map(stripHtml).filter(c => c.length > 0 && c.length < 50);
-        const safeSizes = [...sizes].map(stripHtml).filter(s => s.length > 0 && s.length < 30);
+        const safeSizes = [...sizes].map(stripHtml).filter(s => s.length > 0 && s.length < 50);
+        const safeModels = [...models].map(stripHtml).filter(m => m.length > 0 && m.length < 50);
         
-        // Only add colors/sizes if not already in baseSpecs (avoid duplicates)
+        // Only add to specs if not already present (avoid duplicates)
         const baseSpecsLower = (baseSpecs || '').toLowerCase();
         if (safeColors.length > 0 && !baseSpecsLower.includes('colors:')) {
           allSpecs.push(`Colors: ${safeColors.slice(0, 15).join(', ')}`);
+        }
+        if (safeModels.length > 0) {
+          allSpecs.push(`Compatible Devices: ${safeModels.slice(0, 25).join(', ')}`);
         }
         if (safeSizes.length > 0 && !baseSpecsLower.includes('sizes:')) {
           allSpecs.push(`Sizes: ${safeSizes.slice(0, 15).join(', ')}`);
         }
         
-        console.log(`[Search&Price] Product ${pid}: ${safeColors.length} colors, ${safeSizes.length} sizes from ${variants.length} variants`);
+        console.log(`[Search&Price] Product ${pid}: ${safeColors.length} colors, ${safeSizes.length} sizes, ${safeModels.length} models from ${variants.length} variants`);
         
-        // Store sizes and colors in local variables for later use
+        // Store for later use
         extractedSizes = safeSizes;
         extractedColors = safeColors;
+        extractedModels = safeModels;
       }
       
       // Combine all specs into finalProductInfo
@@ -1392,6 +1462,7 @@ export async function GET(req: Request) {
         videoUrl,
         availableSizes: extractedSizes,
         availableColors: extractedColors,
+        availableModels: extractedModels,
       });
     }
     
