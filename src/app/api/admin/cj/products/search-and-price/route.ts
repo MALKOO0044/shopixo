@@ -483,6 +483,8 @@ export async function GET(req: Request) {
     console.log(`[Search&Price] Successfully fetched ratings for ${productRatingsMap.size} products`);
     
     const pricedProducts: PricedProduct[] = [];
+    let skippedNoVariants = 0;
+    let skippedNoShipping = 0;
     
     for (const item of productsToPrice) {
       const pid = String(item.pid || item.productId || '');
@@ -1517,6 +1519,7 @@ export async function GET(req: Request) {
       
       if (pricedVariants.length === 0) {
         console.log(`[Search&Price] SKIPPING product ${pid} - no variants with CJPacket Ordinary shipping`);
+        skippedNoShipping++;
         continue;
       }
       
@@ -1624,13 +1627,20 @@ export async function GET(req: Request) {
     }
     
     const duration = Date.now() - startTime;
-    console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${filteredBySizes} filtered by size) in ${duration}ms`);
+    console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size) in ${duration}ms`);
     
     const r = NextResponse.json({
       ok: true,
       products: filteredProducts,
       count: filteredProducts.length,
       duration,
+      debug: {
+        candidatesFound: candidateProducts.length,
+        productsProcessed: productsToPrice.length,
+        pricedSuccessfully: pricedProducts.length,
+        skippedNoShipping,
+        filteredBySizes,
+      }
     }, { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);
     return r;

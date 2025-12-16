@@ -195,7 +195,13 @@ export default function ProductDiscoveryPage() {
       setProducts(pricedProducts);
       
       if (pricedProducts.length === 0) {
-        setError("No products found. Try different filters or select more features.");
+        const debug = data.debug;
+        if (debug) {
+          const msg = `No products found. Candidates: ${debug.candidatesFound}, Processed: ${debug.productsProcessed}, Skipped (no CJPacket Ordinary): ${debug.skippedNoShipping}. Try different category or filters.`;
+          setError(msg);
+        } else {
+          setError("No products found. Try different filters or select more features.");
+        }
       }
       
     } catch (e: any) {
