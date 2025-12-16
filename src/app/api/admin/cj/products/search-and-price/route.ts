@@ -467,9 +467,9 @@ export async function GET(req: Request) {
     }
     
     // RATE LIMIT: CJ API allows 1 req/sec and 1000/day
-    // Limit to 10 products max per search to stay under limits
-    const productsToPrice = candidateProducts.slice(0, Math.min(quantity, 10));
-    console.log(`[Search&Price] Pricing ${productsToPrice.length} products (limited to 10 for API rate limits)...`);
+    // Limit to 30 products max per search - balanced for usability vs API limits
+    const productsToPrice = candidateProducts.slice(0, Math.min(quantity, 30));
+    console.log(`[Search&Price] Pricing ${productsToPrice.length} products...`);
     
     // Fetch full product details to get all images
     const pidsToHydrate = productsToPrice.map(p => String(p.pid || p.productId || '')).filter(Boolean);
@@ -494,7 +494,7 @@ export async function GET(req: Request) {
     for (const item of productsToPrice) {
       // Add delay between products to respect CJ API rate limit (1 req/sec)
       if (productIndex > 0) {
-        await new Promise(resolve => setTimeout(resolve, 1500)); // 1.5 sec between products
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 sec between products
       }
       productIndex++;
       const pid = String(item.pid || item.productId || '');
@@ -1333,12 +1333,12 @@ export async function GET(req: Request) {
       }
       
       if (variants.length === 0) {
-        // Single variant product - try to get exact shipping
+        // Single variant product - try to get exact shipping using product-level vid
         const sellPrice = Number(item.sellPrice || item.price || 0);
         const costSAR = usdToSar(sellPrice);
         
-        const firstVariant = variants[0] || item.variants?.[0];
-        const variantVid = String(firstVariant?.vid || item.vid || '');
+        // For single-variant products, use pid or product-level vid
+        const variantVid = String(item.vid || item.variants?.[0]?.vid || pid || '');
         
         let shippingPriceUSD = 0;
         let shippingPriceSAR = 0;
@@ -1349,7 +1349,7 @@ export async function GET(req: Request) {
         
         if (variantVid) {
           // Add delay to respect rate limit (1 req/sec)
-          await new Promise(resolve => setTimeout(resolve, 1200));
+          await new Promise(resolve => setTimeout(resolve, 1000));
           
           try {
             const freight = await freightCalculate({
@@ -1417,7 +1417,7 @@ export async function GET(req: Request) {
       } else {
         // Multi-variant product - check up to 3 variants sequentially to find CJPacket Ordinary
         // Stop early once we find one variant with shipping OR hit quota
-        const MAX_VARIANTS_TO_CHECK = 3;
+        const MAX_VARIANTS_TO_CHECK = 5;
         
         for (let i = 0; i < Math.min(variants.length, MAX_VARIANTS_TO_CHECK); i++) {
           // Stop if we already found shipping or hit quota

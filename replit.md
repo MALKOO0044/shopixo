@@ -48,6 +48,18 @@ Shopixo is a modern, professional e-commerce platform designed for the USA marke
   - `src/app/api/admin/cj/products/search-and-price/route.ts` - Size extraction logic
   - `src/app/admin/import/discover/page.tsx` - Removed static size filter
 
+## Fixed Search Rate Limiting (December 16, 2025)
+- **Issue**: Search was too restrictive with excessive delays and low product limits
+- **Root Cause**: Over-conservative rate limiting settings (1.2-1.5 second delays, 10 product limit)
+- **Solution**: Optimized settings for better balance of usability and API compliance
+- **Changes Made**:
+  - Product limit increased from 10 to 30 per search
+  - Delays reduced from 1.2-1.5s to 1.0s (matches CJ's 1 req/sec exactly)
+  - Variant checks increased from 3 to 5 per product
+  - Fixed bug where single-variant products used undefined variant ID
+  - Improved error handling for quota exhaustion
+- **Result**: Searches are now faster and return more products while still respecting CJ API limits
+
 ## Accurate Shipping Cost Calculation (December 16, 2025)
 - **Issue**: Shipping costs were wildly inaccurate (e.g., CJPacket showed ~$2 vs CJ website ~$8.78)
 - **Root Cause**: Code was using a fake 100g default weight instead of real product weight
