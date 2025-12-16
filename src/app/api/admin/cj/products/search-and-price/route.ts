@@ -466,8 +466,10 @@ export async function GET(req: Request) {
       return r;
     }
     
-    const productsToPrice = candidateProducts.slice(0, Math.min(quantity, 20));
-    console.log(`[Search&Price] Pricing ${productsToPrice.length} products...`);
+    // RATE LIMIT: CJ API allows 1 req/sec and 1000/day
+    // Limit to 10 products max per search to stay under limits
+    const productsToPrice = candidateProducts.slice(0, Math.min(quantity, 10));
+    console.log(`[Search&Price] Pricing ${productsToPrice.length} products (limited to 10 for API rate limits)...`);
     
     // Fetch full product details to get all images
     const pidsToHydrate = productsToPrice.map(p => String(p.pid || p.productId || '')).filter(Boolean);
@@ -486,8 +488,14 @@ export async function GET(req: Request) {
     let skippedNoVariants = 0;
     let skippedNoShipping = 0;
     const shippingErrors: Record<string, number> = {}; // Track error reasons
+    let productIndex = 0;
     
     for (const item of productsToPrice) {
+      // Add delay between products to respect CJ API rate limit (1 req/sec)
+      if (productIndex > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1500)); // 1.5 sec between products
+      }
+      productIndex++;
       const pid = String(item.pid || item.productId || '');
       const cjSku = String(item.productSku || item.sku || `CJ-${pid}`);
       const name = String(item.productNameEn || item.name || item.productName || '');
@@ -1402,29 +1410,26 @@ export async function GET(req: Request) {
           error: shippingError,
         });
       } else {
-        // Process variants in batches until we find at least one with CJPacket Ordinary
-        // This ensures products aren't filtered out just because early variants lack shipping
-        const BATCH_SIZE = 5;
-        const MAX_VARIANTS = 30; // Process up to 30 variants max
-        const productStartTime = Date.now();
-        const PRODUCT_TIMEOUT_MS = 10000; // 10 seconds per product max
+        // RATE LIMIT FIX: CJ API limits to 1 request/second and 1000/day
+        // Process only 1-2 variants per product sequentially to stay under limits
+        const MAX_VARIANTS_PER_PRODUCT = 2; // Only check first 2 variants
         
         let variantsChecked = 0;
         let variantsWithShipping = 0;
         
-        for (let batchStart = 0; batchStart < Math.min(variants.length, MAX_VARIANTS); batchStart += BATCH_SIZE) {
-          // Stop if we've found enough variants or timed out
-          if (variantsWithShipping >= 5) break;
-          if (Date.now() - productStartTime > PRODUCT_TIMEOUT_MS) {
-            console.log(`[Search&Price] Product ${pid}: timeout after ${variantsChecked} variants`);
-            break;
+        for (let i = 0; i < Math.min(variants.length, MAX_VARIANTS_PER_PRODUCT); i++) {
+          // Stop if we found one with shipping
+          if (variantsWithShipping >= 1) break;
+          
+          const variant = variants[i];
+          
+          // Add 1 second delay between API calls to respect QPS limit
+          if (i > 0) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
           }
           
-          const batch = variants.slice(batchStart, batchStart + BATCH_SIZE);
-          
-          // Process batch in parallel
-          const batchResults = await Promise.all(
-            batch.map(async (variant) => {
+          // Process single variant (not in parallel batch)
+          const result = await (async () => {
               const variantId = String(variant.vid || variant.variantId || variant.id || '');
               const variantSku = String(variant.variantSku || variant.sku || variantId);
               const variantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
@@ -1508,16 +1513,13 @@ export async function GET(req: Request) {
                 size,
                 color,
               };
-            })
-          );
+          })();
           
-          variantsChecked += batch.length;
+          variantsChecked++;
           
-          for (const result of batchResults) {
-            if (result) {
-              pricedVariants.push(result);
-              variantsWithShipping++;
-            }
+          if (result) {
+            pricedVariants.push(result);
+            variantsWithShipping++;
           }
         }
         
