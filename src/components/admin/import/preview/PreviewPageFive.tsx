@@ -46,7 +46,7 @@ export default function PreviewPageFive({ product }: PreviewPageFiveProps) {
       <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border border-indigo-200 p-5">
         <div className="flex items-center gap-3 mb-4">
           <DollarSign className="h-5 w-5 text-indigo-600" />
-          <h3 className="text-lg font-bold text-indigo-900">Price Breakdown (Selected Shipping)</h3>
+          <h3 className="text-lg font-bold text-indigo-900">Price Breakdown (CJPacket Ordinary)</h3>
         </div>
         
         {firstVariant ? (

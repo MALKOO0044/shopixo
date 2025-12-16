@@ -188,27 +188,35 @@ export default function ProductDiscoveryPage() {
       const data = await res.json();
       
       if (!res.ok || !data.ok) {
+        if (data.quotaExhausted || res.status === 429) {
+          throw new Error("CJ Dropshipping API daily limit reached. Please try again tomorrow.");
+        }
         throw new Error(data.error || `Search failed: ${res.status}`);
       }
       
       const pricedProducts: PricedProduct[] = data.products || [];
       setProducts(pricedProducts);
       
+      // Show warning if quota was hit during processing but some products were retrieved
+      if (data.quotaExhausted && pricedProducts.length > 0) {
+        setError("Warning: CJ API limit reached during search. Some products may be missing. Results shown have exact pricing.");
+      }
+      
       if (pricedProducts.length === 0) {
         const debug = data.debug;
         if (debug) {
-          let msg = `No products found. Candidates: ${debug.candidatesFound}, Processed: ${debug.productsProcessed}, Skipped: ${debug.skippedNoShipping}.`;
+          let msg = `No products with CJPacket Ordinary shipping found.`;
           if (debug.shippingErrors && Object.keys(debug.shippingErrors).length > 0) {
             const errorSummary = Object.entries(debug.shippingErrors as Record<string, number>)
               .map(([err, count]) => `${err}: ${count}`)
               .join('; ');
-            msg += ` Errors: ${errorSummary}`;
+            msg += ` Errors: ${errorSummary}.`;
           }
           msg += ' Try a different category.';
           setError(msg);
           console.log('Search debug:', debug);
         } else {
-          setError("No products found. Try different filters or select more features.");
+          setError("No products found. Try different filters.");
         }
       }
       

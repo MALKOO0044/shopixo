@@ -489,6 +489,7 @@ export async function GET(req: Request) {
     let skippedNoShipping = 0;
     const shippingErrors: Record<string, number> = {}; // Track error reasons
     let productIndex = 0;
+    let globalQuotaExhausted = false; // Track if we hit CJ API quota limit
     
     for (const item of productsToPrice) {
       // Add delay between products to respect CJ API rate limit (1 req/sec)
@@ -1324,9 +1325,20 @@ export async function GET(req: Request) {
       
       const pricedVariants: PricedVariant[] = [];
       
+      // Skip this product if quota already exhausted
+      if (globalQuotaExhausted) {
+        console.log(`[Search&Price] Product ${pid}: Skipping - API quota already exhausted`);
+        skippedNoShipping++;
+        continue;
+      }
+      
       if (variants.length === 0) {
+        // Single variant product - try to get exact shipping
         const sellPrice = Number(item.sellPrice || item.price || 0);
         const costSAR = usdToSar(sellPrice);
+        
+        const firstVariant = variants[0] || item.variants?.[0];
+        const variantVid = String(firstVariant?.vid || item.vid || '');
         
         let shippingPriceUSD = 0;
         let shippingPriceSAR = 0;
@@ -1335,199 +1347,194 @@ export async function GET(req: Request) {
         let logisticName: string | undefined;
         let shippingError: string | undefined;
         
-        try {
-          // Use CJ's "According to Shipping Method" - requires variant vid (UUID)
-          // For products without explicit variants, try to get vid from item or first variant
-          const firstVariant = variants[0] || item.variants?.[0];
-          const variantVid = String(firstVariant?.vid || item.vid || '');
+        if (variantVid) {
+          // Add delay to respect rate limit (1 req/sec)
+          await new Promise(resolve => setTimeout(resolve, 1200));
           
-          if (!variantVid) {
-            shippingError = 'No variant ID available - shipping cannot be calculated';
-            console.log(`[Search&Price] Product ${pid} has no vid - skipping shipping calc`);
-          } else {
-            console.log(`[Search&Price] Product ${pid} freight calc using vid=${variantVid}`);
-            
+          try {
             const freight = await freightCalculate({
               countryCode: 'US',
               vid: variantVid,
               quantity: 1,
             });
-          
-            // Handle freight result - ONLY select CJPacket Ordinary (100% accuracy requirement)
+            
             if (!freight.ok) {
-              shippingError = freight.message;
+              if (freight.message.includes('Too Many Requests') || freight.message.includes('daily request limit')) {
+                globalQuotaExhausted = true;
+                shippingError = 'API quota exceeded - try again tomorrow';
+              } else {
+                shippingError = freight.message;
+              }
             } else if (freight.options.length > 0) {
-              // Use the centralized CJPacket Ordinary finder for consistent matching
               const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
-              
               if (cjPacketOrdinary) {
-                // Use EXACT price from CJ API - no modifications
                 shippingPriceUSD = cjPacketOrdinary.price;
                 shippingPriceSAR = usdToSar(shippingPriceUSD);
                 shippingAvailable = true;
                 logisticName = cjPacketOrdinary.name;
-                console.log(`[Search&Price] Product ${pid}: CJPacket Ordinary shipping = $${shippingPriceUSD.toFixed(2)} USD`);
                 if (cjPacketOrdinary.logisticAgingDays) {
                   const { min, max } = cjPacketOrdinary.logisticAgingDays;
                   deliveryDays = max ? `${min}-${max} days` : `${min} days`;
                 }
               } else {
-                shippingError = 'CJPacket Ordinary not available for this product';
+                shippingError = 'CJPacket Ordinary not available';
               }
             } else {
-              shippingError = 'No shipping options available to USA';
+              shippingError = 'No shipping options to USA';
+            }
+          } catch (e: any) {
+            if (e?.message?.includes('429') || e?.message?.includes('Too Many')) {
+              globalQuotaExhausted = true;
+              shippingError = 'API quota exceeded - try again tomorrow';
+            } else {
+              shippingError = e?.message || 'Shipping failed';
             }
           }
-        } catch (e: any) {
-          shippingError = e?.message || 'Shipping calculation failed';
+        } else {
+          shippingError = 'No variant ID available';
         }
         
-        // Skip products where CJPacket Ordinary is not available
-        if (!shippingAvailable) {
-          continue;
+        if (shippingAvailable) {
+          const totalCostSAR = costSAR + shippingPriceSAR;
+          const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
+          const profitSAR = sellPriceSAR - totalCostSAR;
+          
+          pricedVariants.push({
+            variantId: pid,
+            variantSku: item.productSku || pid,
+            variantPriceUSD: sellPrice,
+            shippingAvailable,
+            shippingPriceUSD,
+            shippingPriceSAR,
+            deliveryDays,
+            logisticName,
+            sellPriceSAR,
+            totalCostSAR,
+            profitSAR,
+            error: shippingError,
+          });
         }
-        
-        if (freeShippingOnly && shippingPriceUSD > 0) {
-          continue;
-        }
-        
-        const totalCostSAR = costSAR + shippingPriceSAR;
-        const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
-        const profitSAR = sellPriceSAR - totalCostSAR;
-        
-        pricedVariants.push({
-          variantId: pid,
-          variantSku: item.productSku || pid,
-          variantPriceUSD: sellPrice,
-          shippingAvailable,
-          shippingPriceUSD,
-          shippingPriceSAR,
-          deliveryDays,
-          logisticName,
-          sellPriceSAR,
-          totalCostSAR,
-          profitSAR,
-          error: shippingError,
-        });
       } else {
-        // RATE LIMIT FIX: CJ API limits to 1 request/second and 1000/day
-        // Process only 1-2 variants per product sequentially to stay under limits
-        const MAX_VARIANTS_PER_PRODUCT = 2; // Only check first 2 variants
+        // Multi-variant product - check up to 3 variants sequentially to find CJPacket Ordinary
+        // Stop early once we find one variant with shipping OR hit quota
+        const MAX_VARIANTS_TO_CHECK = 3;
         
-        let variantsChecked = 0;
-        let variantsWithShipping = 0;
-        
-        for (let i = 0; i < Math.min(variants.length, MAX_VARIANTS_PER_PRODUCT); i++) {
-          // Stop if we found one with shipping
-          if (variantsWithShipping >= 1) break;
+        for (let i = 0; i < Math.min(variants.length, MAX_VARIANTS_TO_CHECK); i++) {
+          // Stop if we already found shipping or hit quota
+          if (pricedVariants.length > 0 || globalQuotaExhausted) break;
           
           const variant = variants[i];
+          const variantId = String(variant.vid || variant.variantId || variant.id || '');
+          const variantSku = String(variant.variantSku || variant.sku || variantId);
+          const variantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
+          const costSAR = usdToSar(variantPriceUSD);
           
-          // Add 1 second delay between API calls to respect QPS limit
-          if (i > 0) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
+          const variantName = String(variant.variantNameEn || variant.variantName || '').replace(/[\u4e00-\u9fff]/g, '').trim() || undefined;
+          const variantImage = variant.variantImage || variant.whiteImage || variant.image || undefined;
+          const size = variant.size || variant.sizeNameEn || undefined;
+          const color = variant.color || variant.colorNameEn || undefined;
           
-          // Process single variant (not in parallel batch)
-          const result = await (async () => {
-              const variantId = String(variant.vid || variant.variantId || variant.id || '');
-              const variantSku = String(variant.variantSku || variant.sku || variantId);
-              const variantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
-              const costSAR = usdToSar(variantPriceUSD);
+          let shippingPriceUSD = 0;
+          let shippingPriceSAR = 0;
+          let shippingAvailable = false;
+          let deliveryDays = 'Unknown';
+          let logisticName: string | undefined;
+          let shippingError: string | undefined;
+          
+          if (variantId) {
+            // Add delay to respect rate limit (1 req/sec)
+            await new Promise(resolve => setTimeout(resolve, 1200));
+            
+            try {
+              const freight = await freightCalculate({
+                countryCode: 'US',
+                vid: variantId,
+                quantity: 1,
+              });
               
-              const variantName = String(variant.variantNameEn || variant.variantName || '').replace(/[\u4e00-\u9fff]/g, '').trim() || undefined;
-              const variantImage = variant.variantImage || variant.whiteImage || variant.image || undefined;
-              const size = variant.size || variant.sizeNameEn || undefined;
-              const color = variant.color || variant.colorNameEn || undefined;
-              
-              let shippingPriceUSD = 0;
-              let shippingPriceSAR = 0;
-              let shippingAvailable = false;
-              let deliveryDays = 'Unknown';
-              let logisticName: string | undefined;
-              let shippingError: string | undefined;
-              
-              try {
-                if (!variantId) {
-                  shippingError = 'No variant ID';
+              if (!freight.ok) {
+                if (freight.message.includes('Too Many Requests') || freight.message.includes('daily request limit')) {
+                  globalQuotaExhausted = true;
+                  shippingError = 'API quota exceeded - try again tomorrow';
                 } else {
-                  const freight = await freightCalculate({
-                    countryCode: 'US',
-                    vid: variantId,
-                    quantity: 1,
-                  });
-                  
-                  if (!freight.ok) {
-                    shippingError = `API Error: ${freight.message}`;
-                    shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
-                  } else if (freight.options.length > 0) {
-                    const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
-                    
-                    if (cjPacketOrdinary) {
-                      shippingPriceUSD = cjPacketOrdinary.price;
-                      shippingPriceSAR = usdToSar(shippingPriceUSD);
-                      shippingAvailable = true;
-                      logisticName = cjPacketOrdinary.name;
-                      if (cjPacketOrdinary.logisticAgingDays) {
-                        const { min, max } = cjPacketOrdinary.logisticAgingDays;
-                        deliveryDays = max ? `${min}-${max} days` : `${min} days`;
-                      }
-                    } else {
-                      // Log what options ARE available so we can debug
-                      const availableOptions = freight.options.map(o => o.name).join(', ');
-                      shippingError = `No CJPacket Ordinary. Available: ${availableOptions}`;
-                      shippingErrors['No CJPacket Ordinary match'] = (shippingErrors['No CJPacket Ordinary match'] || 0) + 1;
-                      console.log(`[Search&Price] Variant ${variantId}: ${shippingError}`);
-                    }
-                  } else {
-                    shippingError = 'No shipping options returned';
-                    shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
-                  }
+                  shippingError = freight.message;
                 }
-              } catch (e: any) {
+                shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
+              } else if (freight.options.length > 0) {
+                const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
+                if (cjPacketOrdinary) {
+                  shippingPriceUSD = cjPacketOrdinary.price;
+                  shippingPriceSAR = usdToSar(shippingPriceUSD);
+                  shippingAvailable = true;
+                  logisticName = cjPacketOrdinary.name;
+                  if (cjPacketOrdinary.logisticAgingDays) {
+                    const { min, max } = cjPacketOrdinary.logisticAgingDays;
+                    deliveryDays = max ? `${min}-${max} days` : `${min} days`;
+                  }
+                } else {
+                  shippingError = 'CJPacket Ordinary not available';
+                  shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
+                }
+              } else {
+                shippingError = 'No shipping options to USA';
+                shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
+              }
+            } catch (e: any) {
+              if (e?.message?.includes('429') || e?.message?.includes('Too Many')) {
+                globalQuotaExhausted = true;
+                shippingError = 'API quota exceeded - try again tomorrow';
+              } else {
                 shippingError = e?.message || 'Shipping failed';
               }
-              
-              if (!shippingAvailable) return null;
-              if (freeShippingOnly && shippingPriceUSD > 0) return null;
-              
-              const totalCostSAR = costSAR + shippingPriceSAR;
-              const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
-              const profitSAR = sellPriceSAR - totalCostSAR;
-              
-              return {
-                variantId,
-                variantSku,
-                variantPriceUSD,
-                shippingAvailable,
-                shippingPriceUSD,
-                shippingPriceSAR,
-                deliveryDays,
-                logisticName,
-                sellPriceSAR,
-                totalCostSAR,
-                profitSAR,
-                error: shippingError,
-                variantName,
-                variantImage,
-                size,
-                color,
-              };
-          })();
+              if (shippingError) {
+                shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
+              }
+            }
+          }
           
-          variantsChecked++;
-          
-          if (result) {
-            pricedVariants.push(result);
-            variantsWithShipping++;
+          if (shippingAvailable) {
+            const totalCostSAR = costSAR + shippingPriceSAR;
+            const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
+            const profitSAR = sellPriceSAR - totalCostSAR;
+            
+            pricedVariants.push({
+              variantId,
+              variantSku,
+              variantPriceUSD,
+              shippingAvailable,
+              shippingPriceUSD,
+              shippingPriceSAR,
+              deliveryDays,
+              logisticName,
+              sellPriceSAR,
+              totalCostSAR,
+              profitSAR,
+              error: shippingError,
+              variantName,
+              variantImage,
+              size,
+              color,
+            });
+            console.log(`[Search&Price] Product ${pid} variant ${i+1}: got exact CJPacket Ordinary $${shippingPriceUSD.toFixed(2)}`);
+            break; // Stop checking more variants - we found CJPacket Ordinary
+          } else if (globalQuotaExhausted) {
+            console.log(`[Search&Price] Product ${pid} variant ${i+1}: quota exhausted, stopping variant checks`);
+            break; // Stop immediately if quota hit
+          } else {
+            console.log(`[Search&Price] Product ${pid} variant ${i+1}: ${shippingError}`);
+            // Continue to next variant to look for CJPacket Ordinary
           }
         }
-        
-        console.log(`[Search&Price] Product ${pid}: checked ${variantsChecked}/${variants.length} variants, found ${variantsWithShipping} with CJPacket Ordinary`);
+      }
+      
+      // If quota is exhausted, stop processing more products
+      if (globalQuotaExhausted) {
+        console.log(`[Search&Price] CJ API quota exhausted - stopping product processing`);
+        break;
       }
       
       if (pricedVariants.length === 0) {
-        console.log(`[Search&Price] SKIPPING product ${pid} - no variants with CJPacket Ordinary shipping`);
+        console.log(`[Search&Price] SKIPPING product ${pid} - no CJPacket Ordinary shipping`);
         skippedNoShipping++;
         continue;
       }
@@ -1639,11 +1646,35 @@ export async function GET(req: Request) {
     console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size) in ${duration}ms`);
     console.log(`[Search&Price] Shipping error breakdown:`, shippingErrors);
     
+    // Check if quota was exhausted during processing
+    if (globalQuotaExhausted && filteredProducts.length === 0) {
+      // No products with exact pricing - return error response
+      console.log(`[Search&Price] Quota exhausted and no products priced - returning error`);
+      const r = NextResponse.json({
+        ok: false,
+        error: 'CJ API daily limit reached. Please try again tomorrow.',
+        quotaExhausted: true,
+        products: [],
+        count: 0,
+        duration,
+        debug: {
+          candidatesFound: candidateProducts.length,
+          productsProcessed: productsToPrice.length,
+          pricedSuccessfully: 0,
+          skippedNoShipping,
+          shippingErrors,
+        }
+      }, { status: 429, headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
+    
     const r = NextResponse.json({
       ok: true,
       products: filteredProducts,
       count: filteredProducts.length,
       duration,
+      quotaExhausted: globalQuotaExhausted, // Flag if quota was hit during processing
       debug: {
         candidatesFound: candidateProducts.length,
         productsProcessed: productsToPrice.length,
