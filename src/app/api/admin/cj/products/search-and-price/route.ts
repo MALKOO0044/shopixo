@@ -485,6 +485,7 @@ export async function GET(req: Request) {
     const pricedProducts: PricedProduct[] = [];
     let skippedNoVariants = 0;
     let skippedNoShipping = 0;
+    const shippingErrors: Record<string, number> = {}; // Track error reasons
     
     for (const item of productsToPrice) {
       const pid = String(item.pid || item.productId || '');
@@ -1452,7 +1453,8 @@ export async function GET(req: Request) {
                   });
                   
                   if (!freight.ok) {
-                    shippingError = freight.message;
+                    shippingError = `API Error: ${freight.message}`;
+                    shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
                   } else if (freight.options.length > 0) {
                     const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
                     
@@ -1466,10 +1468,15 @@ export async function GET(req: Request) {
                         deliveryDays = max ? `${min}-${max} days` : `${min} days`;
                       }
                     } else {
-                      shippingError = 'CJPacket Ordinary not available';
+                      // Log what options ARE available so we can debug
+                      const availableOptions = freight.options.map(o => o.name).join(', ');
+                      shippingError = `No CJPacket Ordinary. Available: ${availableOptions}`;
+                      shippingErrors['No CJPacket Ordinary match'] = (shippingErrors['No CJPacket Ordinary match'] || 0) + 1;
+                      console.log(`[Search&Price] Variant ${variantId}: ${shippingError}`);
                     }
                   } else {
-                    shippingError = 'No shipping to USA';
+                    shippingError = 'No shipping options returned';
+                    shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
                   }
                 }
               } catch (e: any) {
@@ -1628,6 +1635,7 @@ export async function GET(req: Request) {
     
     const duration = Date.now() - startTime;
     console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size) in ${duration}ms`);
+    console.log(`[Search&Price] Shipping error breakdown:`, shippingErrors);
     
     const r = NextResponse.json({
       ok: true,
@@ -1640,6 +1648,7 @@ export async function GET(req: Request) {
         pricedSuccessfully: pricedProducts.length,
         skippedNoShipping,
         filteredBySizes,
+        shippingErrors,
       }
     }, { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);

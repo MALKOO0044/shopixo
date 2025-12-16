@@ -197,8 +197,16 @@ export default function ProductDiscoveryPage() {
       if (pricedProducts.length === 0) {
         const debug = data.debug;
         if (debug) {
-          const msg = `No products found. Candidates: ${debug.candidatesFound}, Processed: ${debug.productsProcessed}, Skipped (no CJPacket Ordinary): ${debug.skippedNoShipping}. Try different category or filters.`;
+          let msg = `No products found. Candidates: ${debug.candidatesFound}, Processed: ${debug.productsProcessed}, Skipped: ${debug.skippedNoShipping}.`;
+          if (debug.shippingErrors && Object.keys(debug.shippingErrors).length > 0) {
+            const errorSummary = Object.entries(debug.shippingErrors as Record<string, number>)
+              .map(([err, count]) => `${err}: ${count}`)
+              .join('; ');
+            msg += ` Errors: ${errorSummary}`;
+          }
+          msg += ' Try a different category.';
           setError(msg);
+          console.log('Search debug:', debug);
         } else {
           setError("No products found. Try different filters or select more features.");
         }
