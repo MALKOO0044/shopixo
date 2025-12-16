@@ -366,7 +366,7 @@ export async function GET(req: Request) {
     const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
-    const maxDurationMs = 90000;
+    const maxDurationMs = 55000; // 55 sec to stay under production function timeout
     
     let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0 };
     
@@ -467,8 +467,8 @@ export async function GET(req: Request) {
     }
     
     // RATE LIMIT: CJ API allows 1 req/sec and 1000/day
-    // Limit to 30 products max per search - balanced for usability vs API limits
-    const productsToPrice = candidateProducts.slice(0, Math.min(quantity, 30));
+    // Limit to 15 products max per search to stay under production timeout
+    const productsToPrice = candidateProducts.slice(0, Math.min(quantity, 15));
     console.log(`[Search&Price] Pricing ${productsToPrice.length} products...`);
     
     // Fetch full product details to get all images
@@ -1402,7 +1402,7 @@ export async function GET(req: Request) {
       } else {
         // Multi-variant product - check up to 3 variants sequentially to find CJPacket Ordinary
         // Stop early once we find one variant with shipping OR hit quota
-        const MAX_VARIANTS_TO_CHECK = 5;
+        const MAX_VARIANTS_TO_CHECK = 2; // Limit variants to stay under timeout
         
         for (let i = 0; i < Math.min(variants.length, MAX_VARIANTS_TO_CHECK); i++) {
           // Stop if we already found shipping or hit quota
