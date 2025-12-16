@@ -9,6 +9,13 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const runtime = 'nodejs';
 
+type ShippingOption = {
+  name: string;
+  code: string;
+  priceUSD: number;
+  deliveryDays: string;
+};
+
 type PricedVariant = {
   variantId: string;
   variantSku: string;
@@ -22,6 +29,7 @@ type PricedVariant = {
   totalCostSAR: number;
   profitSAR: number;
   error?: string;
+  allShippingOptions?: ShippingOption[];
 };
 
 type PricedProduct = {
@@ -309,6 +317,7 @@ export async function GET(req: Request) {
     const popularity = searchParams.get('popularity') || 'any';
     const minRating = searchParams.get('minRating') || 'any';
     const freeShippingOnly = searchParams.get('freeShippingOnly') === '1';
+    const shippingMethod = searchParams.get('shippingMethod') || 'any';
     const sizesParam = searchParams.get('sizes') || '';
     
     // Rating estimation function (same algorithm as preview)
@@ -333,6 +342,7 @@ export async function GET(req: Request) {
     console.log(`[Search&Price]   popularity: ${popularity}`);
     console.log(`[Search&Price]   minRating: ${minRating}`);
     console.log(`[Search&Price]   profitMargin: ${profitMargin}%`);
+    console.log(`[Search&Price]   shippingMethod: ${shippingMethod}`);
     console.log(`[Search&Price]   sizes filter: ${requestedSizes.length > 0 ? requestedSizes.join(',') : 'none'}`);
     console.log(`[Search&Price] ========================================`);
 
@@ -1267,29 +1277,61 @@ export async function GET(req: Request) {
         let deliveryDays = 'Unknown';
         let logisticName: string | undefined;
         let shippingError: string | undefined;
+        let allShippingOptions: ShippingOption[] = [];
         
         try {
           const freight = await freightCalculate({
-            countryCode: 'SA',
+            countryCode: 'US',
             pid: pid,
             quantity: 1,
           });
           
           if (freight.options.length > 0) {
-            const cheapest = freight.options.reduce((a, b) => a.price < b.price ? a : b);
-            shippingPriceUSD = cheapest.price;
-            shippingPriceSAR = usdToSar(shippingPriceUSD);
-            shippingAvailable = true;
-            logisticName = cheapest.name;
-            if (cheapest.logisticAgingDays) {
-              const { min, max } = cheapest.logisticAgingDays;
-              deliveryDays = max ? `${min}-${max} days` : `${min} days`;
+            // Store all shipping options for display
+            allShippingOptions = freight.options.map(opt => {
+              let days = 'Unknown';
+              if (opt.logisticAgingDays) {
+                const { min, max } = opt.logisticAgingDays;
+                days = max ? `${min}-${max} days` : `${min} days`;
+              }
+              return {
+                name: opt.name,
+                code: opt.code,
+                priceUSD: opt.price,
+                deliveryDays: days,
+              };
+            });
+            
+            // If specific shipping method requested, find it
+            let selectedOption = shippingMethod !== 'any' 
+              ? freight.options.find(o => o.name.toLowerCase().includes(shippingMethod.toLowerCase()) || o.code.toLowerCase().includes(shippingMethod.toLowerCase()))
+              : null;
+            
+            // If requested method not found, skip this product when filtering
+            if (shippingMethod !== 'any' && !selectedOption) {
+              shippingError = `Shipping method ${shippingMethod} not available`;
+            } else {
+              // Use selected method or cheapest
+              const option = selectedOption || freight.options.reduce((a, b) => a.price < b.price ? a : b);
+              shippingPriceUSD = option.price;
+              shippingPriceSAR = usdToSar(shippingPriceUSD);
+              shippingAvailable = true;
+              logisticName = option.name;
+              if (option.logisticAgingDays) {
+                const { min, max } = option.logisticAgingDays;
+                deliveryDays = max ? `${min}-${max} days` : `${min} days`;
+              }
             }
           } else {
-            shippingError = 'No shipping options available to Saudi Arabia';
+            shippingError = 'No shipping options available to USA';
           }
         } catch (e: any) {
           shippingError = e?.message || 'Shipping calculation failed';
+        }
+        
+        // Skip if shipping method filter active and method not found
+        if (shippingMethod !== 'any' && !shippingAvailable) {
+          continue;
         }
         
         if (freeShippingOnly && shippingPriceUSD > 0) {
@@ -1313,6 +1355,7 @@ export async function GET(req: Request) {
           totalCostSAR,
           profitSAR,
           error: shippingError,
+          allShippingOptions,
         });
       } else {
         for (const variant of variants.slice(0, 5)) {
@@ -1327,30 +1370,62 @@ export async function GET(req: Request) {
           let deliveryDays = 'Unknown';
           let logisticName: string | undefined;
           let shippingError: string | undefined;
+          let allShippingOptions: ShippingOption[] = [];
           
           try {
             const freight = await freightCalculate({
-              countryCode: 'SA',
+              countryCode: 'US',
               pid: pid,
               sku: variantSku,
               quantity: 1,
             });
             
             if (freight.options.length > 0) {
-              const cheapest = freight.options.reduce((a, b) => a.price < b.price ? a : b);
-              shippingPriceUSD = cheapest.price;
-              shippingPriceSAR = usdToSar(shippingPriceUSD);
-              shippingAvailable = true;
-              logisticName = cheapest.name;
-              if (cheapest.logisticAgingDays) {
-                const { min, max } = cheapest.logisticAgingDays;
-                deliveryDays = max ? `${min}-${max} days` : `${min} days`;
+              // Store all shipping options for display
+              allShippingOptions = freight.options.map(opt => {
+                let days = 'Unknown';
+                if (opt.logisticAgingDays) {
+                  const { min, max } = opt.logisticAgingDays;
+                  days = max ? `${min}-${max} days` : `${min} days`;
+                }
+                return {
+                  name: opt.name,
+                  code: opt.code,
+                  priceUSD: opt.price,
+                  deliveryDays: days,
+                };
+              });
+              
+              // If specific shipping method requested, find it
+              let selectedOption = shippingMethod !== 'any' 
+                ? freight.options.find(o => o.name.toLowerCase().includes(shippingMethod.toLowerCase()) || o.code.toLowerCase().includes(shippingMethod.toLowerCase()))
+                : null;
+              
+              // If requested method not found, skip this variant when filtering
+              if (shippingMethod !== 'any' && !selectedOption) {
+                shippingError = `Shipping method ${shippingMethod} not available`;
+              } else {
+                // Use selected method or cheapest
+                const option = selectedOption || freight.options.reduce((a, b) => a.price < b.price ? a : b);
+                shippingPriceUSD = option.price;
+                shippingPriceSAR = usdToSar(shippingPriceUSD);
+                shippingAvailable = true;
+                logisticName = option.name;
+                if (option.logisticAgingDays) {
+                  const { min, max } = option.logisticAgingDays;
+                  deliveryDays = max ? `${min}-${max} days` : `${min} days`;
+                }
               }
             } else {
-              shippingError = 'No shipping options available to Saudi Arabia';
+              shippingError = 'No shipping options available to USA';
             }
           } catch (e: any) {
             shippingError = e?.message || 'Shipping calculation failed';
+          }
+          
+          // Skip if shipping method filter active and method not found
+          if (shippingMethod !== 'any' && !shippingAvailable) {
+            continue;
           }
           
           if (freeShippingOnly && shippingPriceUSD > 0) {
@@ -1374,6 +1449,7 @@ export async function GET(req: Request) {
             totalCostSAR,
             profitSAR,
             error: shippingError,
+            allShippingOptions,
           });
         }
       }

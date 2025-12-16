@@ -34,6 +34,7 @@ export default function ProductDiscoveryPage() {
   const [profitMargin, setProfitMargin] = useState(8);
   const [popularity, setPopularity] = useState("any");
   const [minRating, setMinRating] = useState("any");
+  const [shippingMethod, setShippingMethod] = useState("any");
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
   
   const [loading, setLoading] = useState(false);
@@ -168,6 +169,7 @@ export default function ProductDiscoveryPage() {
         profitMargin: profitMargin.toString(),
         popularity: popularity,
         minRating: minRating,
+        shippingMethod: shippingMethod,
         freeShippingOnly: freeShippingOnly ? "1" : "0",
       });
       
@@ -509,6 +511,27 @@ export default function ProductDiscoveryPage() {
               <option value="4">4+ Stars</option>
               <option value="3.5">3.5+ Stars</option>
               <option value="3">3+ Stars</option>
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm text-gray-600 mb-2 flex items-center gap-1">
+              <Truck className="h-4 w-4 text-blue-500" />
+              Shipping Method
+            </label>
+            <select
+              value={shippingMethod}
+              onChange={(e) => setShippingMethod(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded"
+            >
+              <option value="any">Any Method (Cheapest)</option>
+              <option value="cjpacket">CJPacket (7-17 days)</option>
+              <option value="epacket">ePacket (10-20 days)</option>
+              <option value="usps">USPS (5-10 days)</option>
+              <option value="ems">EMS Express (5-12 days)</option>
+              <option value="dhl">DHL Express (3-7 days)</option>
+              <option value="fedex">FedEx (3-7 days)</option>
+              <option value="ups">UPS (3-7 days)</option>
             </select>
           </div>
           

@@ -1,3 +1,10 @@
+export type ShippingOption = {
+  name: string;
+  code: string;
+  priceUSD: number;
+  deliveryDays: string;
+};
+
 export type PricedVariant = {
   variantId: string;
   variantSku: string;
@@ -16,6 +23,7 @@ export type PricedVariant = {
   variantImage?: string;
   size?: string;
   color?: string;
+  allShippingOptions?: ShippingOption[];
 };
 
 export type PricedProduct = {
