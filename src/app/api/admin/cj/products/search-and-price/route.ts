@@ -1325,12 +1325,6 @@ export async function GET(req: Request) {
       
       const pricedVariants: PricedVariant[] = [];
       
-      // Skip this product if quota already exhausted
-      if (globalQuotaExhausted) {
-        console.log(`[Search&Price] Product ${pid}: Skipping - API quota already exhausted`);
-        skippedNoShipping++;
-        continue;
-      }
       
       if (variants.length === 0) {
         // Single variant product - try to get exact shipping using product-level vid
@@ -1359,12 +1353,8 @@ export async function GET(req: Request) {
             });
             
             if (!freight.ok) {
-              if (freight.message.includes('Too Many Requests') || freight.message.includes('daily request limit')) {
-                globalQuotaExhausted = true;
-                shippingError = 'API quota exceeded - try again tomorrow';
-              } else {
-                shippingError = freight.message;
-              }
+              // Log rate limit errors but don't abort entire search - may be transient
+              shippingError = freight.message;
             } else if (freight.options.length > 0) {
               const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
               if (cjPacketOrdinary) {
@@ -1383,12 +1373,7 @@ export async function GET(req: Request) {
               shippingError = 'No shipping options to USA';
             }
           } catch (e: any) {
-            if (e?.message?.includes('429') || e?.message?.includes('Too Many')) {
-              globalQuotaExhausted = true;
-              shippingError = 'API quota exceeded - try again tomorrow';
-            } else {
-              shippingError = e?.message || 'Shipping failed';
-            }
+            shippingError = e?.message || 'Shipping failed';
           }
         } else {
           shippingError = 'No variant ID available';
@@ -1421,7 +1406,7 @@ export async function GET(req: Request) {
         
         for (let i = 0; i < Math.min(variants.length, MAX_VARIANTS_TO_CHECK); i++) {
           // Stop if we already found shipping or hit quota
-          if (pricedVariants.length > 0 || globalQuotaExhausted) break;
+          if (pricedVariants.length > 0) break; // Found shipping, stop checking variants
           
           const variant = variants[i];
           const variantId = String(variant.vid || variant.variantId || variant.id || '');
@@ -1443,7 +1428,7 @@ export async function GET(req: Request) {
           
           if (variantId) {
             // Add delay to respect rate limit (1 req/sec)
-            await new Promise(resolve => setTimeout(resolve, 1200));
+            await new Promise(resolve => setTimeout(resolve, 1000));
             
             try {
               const freight = await freightCalculate({
@@ -1453,12 +1438,8 @@ export async function GET(req: Request) {
               });
               
               if (!freight.ok) {
-                if (freight.message.includes('Too Many Requests') || freight.message.includes('daily request limit')) {
-                  globalQuotaExhausted = true;
-                  shippingError = 'API quota exceeded - try again tomorrow';
-                } else {
-                  shippingError = freight.message;
-                }
+                // Log error but don't abort - may be transient rate limit
+                shippingError = freight.message;
                 shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
               } else if (freight.options.length > 0) {
                 const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
@@ -1480,12 +1461,7 @@ export async function GET(req: Request) {
                 shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
               }
             } catch (e: any) {
-              if (e?.message?.includes('429') || e?.message?.includes('Too Many')) {
-                globalQuotaExhausted = true;
-                shippingError = 'API quota exceeded - try again tomorrow';
-              } else {
-                shippingError = e?.message || 'Shipping failed';
-              }
+              shippingError = e?.message || 'Shipping failed';
               if (shippingError) {
                 shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
               }
@@ -1517,20 +1493,11 @@ export async function GET(req: Request) {
             });
             console.log(`[Search&Price] Product ${pid} variant ${i+1}: got exact CJPacket Ordinary $${shippingPriceUSD.toFixed(2)}`);
             break; // Stop checking more variants - we found CJPacket Ordinary
-          } else if (globalQuotaExhausted) {
-            console.log(`[Search&Price] Product ${pid} variant ${i+1}: quota exhausted, stopping variant checks`);
-            break; // Stop immediately if quota hit
           } else {
             console.log(`[Search&Price] Product ${pid} variant ${i+1}: ${shippingError}`);
             // Continue to next variant to look for CJPacket Ordinary
           }
         }
-      }
-      
-      // If quota is exhausted, stop processing more products
-      if (globalQuotaExhausted) {
-        console.log(`[Search&Price] CJ API quota exhausted - stopping product processing`);
-        break;
       }
       
       if (pricedVariants.length === 0) {
