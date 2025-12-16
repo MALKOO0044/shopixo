@@ -76,7 +76,8 @@ export async function listCjProductsPage(params: { pageNum: number; pageSize?: n
 
 // --- Freight / Shipping ---
 export type CjFreightCalcParams = {
-  countryCode: string; // e.g., 'SA'
+  countryCode: string; // e.g., 'US' - destination country
+  startCountryCode?: string; // e.g., 'CN' - origin country (defaults to China)
   zipCode?: string;
   weightGram?: number; // optional; CJ can compute by variant sometimes
   lengthCm?: number;
@@ -84,7 +85,7 @@ export type CjFreightCalcParams = {
   heightCm?: number;
   quantity?: number;
   pid?: string; // product id if required by backend
-  sku?: string; // variant sku if required
+  sku?: string; // variant sku if required (used as vid in CJ API)
 };
 
 export type CjShippingOption = {
@@ -96,36 +97,60 @@ export type CjShippingOption = {
 };
 
 export async function freightCalculate(params: CjFreightCalcParams): Promise<{ options: CjShippingOption[] }> {
-  // CJ endpoint name varies in docs; use common one
+  // CJ API v2 requires startCountryCode, endCountryCode, and products array with vid/quantity
+  // Default shipping from China to the destination country
+  const startCountry = params.startCountryCode || 'CN';
+  const endCountry = params.countryCode || 'US';
+  
+  // Build products array - CJ API requires vid (variant ID) or we can use sku
+  const products: any[] = [];
+  if (params.sku) {
+    products.push({
+      vid: params.sku,
+      quantity: params.quantity ?? 1,
+    });
+  } else if (params.pid) {
+    // If no SKU, use pid as fallback
+    products.push({
+      vid: params.pid,
+      quantity: params.quantity ?? 1,
+    });
+  }
+  
   const body: any = {
-    countryCode: params.countryCode,
-    zip: params.zipCode,
-    weight: params.weightGram,
-    length: params.lengthCm,
-    width: params.widthCm,
-    height: params.heightCm,
-    quantity: params.quantity ?? 1,
-    pid: params.pid,
-    sku: params.sku,
+    startCountryCode: startCountry,
+    endCountryCode: endCountry,
+    products: products,
   };
+  
+  console.log(`[CJ Freight] Request: ${JSON.stringify(body)}`);
+  
   const r = await cjFetch<any>('/logistic/freightCalculate', {
     method: 'POST',
     body: JSON.stringify(body),
   });
+  
+  console.log(`[CJ Freight] Response: ${JSON.stringify(r).slice(0, 1000)}`);
+  
   const src: any = (r?.data ?? r?.content ?? r ?? []);
   const out: CjShippingOption[] = [];
   const arr: any[] = Array.isArray(src) ? src : Array.isArray(src?.list) ? src.list : [];
+  
   for (const it of arr) {
-    const price = Number(it.price || it.amount || it.totalFee || it.totalPrice || 0);
+    // CJ API v2 returns: logisticPrice (USD), logisticPriceCn (CNY), logisticName, logisticAging
+    const price = Number(it.logisticPrice || it.price || it.amount || it.totalFee || it.totalPrice || 0);
     const currency = it.currency || it.ccy || 'USD';
-    const name = String(it.logisticsName || it.name || it.channelName || it.express || 'Shipping');
-    const code = String(it.logisticsType || it.code || it.channel || name);
+    const name = String(it.logisticName || it.logisticsName || it.name || it.channelName || it.express || 'Shipping');
+    const code = String(it.logisticCode || it.logisticsType || it.code || it.channel || name);
     const age = it.logisticAging || it.aging || it.days || null;
     const aging = typeof age === 'string'
       ? (() => { const m = age.match(/(\d+)[^\d]+(\d+)/); if (m) return { min: Number(m[1]), max: Number(m[2]) }; const n = age.match(/(\d+)/); return n ? { min: Number(n[1]) } : undefined; })()
       : (typeof age === 'number' ? { min: age, max: age } : undefined);
     out.push({ code, name, price, currency, logisticAgingDays: aging });
   }
+  
+  console.log(`[CJ Freight] Parsed ${out.length} shipping options`);
+  
   return { options: out };
 }
 // - POST /authentication/refreshAccessToken { refreshToken }

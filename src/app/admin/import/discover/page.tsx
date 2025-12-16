@@ -525,8 +525,10 @@ export default function ProductDiscoveryPage() {
               className="w-full px-3 py-2 border border-gray-300 rounded"
             >
               <option value="any">Any Method (Cheapest)</option>
+              <option value="cjpacket ordinary">CJPacket Ordinary (7-12 days)</option>
               <option value="cjpacket">CJPacket (7-17 days)</option>
               <option value="epacket">ePacket (10-20 days)</option>
+              <option value="yunexpress">YunExpress (8-18 days)</option>
               <option value="usps">USPS (5-10 days)</option>
               <option value="ems">EMS Express (5-12 days)</option>
               <option value="dhl">DHL Express (3-7 days)</option>

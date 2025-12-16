@@ -1373,10 +1373,11 @@ export async function GET(req: Request) {
           let allShippingOptions: ShippingOption[] = [];
           
           try {
+            // CJ API requires vid (variant ID) - use variantId, not variantSku
             const freight = await freightCalculate({
               countryCode: 'US',
               pid: pid,
-              sku: variantSku,
+              sku: variantId || variantSku, // Prefer vid, fallback to sku
               quantity: 1,
             });
             
