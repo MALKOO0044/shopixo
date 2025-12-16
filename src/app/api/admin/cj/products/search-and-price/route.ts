@@ -1322,17 +1322,24 @@ export async function GET(req: Request) {
         let allShippingOptions: ShippingOption[] = [];
         
         try {
+          // Log weight being used for shipping calculation
+          const weightForShipping = productWeight && productWeight > 0 ? Math.round(productWeight) : undefined;
+          console.log(`[Search&Price] Product ${pid} freight calc: weight=${weightForShipping}g, L=${packLength}, W=${packWidth}, H=${packHeight}`);
+          
           const freight = await freightCalculate({
             countryCode: 'US',
             pid: pid,
             quantity: 1,
-            weightGram: productWeight && productWeight > 0 ? Math.round(productWeight) : undefined,
+            weightGram: weightForShipping,
             lengthCm: packLength && packLength > 0 ? packLength : undefined,
             widthCm: packWidth && packWidth > 0 ? packWidth : undefined,
             heightCm: packHeight && packHeight > 0 ? packHeight : undefined,
           });
           
-          if (freight.options.length > 0) {
+          // Handle freight result with proper error handling
+          if (!freight.ok) {
+            shippingError = freight.message;
+          } else if (freight.options.length > 0) {
             // Store all shipping options for display
             allShippingOptions = freight.options.map(opt => {
               let days = 'Unknown';
@@ -1424,6 +1431,8 @@ export async function GET(req: Request) {
             const effectiveWeight = variantWeight > 0 ? Math.round(variantWeight) : (productWeight && productWeight > 0 ? Math.round(productWeight) : undefined);
             
             // CJ API requires vid (variant ID) - use variantId, not variantSku
+            console.log(`[Search&Price] Variant ${variantSku} freight calc: weight=${effectiveWeight}g`);
+            
             const freight = await freightCalculate({
               countryCode: 'US',
               pid: pid,
@@ -1435,7 +1444,10 @@ export async function GET(req: Request) {
               heightCm: packHeight && packHeight > 0 ? packHeight : undefined,
             });
             
-            if (freight.options.length > 0) {
+            // Handle freight result with proper error handling
+            if (!freight.ok) {
+              shippingError = freight.message;
+            } else if (freight.options.length > 0) {
               // Store all shipping options for display
               allShippingOptions = freight.options.map(opt => {
                 let days = 'Unknown';

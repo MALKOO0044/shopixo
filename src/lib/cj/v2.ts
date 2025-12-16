@@ -96,21 +96,44 @@ export type CjShippingOption = {
   logisticAgingDays?: { min?: number; max?: number };
 };
 
-export async function freightCalculate(params: CjFreightCalcParams): Promise<{ options: CjShippingOption[] }> {
+export type FreightResult = {
+  ok: true;
+  options: CjShippingOption[];
+  weightUsed: number;
+} | {
+  ok: false;
+  reason: 'weight_missing' | 'api_error';
+  message: string;
+  options: CjShippingOption[];
+};
+
+export async function freightCalculate(params: CjFreightCalcParams): Promise<FreightResult> {
   // Try freightCalculateTip first (supports SKU) then fallback to freightCalculate (requires vid)
   const startCountry = params.startCountryCode || 'CN';
   const endCountry = params.countryCode || 'US';
   const sku = params.sku || params.pid || '';
   const qty = params.quantity ?? 1;
   
-  // Use actual weight/dimensions or CJ defaults (CJ website uses product-specific data)
-  const weight = params.weightGram && params.weightGram > 0 ? params.weightGram : 100;
-  const length = params.lengthCm && params.lengthCm > 0 ? params.lengthCm : 10;
+  // Require real weight from CJ product data - no estimates allowed
+  // If weight is not provided, return error so caller can mark shipping as unavailable
+  const hasRealWeight = params.weightGram && params.weightGram > 0;
+  if (!hasRealWeight) {
+    console.log(`[CJ Freight] Weight data missing for ${sku || params.pid} - shipping unavailable`);
+    return {
+      ok: false,
+      reason: 'weight_missing',
+      message: 'CJ missing weight data - shipping rates unavailable',
+      options: [],
+    };
+  }
+  
+  const weight = params.weightGram!;
+  const length = params.lengthCm && params.lengthCm > 0 ? params.lengthCm : 15;
   const width = params.widthCm && params.widthCm > 0 ? params.widthCm : 10;
   const height = params.heightCm && params.heightCm > 0 ? params.heightCm : 5;
   const volume = length * width * height; // cm³
   
-  console.log(`[CJ Freight] Using weight=${weight}g, dimensions=${length}x${width}x${height}cm, volume=${volume}cm³`);
+  console.log(`[CJ Freight] Using weight=${weight}g (from CJ data), dimensions=${length}x${width}x${height}cm, volume=${volume}cm³`);
   
   // First try freightCalculateTip which accepts SKU directly
   try {
@@ -157,7 +180,7 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<{ o
       
       if (out.length > 0) {
         console.log(`[CJ Freight Tip] Parsed ${out.length} shipping options`);
-        return { options: out };
+        return { ok: true, options: out, weightUsed: weight };
       }
     }
   } catch (e: any) {
@@ -206,7 +229,16 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<{ o
   
   console.log(`[CJ Freight] Parsed ${out.length} shipping options`);
   
-  return { options: out };
+  if (out.length > 0) {
+    return { ok: true, options: out, weightUsed: weight };
+  }
+  
+  return {
+    ok: false,
+    reason: 'api_error',
+    message: 'No shipping options returned from CJ API',
+    options: [],
+  };
 }
 // - POST /authentication/refreshAccessToken { refreshToken }
 // Token lives 15 days; refresh token 180 days; getAccessToken limited to once/5 minutes.

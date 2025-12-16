@@ -53,7 +53,12 @@ export async function POST(req: Request) {
     }
 
     const res = await freightCalculate(params)
-    const r = NextResponse.json({ ok: true, options: res.options })
+    if (!res.ok) {
+      const r = NextResponse.json({ ok: false, error: res.message, reason: res.reason }, { status: 400 })
+      r.headers.set('x-request-id', log.requestId)
+      return r
+    }
+    const r = NextResponse.json({ ok: true, options: res.options, weightUsed: res.weightUsed })
     r.headers.set('x-request-id', log.requestId)
     return r
   } catch (e: any) {
