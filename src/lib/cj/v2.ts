@@ -97,23 +97,70 @@ export type CjShippingOption = {
 };
 
 export async function freightCalculate(params: CjFreightCalcParams): Promise<{ options: CjShippingOption[] }> {
-  // CJ API v2 requires startCountryCode, endCountryCode, and products array with vid/quantity
-  // Default shipping from China to the destination country
+  // Try freightCalculateTip first (supports SKU) then fallback to freightCalculate (requires vid)
   const startCountry = params.startCountryCode || 'CN';
   const endCountry = params.countryCode || 'US';
+  const sku = params.sku || params.pid || '';
+  const qty = params.quantity ?? 1;
   
-  // Build products array - CJ API requires vid (variant ID) or we can use sku
-  const products: any[] = [];
-  if (params.sku) {
-    products.push({
-      vid: params.sku,
-      quantity: params.quantity ?? 1,
+  // First try freightCalculateTip which accepts SKU directly
+  try {
+    const tipBody: any = {
+      reqDTOS: [{
+        srcAreaCode: startCountry,
+        destAreaCode: endCountry,
+        skuList: [sku],
+        freightTrialSkuList: [{
+          sku: sku,
+          skuQuantity: qty,
+        }],
+        productProp: ['COMMON'],
+        weight: params.weightGram || 100, // Default 100g if not specified
+        wrapWeight: params.weightGram || 100,
+        volume: (params.lengthCm || 10) * (params.widthCm || 10) * (params.heightCm || 5) / 1000, // cm³ to L
+      }],
+    };
+    
+    console.log(`[CJ Freight Tip] Request for ${sku}: ${JSON.stringify(tipBody).slice(0, 500)}`);
+    
+    const tipRes = await cjFetch<any>('/logistic/freightCalculateTip', {
+      method: 'POST',
+      body: JSON.stringify(tipBody),
     });
-  } else if (params.pid) {
-    // If no SKU, use pid as fallback
+    
+    console.log(`[CJ Freight Tip] Response: ${JSON.stringify(tipRes).slice(0, 1000)}`);
+    
+    if (tipRes?.result && Array.isArray(tipRes?.data) && tipRes.data.length > 0) {
+      const out: CjShippingOption[] = [];
+      for (const it of tipRes.data) {
+        // freightCalculateTip returns: postage (USD), option.enName/cnName, arrivalTime
+        const price = Number(it.postage || it.wrapPostage || it.discountFee || 0);
+        if (price <= 0) continue;
+        
+        const name = String(it.option?.enName || it.channel?.enName || it.logisticName || 'Shipping');
+        const code = String(it.optionId || it.channelId || name);
+        const age = it.arrivalTime || it.logisticAging || null;
+        const aging = typeof age === 'string'
+          ? (() => { const m = age.match(/(\d+)[^\d]*(\d+)/); if (m) return { min: Number(m[1]), max: Number(m[2]) }; const n = age.match(/(\d+)/); return n ? { min: Number(n[1]) } : undefined; })()
+          : (typeof age === 'number' ? { min: age, max: age } : undefined);
+        out.push({ code, name, price, currency: 'USD', logisticAgingDays: aging });
+      }
+      
+      if (out.length > 0) {
+        console.log(`[CJ Freight Tip] Parsed ${out.length} shipping options`);
+        return { options: out };
+      }
+    }
+  } catch (e: any) {
+    console.log(`[CJ Freight Tip] Failed: ${e?.message}, trying freightCalculate...`);
+  }
+  
+  // Fallback to original freightCalculate endpoint (requires vid in UUID format)
+  const products: any[] = [];
+  if (sku) {
     products.push({
-      vid: params.pid,
-      quantity: params.quantity ?? 1,
+      vid: sku,
+      quantity: qty,
     });
   }
   
@@ -137,7 +184,6 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<{ o
   const arr: any[] = Array.isArray(src) ? src : Array.isArray(src?.list) ? src.list : [];
   
   for (const it of arr) {
-    // CJ API v2 returns: logisticPrice (USD), logisticPriceCn (CNY), logisticName, logisticAging
     const price = Number(it.logisticPrice || it.price || it.amount || it.totalFee || it.totalPrice || 0);
     const currency = it.currency || it.ccy || 'USD';
     const name = String(it.logisticName || it.logisticsName || it.name || it.channelName || it.express || 'Shipping');

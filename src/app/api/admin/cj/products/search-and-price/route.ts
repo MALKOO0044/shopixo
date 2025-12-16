@@ -145,9 +145,11 @@ async function getVariantsForProduct(token: string, base: string, pid: string): 
         }
       }
       
-      // Also log variantKey which often contains color info
+      // Also log variantKey and vid which is needed for freight calculation
       if (sample.variantKey) console.log(`[Variants] variantKey = ${sample.variantKey}`);
       if (sample.variantNameEn) console.log(`[Variants] variantNameEn = ${sample.variantNameEn}`);
+      if (sample.vid) console.log(`[Variants] vid = ${sample.vid}`);
+      if (sample.variantSku) console.log(`[Variants] variantSku = ${sample.variantSku}`);
     }
     
     return variants;
