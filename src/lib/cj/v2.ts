@@ -201,19 +201,21 @@ function parseFreightResponse(r: any): FreightResult {
 
 // Helper to find CJPacket Ordinary from shipping options
 export function findCJPacketOrdinary(options: CjShippingOption[]): CjShippingOption | undefined {
-  // Try exact matches first, then partial matches
-  // CJ returns names like "CJPacket Ordinary", "CJ Packet Ordinary", etc.
-  const patterns = [
-    /^cjpacket\s*ordinary$/i,           // Exact: "CJPacket Ordinary" or "CJ Packet Ordinary"  
-    /cjpacket\s*ordinary/i,              // Contains: "CJPacket Ordinary"
-    /^cj\s*packet\s*ordinary$/i,         // Exact with spaces
-  ];
+  // Normalize function: lowercase, remove all non-letter characters
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
   
-  for (const pattern of patterns) {
-    const match = options.find(o => pattern.test(o.name) || pattern.test(o.code));
-    if (match) {
-      console.log(`[CJ Freight] Selected CJPacket Ordinary: $${match.price.toFixed(2)} USD (${match.name})`);
-      return match;
+  // We're looking for anything that contains "cjpacketordinary" when normalized
+  // This handles: "CJPacket Ordinary", "CJ Packet Ordinary", "CJ Packet Ordinary USPS", 
+  // "CJPacket Ordinary+", "CJ-Packet-Ordinary", etc.
+  const TARGET = 'cjpacketordinary';
+  
+  for (const option of options) {
+    const normalizedName = normalize(option.name);
+    const normalizedCode = normalize(option.code);
+    
+    if (normalizedName.includes(TARGET) || normalizedCode.includes(TARGET)) {
+      console.log(`[CJ Freight] Selected CJPacket Ordinary: $${option.price.toFixed(2)} USD (${option.name})`);
+      return option;
     }
   }
   
