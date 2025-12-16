@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAccessToken, freightCalculate, fetchProductDetailsBatch, getProductRatings } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsBatch, getProductRatings, findCJPacketOrdinary } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
@@ -29,6 +29,10 @@ type PricedVariant = {
   totalCostSAR: number;
   profitSAR: number;
   error?: string;
+  variantName?: string;
+  variantImage?: string;
+  size?: string;
+  color?: string;
   allShippingOptions?: ShippingOption[];
 };
 
@@ -1342,20 +1346,16 @@ export async function GET(req: Request) {
             if (!freight.ok) {
               shippingError = freight.message;
             } else if (freight.options.length > 0) {
-              // Find CJPacket Ordinary specifically - check both name and code fields
-              const cjPacketOrdinary = freight.options.find(o => {
-                const nameLower = (o.name || '').toLowerCase();
-                const codeLower = (o.code || '').toLowerCase();
-                return nameLower.includes('cjpacket ordinary') || 
-                       codeLower.includes('cjpacket ordinary') ||
-                       codeLower === 'cjpacketordinary';
-              });
+              // Use the centralized CJPacket Ordinary finder for consistent matching
+              const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
               
               if (cjPacketOrdinary) {
+                // Use EXACT price from CJ API - no modifications
                 shippingPriceUSD = cjPacketOrdinary.price;
                 shippingPriceSAR = usdToSar(shippingPriceUSD);
                 shippingAvailable = true;
                 logisticName = cjPacketOrdinary.name;
+                console.log(`[Search&Price] Product ${pid}: CJPacket Ordinary shipping = $${shippingPriceUSD.toFixed(2)} USD`);
                 if (cjPacketOrdinary.logisticAgingDays) {
                   const { min, max } = cjPacketOrdinary.logisticAgingDays;
                   deliveryDays = max ? `${min}-${max} days` : `${min} days`;
@@ -1399,11 +1399,19 @@ export async function GET(req: Request) {
           error: shippingError,
         });
       } else {
-        for (const variant of variants.slice(0, 5)) {
+        // Process ALL variants and fetch exact CJPacket Ordinary shipping from CJ API for each
+        // No limit - each variant must have its accurate CJPacket Ordinary shipping cost
+        for (const variant of variants) {
           const variantId = String(variant.vid || variant.variantId || variant.id || '');
           const variantSku = String(variant.variantSku || variant.sku || variantId);
           const variantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
           const costSAR = usdToSar(variantPriceUSD);
+          
+          // Extract variant details for display
+          const variantName = String(variant.variantNameEn || variant.variantName || '').replace(/[\u4e00-\u9fff]/g, '').trim() || undefined;
+          const variantImage = variant.variantImage || variant.whiteImage || variant.image || undefined;
+          const size = variant.size || variant.sizeNameEn || undefined;
+          const color = variant.color || variant.colorNameEn || undefined;
           
           let shippingPriceUSD = 0;
           let shippingPriceSAR = 0;
@@ -1418,7 +1426,7 @@ export async function GET(req: Request) {
               shippingError = 'No variant ID available - shipping cannot be calculated';
               console.log(`[Search&Price] Variant ${variantSku} has no vid - skipping shipping calc`);
             } else {
-              console.log(`[Search&Price] Variant ${variantSku} (vid=${variantId}) freight calc`);
+              console.log(`[Search&Price] Variant ${variantSku} (vid=${variantId}) fetching CJPacket Ordinary shipping...`);
               
               const freight = await freightCalculate({
                 countryCode: 'US',
@@ -1430,20 +1438,16 @@ export async function GET(req: Request) {
               if (!freight.ok) {
                 shippingError = freight.message;
               } else if (freight.options.length > 0) {
-                // Find CJPacket Ordinary specifically - check both name and code fields
-                const cjPacketOrdinary = freight.options.find(o => {
-                  const nameLower = (o.name || '').toLowerCase();
-                  const codeLower = (o.code || '').toLowerCase();
-                  return nameLower.includes('cjpacket ordinary') || 
-                         codeLower.includes('cjpacket ordinary') ||
-                         codeLower === 'cjpacketordinary';
-                });
+                // Use the centralized CJPacket Ordinary finder for consistent matching
+                const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
                 
                 if (cjPacketOrdinary) {
+                  // Use EXACT price from CJ API - no modifications
                   shippingPriceUSD = cjPacketOrdinary.price;
                   shippingPriceSAR = usdToSar(shippingPriceUSD);
                   shippingAvailable = true;
                   logisticName = cjPacketOrdinary.name;
+                  console.log(`[Search&Price] Variant ${variantSku}: CJPacket Ordinary shipping = $${shippingPriceUSD.toFixed(2)} USD`);
                   if (cjPacketOrdinary.logisticAgingDays) {
                     const { min, max } = cjPacketOrdinary.logisticAgingDays;
                     deliveryDays = max ? `${min}-${max} days` : `${min} days`;
@@ -1485,6 +1489,10 @@ export async function GET(req: Request) {
             totalCostSAR,
             profitSAR,
             error: shippingError,
+            variantName,
+            variantImage,
+            size,
+            color,
           });
         }
       }

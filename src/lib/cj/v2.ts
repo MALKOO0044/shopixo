@@ -160,9 +160,11 @@ function parseFreightResponse(r: any): FreightResult {
   const out: CjShippingOption[] = [];
   const arr: any[] = Array.isArray(src) ? src : Array.isArray(src?.list) ? src.list : [];
   
+  console.log(`[CJ Freight] Raw shipping options from CJ API (${arr.length} items):`);
+  
   for (const it of arr) {
+    // CJ API returns logisticPrice in USD - this is the exact shipping cost
     const price = Number(it.logisticPrice || it.price || it.amount || it.totalFee || it.totalPrice || 0);
-    if (price <= 0) continue;
     
     const currency = it.currency || it.ccy || 'USD';
     const name = String(it.logisticName || it.logisticsName || it.name || it.channelName || it.express || 'Shipping');
@@ -171,10 +173,20 @@ function parseFreightResponse(r: any): FreightResult {
     const aging = typeof age === 'string'
       ? (() => { const m = age.match(/(\d+)[^\d]+(\d+)/); if (m) return { min: Number(m[1]), max: Number(m[2]) }; const n = age.match(/(\d+)/); return n ? { min: Number(n[1]) } : undefined; })()
       : (typeof age === 'number' ? { min: age, max: age } : undefined);
+    
+    // Log each shipping option with exact price from CJ
+    console.log(`[CJ Freight]   - ${name}: $${price.toFixed(2)} USD, delivery: ${age || 'N/A'}`);
+    
+    // Include all options even with price 0 for debugging, but mark them
+    if (price <= 0) {
+      console.log(`[CJ Freight]     ^ Skipping (price <= 0)`);
+      continue;
+    }
+    
     out.push({ code, name, price, currency, logisticAgingDays: aging });
   }
   
-  console.log(`[CJ Freight] Parsed ${out.length} shipping options`);
+  console.log(`[CJ Freight] Parsed ${out.length} valid shipping options`);
   
   if (out.length > 0) {
     return { ok: true, options: out };
@@ -185,6 +197,33 @@ function parseFreightResponse(r: any): FreightResult {
     reason: 'no_options',
     message: 'No shipping options returned',
   };
+}
+
+// Helper to find CJPacket Ordinary from shipping options
+export function findCJPacketOrdinary(options: CjShippingOption[]): CjShippingOption | undefined {
+  // Try exact matches first, then partial matches
+  // CJ returns names like "CJPacket Ordinary", "CJ Packet Ordinary", etc.
+  const patterns = [
+    /^cjpacket\s*ordinary$/i,           // Exact: "CJPacket Ordinary" or "CJ Packet Ordinary"  
+    /cjpacket\s*ordinary/i,              // Contains: "CJPacket Ordinary"
+    /^cj\s*packet\s*ordinary$/i,         // Exact with spaces
+  ];
+  
+  for (const pattern of patterns) {
+    const match = options.find(o => pattern.test(o.name) || pattern.test(o.code));
+    if (match) {
+      console.log(`[CJ Freight] Selected CJPacket Ordinary: $${match.price.toFixed(2)} USD (${match.name})`);
+      return match;
+    }
+  }
+  
+  // Log available options if CJPacket Ordinary not found
+  console.log(`[CJ Freight] CJPacket Ordinary NOT FOUND. Available options:`);
+  for (const o of options) {
+    console.log(`[CJ Freight]   - ${o.name} (code: ${o.code}): $${o.price.toFixed(2)}`);
+  }
+  
+  return undefined;
 }
 // - POST /authentication/refreshAccessToken { refreshToken }
 // Token lives 15 days; refresh token 180 days; getAccessToken limited to once/5 minutes.
