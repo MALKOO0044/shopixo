@@ -138,25 +138,35 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
         const policy = await loadPricingPolicy()
         let shippingSar = 0
         try {
-          const fc = await freightCalculate({ countryCode: 'SA', pid: cj.productId, sku: minVariant?.sku, quantity: 1 })
-          const cheapest = (fc.options || []).reduce<{ price: number; currency?: string; aging?: { min?: number; max?: number } } | null>((best, opt: any) => {
-            const p = Number(opt.price || 0)
-            if (!best || p < best.price) return { price: p, currency: opt.currency, aging: opt.logisticAgingDays }
-            return best
-          }, null)
-          if (cheapest) {
-            shippingSar = convertToSar(cheapest.price, cheapest.currency)
-            // If we have an aging estimate in days, persist to product
-            try {
-              const aging = cheapest.aging
-              if (aging && (typeof aging.min === 'number' || typeof aging.max === 'number')) {
-                const avgDays = typeof aging.min === 'number' && typeof aging.max === 'number' ? (aging.min + aging.max) / 2
-                  : (typeof aging.min === 'number' ? aging.min : (aging.max as number))
-                const hours = Math.max(1, Math.round(avgDays * 24))
-                await admin.from('products').update({ delivery_time_hours: hours }).eq('id', productId)
-                updated.push('delivery_time_hours')
-              }
-            } catch {}
+          // Get weight from product data
+          const productWeight = Number((cj as any).packWeight || (cj as any).packingWeight || (cj as any).productWeight || 0);
+          
+          const fc = await freightCalculate({ 
+            countryCode: 'US', 
+            vid: minVariant?.sku || cj.productId, 
+            quantity: 1,
+            weightGram: productWeight > 0 ? productWeight : undefined
+          })
+          if (fc.ok) {
+            const cheapest = (fc.options || []).reduce<{ price: number; currency?: string; aging?: { min?: number; max?: number } } | null>((best: { price: number; currency?: string; aging?: { min?: number; max?: number } } | null, opt: any) => {
+              const p = Number(opt.price || 0)
+              if (!best || p < best.price) return { price: p, currency: opt.currency, aging: opt.logisticAgingDays }
+              return best
+            }, null)
+            if (cheapest) {
+              shippingSar = convertToSar(cheapest.price, cheapest.currency)
+              // If we have an aging estimate in days, persist to product
+              try {
+                const aging = cheapest.aging
+                if (aging && (typeof aging.min === 'number' || typeof aging.max === 'number')) {
+                  const avgDays = typeof aging.min === 'number' && typeof aging.max === 'number' ? (aging.min + aging.max) / 2
+                    : (typeof aging.min === 'number' ? aging.min : (aging.max as number))
+                  const hours = Math.max(1, Math.round(avgDays * 24))
+                  await admin.from('products').update({ delivery_time_hours: hours }).eq('id', productId)
+                  updated.push('delivery_time_hours')
+                }
+              } catch {}
+            }
           }
         } catch {}
 

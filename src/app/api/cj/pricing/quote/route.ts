@@ -74,18 +74,28 @@ export async function POST(req: Request) {
       chosenSku = min?.sku
     }
 
-    // Freight calculation
+    // Freight calculation - use SKU and product weight
     let shippingSar = 0
     let options: any[] = []
     try {
-      const fc = await freightCalculate({ countryCode: parsed.countryCode.toUpperCase(), pid: mapped.productId, sku: chosenSku, quantity: parsed.quantity })
-      options = fc.options || []
-      const cheapest = options.reduce<{ price: number; currency?: string } | null>((best, opt: any) => {
-        const p = Number(opt.price || 0)
-        if (!best || p < best.price) return { price: p, currency: opt.currency }
-        return best
-      }, null)
-      if (cheapest) shippingSar = convertToSar(cheapest.price, cheapest.currency)
+      // Get weight from raw CJ data (packWeight > packingWeight > productWeight)
+      const productWeight = Number(itemRaw?.packWeight || itemRaw?.packingWeight || itemRaw?.productWeight || 0);
+      
+      const fc = await freightCalculate({ 
+        countryCode: parsed.countryCode.toUpperCase(), 
+        vid: chosenSku || mapped.productId, // Use SKU as identifier
+        quantity: parsed.quantity,
+        weightGram: productWeight > 0 ? productWeight : undefined
+      })
+      if (fc.ok) {
+        options = fc.options || []
+        const cheapest = options.reduce<{ price: number; currency?: string } | null>((best, opt: any) => {
+          const p = Number(opt.price || 0)
+          if (!best || p < best.price) return { price: p, currency: opt.currency }
+          return best
+        }, null)
+        if (cheapest) shippingSar = convertToSar(cheapest.price, cheapest.currency)
+      }
     } catch {}
 
     const policy = await loadPricingPolicy()
