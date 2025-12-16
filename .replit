@@ -21,6 +21,7 @@ NEXT_PUBLIC_SITE_URL = "https://shopixo.net"
 ADMIN_EMAILS = "malk.t1287@gmail.com"
 CJ_EMAIL = "Malk.t1287@gmail.com"
 CJ_API_BASE = "https://developers.cjdropshipping.com/api2.0/v1"
+EXCHANGE_USD_TO_SAR = "1.0"
 
 [workflows]
 runButton = "Project"

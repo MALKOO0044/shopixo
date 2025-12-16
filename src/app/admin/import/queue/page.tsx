@@ -531,7 +531,7 @@ export default function QueuePage() {
                     <td className="px-4 py-3">
                       <p className="font-medium text-green-600">${product.cj_price_usd?.toFixed(2) || "0.00"}</p>
                       {product.calculated_retail_sar && (
-                        <p className="text-xs text-gray-500">SAR {product.calculated_retail_sar}</p>
+                        <p className="text-xs text-gray-500">Retail: ${product.calculated_retail_sar}</p>
                       )}
                     </td>
                     <td className="px-4 py-3">
