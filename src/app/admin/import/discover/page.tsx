@@ -249,13 +249,13 @@ export default function ProductDiscoveryPage() {
 
   const getPageTitle = (page: number) => {
     switch (page) {
-      case 1: return "نظرة عامة";
-      case 2: return "معرض الصور";
-      case 3: return "المواصفات";
-      case 4: return "المخزون والشعبية";
-      case 5: return "الشحن والتوصيل";
-      case 6: return "تفاصيل الأسعار";
-      default: return "معاينة المنتج";
+      case 1: return "Overview";
+      case 2: return "Image Gallery";
+      case 3: return "Specifications";
+      case 4: return "Stock & Popularity";
+      case 5: return "Shipping & Delivery";
+      case 6: return "Price Details";
+      default: return "Product Preview";
     }
   };
 
@@ -578,7 +578,7 @@ export default function ProductDiscoveryPage() {
             </div>
           </div>
           <p className="text-xs text-amber-600 mt-2 text-right">
-            Set your desired profit margin. Products will display final SAR sell prices including shipping + profit when search completes.
+            Set your desired profit margin. Products will display final USD sell prices including shipping + profit when search completes.
           </p>
         </div>
 
@@ -612,7 +612,7 @@ export default function ProductDiscoveryPage() {
             <span className="text-sm text-amber-700">{searchProgress}</span>
           </div>
           <p className="text-xs text-amber-600 mt-2">
-            Searching products, calculating shipping costs, and applying {profitMargin}% profit margin. Products will display final SAR sell prices including shipping + profit when search completes.
+            Searching products, calculating shipping costs, and applying {profitMargin}% profit margin. Products will display final USD sell prices including shipping + profit when search completes.
           </p>
         </div>
       )}
@@ -715,11 +715,11 @@ export default function ProductDiscoveryPage() {
                     
                     <div className="bg-green-50 rounded-lg p-2">
                       <div className="flex justify-between items-center">
-                        <span className="text-xs text-gray-600">Sell Price (SAR)</span>
+                        <span className="text-xs text-gray-600">Sell Price</span>
                         <span className="font-bold text-green-700 text-lg">
                           {product.minPriceSAR === product.maxPriceSAR
-                            ? `${product.avgPriceSAR.toFixed(0)} SAR`
-                            : `${product.minPriceSAR.toFixed(0)} - ${product.maxPriceSAR.toFixed(0)} SAR`
+                            ? `$${product.avgPriceSAR.toFixed(0)}`
+                            : `$${product.minPriceSAR.toFixed(0)} - $${product.maxPriceSAR.toFixed(0)}`
                           }
                         </span>
                       </div>
