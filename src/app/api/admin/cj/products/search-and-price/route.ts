@@ -489,7 +489,7 @@ export async function GET(req: Request) {
     let skippedNoShipping = 0;
     const shippingErrors: Record<string, number> = {}; // Track error reasons
     let productIndex = 0;
-    let globalQuotaExhausted = false; // Track if we hit CJ API quota limit
+    let consecutiveRateLimitErrors = 0; // Track consecutive rate limit errors to detect real quota issues
     
     for (const item of productsToPrice) {
       // Add delay between products to respect CJ API rate limit (1 req/sec)
@@ -1342,8 +1342,8 @@ export async function GET(req: Request) {
         let shippingError: string | undefined;
         
         if (variantVid) {
-          // Add delay to respect rate limit (1 req/sec)
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // Add delay to respect rate limit (1 req/sec) - use 1200ms for safety margin
+          await new Promise(resolve => setTimeout(resolve, 1200));
           
           try {
             const freight = await freightCalculate({
@@ -1353,9 +1353,14 @@ export async function GET(req: Request) {
             });
             
             if (!freight.ok) {
-              // Log rate limit errors but don't abort entire search - may be transient
               shippingError = freight.message;
+              // Check for rate limit error (code 1600200)
+              if (freight.message.includes('1600200') || freight.message.includes('Too Many Requests')) {
+                consecutiveRateLimitErrors++;
+                console.log(`[Search&Price] Rate limit error #${consecutiveRateLimitErrors}: ${freight.message}`);
+              }
             } else if (freight.options.length > 0) {
+              consecutiveRateLimitErrors = 0; // Reset on success
               const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
               if (cjPacketOrdinary) {
                 shippingPriceUSD = cjPacketOrdinary.price;
@@ -1374,6 +1379,9 @@ export async function GET(req: Request) {
             }
           } catch (e: any) {
             shippingError = e?.message || 'Shipping failed';
+            if (shippingError && (shippingError.includes('429') || shippingError.includes('Too Many'))) {
+              consecutiveRateLimitErrors++;
+            }
           }
         } else {
           shippingError = 'No variant ID available';
@@ -1398,6 +1406,12 @@ export async function GET(req: Request) {
             profitSAR,
             error: shippingError,
           });
+        }
+        
+        // Stop processing if we hit 3+ consecutive rate limit errors (likely real quota issue)
+        if (consecutiveRateLimitErrors >= 3) {
+          console.log(`[Search&Price] Stopping after ${consecutiveRateLimitErrors} consecutive rate limit errors`);
+          break;
         }
       } else {
         // Multi-variant product - check up to 3 variants sequentially to find CJPacket Ordinary
@@ -1427,8 +1441,8 @@ export async function GET(req: Request) {
           let shippingError: string | undefined;
           
           if (variantId) {
-            // Add delay to respect rate limit (1 req/sec)
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Add delay to respect rate limit (1 req/sec) - use 1200ms for safety margin
+            await new Promise(resolve => setTimeout(resolve, 1200));
             
             try {
               const freight = await freightCalculate({
@@ -1438,10 +1452,15 @@ export async function GET(req: Request) {
               });
               
               if (!freight.ok) {
-                // Log error but don't abort - may be transient rate limit
                 shippingError = freight.message;
                 shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
+                // Check for rate limit error
+                if (freight.message.includes('1600200') || freight.message.includes('Too Many Requests')) {
+                  consecutiveRateLimitErrors++;
+                  console.log(`[Search&Price] Rate limit error #${consecutiveRateLimitErrors}: ${freight.message}`);
+                }
               } else if (freight.options.length > 0) {
+                consecutiveRateLimitErrors = 0; // Reset on success
                 const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
                 if (cjPacketOrdinary) {
                   shippingPriceUSD = cjPacketOrdinary.price;
@@ -1464,8 +1483,17 @@ export async function GET(req: Request) {
               shippingError = e?.message || 'Shipping failed';
               if (shippingError) {
                 shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
+                if (shippingError.includes('429') || shippingError.includes('Too Many')) {
+                  consecutiveRateLimitErrors++;
+                }
               }
             }
+          }
+          
+          // Stop checking variants if we hit too many consecutive rate limit errors
+          if (consecutiveRateLimitErrors >= 3) {
+            console.log(`[Search&Price] Stopping variant check after ${consecutiveRateLimitErrors} consecutive rate limit errors`);
+            break;
           }
           
           if (shippingAvailable) {
@@ -1498,6 +1526,12 @@ export async function GET(req: Request) {
             // Continue to next variant to look for CJPacket Ordinary
           }
         }
+      }
+      
+      // Stop processing more products if we hit too many consecutive rate limit errors
+      if (consecutiveRateLimitErrors >= 3) {
+        console.log(`[Search&Price] Stopping product processing after ${consecutiveRateLimitErrors} consecutive rate limit errors`);
+        break;
       }
       
       if (pricedVariants.length === 0) {
@@ -1613,13 +1647,14 @@ export async function GET(req: Request) {
     console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size) in ${duration}ms`);
     console.log(`[Search&Price] Shipping error breakdown:`, shippingErrors);
     
-    // Check if quota was exhausted during processing
-    if (globalQuotaExhausted && filteredProducts.length === 0) {
-      // No products with exact pricing - return error response
-      console.log(`[Search&Price] Quota exhausted and no products priced - returning error`);
+    // Check if we hit rate limit issues during processing
+    const hitRateLimit = consecutiveRateLimitErrors >= 3;
+    if (hitRateLimit && filteredProducts.length === 0) {
+      // No products with exact pricing due to rate limits - return error response
+      console.log(`[Search&Price] Rate limit hit (${consecutiveRateLimitErrors} consecutive errors) and no products priced - returning error`);
       const r = NextResponse.json({
         ok: false,
-        error: 'CJ API daily limit reached. Please try again tomorrow.',
+        error: 'CJ API rate limit reached. Please wait a minute and try again with fewer products.',
         quotaExhausted: true,
         products: [],
         count: 0,
@@ -1630,6 +1665,7 @@ export async function GET(req: Request) {
           pricedSuccessfully: 0,
           skippedNoShipping,
           shippingErrors,
+          consecutiveRateLimitErrors,
         }
       }, { status: 429, headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
@@ -1641,7 +1677,7 @@ export async function GET(req: Request) {
       products: filteredProducts,
       count: filteredProducts.length,
       duration,
-      quotaExhausted: globalQuotaExhausted, // Flag if quota was hit during processing
+      quotaExhausted: hitRateLimit, // Flag if rate limit was hit during processing
       debug: {
         candidatesFound: candidateProducts.length,
         productsProcessed: productsToPrice.length,
