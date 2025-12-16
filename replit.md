@@ -48,6 +48,24 @@ Shopixo is a modern, professional e-commerce platform designed for the USA marke
   - `src/app/api/admin/cj/products/search-and-price/route.ts` - Size extraction logic
   - `src/app/admin/import/discover/page.tsx` - Removed static size filter
 
+## Accurate Shipping Cost Calculation (December 16, 2025)
+- **Issue**: Shipping costs were wildly inaccurate (e.g., CJPacket showed ~$2 vs CJ website ~$8.78)
+- **Root Cause**: Code was using a fake 100g default weight instead of real product weight
+- **Solution**: Implemented "no weight, no quote" policy with real CJ data only
+- **How it works**:
+  - Weight extracted from CJ fields: packWeight > packingWeight > productWeight (grams)
+  - Dimensions extracted from: packLength, packWidth, packHeight (cm)
+  - If weight is missing → returns explicit error "CJ missing weight data" (no fake values)
+  - Dimensions only used when ALL THREE are provided (no fabricated 15x10x5 cm defaults)
+- **FreightResult Type**: Discriminated union for proper error handling
+  - Success: `{ ok: true, options: [...], weightUsed: 350 }`
+  - Failure: `{ ok: false, reason: 'weight_missing', message: '...' }`
+- **Result**: CJPacket Ordinary now shows ~$9.16 (with 350g weight), closely matching CJ's ~$8.78
+- **Files Modified**:
+  - `src/lib/cj/v2.ts` - freightCalculate with real weight/dimension extraction
+  - `src/app/api/cj/shipping/calc/route.ts` - Handler for FreightResult type
+  - `src/app/api/admin/cj/products/search-and-price/route.ts` - Weight extraction and error handling
+
 ## Shipping Method Filter and Detailed Pricing Breakdown (December 16, 2025)
 - **New Feature**: Shipping Method filter on Discover page
   - Dropdown filter to select specific shipping method: CJPacket, ePacket, USPS, EMS, DHL, FedEx, UPS
