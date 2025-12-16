@@ -156,6 +156,17 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<Fre
 
 // Helper to parse freightCalculate response
 function parseFreightResponse(r: any): FreightResult {
+  // Check for CJ API error response first (code !== 200 means error)
+  if (r?.code && r.code !== 200 && r.code !== '200') {
+    const errorMsg = r.message || r.msg || 'Unknown CJ error';
+    console.log(`[CJ Freight] API error response: code=${r.code}, message=${errorMsg}`);
+    return {
+      ok: false,
+      reason: 'api_error',
+      message: `CJ error (${r.code}): ${errorMsg}`,
+    };
+  }
+  
   const src: any = (r?.data ?? r?.content ?? r ?? []);
   const out: CjShippingOption[] = [];
   const arr: any[] = Array.isArray(src) ? src : Array.isArray(src?.list) ? src.list : [];
