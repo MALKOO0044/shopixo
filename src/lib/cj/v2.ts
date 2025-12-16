@@ -867,6 +867,21 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
       }
     }
     
+    // Log all weight-related fields from CJ API for debugging shipping costs
+    // For shipping, packWeight (total weight with packaging) is more accurate than productWeight (net)
+    const weightFields = ['packWeight', 'packingWeight', 'productWeight', 'weight', 'grossWeight', 'netWeight'];
+    const foundWeights: Record<string, any> = {};
+    for (const f of weightFields) {
+      if (productData[f] !== undefined && productData[f] !== null && productData[f] !== '') {
+        foundWeights[f] = productData[f];
+      }
+    }
+    if (Object.keys(foundWeights).length > 0) {
+      console.log(`[CJ Details] Product ${pid} weight fields:`, JSON.stringify(foundWeights));
+    } else {
+      console.log(`[CJ Details] Product ${pid}: No weight data in CJ response`);
+    }
+    
     // Build synthesized productInfo from all available fields (used if no description HTML)
     // This ensures we always have SOMETHING to show on Page 3
     if (!productData.synthesizedInfo) {
@@ -883,7 +898,7 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
       }
       
       // Product weight
-      const weight = productData.productWeight || productData.packingWeight;
+      const weight = productData.productWeight || productData.packingWeight || productData.packWeight || productData.weight;
       if (weight && Number(weight) > 0) {
         infoLines.push(`Weight: ${weight}g`);
       }

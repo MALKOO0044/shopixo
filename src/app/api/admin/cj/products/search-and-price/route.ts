@@ -515,13 +515,50 @@ export async function GET(req: Request) {
       }
       
       const categoryName = String(source.categoryName || source.categoryNameEn || source.category || '').trim() || undefined;
-      const productWeight = source.productWeight !== undefined ? Number(source.productWeight) : (source.weight !== undefined ? Number(source.weight) : undefined);
+      
+      // Extract product weight - check all possible CJ field names
+      // For shipping, use packWeight (product + packaging) which is what carriers charge for
+      // CJ API returns: packWeight/packingWeight (total) and productWeight (net)
+      const weightCandidates: Array<{ field: string; value: any }> = [
+        { field: 'packWeight', value: source.packWeight },           // Total weight (preferred for shipping)
+        { field: 'packingWeight', value: source.packingWeight },     // Same as packWeight
+        { field: 'productWeight', value: source.productWeight },     // Net weight only
+        { field: 'weight', value: source.weight },                   // Alternative field name
+        { field: 'grossWeight', value: source.grossWeight },
+        { field: 'netWeight', value: source.netWeight },
+      ];
+      
+      // Find the first valid weight value
+      let productWeight: number | undefined = undefined;
+      let weightSource = 'none';
+      for (const { field, value } of weightCandidates) {
+        if (value !== undefined && value !== null && value !== '') {
+          const numVal = Number(value);
+          if (Number.isFinite(numVal) && numVal > 0) {
+            // CJ typically returns weight in grams, but check if it might be kg
+            productWeight = numVal < 30 ? Math.round(numVal * 1000) : Math.round(numVal);
+            weightSource = field;
+            break;
+          }
+        }
+      }
+      
       const packLength = source.packLength !== undefined ? Number(source.packLength) : (source.length !== undefined ? Number(source.length) : undefined);
       const packWidth = source.packWidth !== undefined ? Number(source.packWidth) : (source.width !== undefined ? Number(source.width) : undefined);
       const packHeight = source.packHeight !== undefined ? Number(source.packHeight) : (source.height !== undefined ? Number(source.height) : undefined);
       
       // Debug: Log extracted weight/dimensions for shipping calculation accuracy
-      console.log(`[Search&Price] Product ${pid} dimensions: weight=${productWeight}g, L=${packLength}cm, W=${packWidth}cm, H=${packHeight}cm`);
+      console.log(`[Search&Price] Product ${pid} dimensions: weight=${productWeight}g (from ${weightSource}), L=${packLength}cm, W=${packWidth}cm, H=${packHeight}cm`);
+      
+      // Log all available weight-related fields for debugging if weight not found
+      if (!productWeight) {
+        const weightFields = Object.entries(source).filter(([k, v]) => 
+          /weight/i.test(k) && v !== undefined && v !== null && v !== ''
+        );
+        if (weightFields.length > 0) {
+          console.log(`[Search&Price] Product ${pid} available weight fields: ${JSON.stringify(Object.fromEntries(weightFields))}`);
+        }
+      }
       const productType = String(source.productType || source.type || source.productTypeName || '').trim() || undefined;
       
       // Helper: Parse CJ JSON array fields like '["","metal"]' into readable string
