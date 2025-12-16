@@ -1400,105 +1400,101 @@ export async function GET(req: Request) {
         });
       } else {
         // Process variants with CJPacket Ordinary shipping from CJ API
-        // Limit to 50 variants per product to avoid timeouts while ensuring good coverage
-        const variantsToProcess = variants.slice(0, 50);
-        if (variants.length > 50) {
-          console.log(`[Search&Price] Product ${pid} has ${variants.length} variants, processing first 50`);
+        // Limit to 10 variants per product to stay within serverless timeout limits
+        // Use parallel processing to maximize speed
+        const variantsToProcess = variants.slice(0, 10);
+        if (variants.length > 10) {
+          console.log(`[Search&Price] Product ${pid} has ${variants.length} variants, processing first 10 for speed`);
         }
         
-        for (const variant of variantsToProcess) {
-          const variantId = String(variant.vid || variant.variantId || variant.id || '');
-          const variantSku = String(variant.variantSku || variant.sku || variantId);
-          const variantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
-          const costSAR = usdToSar(variantPriceUSD);
-          
-          // Extract variant details for display
-          const variantName = String(variant.variantNameEn || variant.variantName || '').replace(/[\u4e00-\u9fff]/g, '').trim() || undefined;
-          const variantImage = variant.variantImage || variant.whiteImage || variant.image || undefined;
-          const size = variant.size || variant.sizeNameEn || undefined;
-          const color = variant.color || variant.colorNameEn || undefined;
-          
-          let shippingPriceUSD = 0;
-          let shippingPriceSAR = 0;
-          let shippingAvailable = false;
-          let deliveryDays = 'Unknown';
-          let logisticName: string | undefined;
-          let shippingError: string | undefined;
-          
-          try {
-            // Use CJ's "According to Shipping Method" - requires variant vid (UUID)
-            if (!variantId) {
-              shippingError = 'No variant ID available - shipping cannot be calculated';
-              console.log(`[Search&Price] Variant ${variantSku} has no vid - skipping shipping calc`);
-            } else {
-              console.log(`[Search&Price] Variant ${variantSku} (vid=${variantId}) fetching CJPacket Ordinary shipping...`);
-              
-              const freight = await freightCalculate({
-                countryCode: 'US',
-                vid: variantId, // Use variant UUID for exact CJ shipping data
-                quantity: 1,
-              });
-              
-              // Handle freight result - ONLY select CJPacket Ordinary (100% accuracy requirement)
-              if (!freight.ok) {
-                shippingError = freight.message;
-              } else if (freight.options.length > 0) {
-                // Use the centralized CJPacket Ordinary finder for consistent matching
-                const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
+        // Process all variants in PARALLEL for speed
+        const variantResults = await Promise.all(
+          variantsToProcess.map(async (variant) => {
+            const variantId = String(variant.vid || variant.variantId || variant.id || '');
+            const variantSku = String(variant.variantSku || variant.sku || variantId);
+            const variantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
+            const costSAR = usdToSar(variantPriceUSD);
+            
+            const variantName = String(variant.variantNameEn || variant.variantName || '').replace(/[\u4e00-\u9fff]/g, '').trim() || undefined;
+            const variantImage = variant.variantImage || variant.whiteImage || variant.image || undefined;
+            const size = variant.size || variant.sizeNameEn || undefined;
+            const color = variant.color || variant.colorNameEn || undefined;
+            
+            let shippingPriceUSD = 0;
+            let shippingPriceSAR = 0;
+            let shippingAvailable = false;
+            let deliveryDays = 'Unknown';
+            let logisticName: string | undefined;
+            let shippingError: string | undefined;
+            
+            try {
+              if (!variantId) {
+                shippingError = 'No variant ID';
+              } else {
+                const freight = await freightCalculate({
+                  countryCode: 'US',
+                  vid: variantId,
+                  quantity: 1,
+                });
                 
-                if (cjPacketOrdinary) {
-                  // Use EXACT price from CJ API - no modifications
-                  shippingPriceUSD = cjPacketOrdinary.price;
-                  shippingPriceSAR = usdToSar(shippingPriceUSD);
-                  shippingAvailable = true;
-                  logisticName = cjPacketOrdinary.name;
-                  console.log(`[Search&Price] Variant ${variantSku}: CJPacket Ordinary shipping = $${shippingPriceUSD.toFixed(2)} USD`);
-                  if (cjPacketOrdinary.logisticAgingDays) {
-                    const { min, max } = cjPacketOrdinary.logisticAgingDays;
-                    deliveryDays = max ? `${min}-${max} days` : `${min} days`;
+                if (!freight.ok) {
+                  shippingError = freight.message;
+                } else if (freight.options.length > 0) {
+                  const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
+                  
+                  if (cjPacketOrdinary) {
+                    shippingPriceUSD = cjPacketOrdinary.price;
+                    shippingPriceSAR = usdToSar(shippingPriceUSD);
+                    shippingAvailable = true;
+                    logisticName = cjPacketOrdinary.name;
+                    if (cjPacketOrdinary.logisticAgingDays) {
+                      const { min, max } = cjPacketOrdinary.logisticAgingDays;
+                      deliveryDays = max ? `${min}-${max} days` : `${min} days`;
+                    }
+                  } else {
+                    shippingError = 'CJPacket Ordinary not available';
                   }
                 } else {
-                  shippingError = 'CJPacket Ordinary not available for this variant';
+                  shippingError = 'No shipping to USA';
                 }
-              } else {
-                shippingError = 'No shipping options available to USA';
               }
+            } catch (e: any) {
+              shippingError = e?.message || 'Shipping failed';
             }
-          } catch (e: any) {
-            shippingError = e?.message || 'Shipping calculation failed';
+            
+            if (!shippingAvailable) return null;
+            if (freeShippingOnly && shippingPriceUSD > 0) return null;
+            
+            const totalCostSAR = costSAR + shippingPriceSAR;
+            const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
+            const profitSAR = sellPriceSAR - totalCostSAR;
+            
+            return {
+              variantId,
+              variantSku,
+              variantPriceUSD,
+              shippingAvailable,
+              shippingPriceUSD,
+              shippingPriceSAR,
+              deliveryDays,
+              logisticName,
+              sellPriceSAR,
+              totalCostSAR,
+              profitSAR,
+              error: shippingError,
+              variantName,
+              variantImage,
+              size,
+              color,
+            };
+          })
+        );
+        
+        // Filter out null results (variants that couldn't be priced)
+        for (const result of variantResults) {
+          if (result) {
+            pricedVariants.push(result);
           }
-          
-          // Skip variants where CJPacket Ordinary is not available
-          if (!shippingAvailable) {
-            continue;
-          }
-          
-          if (freeShippingOnly && shippingPriceUSD > 0) {
-            continue;
-          }
-          
-          const totalCostSAR = costSAR + shippingPriceSAR;
-          const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
-          const profitSAR = sellPriceSAR - totalCostSAR;
-          
-          pricedVariants.push({
-            variantId,
-            variantSku,
-            variantPriceUSD,
-            shippingAvailable,
-            shippingPriceUSD,
-            shippingPriceSAR,
-            deliveryDays,
-            logisticName,
-            sellPriceSAR,
-            totalCostSAR,
-            profitSAR,
-            error: shippingError,
-            variantName,
-            variantImage,
-            size,
-            color,
-          });
         }
       }
       
