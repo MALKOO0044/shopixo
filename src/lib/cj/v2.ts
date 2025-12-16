@@ -103,6 +103,15 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<{ o
   const sku = params.sku || params.pid || '';
   const qty = params.quantity ?? 1;
   
+  // Use actual weight/dimensions or CJ defaults (CJ website uses product-specific data)
+  const weight = params.weightGram && params.weightGram > 0 ? params.weightGram : 100;
+  const length = params.lengthCm && params.lengthCm > 0 ? params.lengthCm : 10;
+  const width = params.widthCm && params.widthCm > 0 ? params.widthCm : 10;
+  const height = params.heightCm && params.heightCm > 0 ? params.heightCm : 5;
+  const volume = length * width * height; // cm³
+  
+  console.log(`[CJ Freight] Using weight=${weight}g, dimensions=${length}x${width}x${height}cm, volume=${volume}cm³`);
+  
   // First try freightCalculateTip which accepts SKU directly
   try {
     const tipBody: any = {
@@ -115,9 +124,9 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<{ o
           skuQuantity: qty,
         }],
         productProp: ['COMMON'],
-        weight: params.weightGram || 100, // Default 100g if not specified
-        wrapWeight: params.weightGram || 100,
-        volume: (params.lengthCm || 10) * (params.widthCm || 10) * (params.heightCm || 5) / 1000, // cm³ to L
+        weight: weight,
+        wrapWeight: weight,
+        volume: volume,
       }],
     };
     

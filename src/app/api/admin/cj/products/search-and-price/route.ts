@@ -519,6 +519,9 @@ export async function GET(req: Request) {
       const packLength = source.packLength !== undefined ? Number(source.packLength) : (source.length !== undefined ? Number(source.length) : undefined);
       const packWidth = source.packWidth !== undefined ? Number(source.packWidth) : (source.width !== undefined ? Number(source.width) : undefined);
       const packHeight = source.packHeight !== undefined ? Number(source.packHeight) : (source.height !== undefined ? Number(source.height) : undefined);
+      
+      // Debug: Log extracted weight/dimensions for shipping calculation accuracy
+      console.log(`[Search&Price] Product ${pid} dimensions: weight=${productWeight}g, L=${packLength}cm, W=${packWidth}cm, H=${packHeight}cm`);
       const productType = String(source.productType || source.type || source.productTypeName || '').trim() || undefined;
       
       // Helper: Parse CJ JSON array fields like '["","metal"]' into readable string
@@ -1286,6 +1289,10 @@ export async function GET(req: Request) {
             countryCode: 'US',
             pid: pid,
             quantity: 1,
+            weightGram: productWeight && productWeight > 0 ? Math.round(productWeight) : undefined,
+            lengthCm: packLength && packLength > 0 ? packLength : undefined,
+            widthCm: packWidth && packWidth > 0 ? packWidth : undefined,
+            heightCm: packHeight && packHeight > 0 ? packHeight : undefined,
           });
           
           if (freight.options.length > 0) {
@@ -1375,12 +1382,20 @@ export async function GET(req: Request) {
           let allShippingOptions: ShippingOption[] = [];
           
           try {
+            // Extract variant weight if available, fallback to product weight
+            const variantWeight = Number(variant.variantWeight || variant.weight || variant.weightGram || variant.weight_g || 0);
+            const effectiveWeight = variantWeight > 0 ? Math.round(variantWeight) : (productWeight && productWeight > 0 ? Math.round(productWeight) : undefined);
+            
             // CJ API requires vid (variant ID) - use variantId, not variantSku
             const freight = await freightCalculate({
               countryCode: 'US',
               pid: pid,
               sku: variantId || variantSku, // Prefer vid, fallback to sku
               quantity: 1,
+              weightGram: effectiveWeight,
+              lengthCm: packLength && packLength > 0 ? packLength : undefined,
+              widthCm: packWidth && packWidth > 0 ? packWidth : undefined,
+              heightCm: packHeight && packHeight > 0 ? packHeight : undefined,
             });
             
             if (freight.options.length > 0) {
