@@ -178,6 +178,13 @@ export default function ProductDiscoveryPage() {
         method: 'GET',
       });
       
+      // Check content-type before parsing JSON to avoid parse errors on timeouts/errors
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`Server error: ${text.slice(0, 100)}...`);
+      }
+      
       const data = await res.json();
       
       if (!res.ok || !data.ok) {

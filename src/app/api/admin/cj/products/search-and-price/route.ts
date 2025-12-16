@@ -1399,9 +1399,14 @@ export async function GET(req: Request) {
           error: shippingError,
         });
       } else {
-        // Process ALL variants and fetch exact CJPacket Ordinary shipping from CJ API for each
-        // No limit - each variant must have its accurate CJPacket Ordinary shipping cost
-        for (const variant of variants) {
+        // Process variants with CJPacket Ordinary shipping from CJ API
+        // Limit to 50 variants per product to avoid timeouts while ensuring good coverage
+        const variantsToProcess = variants.slice(0, 50);
+        if (variants.length > 50) {
+          console.log(`[Search&Price] Product ${pid} has ${variants.length} variants, processing first 50`);
+        }
+        
+        for (const variant of variantsToProcess) {
           const variantId = String(variant.vid || variant.variantId || variant.id || '');
           const variantSku = String(variant.variantSku || variant.sku || variantId);
           const variantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
