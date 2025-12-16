@@ -1322,18 +1322,14 @@ export async function GET(req: Request) {
         let allShippingOptions: ShippingOption[] = [];
         
         try {
-          // Log weight being used for shipping calculation
-          const weightForShipping = productWeight && productWeight > 0 ? Math.round(productWeight) : undefined;
-          console.log(`[Search&Price] Product ${pid} freight calc: weight=${weightForShipping}g, L=${packLength}, W=${packWidth}, H=${packHeight}`);
+          // Pass product ID and weight to CJ for accurate shipping calculation
+          console.log(`[Search&Price] Product ${pid} freight calc: weight=${productWeight}g`);
           
           const freight = await freightCalculate({
             countryCode: 'US',
-            pid: pid,
+            vid: pid, // For products without variants, use pid as vid
             quantity: 1,
-            weightGram: weightForShipping,
-            lengthCm: packLength && packLength > 0 ? packLength : undefined,
-            widthCm: packWidth && packWidth > 0 ? packWidth : undefined,
-            heightCm: packHeight && packHeight > 0 ? packHeight : undefined,
+            weightGram: productWeight, // Pass actual product weight from CJ data
           });
           
           // Handle freight result with proper error handling
@@ -1426,22 +1422,17 @@ export async function GET(req: Request) {
           let allShippingOptions: ShippingOption[] = [];
           
           try {
-            // Extract variant weight if available, fallback to product weight
-            const variantWeight = Number(variant.variantWeight || variant.weight || variant.weightGram || variant.weight_g || 0);
-            const effectiveWeight = variantWeight > 0 ? Math.round(variantWeight) : (productWeight && productWeight > 0 ? Math.round(productWeight) : undefined);
+            // Use variant-specific weight if available, fallback to product weight
+            const variantWeight = Number(variant.variantWeight || variant.weight || variant.weightGram || 0);
+            const effectiveWeight = variantWeight > 0 ? Math.round(variantWeight) : productWeight;
             
-            // CJ API requires vid (variant ID) - use variantId, not variantSku
-            console.log(`[Search&Price] Variant ${variantSku} freight calc: weight=${effectiveWeight}g`);
+            console.log(`[Search&Price] Variant ${variantSku} (vid=${variantId}) freight calc: weight=${effectiveWeight}g`);
             
             const freight = await freightCalculate({
               countryCode: 'US',
-              pid: pid,
-              sku: variantId || variantSku, // Prefer vid, fallback to sku
+              vid: variantId || variantSku, // Use variant ID for accurate shipping
               quantity: 1,
-              weightGram: effectiveWeight,
-              lengthCm: packLength && packLength > 0 ? packLength : undefined,
-              widthCm: packWidth && packWidth > 0 ? packWidth : undefined,
-              heightCm: packHeight && packHeight > 0 ? packHeight : undefined,
+              weightGram: effectiveWeight, // Use variant weight or fallback to product weight
             });
             
             // Handle freight result with proper error handling
