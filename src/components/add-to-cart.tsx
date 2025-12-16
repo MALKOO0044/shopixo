@@ -16,9 +16,9 @@ function SubmitButton({ disabled }: { disabled: boolean }) {
       variant="gradient"
       size="pill"
       className="w-full sm:w-auto"
-      aria-label={disabled ? "غير متوفر" : pending ? "جارٍ الإضافة" : "أضف إلى السلة — سريع وآمن"}
+      aria-label={disabled ? "Out of Stock" : pending ? "Adding..." : "Add to Cart — Fast & Secure"}
     >
-      {disabled ? "غير متوفر" : pending ? "جارٍ الإضافة..." : "أضف إلى السلة — سريع وآمن"}
+      {disabled ? "Out of Stock" : pending ? "Adding..." : "Add to Cart — Fast & Secure"}
     </Button>
   );
 }
@@ -62,4 +62,3 @@ export default function AddToCart({
     </form>
   );
 }
-

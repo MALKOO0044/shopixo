@@ -3,9 +3,9 @@ import { labelFromSlug } from "@/lib/categories";
 import ProductCard from "@/components/product-card";
 import type { Product } from "@/lib/types";
 import { headers } from "next/headers";
- 
 
-export const metadata = { title: "البحث" };
+
+export const metadata = { title: "Search" };
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
@@ -41,7 +41,6 @@ export default async function SearchPage({
 
   const supabase = getSupabaseAnonServer();
 
-  // Fetch categories for the filter dropdown
   let categories: string[] = [];
   if (supabase) {
     const { data: categoriesData } = await supabase
@@ -97,31 +96,31 @@ export default async function SearchPage({
             "@context": "https://schema.org",
             "@type": "BreadcrumbList",
             itemListElement: [
-              { "@type": "ListItem", position: 1, name: "الرئيسية", item: siteUrl },
-              { "@type": "ListItem", position: 2, name: "البحث", item: `${siteUrl}/search` },
+              { "@type": "ListItem", position: 1, name: "Home", item: siteUrl },
+              { "@type": "ListItem", position: 2, name: "Search", item: `${siteUrl}/search` },
             ],
           }),
         }}
       />
       <nav aria-label="Breadcrumb" className="text-sm text-slate-600">
-        <a href="/" className="hover:underline">الرئيسية</a>
+        <a href="/" className="hover:underline">Home</a>
         <span className="mx-2">/</span>
-        <span>البحث</span>
+        <span>Search</span>
       </nav>
-      <h1 className="text-3xl font-bold">البحث</h1>
+      <h1 className="text-3xl font-bold">Search</h1>
 
       <form className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-6" method="get">
         <div className="lg:col-span-2">
           <input
             name="q"
-            placeholder="ابحث عن منتجات..."
+            placeholder="Search products..."
             defaultValue={getFirst(searchParams?.q)}
             className="w-full rounded-md border px-4 py-2"
           />
         </div>
         <div>
           <select name="category" defaultValue={category} className="w-full rounded-md border px-3 py-2">
-            <option value="">كل التصنيفات</option>
+            <option value="">All Categories</option>
             {categories.map((c) => (
               <option key={c} value={c}>
                 {c}
@@ -133,7 +132,7 @@ export default async function SearchPage({
           <input
             type="number"
             name="minPrice"
-            placeholder="الحد الأدنى"
+            placeholder="Min Price"
             step="0.01"
             defaultValue={minPriceRaw}
             className="w-full rounded-md border px-3 py-2"
@@ -141,7 +140,7 @@ export default async function SearchPage({
           <input
             type="number"
             name="maxPrice"
-            placeholder="الحد الأقصى"
+            placeholder="Max Price"
             step="0.01"
             defaultValue={maxPriceRaw}
             className="w-full rounded-md border px-3 py-2"
@@ -149,40 +148,40 @@ export default async function SearchPage({
         </div>
         <div>
           <select name="minRating" defaultValue={minRatingRaw} className="w-full rounded-md border px-3 py-2">
-            <option value="">أي تقييم</option>
-            <option value="3">3+ نجوم</option>
-            <option value="4">4+ نجوم</option>
-            <option value="4.5">4.5+ نجوم</option>
-            <option value="5">5 نجوم</option>
+            <option value="">Any Rating</option>
+            <option value="3">3+ Stars</option>
+            <option value="4">4+ Stars</option>
+            <option value="4.5">4.5+ Stars</option>
+            <option value="5">5 Stars</option>
           </select>
         </div>
         <div>
           <select name="sort" defaultValue={sort} className="w-full rounded-md border px-3 py-2">
-            <option value="">الترتيب</option>
-            <option value="price-asc">السعر: الأقل إلى الأعلى</option>
-            <option value="price-desc">السعر: الأعلى إلى الأقل</option>
-            <option value="rating-desc">التقييم: الأعلى إلى الأقل</option>
-            <option value="rating-asc">التقييم: الأقل إلى الأعلى</option>
+            <option value="">Sort By</option>
+            <option value="price-asc">Price: Low to High</option>
+            <option value="price-desc">Price: High to Low</option>
+            <option value="rating-desc">Rating: High to Low</option>
+            <option value="rating-asc">Rating: Low to High</option>
           </select>
         </div>
         <div className="flex gap-3">
           <button type="submit" className="rounded-md bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700">
-            تطبيق
+            Apply
           </button>
           <a href="/search" className="rounded-md border px-4 py-2 hover:bg-slate-50">
-            إزالة
+            Clear
           </a>
         </div>
       </form>
 
-      <div className="mt-6 text-sm text-slate-600">عدد النتائج: {filtered?.length || 0}</div>
+      <div className="mt-6 text-sm text-slate-600">Results: {filtered?.length || 0}</div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {filtered?.map((p) => (
           <ProductCard key={p.slug} product={p} />
         ))}
         {(!filtered || filtered.length === 0) && (
-          <div className="text-slate-600">لا توجد منتجات{q ? ` لـ "${q}"` : ""}</div>
+          <div className="text-slate-600">No products found{q ? ` for "${q}"` : ""}</div>
         )}
       </div>
     </div>

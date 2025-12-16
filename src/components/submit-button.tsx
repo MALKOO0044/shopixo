@@ -15,7 +15,7 @@ interface SubmitButtonProps
 
 export default function SubmitButton({
   label,
-  pendingLabel = "جارٍ...",
+  pendingLabel = "Processing...",
   variant = "primary",
   className,
   disabled,

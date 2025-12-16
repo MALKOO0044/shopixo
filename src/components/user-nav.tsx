@@ -44,7 +44,6 @@ export default function UserNav() {
     };
   }, [hasSupabaseEnv]);
 
-  // Detect admin by probing a protected admin route
   useEffect(() => {
     let aborted = false;
     async function checkAdmin() {
@@ -64,24 +63,21 @@ export default function UserNav() {
   }, [email]);
 
   if (!hasSupabaseEnv) {
-    // Compact UX on mobile, full buttons on md+
     return (
       <div className="flex items-center gap-2">
-        {/* Mobile: icon-only */}
         <div className="md:hidden">
-          <Button asChild variant="ghost" size="icon" aria-label="تسجيل الدخول">
+          <Button asChild variant="ghost" size="icon" aria-label="Sign In">
             <Link href="/login">
               <User className="h-5 w-5" />
             </Link>
           </Button>
         </div>
-        {/* Desktop: text buttons */}
         <div className="hidden md:flex items-center gap-2">
           <Button asChild variant="ghost" size="sm">
-            <Link href="/login">تسجيل الدخول</Link>
+            <Link href="/login">Sign In</Link>
           </Button>
           <Button asChild variant="cta" size="sm">
-            <Link href="/sign-up">إنشاء حساب</Link>
+            <Link href="/sign-up">Create Account</Link>
           </Button>
         </div>
       </div>
@@ -103,36 +99,36 @@ export default function UserNav() {
         <DropdownMenuContent className="w-56" align="end" forceMount>
           <DropdownMenuLabel className="font-normal">
             <div className="flex flex-col space-y-1">
-              <p className="text-sm font-medium leading-none">حسابي</p>
+              <p className="text-sm font-medium leading-none">My Account</p>
               <p className="text-xs leading-none text-muted-foreground">{email}</p>
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <Link href="/account">نظرة عامة</Link>
+            <Link href="/account">Overview</Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link href="/account/orders">الطلبات</Link>
+            <Link href="/account/orders">Orders</Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link href="/account/addresses">العناوين</Link>
+            <Link href="/account/addresses">Addresses</Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link href="/account/coupons">القسائم</Link>
+            <Link href="/account/coupons">Coupons</Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link href="/account/reviews">المراجعات</Link>
+            <Link href="/account/reviews">Reviews</Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link href="/account/security">الأمان</Link>
+            <Link href="/account/security">Security</Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link href="/account/notifications">الإشعارات</Link>
+            <Link href="/account/notifications">Notifications</Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {isAdmin && (
             <DropdownMenuItem asChild>
-              <Link href="/admin/console">لوحة التحكم</Link>
+              <Link href="/admin/console">Admin Console</Link>
             </DropdownMenuItem>
           )}
           {isAdmin && <DropdownMenuSeparator />}
@@ -142,24 +138,21 @@ export default function UserNav() {
     );
   }
 
-  // Logged out (Supabase active): compact on mobile, full buttons on md+
   return (
     <div className="flex items-center gap-2">
-      {/* Mobile: icon-only */}
       <div className="md:hidden">
-        <Button asChild variant="ghost" size="icon" aria-label="تسجيل الدخول">
+        <Button asChild variant="ghost" size="icon" aria-label="Sign In">
           <Link href="/login">
             <User className="h-5 w-5" />
           </Link>
         </Button>
       </div>
-      {/* Desktop: text buttons */}
       <div className="hidden md:flex items-center gap-2">
         <Button asChild variant="ghost" size="sm">
-          <Link href="/login">تسجيل الدخول</Link>
+          <Link href="/login">Sign In</Link>
         </Button>
         <Button asChild variant="cta" size="sm">
-          <Link href="/sign-up">إنشاء حساب</Link>
+          <Link href="/sign-up">Create Account</Link>
         </Button>
       </div>
     </div>

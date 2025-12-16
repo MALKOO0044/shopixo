@@ -23,28 +23,28 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
     : 0;
 
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="space-y-6">
       <div className="grid md:grid-cols-2 gap-5">
         <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-200 p-5">
           <div className="flex items-center gap-3 mb-3">
             <DollarSign className="h-5 w-5 text-green-600" />
-            <h3 className="text-lg font-bold text-green-900">متوسط الربح</h3>
+            <h3 className="text-lg font-bold text-green-900">Average Profit</h3>
           </div>
           <p className="text-3xl font-bold text-green-700">
-            {avgProfit.toFixed(0)} ر.س
+            ${avgProfit.toFixed(0)}
           </p>
-          <p className="text-sm text-green-600 mt-1">لكل منتج مباع</p>
+          <p className="text-sm text-green-600 mt-1">per product sold</p>
         </div>
 
         <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-200 p-5">
           <div className="flex items-center gap-3 mb-3">
             <TrendingUp className="h-5 w-5 text-blue-600" />
-            <h3 className="text-lg font-bold text-blue-900">متوسط هامش الربح</h3>
+            <h3 className="text-lg font-bold text-blue-900">Average Profit Margin</h3>
           </div>
           <p className="text-3xl font-bold text-blue-700">
             {avgMarginPercent.toFixed(1)}%
           </p>
-          <p className="text-sm text-blue-600 mt-1">من سعر البيع</p>
+          <p className="text-sm text-blue-600 mt-1">of selling price</p>
         </div>
       </div>
 
@@ -52,7 +52,7 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="bg-gradient-to-r from-gray-50 to-slate-50 px-5 py-4 border-b border-gray-200">
             <h3 className="text-lg font-bold text-gray-900">
-              تفاصيل الأسعار لكل متغير ({availableVariants.length})
+              Price Details per Variant ({availableVariants.length})
             </h3>
           </div>
 
@@ -60,13 +60,13 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-right px-4 py-3 font-semibold text-gray-700">رمز المتغير</th>
-                  <th className="text-right px-4 py-3 font-semibold text-gray-700">التكلفة (USD)</th>
-                  <th className="text-right px-4 py-3 font-semibold text-gray-700">الشحن (SAR)</th>
-                  <th className="text-right px-4 py-3 font-semibold text-gray-700">إجمالي التكلفة</th>
-                  <th className="text-right px-4 py-3 font-semibold text-gray-700">سعر البيع</th>
-                  <th className="text-right px-4 py-3 font-semibold text-gray-700">الربح</th>
-                  <th className="text-right px-4 py-3 font-semibold text-gray-700">الهامش</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Variant SKU</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Cost (USD)</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Shipping (USD)</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Total Cost</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Sell Price</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Profit</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Margin</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -84,16 +84,16 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
                         ${variant.variantPriceUSD.toFixed(2)}
                       </td>
                       <td className="px-4 py-3 text-gray-700">
-                        {variant.shippingPriceSAR.toFixed(0)} ر.س
+                        ${variant.shippingPriceSAR.toFixed(0)}
                       </td>
                       <td className="px-4 py-3 font-medium text-gray-800">
-                        {variant.totalCostSAR.toFixed(0)} ر.س
+                        ${variant.totalCostSAR.toFixed(0)}
                       </td>
                       <td className="px-4 py-3 font-bold text-green-700">
-                        {variant.sellPriceSAR.toFixed(0)} ر.س
+                        ${variant.sellPriceSAR.toFixed(0)}
                       </td>
                       <td className="px-4 py-3 font-bold text-emerald-600">
-                        {variant.profitSAR.toFixed(0)} ر.س
+                        ${variant.profitSAR.toFixed(0)}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`font-medium ${
@@ -119,7 +119,7 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
           <div className="flex items-center gap-3 mb-3">
             <AlertCircle className="h-5 w-5 text-red-600" />
             <h3 className="text-lg font-bold text-red-900">
-              متغيرات غير متاحة للشحن ({unavailableVariants.length})
+              Variants Unavailable for Shipping ({unavailableVariants.length})
             </h3>
           </div>
           
@@ -133,13 +133,13 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
                   {variant.variantSku || `VAR-${idx + 1}`}
                 </span>
                 {variant.error && (
-                  <span className="text-red-600 mr-2">- {variant.error}</span>
+                  <span className="text-red-600 ml-2">- {variant.error}</span>
                 )}
               </div>
             ))}
             {unavailableVariants.length > 5 && (
               <p className="text-sm text-red-600 italic">
-                و {unavailableVariants.length - 5} متغيرات أخرى...
+                and {unavailableVariants.length - 5} more variants...
               </p>
             )}
           </div>
@@ -150,10 +150,10 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
         <div className="bg-amber-50 rounded-xl border border-amber-200 p-8 text-center">
           <AlertCircle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
           <h3 className="text-lg font-bold text-amber-900 mb-2">
-            لا توجد متغيرات متاحة للشحن
+            No Variants Available for Shipping
           </h3>
           <p className="text-amber-700">
-            جميع متغيرات هذا المنتج غير متاحة للشحن إلى السعودية حالياً.
+            All variants of this product are currently unavailable for shipping to the USA.
           </p>
         </div>
       )}

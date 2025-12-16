@@ -1,6 +1,6 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
-export const metadata = { title: "المدونة" };
+export const metadata = { title: "Blog" };
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -21,9 +21,9 @@ export default async function BlogPage() {
 
   return (
     <div className="container py-10">
-      <h1 className="text-3xl font-bold">المدونة</h1>
+      <h1 className="text-3xl font-bold">Blog</h1>
       {!hasPosts && (
-        <p className="mt-2 text-slate-600">لا توجد منشورات بعد. سيتم نشر التحديثات والمقالات قريبًا.</p>
+        <p className="mt-2 text-slate-600">No posts yet. Updates and articles will be published soon.</p>
       )}
       {hasPosts && (
         <div className="mt-6 grid gap-6 md:grid-cols-2 lg:grid-cols-3">

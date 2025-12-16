@@ -5,7 +5,7 @@ import { useFormStatus } from "react-dom";
 import { useToast } from "@/components/ui/toast-provider";
 
 export default function FormStatusToast({
-  successMessage = "تم الحفظ بنجاح",
+  successMessage = "Saved successfully",
   successTitle,
 }: {
   successMessage?: string;

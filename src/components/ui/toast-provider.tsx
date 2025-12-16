@@ -8,7 +8,7 @@ export type ToastOptions = {
   title?: string;
   description?: string;
   variant?: ToastVariant;
-  duration?: number; // ms
+  duration?: number;
 };
 
 type ToastInternal = Required<Omit<ToastOptions, "duration">> & {
@@ -69,7 +69,7 @@ export function useToast() {
 
 function Toaster({ toasts, onDismiss }: { toasts: ToastInternal[]; onDismiss: (id: number) => void }) {
   return (
-    <div dir="rtl" className="fixed top-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2">
+    <div className="fixed top-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2">
       {toasts.map((t) => (
         <ToastItem key={t.id} toast={t} onDismiss={() => onDismiss(t.id)} />
       ))}
@@ -85,19 +85,19 @@ function ToastItem({ toast, onDismiss }: { toast: ToastInternal; onDismiss: () =
     warning: "border-yellow-300 text-yellow-900",
   };
 
-  const title = toast.title || (toast.variant === "success" ? "تم بنجاح" : toast.variant === "error" ? "حدث خطأ" : "إشعار");
+  const title = toast.title || (toast.variant === "success" ? "Success" : toast.variant === "error" ? "Error" : "Notice");
 
   return (
     <div className={cn("pointer-events-auto overflow-hidden rounded-md border bg-white shadow-md", variantClasses[toast.variant])}>
       <div className="p-3">
         <div className="flex items-start gap-3">
-          <div className="flex-1 text-right">
+          <div className="flex-1">
             <p className="text-sm font-semibold">{title}</p>
             {toast.description ? (
               <p className="mt-1 text-xs text-gray-700">{toast.description}</p>
             ) : null}
           </div>
-          <button onClick={onDismiss} className="text-xs text-gray-500 hover:text-gray-800" aria-label="إغلاق">
+          <button onClick={onDismiss} className="text-xs text-gray-500 hover:text-gray-800" aria-label="Close">
             ✕
           </button>
         </div>

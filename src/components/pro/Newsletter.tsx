@@ -10,7 +10,7 @@ export default function Newsletter() {
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault(); setMsg(""); setErr("")
-    if (!email) { setErr("الرجاء إدخال البريد الإلكتروني"); return }
+    if (!email) { setErr("Please enter your email address"); return }
     startTransition(async () => {
       try {
         const res = await fetch("/api/newsletter/subscribe", {
@@ -18,21 +18,21 @@ export default function Newsletter() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email }),
         })
-        if (!res.ok) throw new Error("فشل الاشتراك")
-        setMsg("تم الاشتراك بنجاح. شكرًا لك!")
+        if (!res.ok) throw new Error("Subscription failed")
+        setMsg("Successfully subscribed. Thank you!")
         setEmail("")
       } catch (e: any) {
-        setErr(e?.message || "تعذر الاشتراك حاليًا")
+        setErr(e?.message || "Unable to subscribe at this time")
       }
     })
   }
 
   return (
-    <section className="py-10" aria-label="النشرة البريدية">
+    <section className="py-10" aria-label="Newsletter">
       <div className="container rounded-[var(--radius-lg)] border bg-card p-6 shadow-soft">
-        <h2 className="mb-2 text-2xl font-bold">اشترك في النشرة البريدية</h2>
-        <p className="mb-4 text-sm text-muted-foreground">كن أول من يعرف عن العروض والمنتجات الجديدة. إدخال البريد فقط.</p>
-        <form onSubmit={onSubmit} className="flex flex-col items-stretch gap-3 sm:flex-row" dir="rtl">
+        <h2 className="mb-2 text-2xl font-bold">Subscribe to our Newsletter</h2>
+        <p className="mb-4 text-sm text-muted-foreground">Be the first to know about new products and exclusive deals. Just enter your email.</p>
+        <form onSubmit={onSubmit} className="flex flex-col items-stretch gap-3 sm:flex-row">
           <input
             type="email"
             required
@@ -40,10 +40,9 @@ export default function Newsletter() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="h-12 flex-1 rounded-[var(--radius-sm)] border px-4"
-            dir="ltr"
           />
           <button disabled={pending} className="h-12 rounded-[var(--radius-btn)] bg-[hsl(var(--primary))] px-6 text-white hover:brightness-95">
-            اشتراك
+            Subscribe
           </button>
         </form>
         {(msg || err) && (

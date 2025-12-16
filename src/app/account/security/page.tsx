@@ -13,13 +13,13 @@ export default async function SecurityPage() {
   if (!user) redirect("/login?redirect=/account/security");
 
   return (
-    <div dir="rtl" className="max-w-3xl mx-auto py-12 px-4 text-right">
-      <h1 className="text-2xl font-bold mb-6">أمان الحساب</h1>
+    <div className="max-w-3xl mx-auto py-12 px-4">
+      <h1 className="text-2xl font-bold mb-6">Account Security</h1>
 
       <div className="rounded-lg border bg-white p-6">
-        <h2 className="text-lg font-semibold mb-3">تغيير كلمة المرور</h2>
+        <h2 className="text-lg font-semibold mb-3">Change Password</h2>
         <PasswordForm action={updatePassword} />
-        <p className="mt-3 text-xs text-gray-500">بعد تغيير كلمة المرور، قد يُطلب منك تسجيل الدخول مرة أخرى على الأجهزة الأخرى.</p>
+        <p className="mt-3 text-xs text-gray-500">After changing your password, you may be asked to sign in again on other devices.</p>
       </div>
     </div>
   );

@@ -78,7 +78,7 @@ export const translations = {
       addRule: 'Add Pricing Rule',
       category: 'Category',
       marginPercent: 'Margin %',
-      minProfit: 'Min Profit (SAR)',
+      minProfit: 'Min Profit (USD)',
       vatPercent: 'VAT %',
       paymentFeePercent: 'Payment Fee %',
       smartRounding: 'Smart Rounding',

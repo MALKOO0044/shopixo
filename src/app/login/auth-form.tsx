@@ -5,16 +5,6 @@ import { useMemo, useState, useTransition } from "react"
 import { useSearchParams } from "next/navigation"
 import { Facebook, Smartphone, Eye, EyeOff } from "lucide-react"
 
-// Unified Auth Flow
-// Steps:
-// 1) email -> Continue
-// 2) password (attempt sign-in)
-//    - if success -> redirect
-//    - if failure -> treat as new account -> send email OTP (shouldCreateUser: true) -> step 3
-// 3) verify_code (enter 6-digit)
-//    - if success -> update password -> step 4
-// 4) onboarding (full name + birthday) -> update user metadata -> redirect
-
 type Step = "email" | "password" | "verify_code" | "onboarding" | "phone"
 
 export default function AuthForm() {
@@ -34,7 +24,7 @@ export default function AuthForm() {
   const [showPw, setShowPw] = useState(false)
   const [code, setCode] = useState("")
   const [fullName, setFullName] = useState("")
-  const [birthday, setBirthday] = useState("") // MM/DD/YYYY
+  const [birthday, setBirthday] = useState("")
   const [info, setInfo] = useState<string>("")
   const [error, setError] = useState<string>("")
   const [pending, startTransition] = useTransition()
@@ -43,15 +33,15 @@ export default function AuthForm() {
   const titleByStep = useMemo(() => {
     switch (step) {
       case "email":
-        return "تسجيل الدخول أو إنشاء حساب"
+        return "Sign In or Create Account"
       case "password":
-        return emailExists === false ? "إنشاء كلمة المرور" : "أدخل كلمة المرور"
+        return emailExists === false ? "Create Password" : "Enter Password"
       case "verify_code":
-        return "تحقق من بريدك"
+        return "Check Your Email"
       case "onboarding":
-        return "أخبرنا عنك"
+        return "Tell Us About You"
       case "phone":
-        return "تسجيل عبر رقم الجوال"
+        return "Sign In with Phone"
       default:
         return ""
     }
@@ -62,15 +52,13 @@ export default function AuthForm() {
     setInfo("")
   }
 
-  // Handlers
   function handleContinueFromEmail(e: React.FormEvent) {
     e.preventDefault()
     resetMessages()
     if (!email) {
-      setError("الرجاء إدخال البريد الإلكتروني")
+      setError("Please enter your email address")
       return
     }
-    // Check if email exists via server to differentiate UX
     startTransition(async () => {
       try {
         const res = await fetch("/api/auth/check-email", {
@@ -83,7 +71,6 @@ export default function AuthForm() {
           if (typeof j.exists === "boolean") {
             setEmailExists(j.exists)
           } else {
-            // unknown -> fallback behavior
             setEmailExists(null)
           }
         } else {
@@ -106,74 +93,68 @@ export default function AuthForm() {
     e.preventDefault()
     resetMessages()
     if (!email || !password) {
-      setError("الرجاء إدخال البريد الإلكتروني وكلمة المرور")
+      setError("Please enter email and password")
       return
     }
 
     startTransition(async () => {
       if (emailExists === true) {
-        // Existing account -> sign in only
         const { data, error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
         if (!signInErr && data?.user) {
           if (typeof window !== "undefined") window.location.replace(safeNext)
           return
         }
-        setError("كلمة المرور غير صحيحة. يرجى المحاولة مرة أخرى أو استخدام خيار استعادة كلمة المرور.")
+        setError("Incorrect password. Please try again or use the password recovery option.")
         return
       }
 
       if (emailExists === false) {
         if (password.length < 8) {
-          setError("يجب أن تتكون كلمة المرور من 8 أحرف على الأقل")
+          setError("Password must be at least 8 characters")
           return
         }
-        // New account -> send email OTP only (creates user after verification)
         const { error: otpErr } = await supabase.auth.signInWithOtp({
           email,
           options: { emailRedirectTo: redirectTo, shouldCreateUser: true },
         })
         if (!otpErr) {
-          setInfo(`تم إرسال رمز التحقق إلى ${email}.`)
+          setInfo(`Verification code sent to ${email}.`)
           setStep("verify_code")
           return
         }
-        // Fallback: if OTP email fails (SMTP/deliverability), create user via signUp and send Confirm Signup email
         const { error: suErr } = await supabase.auth.signUp({
           email,
           password,
           options: { emailRedirectTo: redirectTo },
         })
         if (!suErr) {
-          setInfo(`تم إرسال رسالة تأكيد إلى ${email}. افتح بريدك واضغط "تأكيد البريد" لإكمال إنشاء الحساب.`)
+          setInfo(`Confirmation email sent to ${email}. Please check your inbox and click "Confirm Email" to complete registration.`)
           return
         }
-        setError(suErr?.message || otpErr?.message || "تعذر إرسال رمز التحقق")
+        setError(suErr?.message || otpErr?.message || "Failed to send verification code")
         return
       }
 
-      // Fallback behavior when existence is unknown: try sign-in then sign-up
       const { data, error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
       if (!signInErr && data?.user) {
         if (typeof window !== "undefined") window.location.replace(safeNext)
         return
       }
-      // Fallback: send OTP that will create the user upon verification
       const { error: otpErr2 } = await supabase.auth.signInWithOtp({
         email,
         options: { emailRedirectTo: redirectTo, shouldCreateUser: true },
       })
       if (!otpErr2) {
-        setInfo(`تم إرسال رمز التحقق إلى ${email}.`)
+        setInfo(`Verification code sent to ${email}.`)
         setStep("verify_code")
         return
       }
-      // Last resort: try signUp to send Confirm Signup email
       const { error: suErr2 } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo } })
       if (!suErr2) {
-        setInfo(`تم إرسال رسالة تأكيد إلى ${email}. يرجى فتح البريد والضغط على "تأكيد البريد".`)
+        setInfo(`Confirmation email sent to ${email}. Please check your inbox and click "Confirm Email".`)
         return
       }
-      setError(suErr2?.message || otpErr2?.message || "حصل خطأ غير متوقع")
+      setError(suErr2?.message || otpErr2?.message || "An unexpected error occurred")
     })
   }
 
@@ -181,7 +162,7 @@ export default function AuthForm() {
     e.preventDefault()
     resetMessages()
     if (!code || code.length < 6) {
-      setError("الرجاء إدخال الرمز المكوّن من 6 أرقام")
+      setError("Please enter the 6-digit code")
       return
     }
 
@@ -196,7 +177,6 @@ export default function AuthForm() {
         return
       }
 
-      // If this is a new account (we sent OTP with shouldCreateUser), set the password now
       if (emailExists === false && password && password.length >= 8) {
         const { error: pwdErr } = await supabase.auth.updateUser({ password })
         if (pwdErr) { setError(pwdErr.message); return }
@@ -209,15 +189,13 @@ export default function AuthForm() {
   async function handleResend() {
     resetMessages()
     startTransition(async () => {
-      // Re-send a fresh 6-digit OTP email (also creates account when not existing)
       const { error: otpErr } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo, shouldCreateUser: true } })
       if (otpErr) setError(otpErr.message)
-      else setInfo("تمت إعادة إرسال رمز التحقق إلى بريدك الإلكتروني.")
+      else setInfo("Verification code resent to your email.")
     })
   }
 
   function parseBirthday(input: string): string | null {
-    // Expect MM/DD/YYYY; return YYYY-MM-DD or null if invalid
     const m = input.match(/^\s*(\d{2})\/(\d{2})\/(\d{4})\s*$/)
     if (!m) return null
     const mm = Number(m[1])
@@ -232,12 +210,12 @@ export default function AuthForm() {
     e.preventDefault()
     resetMessages()
     if (!fullName.trim()) {
-      setError("الرجاء إدخال الاسم الكامل")
+      setError("Please enter your full name")
       return
     }
     const iso = parseBirthday(birthday)
     if (!iso) {
-      setError("الرجاء إدخال تاريخ صحيح بصيغة MM/DD/YYYY")
+      setError("Please enter a valid date in MM/DD/YYYY format")
       return
     }
 
@@ -255,14 +233,11 @@ export default function AuthForm() {
 
   async function handleOAuth(provider: "google" | "facebook") {
     setError(''); setInfo('')
-    // Ensure Facebook returns an email by requesting the standard scopes
-    // and force re-request if the user previously declined email
     const options: { redirectTo: string; scopes?: string; queryParams?: Record<string, string> } = { redirectTo: redirectWithNext }
     if (provider === 'facebook') {
       options.scopes = 'email public_profile'
       options.queryParams = { auth_type: 'rerequest' }
     }
-    // Always show account picker when using Google (avoid auto-login to last account)
     if (provider === 'google') {
       options.queryParams = { prompt: 'select_account' }
     }
@@ -270,14 +245,13 @@ export default function AuthForm() {
     if (error) {
       const msg = (error.message || '').toLowerCase()
       if (msg.includes('unsupported provider') || msg.includes('not enabled')) {
-        setError(`مزود ${provider === 'google' ? 'Google' : 'Facebook'} غير مُفعّل في إعدادات Supabase. يرجى التأكد من تفعيله وإضافة بيانات OAuth وتعيين عنوان العودة الصحيح.`)
+        setError(`${provider === 'google' ? 'Google' : 'Facebook'} provider is not enabled in Supabase settings. Please enable it and add OAuth credentials.`)
       } else {
         setError(error.message)
       }
     }
   }
 
-  // Phone (optional minimal panel)
   const [phone, setPhone] = useState("")
   const [phoneCode, setPhoneCode] = useState("")
   const [phoneSent, setPhoneSent] = useState(false)
@@ -297,7 +271,6 @@ export default function AuthForm() {
     })
   }
 
-  // UI helpers
   function PillButton({ children, variant = "outline", onClick, disabled }: { children: React.ReactNode; variant?: "outline" | "solid"; onClick?: () => void; disabled?: boolean }) {
     const common = "w-full h-12 rounded-full px-4 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-offset-2"
     const cls = variant === "solid"
@@ -305,7 +278,7 @@ export default function AuthForm() {
       : `${common} border hover:bg-accent`
     return (
       <button type="button" onClick={onClick} disabled={disabled} className={cls}>
-        <div className="flex items-center justify-between flex-row-reverse">
+        <div className="flex items-center justify-between">
           {children}
         </div>
       </button>
@@ -313,18 +286,16 @@ export default function AuthForm() {
   }
 
   return (
-    <div className="space-y-5" dir="rtl">
+    <div className="space-y-5">
       {heading(titleByStep)}
 
-      {/* Step: email */}
       {step === "email" && (
         <form onSubmit={handleContinueFromEmail} className="space-y-3">
           <div className="grid gap-2">
-            <label className="text-sm">البريد الإلكتروني</label>
+            <label className="text-sm">Email</label>
             <input
               type="email"
               required
-              dir="ltr"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="rounded-full border px-4 py-3"
@@ -332,31 +303,29 @@ export default function AuthForm() {
             />
           </div>
           <button disabled={pending} className="w-full h-12 rounded-full bg-black text-white text-sm font-semibold hover:opacity-95">
-            متابعة
+            Continue
           </button>
         </form>
       )}
 
-      {/* Step: password */}
       {step === "password" && (
         <form onSubmit={handlePasswordSubmit} className="space-y-3">
           <div className="rounded-full bg-gray-100 px-4 py-2 text-sm text-gray-700 flex items-center justify-between">
             <span className="truncate">{email}</span>
-            <button type="button" className="underline" onClick={() => setStep("email")}>تعديل</button>
+            <button type="button" className="underline" onClick={() => setStep("email")}>Edit</button>
           </div>
           <div className="grid gap-2">
-            <label className="text-sm">{emailExists === false ? "إنشاء كلمة المرور" : "كلمة المرور"}</label>
+            <label className="text-sm">{emailExists === false ? "Create Password" : "Password"}</label>
             <div className="relative">
               <input
                 type={showPw ? "text" : "password"}
                 required
-                dir="ltr"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-full border px-4 py-3 pr-12"
                 placeholder="••••••••"
               />
-              <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute inset-y-0 left-3 flex items-center text-gray-500">
+              <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute inset-y-0 right-3 flex items-center text-gray-500">
                 {showPw ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </button>
             </div>
@@ -368,23 +337,22 @@ export default function AuthForm() {
                 href={`/forgot-password${safeNext && safeNext !== "/" ? `?next=${encodeURIComponent(safeNext)}` : ""}${email ? `${safeNext && safeNext !== "/" ? "&" : "?"}email=${encodeURIComponent(email)}` : ""}`}
                 className="text-blue-600 hover:underline"
               >
-                نسيت كلمة المرور؟
+                Forgot password?
               </a>
             )}
           </div>
           <button disabled={pending} className="w-full h-12 rounded-full bg-black text-white text-sm font-semibold hover:opacity-95">
-            متابعة
+            Continue
           </button>
           {emailExists === false && (
-            <p className="text-xs text-gray-500 text-center">سيتم إنشاء حساب جديد لهذا البريد الإلكتروني.</p>
+            <p className="text-xs text-gray-500 text-center">A new account will be created for this email.</p>
           )}
         </form>
       )}
 
-      {/* Step: verify code */}
       {step === "verify_code" && (
         <form onSubmit={handleVerifyCode} className="space-y-3">
-          <p className="text-center text-sm text-gray-600">أدخل رمز التحقق الذي أرسلناه إلى {email}</p>
+          <p className="text-center text-sm text-gray-600">Enter the verification code we sent to {email}</p>
           <input
             inputMode="numeric"
             pattern="[0-9]*"
@@ -394,37 +362,34 @@ export default function AuthForm() {
             onChange={(e) => setCode(e.target.value)}
             className="w-full rounded-full border px-4 py-3 text-center tracking-widest"
             placeholder="Code"
-            dir="ltr"
           />
           <button disabled={pending} className="w-full h-12 rounded-full bg-black text-white text-sm font-semibold hover:opacity-95">
-            متابعة
+            Continue
           </button>
           <div className="text-center">
-            <button type="button" onClick={handleResend} className="text-sm text-blue-600 hover:underline">إعادة إرسال البريد</button>
+            <button type="button" onClick={handleResend} className="text-sm text-blue-600 hover:underline">Resend Email</button>
           </div>
         </form>
       )}
 
-      {/* Step: onboarding */}
       {step === "onboarding" && (
         <form onSubmit={handleOnboarding} className="space-y-4">
           <div className="grid gap-2">
-            <label className="text-sm">الاسم الكامل</label>
+            <label className="text-sm">Full Name</label>
             <input
               type="text"
               required
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               className="rounded-full border px-4 py-3"
-              placeholder="الاسم الكامل"
+              placeholder="Full Name"
             />
           </div>
           <div className="grid gap-2">
-            <label className="text-sm">تاريخ الميلاد</label>
+            <label className="text-sm">Date of Birth</label>
             <input
               type="text"
               required
-              dir="ltr"
               value={birthday}
               onChange={(e) => setBirthday(e.target.value)}
               className="rounded-full border px-4 py-3"
@@ -432,63 +397,59 @@ export default function AuthForm() {
             />
           </div>
           <p className="text-xs text-gray-600 text-center">
-            بالنقر على "متابعة"، فإنك توافق على شروط الخدمة وقد قرأت سياسة الخصوصية.
+            By clicking "Continue", you agree to our Terms of Service and have read our Privacy Policy.
           </p>
           <button disabled={pending} className="w-full h-12 rounded-full bg-black text-white text-sm font-semibold hover:opacity-95">
-            متابعة
+            Continue
           </button>
         </form>
       )}
 
-      {/* Divider */}
       {step === "email" && (
         <div className="flex items-center gap-4 text-sm text-gray-500">
           <div className="h-px flex-1 bg-gray-200" />
-          <span>أو</span>
+          <span>or</span>
           <div className="h-px flex-1 bg-gray-200" />
         </div>
       )}
 
-      {/* Social + phone options */}
       {step === "email" && (
         <div className="space-y-3">
           <PillButton variant="solid" onClick={() => handleOAuth("google")} disabled={pending}>
-            <span className="flex-1 text-center">المتابعة من خلال Google</span>
             <GoogleIcon />
+            <span className="flex-1 text-center">Continue with Google</span>
           </PillButton>
           <PillButton onClick={() => handleOAuth("facebook")} disabled={pending}>
-            <span className="flex-1 text-center">المتابعة من خلال Facebook</span>
             <Facebook className="h-5 w-5 text-[#1877f2]" />
+            <span className="flex-1 text-center">Continue with Facebook</span>
           </PillButton>
           <PillButton onClick={() => setStep("phone")} disabled={pending}>
-            <span className="flex-1 text-center">المتابعة من خلال رقم الجوال</span>
             <Smartphone className="h-5 w-5" />
+            <span className="flex-1 text-center">Continue with Phone</span>
           </PillButton>
         </div>
       )}
 
-      {/* Phone panel (optional) */}
       {step === "phone" && (
         <div className="space-y-3">
           <form onSubmit={handlePhoneSend} className="grid gap-2">
-            <label className="text-sm">رقم الجوال (مثال: +9665xxxxxxxx)</label>
-            <input type="tel" dir="ltr" required value={phone} onChange={(e) => setPhone(e.target.value)} className="rounded-full border px-4 py-3" />
-            <button disabled={pending} className="w-full h-12 rounded-full bg-black text-white text-sm font-semibold hover:opacity-95">إرسال الرمز</button>
+            <label className="text-sm">Phone Number (e.g., +1555xxxxxxx)</label>
+            <input type="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} className="rounded-full border px-4 py-3" />
+            <button disabled={pending} className="w-full h-12 rounded-full bg-black text-white text-sm font-semibold hover:opacity-95">Send Code</button>
           </form>
           {phoneSent && (
             <form onSubmit={handlePhoneVerify} className="grid gap-2">
-              <label className="text-sm">أدخل رمز التحقق</label>
-              <input inputMode="numeric" pattern="[0-9]*" maxLength={6} dir="ltr" required value={phoneCode} onChange={(e) => setPhoneCode(e.target.value)} className="rounded-full border px-4 py-3" />
-              <button disabled={pending} className="w-full h-12 rounded-full bg-black text-white text-sm font-semibold hover:opacity-95">تأكيد</button>
+              <label className="text-sm">Enter Verification Code</label>
+              <input inputMode="numeric" pattern="[0-9]*" maxLength={6} required value={phoneCode} onChange={(e) => setPhoneCode(e.target.value)} className="rounded-full border px-4 py-3" />
+              <button disabled={pending} className="w-full h-12 rounded-full bg-black text-white text-sm font-semibold hover:opacity-95">Confirm</button>
             </form>
           )}
           <div className="text-center">
-            <button type="button" className="text-sm text-blue-600 hover:underline" onClick={() => setStep("email")}>رجوع</button>
+            <button type="button" className="text-sm text-blue-600 hover:underline" onClick={() => setStep("email")}>Back</button>
           </div>
         </div>
       )}
 
-      {/* Messages */}
       {(error || info) && (
         <div className="space-y-2">
           {error && <div className="rounded-md border border-destructive bg-destructive/10 p-2 text-sm text-destructive">{error}</div>}
@@ -501,7 +462,7 @@ export default function AuthForm() {
 
 function GoogleIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden className="ml-1">
+    <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden className="mr-1">
       <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.9 33.7 29.4 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.3 0 6.3 1.2 8.6 3.2l5.7-5.7C34.6 5.1 29.6 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.2-.1-2.3-.4-3.5z"/>
       <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16.2 18.9 13 24 13c3.3 0 6.3 1.2 8.6 3.2l5.7-5.7C34.6 5.1 29.6 3 24 3 15.3 3 7.8 8.1 6.3 14.7z"/>
       <path fill="#4CAF50" d="M24 45c5.3 0 10.2-2 13.8-5.2l-6.4-5.3C29.2 35.7 26.8 36.5 24 36.5 18.7 36.5 14.1 33.1 12.4 28l-6.4 5C8.4 39.9 15.6 45 24 45c9.9 0 18.4-6.9 21-16.1.3-1.2.4-2.3.4-3.5 0-1-.1-1.9-.3-2.9z"/>

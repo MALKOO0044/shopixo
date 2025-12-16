@@ -7,13 +7,12 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import FiltersPanel from "@/components/pro/FiltersPanel";
 
-export const metadata = { title: "المتجر", description: "تسوّق أحدث المنتجات والعروض" };
+export const metadata = { title: "Shop", description: "Shop the latest products and deals" };
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
 
 export default async function ShopPage({ searchParams }: { searchParams?: { sort?: string; min?: string; max?: string } }) {
   const supabase = getSupabaseAnonServer();
-  // Detect admin once for rendering quick actions
   const supabaseAuth = createServerComponentClient({ cookies });
   const { data: { user } } = await supabaseAuth.auth.getUser();
   const adminEmails = (process.env.ADMIN_EMAILS || "")
@@ -38,15 +37,14 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
   if (!supabase) {
     return (
       <div className="container py-10">
-        <Breadcrumbs items={[{ name: "الرئيسية", href: "/" }, { name: "المتجر" }]} />
-        <h1 className="text-3xl font-bold">المتجر</h1>
-        <p className="mt-2 text-slate-600">اكتشف مجموعتنا المختارة من المنتجات الرائجة.</p>
+        <Breadcrumbs items={[{ name: "Home", href: "/" }, { name: "Shop" }]} />
+        <h1 className="text-3xl font-bold">Shop</h1>
+        <p className="mt-2 text-slate-600">Discover our curated selection of trending products.</p>
         <FiltersPanel basePath="/shop" sort={searchParams?.sort} min={searchParams?.min} max={searchParams?.max} />
-        <div className="mt-8 text-slate-600">لا توجد منتجات حالياً.</div>
+        <div className="mt-8 text-slate-600">No products available.</div>
       </div>
     );
   }
-  // Try to filter active products; if the column is missing (migration not applied), fallback to unfiltered query
   let products: any[] | null = null;
   let error: any = null;
   {
@@ -73,18 +71,18 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
     console.error("Error fetching products:", error.message);
     return (
       <div className="container py-10 text-center">
-        <h2 className="text-xl font-semibold text-red-600">تعذر تحميل المنتجات</h2>
-        <p className="mt-2 text-slate-500">حدثت مشكلة في الاتصال بقاعدة البيانات. يرجى المحاولة لاحقًا.</p>
-        <p className="mt-4 text-xs text-slate-400">الخطأ: {error.message}</p>
+        <h2 className="text-xl font-semibold text-red-600">Failed to load products</h2>
+        <p className="mt-2 text-slate-500">There was a problem connecting to the database. Please try again later.</p>
+        <p className="mt-4 text-xs text-slate-400">Error: {error.message}</p>
       </div>
     );
   }
 
   return (
     <div className="container py-10">
-      <Breadcrumbs items={[{ name: "الرئيسية", href: "/" }, { name: "المتجر" }]} />
-      <h1 className="text-3xl font-bold">المتجر</h1>
-      <p className="mt-2 text-slate-600">اكتشف مجموعتنا المختارة من المنتجات الرائجة.</p>
+      <Breadcrumbs items={[{ name: "Home", href: "/" }, { name: "Shop" }]} />
+      <h1 className="text-3xl font-bold">Shop</h1>
+      <p className="mt-2 text-slate-600">Discover our curated selection of trending products.</p>
       <FiltersPanel basePath="/shop" sort={searchParams?.sort} min={searchParams?.min} max={searchParams?.max} />
       <div className="mt-8">
         {products && products.length > 0 ? (
@@ -99,7 +97,7 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
             ))}
           </div>
         ) : (
-          <div className="text-slate-600">لا توجد منتجات حالياً.</div>
+          <div className="text-slate-600">No products available.</div>
         )}
       </div>
     </div>

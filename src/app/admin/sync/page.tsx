@@ -163,7 +163,7 @@ export default function DailySyncPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Daily Sync</h1>
-          <p className="text-sm text-gray-500 mt-1">المزامنة اليومية - Monitor price and stock changes from CJ</p>
+          <p className="text-sm text-gray-500 mt-1">Monitor price and stock changes from CJ</p>
         </div>
         <div className="flex items-center gap-3">
           {lastSyncTime && (

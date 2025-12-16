@@ -60,7 +60,7 @@ export default async function ImportDashboardPage() {
       href: "/admin/import/discover" as Route,
       icon: Download,
       title: "Discover Products",
-      titleAr: "اكتشاف المنتجات",
+      titleAr: "Discover Products",
       description: "Search CJ catalog and add products to queue",
       color: "blue",
     },
@@ -68,7 +68,7 @@ export default async function ImportDashboardPage() {
       href: "/admin/import/queue" as Route,
       icon: ListChecks,
       title: "Import Queue",
-      titleAr: "قائمة الانتظار",
+      titleAr: "Import Queue",
       description: "Review and approve products for import",
       color: "green",
       badge: stats?.queue?.pending || 0,
@@ -77,7 +77,7 @@ export default async function ImportDashboardPage() {
       href: "/admin/import/pricing" as Route,
       icon: Calculator,
       title: "Pricing Rules",
-      titleAr: "قواعد التسعير",
+      titleAr: "Pricing Rules",
       description: "Configure margins, VAT, and smart rounding",
       color: "purple",
     },
@@ -85,7 +85,7 @@ export default async function ImportDashboardPage() {
       href: "/admin/sync" as Route,
       icon: RefreshCw,
       title: "Daily Sync",
-      titleAr: "المزامنة اليومية",
+      titleAr: "Daily Sync",
       description: "Monitor price and stock changes",
       color: "amber",
       badge: stats?.sync?.pending || 0,
@@ -103,7 +103,7 @@ export default async function ImportDashboardPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Product Import System</h1>
-        <p className="text-sm text-gray-500 mt-1">نظام استيراد المنتجات - Discover, review, and import products from CJ Dropshipping</p>
+        <p className="text-sm text-gray-500 mt-1">Discover, review, and import products from CJ Dropshipping</p>
       </div>
 
       <div className="grid grid-cols-4 gap-4">

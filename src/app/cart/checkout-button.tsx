@@ -14,9 +14,9 @@ function SubmitButton() {
       disabled={pending}
       variant="cta"
       size="default"
-      aria-label={pending ? "جارٍ المعالجة" : "تابع إتمام الشراء"}
+      aria-label={pending ? "Processing" : "Proceed to Checkout"}
     >
-      {pending ? "جارٍ المعالجة..." : "تابع إتمام الشراء"}
+      {pending ? "Processing..." : "Proceed to Checkout"}
     </Button>
   );
 }

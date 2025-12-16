@@ -78,11 +78,11 @@ export default async function AdminProductsPage() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-[80px]">
-                صورة
+                Image
               </TableHead>
               <TableHead>Title</TableHead>
               <TableHead>Price</TableHead>
-              <TableHead>المخزون</TableHead>
+              <TableHead>Stock</TableHead>
               <TableHead className="hidden md:table-cell">Created at</TableHead>
               <TableHead>
                 <span className="sr-only">Actions</span>
@@ -117,7 +117,7 @@ export default async function AdminProductsPage() {
                         ? "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
                         : "rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700"
                     }>
-                      {(product.stock ?? 0) > 0 ? 'متاح' : 'غير متاح'}
+                      {(product.stock ?? 0) > 0 ? 'Available' : 'Out of Stock'}
                     </span>
                   </div>
                 </TableCell>

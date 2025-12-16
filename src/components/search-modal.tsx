@@ -58,7 +58,6 @@ export default function SearchModal({ renderTrigger }: { renderTrigger?: (open: 
 
   return (
     <>
-      {/* Trigger */}
       {renderTrigger ? (
         <>{renderTrigger(() => setOpen(true))}</>
       ) : (
@@ -82,7 +81,7 @@ export default function SearchModal({ renderTrigger }: { renderTrigger?: (open: 
               <SearchIcon className="h-5 w-5 text-muted-foreground" />
               <input
                 ref={inputRef}
-                placeholder="ابحث عن منتجات..."
+                placeholder="Search products..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground"
@@ -93,9 +92,9 @@ export default function SearchModal({ renderTrigger }: { renderTrigger?: (open: 
               </button>
             </div>
             <div className="mt-3 max-h-[60vh] overflow-auto">
-              {loading && <div className="p-3 text-sm text-muted-foreground">جاري البحث…</div>}
+              {loading && <div className="p-3 text-sm text-muted-foreground">Searching...</div>}
               {!loading && items.length === 0 && debounced && (
-                <div className="p-3 text-sm text-muted-foreground">لا توجد نتائج لـ “{debounced}”.</div>
+                <div className="p-3 text-sm text-muted-foreground">No results for "{debounced}".</div>
               )}
               <ul className="divide-y">
                 {items.map((it: SearchItem) => (
@@ -105,7 +104,6 @@ export default function SearchModal({ renderTrigger }: { renderTrigger?: (open: 
                       className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-muted"
                       onClick={() => setOpen(false)}
                     >
-                      {/* Thumbnail */}
                       <div className="relative h-12 w-12 overflow-hidden rounded-md bg-muted">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img

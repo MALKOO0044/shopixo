@@ -206,7 +206,7 @@ function MediaGallery({ images, title, videoUrl }: MediaGalleryProps) {
         className="relative flex-1 aspect-[3/4] md:aspect-square rounded-lg overflow-hidden bg-muted cursor-zoom-in"
         onClick={() => !isLikelyVideoUrl(selected) && openZoom()}
         role={!isLikelyVideoUrl(selected) ? 'button' : undefined}
-        aria-label={!isLikelyVideoUrl(selected) ? 'تكبير الصورة' : undefined}
+        aria-label={!isLikelyVideoUrl(selected) ? 'Zoom image' : undefined}
       >
         {isLikelyVideoUrl(selected) ? (
           <video
@@ -243,7 +243,7 @@ function MediaGallery({ images, title, videoUrl }: MediaGalleryProps) {
           <button
             onClick={() => scrollThumbnails('up')}
             className="w-full flex items-center justify-center py-1 text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="التمرير لأعلى"
+            aria-label="Scroll up"
           >
             <ChevronUp className="w-5 h-5" />
           </button>
@@ -272,7 +272,7 @@ function MediaGallery({ images, title, videoUrl }: MediaGalleryProps) {
               ) : (
                 <SmartImage
                   src={transformImage(item)}
-                  alt={`صورة ${index + 1}`}
+                  alt={`Image ${index + 1}`}
                   fill
                   className="object-cover"
                   loading="lazy"
@@ -294,7 +294,7 @@ function MediaGallery({ images, title, videoUrl }: MediaGalleryProps) {
           <button
             onClick={() => scrollThumbnails('down')}
             className="w-full flex items-center justify-center py-1 text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="التمرير لأسفل"
+            aria-label="Scroll down"
           >
             <ChevronDown className="w-5 h-5" />
           </button>
@@ -305,7 +305,7 @@ function MediaGallery({ images, title, videoUrl }: MediaGalleryProps) {
         <div className="fixed inset-0 z-50" aria-modal="true" role="dialog">
           <div className="absolute inset-0 bg-black/80" onClick={closeZoom} />
           <button
-            aria-label="إغلاق"
+            aria-label="Close"
             onClick={closeZoom}
             className="absolute top-4 right-4 z-10 rounded-full bg-white/90 p-2 hover:bg-white transition-colors"
           >
@@ -364,7 +364,7 @@ function DetailHeader({ title, productCode, rating, reviewCount = 0 }: DetailHea
       
       {productCode && (
         <p className="text-sm text-muted-foreground">
-          رمز المنتج: <span className="font-mono text-foreground">{productCode}</span>
+          Product Code: <span className="font-mono text-foreground">{productCode}</span>
         </p>
       )}
 
@@ -385,7 +385,7 @@ function DetailHeader({ title, productCode, rating, reviewCount = 0 }: DetailHea
           ))}
         </div>
         <span className="text-sm text-muted-foreground">
-          {reviewCount > 0 ? `${reviewCount.toLocaleString('ar-SA')}+ تقييم` : 'لا توجد تقييمات بعد'}
+          {reviewCount > 0 ? `${reviewCount.toLocaleString('en-US')}+ reviews` : 'No reviews yet'}
         </span>
       </div>
     </div>
@@ -423,7 +423,7 @@ function PriceBlock({ price, originalPrice, isAvailable }: PriceBlockProps) {
         "text-sm font-medium",
         isAvailable ? "text-green-600" : "text-red-600"
       )}>
-        {isAvailable ? 'متوفر في المخزون' : 'غير متوفر حالياً'}
+        {isAvailable ? 'In Stock' : 'Out of Stock'}
       </div>
     </div>
   );
@@ -443,7 +443,7 @@ function ColorSelector({ colors, selectedColor, onColorChange, colorImages = {},
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-foreground">اللون:</span>
+        <span className="text-sm font-medium text-foreground">Color:</span>
         <span className="text-sm text-muted-foreground">{selectedColor}</span>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -503,7 +503,7 @@ function SizeSelector({ sizes, selectedSize, onSizeChange, sizeStock = {} }: Siz
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-foreground">المقاس:</span>
+        <span className="text-sm font-medium text-foreground">Size:</span>
         <span className="text-sm text-muted-foreground">{selectedSize}</span>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -537,7 +537,7 @@ function SizeSelector({ sizes, selectedSize, onSizeChange, sizeStock = {} }: Siz
       </div>
       {sizeStock[selectedSize] !== undefined && sizeStock[selectedSize] > 0 && sizeStock[selectedSize] <= 3 && (
         <p className="text-sm text-amber-600">
-          متبقي {sizeStock[selectedSize]} فقط!
+          Only {sizeStock[selectedSize]} left!
         </p>
       )}
     </div>
@@ -573,7 +573,7 @@ function ActionPanel({ productId, productSlug, selectedOptions, disabled, onWish
               ? "bg-red-50 border-red-200 text-red-500" 
               : "bg-card border-border text-muted-foreground hover:text-red-500 hover:border-red-200"
           )}
-          aria-label={isWishlisted ? "إزالة من المفضلة" : "إضافة للمفضلة"}
+          aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
         >
           <Heart className={cn("w-5 h-5", isWishlisted && "fill-current")} />
         </button>
@@ -611,55 +611,55 @@ function ShippingInfo({ cjPid, quote, quoteLoading, selectedVariant, product }: 
       <div className="grid grid-cols-3 gap-4 pb-3 border-b">
         <div className="flex flex-col items-center gap-1 text-center">
           <Truck className="w-5 h-5 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">شحن سريع</span>
+          <span className="text-xs text-muted-foreground">Fast Shipping</span>
         </div>
         <div className="flex flex-col items-center gap-1 text-center">
           <Shield className="w-5 h-5 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">دفع آمن</span>
+          <span className="text-xs text-muted-foreground">Secure Payment</span>
         </div>
         <div className="flex flex-col items-center gap-1 text-center">
           <RotateCcw className="w-5 h-5 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">إرجاع سهل</span>
+          <span className="text-xs text-muted-foreground">Easy Returns</span>
         </div>
       </div>
       
       <div className="space-y-2 text-sm">
-        <div className="font-medium">الشحن والتسليم (تقديري)</div>
+        <div className="font-medium">Shipping & Delivery (Estimated)</div>
         
         {((product as any).origin_area || (product as any).origin_country_code) && (
           <div className="text-xs text-muted-foreground">
-            الشحن من: {(product as any).origin_area || '-'}
+            Ships from: {(product as any).origin_area || '-'}
             {(product as any).origin_country_code ? `, ${(product as any).origin_country_code}` : ''}
           </div>
         )}
         
         {!selectedVariant && (
-          <p className="text-muted-foreground">اختر المقاس لعرض الشحن والإجمالي.</p>
+          <p className="text-muted-foreground">Select a size to view shipping and total.</p>
         )}
         
         {selectedVariant && quoteLoading && (
-          <p className="text-muted-foreground">جاري حساب تكلفة الشحن...</p>
+          <p className="text-muted-foreground">Calculating shipping cost...</p>
         )}
         
         {selectedVariant && !quoteLoading && hasLiveQuote && quote && (
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <div className="text-muted-foreground">أرخص شحن</div>
+                <div className="text-muted-foreground">Cheapest Shipping</div>
                 <div className="font-medium">{formatCurrency(quote.shippingSar)}</div>
               </div>
               <div>
-                <div className="text-muted-foreground">سعر التوصيل</div>
+                <div className="text-muted-foreground">Delivery Price</div>
                 <div className="font-medium">{formatCurrency(quote.retailSar)}</div>
               </div>
             </div>
             {quote.options.length > 0 && (
               <div>
-                <div className="text-muted-foreground mb-1">خيارات الشحن</div>
+                <div className="text-muted-foreground mb-1">Shipping Options</div>
                 <ul className="list-disc pr-5 text-xs space-y-1">
                   {quote.options.slice(0, 3).map((o: any, i: number) => {
                     const rng = o.logisticAgingDays;
-                    const days = rng ? (rng.max ? `${rng.min || rng.max}-${rng.max} أيام` : `${rng.min} أيام`) : null;
+                    const days = rng ? (rng.max ? `${rng.min || rng.max}-${rng.max} days` : `${rng.min} days`) : null;
                     return (
                       <li key={i}>{o.name || o.code}: {formatCurrency(Number(o.price || 0))}{days ? ` · ${days}` : ''}</li>
                     );
@@ -673,11 +673,11 @@ function ShippingInfo({ cjPid, quote, quoteLoading, selectedVariant, product }: 
         {selectedVariant && !quoteLoading && !hasLiveQuote && fallbackShipping && (
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <div className="text-muted-foreground">رسوم الشحن (DDP)</div>
+              <div className="text-muted-foreground">Shipping Fee (DDP)</div>
               <div className="font-medium">{formatCurrency(fallbackShipping.ddp)}</div>
             </div>
             <div>
-              <div className="text-muted-foreground">الإجمالي</div>
+              <div className="text-muted-foreground">Total</div>
               <div className="font-medium">{formatCurrency(fallbackShipping.total)}</div>
             </div>
           </div>
@@ -686,18 +686,18 @@ function ShippingInfo({ cjPid, quote, quoteLoading, selectedVariant, product }: 
         {selectedVariant && !quoteLoading && (
           <div className="grid grid-cols-2 gap-2 pt-2 border-t">
             <div>
-              <div className="text-muted-foreground">مدة المعالجة</div>
+              <div className="text-muted-foreground">Processing Time</div>
               <div className="text-foreground">
                 {typeof (product as any).processing_time_hours === 'number' 
-                  ? `${Math.max(1, Math.round((product as any).processing_time_hours / 24))}–${Math.max(1, Math.ceil(((product as any).processing_time_hours + 24) / 24))} أيام` 
+                  ? `${Math.max(1, Math.round((product as any).processing_time_hours / 24))}–${Math.max(1, Math.ceil(((product as any).processing_time_hours + 24) / 24))} days` 
                   : '—'}
               </div>
             </div>
             <div>
-              <div className="text-muted-foreground">مدة التوصيل</div>
+              <div className="text-muted-foreground">Delivery Time</div>
               <div className="text-foreground">
                 {typeof (product as any).delivery_time_hours === 'number' 
-                  ? `${Math.max(1, Math.round((product as any).delivery_time_hours / 24))}–${Math.max(1, Math.ceil(((product as any).delivery_time_hours + 24) / 24))} أيام` 
+                  ? `${Math.max(1, Math.round((product as any).delivery_time_hours / 24))}–${Math.max(1, Math.ceil(((product as any).delivery_time_hours + 24) / 24))} days` 
                   : '—'}
               </div>
             </div>
@@ -963,7 +963,7 @@ export default function ProductDetailsClient({
 
           {product.description && (
             <div className="space-y-2">
-              <h3 className="text-sm font-medium text-foreground">وصف المنتج</h3>
+              <h3 className="text-sm font-medium text-foreground">Product Description</h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 {product.description}
               </p>
@@ -977,7 +977,7 @@ export default function ProductDetailsClient({
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 p-3 safe-area-inset-bottom">
         <div className="mx-auto flex max-w-md items-center gap-3">
           <div className="shrink-0">
-            <div className="text-xs text-muted-foreground">السعر</div>
+            <div className="text-xs text-muted-foreground">Price</div>
             <div className="text-lg font-bold text-primary">{formatCurrency(currentPrice)}</div>
           </div>
           <div className="flex-1">

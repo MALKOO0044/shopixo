@@ -1,50 +1,49 @@
-export const metadata = { title: "حذف البيانات | Shopixo" };
+export const metadata = { title: "Data Deletion | Shopixo" };
 
 export default function DataDeletionPage() {
   return (
     <div className="container max-w-3xl py-10">
-      <h1 className="text-3xl font-bold">سياسة حذف البيانات</h1>
+      <h1 className="text-3xl font-bold">Data Deletion Policy</h1>
       <p className="mt-4 text-slate-700">
-        نلتزم في <strong>Shopixo</strong> بحماية خصوصيتك. يوضح هذا المستند الطرق المتاحة لك
-        لطلب حذف بياناتك الشخصية المرتبطة بحسابك أو عمليات الشراء لديك.
+        At <strong>Shopixo</strong>, we are committed to protecting your privacy. This document explains the methods
+        available to you to request deletion of your personal data associated with your account or purchases.
       </p>
 
-      <h2 className="mt-8 text-xl font-semibold">طرق حذف البيانات</h2>
+      <h2 className="mt-8 text-xl font-semibold">Data Deletion Methods</h2>
       <ol className="list-decimal pl-6 mt-3 space-y-3 text-slate-700">
         <li>
-          حذف الحساب ذاتيًا: إذا كان لديك حساب مسجّل لدينا، يمكنك طلب حذف الحساب وجميع
-          البيانات المرتبطة به من صفحة الأمان في حسابك: <a className="text-primary underline" href="/account/security">/account/security</a>.
+          Self-service account deletion: If you have a registered account with us, you can request deletion of your account
+          and all associated data from the security page in your account: <a className="text-primary underline" href="/account/security">/account/security</a>.
         </li>
         <li>
-          عبر البريد الإلكتروني: في حال تعذّر تسجيل الدخول أو لم يكن لديك حساب، يمكنك إرسال طلب
-          حذف بيانات إلى البريد التالي: <a className="text-primary underline" href="mailto:naserabusafeh2016@gmail.com">naserabusafeh2016@gmail.com</a>
-          مع تضمين المعلومات التالية:
+          Via email: If you cannot log in or do not have an account, you can send a data deletion request to:
+          <a className="text-primary underline" href="mailto:support@shopixo.com">support@shopixo.com</a>
+          including the following information:
           <ul className="list-disc pl-6 mt-2">
-            <li>الاسم الكامل.</li>
-            <li>البريد الإلكتروني المستخدم في التسجيل (إن وجد).</li>
-            <li>وصف مختصر للبيانات المطلوب حذفها.</li>
+            <li>Full name.</li>
+            <li>Email address used for registration (if any).</li>
+            <li>Brief description of the data to be deleted.</li>
           </ul>
         </li>
         <li>
-          يمكنك كذلك استخدام صفحة الاتصال الخاصة بنا: <a className="text-primary underline" href="/contact">/contact</a> لفتح تذكرة دعم بخصوص حذف البيانات.
+          You can also use our contact page: <a className="text-primary underline" href="/contact">/contact</a> to open a support ticket regarding data deletion.
         </li>
       </ol>
 
-      <h2 className="mt-8 text-xl font-semibold">ما الذي يُحذف؟</h2>
+      <h2 className="mt-8 text-xl font-semibold">What Gets Deleted?</h2>
       <p className="mt-3 text-slate-700">
-        عند الموافقة على طلبك، نقوم بحذف أو إلغاء هوية (Anonymize) البيانات الشخصية المرتبطة
-        بحسابك، والتي قد تشمل معلومات الملف الشخصي وطرق التواصل وسجلّ العناوين. قد نحتفظ
-        ببعض السجلات ذات الطبيعة المالية أو الضريبية أو سجلات الاحتيال وفق الالتزامات القانونية
-        المعمول بها.
+        Upon approval of your request, we will delete or anonymize personal data associated with your account,
+        which may include profile information, contact methods, and address history. We may retain certain financial,
+        tax, or fraud-related records as required by applicable legal obligations.
       </p>
 
-      <h2 className="mt-8 text-xl font-semibold">المدة الزمنية لمعالجة الطلب</h2>
+      <h2 className="mt-8 text-xl font-semibold">Request Processing Time</h2>
       <p className="mt-3 text-slate-700">
-        عادةً ما تتم معالجة طلبات حذف البيانات خلال مدة تتراوح بين 7 إلى 30 يومًا من تأكيد
-        هوية صاحب الطلب. سنقوم بإشعارك عند اكتمال العملية.
+        Data deletion requests are typically processed within 7 to 30 days after verifying the identity of the requester.
+        We will notify you when the process is complete.
       </p>
 
-      <p className="mt-10 text-xs text-slate-500">آخر تحديث: 14 سبتمبر 2025</p>
+      <p className="mt-10 text-xs text-slate-500">Last updated: September 14, 2025</p>
     </div>
   );
 }

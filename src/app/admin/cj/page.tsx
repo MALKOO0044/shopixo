@@ -4,7 +4,7 @@ export default function CjAdminPage() {
   return (
     <main className="mx-auto max-w-3xl p-6 space-y-6">
       <h1 className="text-2xl font-semibold">Supplier Admin</h1>
-      <p className="text-sm opacity-80">أدوات الإدارة لمزامنة كتالوج المورد، إعادة مزامنة منتج، وحساب الشحن.</p>
+      <p className="text-sm opacity-80">Admin tools for syncing supplier catalog, refreshing products, and calculating shipping.</p>
 
       <ul className="list-disc pl-6 space-y-2">
         <li>

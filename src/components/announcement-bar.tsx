@@ -15,7 +15,7 @@ export default function AnnouncementBar() {
   return (
     <div className="w-full bg-secondary/10 text-foreground">
       <div className="container flex items-center justify-between gap-4 py-2 text-sm">
-        <p className="truncate">شحن مجاني للطلبات فوق 100 ريال • إرجاع خلال 30 يومًا • دفع آمن</p>
+        <p className="truncate">Free shipping on orders over $50 • 30-day returns • Secure payment</p>
         <button
           aria-label="Dismiss announcement"
           className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
@@ -24,7 +24,7 @@ export default function AnnouncementBar() {
             setHidden(true);
           }}
         >
-          إغلاق
+          Close
         </button>
       </div>
     </div>

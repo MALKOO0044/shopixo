@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import AuthForm from "./auth-form";
 
 export const metadata = {
-  title: "تسجيل الدخول أو إنشاء حساب",
+  title: "Sign In or Create Account",
 };
 
 export const dynamic = "force-dynamic";

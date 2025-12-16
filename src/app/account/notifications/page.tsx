@@ -17,29 +17,29 @@ export default async function NotificationsPage() {
   const prefs = (meta.notifications || {}) as { order_updates?: boolean; promotions?: boolean; product_updates?: boolean };
 
   return (
-    <div dir="rtl" className="max-w-3xl mx-auto py-12 px-4 text-right">
-      <h1 className="text-2xl font-bold mb-6">الإشعارات</h1>
+    <div className="max-w-3xl mx-auto py-12 px-4">
+      <h1 className="text-2xl font-bold mb-6">Notifications</h1>
       <div className="rounded-lg border bg-white p-6">
         <form action={updateNotifications} className="space-y-4">
           <div>
-            <h2 className="text-lg font-semibold mb-2">إشعارات البريد الإلكتروني</h2>
+            <h2 className="text-lg font-semibold mb-2">Email Notifications</h2>
             <label className="flex items-center gap-3 py-2">
               <input type="checkbox" name="order_updates" defaultChecked={!!prefs.order_updates} className="h-4 w-4" />
-              <span>تحديثات الطلب (تغييرات الحالة، معلومات الشحن)</span>
+              <span>Order updates (status changes, shipping info)</span>
             </label>
             <label className="flex items-center gap-3 py-2">
               <input type="checkbox" name="promotions" defaultChecked={!!prefs.promotions} className="h-4 w-4" />
-              <span>العروض الترويجية والعروض الخاصة</span>
+              <span>Promotions and special offers</span>
             </label>
             <label className="flex items-center gap-3 py-2">
               <input type="checkbox" name="product_updates" defaultChecked={!!prefs.product_updates} className="h-4 w-4" />
-              <span>تحديثات المنتجات وتنبيهات عودة التوفر</span>
+              <span>Product updates and back-in-stock alerts</span>
             </label>
           </div>
-          <SubmitButton label="حفظ التفضيلات" pendingLabel="جارٍ الحفظ..." />
-          <FormStatusToast successMessage="تم حفظ التفضيلات" />
+          <SubmitButton label="Save Preferences" pendingLabel="Saving..." />
+          <FormStatusToast successMessage="Preferences saved" />
         </form>
-        <p className="text-xs text-gray-500 mt-3">يمكنك إلغاء الاشتراك من رسائل التسويق في أي وقت. لا يمكن تعطيل رسائل المعاملات.</p>
+        <p className="text-xs text-gray-500 mt-3">You can unsubscribe from marketing emails at any time. Transactional emails cannot be disabled.</p>
       </div>
     </div>
   );

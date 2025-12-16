@@ -65,9 +65,9 @@ export default async function HomePage() {
       <div className="container py-8">
         {/* Best Sellers / Featured */}
         <section className="mb-10">
-          <h2 className="mb-4 text-2xl font-bold">الأكثر مبيعًا</h2>
+          <h2 className="mb-4 text-2xl font-bold">Best Sellers</h2>
           {(!products || products.length === 0) ? (
-            <div className="text-slate-600">لا توجد منتجات حالياً.</div>
+            <div className="text-slate-600">No products available.</div>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {products.slice(0, 10).map((p) => (

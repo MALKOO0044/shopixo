@@ -3,7 +3,7 @@ import Breadcrumbs from "@/components/breadcrumbs"
 import { getSupabaseAnonServer } from "@/lib/supabase-server"
 import type { Product } from "@/lib/types"
 
-export const metadata = { title: "وصل حديثًا", description: "أحدث المنتجات المضافة إلى المتجر" }
+export const metadata = { title: "New Arrivals", description: "Latest products added to the store" }
 export const revalidate = 60
 export const dynamic = "force-dynamic"
 
@@ -14,7 +14,6 @@ export default async function NewArrivalsPage() {
     products = []
   } else {
     try {
-      // Prefer created_at if present; fallback to id desc
       let { data, error } = await supabase.from("products").select("*").order("created_at", { ascending: false })
       if (error && (error as any).code === "42703") {
         const fb = await supabase.from("products").select("*").order("id", { ascending: false })
@@ -28,9 +27,9 @@ export default async function NewArrivalsPage() {
 
   return (
     <div className="container py-10">
-      <Breadcrumbs items={[{ name: "الرئيسية", href: "/" }, { name: "وصل حديثًا" }]} />
-      <h1 className="text-3xl font-bold">وصل حديثًا</h1>
-      <p className="mt-2 text-slate-600">اطلع على آخر الإضافات إلى مجموعتنا.</p>
+      <Breadcrumbs items={[{ name: "Home", href: "/" }, { name: "New Arrivals" }]} />
+      <h1 className="text-3xl font-bold">New Arrivals</h1>
+      <p className="mt-2 text-slate-600">Check out the latest additions to our collection.</p>
       {products && products.length > 0 ? (
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {products.map((p) => (
@@ -38,7 +37,7 @@ export default async function NewArrivalsPage() {
           ))}
         </div>
       ) : (
-        <div className="mt-6 rounded-md border p-6 text-center text-slate-500">لا توجد منتجات حالياً.</div>
+        <div className="mt-6 rounded-md border p-6 text-center text-slate-500">No products available.</div>
       )}
     </div>
   )

@@ -2,13 +2,13 @@ import { ShieldCheck, Truck, RotateCcw, Headphones } from "lucide-react"
 
 export default function ValueProps() {
   const items = [
-    { Icon: Truck, title: "شحن سريع", desc: "توصيل موثوق لمعظم المناطق" },
-    { Icon: RotateCcw, title: "إرجاع خلال 30 يومًا", desc: "استرجاع سهل وبدون تعقيد" },
-    { Icon: ShieldCheck, title: "دفع آمن", desc: "حماية SSL ومعايير PCI" },
-    { Icon: Headphones, title: "دعم مميز", desc: "فريق خدمة عملاء جاهز للمساعدة" }
+    { Icon: Truck, title: "Fast Shipping", desc: "Reliable delivery to most areas" },
+    { Icon: RotateCcw, title: "30-Day Returns", desc: "Easy and hassle-free returns" },
+    { Icon: ShieldCheck, title: "Secure Payment", desc: "SSL protection and PCI standards" },
+    { Icon: Headphones, title: "Premium Support", desc: "Customer service team ready to help" }
   ]
   return (
-    <section className="bg-[hsl(var(--bg-secondary))] py-8" aria-label="مزايا المتجر">
+    <section className="bg-[hsl(var(--bg-secondary))] py-8" aria-label="Store Benefits">
       <div className="container grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {items.map(({ Icon, title, desc }) => (
           <div key={title} className="rounded-[var(--radius-lg)] border bg-card p-5 shadow-soft">

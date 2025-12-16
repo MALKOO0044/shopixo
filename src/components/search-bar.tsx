@@ -93,34 +93,32 @@ export default function SearchBar() {
   }
 
   function onBlur() {
-    // Close shortly after to allow click on an item
     setTimeout(() => setOpen(false), 120);
   }
 
   return (
     <form onSubmit={handleSubmit} className="relative w-full max-w-md" role="search">
-      <SearchIcon className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
       <Input
         ref={inputRef}
         type="search"
         name="q"
-        placeholder="ابحث عن منتجات..."
-        aria-label="بحث"
+        placeholder="Search products..."
+        aria-label="Search"
         autoComplete="off"
-        className="w-full rounded-md bg-background pr-9 pl-4 py-2 text-sm"
+        className="w-full rounded-md bg-background pl-9 pr-4 py-2 text-sm"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={onKeyDown}
         onFocus={() => items.length > 0 && setOpen(true)}
         onBlur={onBlur}
-        dir="rtl"
       />
       {open && (
         <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-40 overflow-hidden rounded-md border bg-background shadow-xl">
           <ul ref={listRef} role="listbox" aria-label="Suggestions" className="max-h-80 overflow-auto">
-            {loading && <li className="p-3 text-sm text-muted-foreground">جاري البحث…</li>}
+            {loading && <li className="p-3 text-sm text-muted-foreground">Searching...</li>}
             {!loading && items.length === 0 && (
-              <li className="p-3 text-sm text-muted-foreground">لا توجد نتائج</li>
+              <li className="p-3 text-sm text-muted-foreground">No results found</li>
             )}
             {items.map((it, idx) => (
               <li
@@ -169,4 +167,3 @@ export default function SearchBar() {
     </form>
   );
 }
-

@@ -21,7 +21,7 @@ export default function SignUpForm() {
     setError(null);
 
     if (password !== confirmPassword) {
-      setError("كلمتا المرور غير متطابقتين.");
+      setError("Passwords do not match.");
       return;
     }
 
@@ -43,9 +43,9 @@ export default function SignUpForm() {
   if (success) {
     return (
       <div className="rounded-md bg-primary/10 p-6 text-center">
-        <h2 className="text-lg font-semibold">تحقق من بريدك الإلكتروني</h2>
+        <h2 className="text-lg font-semibold">Check Your Email</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          قمنا بإرسال رابط تأكيد إلى بريدك الإلكتروني. يرجى النقر على الرابط لإتمام عملية التسجيل.
+          We sent a confirmation link to your email. Please click the link to complete registration.
         </p>
       </div>
     );
@@ -55,7 +55,7 @@ export default function SignUpForm() {
     <form onSubmit={handleSignUp} className="space-y-4">
       {error && <p className="rounded-md bg-destructive/10 p-3 text-center text-sm text-destructive">{error}</p>}
       <div className="space-y-1">
-        <Label htmlFor="email">البريد الإلكتروني</Label>
+        <Label htmlFor="email">Email</Label>
         <Input
           id="email"
           type="email"
@@ -66,7 +66,7 @@ export default function SignUpForm() {
         />
       </div>
       <div className="space-y-1">
-        <Label htmlFor="password">كلمة المرور</Label>
+        <Label htmlFor="password">Password</Label>
         <Input
           id="password"
           type="password"
@@ -77,7 +77,7 @@ export default function SignUpForm() {
         />
       </div>
       <div className="space-y-1">
-        <Label htmlFor="confirmPassword">تأكيد كلمة المرور</Label>
+        <Label htmlFor="confirmPassword">Confirm Password</Label>
         <Input
           id="confirmPassword"
           type="password"
@@ -87,7 +87,7 @@ export default function SignUpForm() {
           required
         />
       </div>
-      <Button type="submit" className="w-full">إنشاء حساب</Button>
+      <Button type="submit" className="w-full">Create Account</Button>
     </form>
   );
 }

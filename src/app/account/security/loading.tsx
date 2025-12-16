@@ -1,5 +1,5 @@
 import LoadingSpinner from "@/components/loading-spinner";
 
 export default function Loading() {
-  return <LoadingSpinner text="جارٍ فتح إعدادات الأمان..." />;
+  return <LoadingSpinner text="Loading security settings..." />;
 }

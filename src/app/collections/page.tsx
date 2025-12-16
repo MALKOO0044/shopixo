@@ -2,14 +2,14 @@ import Link from "next/link"
 import Image from "next/image"
 import { FULL_CATEGORIES } from "@/lib/categories"
 
-export const metadata = { title: "المجموعات", description: "استكشف مجموعاتنا" }
+export const metadata = { title: "Collections", description: "Explore our collections" }
 
 export default function CollectionsPage() {
   const groups = FULL_CATEGORIES
   return (
     <div className="container py-10">
-      <h1 className="text-3xl font-bold">المجموعات</h1>
-      <p className="mt-2 text-slate-600">استكشف التصنيفات الرئيسية وتسوّق حسب اهتماماتك.</p>
+      <h1 className="text-3xl font-bold">Collections</h1>
+      <p className="mt-2 text-slate-600">Explore main categories and shop by your interests.</p>
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
         {groups.map((c) => (
           <Link

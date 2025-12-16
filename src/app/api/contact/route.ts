@@ -66,10 +66,10 @@ export async function POST(req: NextRequest) {
       const domain = (process.env.NEXT_PUBLIC_SITE_URL || 'shopixo.vercel.app').replace(/^https?:\/\//,'')
       const html = `
         <div style="font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;line-height:1.6">
-          <h2 style="margin:0 0 12px">رسالة تواصل جديدة</h2>
-          <p style="margin:0 0 6px"><strong>الاسم:</strong> ${name}</p>
-          <p style="margin:0 0 6px"><strong>البريد:</strong> ${email}</p>
-          <p style="margin:12px 0 6px"><strong>الرسالة:</strong></p>
+          <h2 style="margin:0 0 12px">New Contact Message</h2>
+          <p style="margin:0 0 6px"><strong>Name:</strong> ${name}</p>
+          <p style="margin:0 0 6px"><strong>Email:</strong> ${email}</p>
+          <p style="margin:12px 0 6px"><strong>Message:</strong></p>
           <div style="white-space:pre-wrap">${escapeHtml(message || '')}</div>
         </div>`
       await fetch('https://api.resend.com/emails', {
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           from: `${process.env.NEXT_PUBLIC_STORE_NAME || 'Shopixo'} <no-reply@${domain}>`,
           to: admins,
-          subject: `رسالة من ${name}`,
+          subject: `Message from ${name}`,
           html,
         })
       })

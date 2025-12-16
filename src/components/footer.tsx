@@ -41,56 +41,56 @@ export default function Footer() {
               <span className="text-[hsl(var(--primary))]">{storeName}</span>
             </h3>
             <p className="mb-4 text-sm leading-6 text-white/80">
-              متجر حديث يوفر منتجات مختارة بعناية وتجربة تسوق سهلة وآمنة.
+              A modern store offering carefully curated products with an easy and secure shopping experience.
             </p>
             <ul className="space-y-2 text-sm">
-              <li><Link className="hover:text-[hsl(var(--primary))]" href="/about">من نحن</Link></li>
-              <li><Link className="hover:text-[hsl(var(--primary))]" href="/contact">اتصل بنا</Link></li>
-              <li><Link className="hover:text-[hsl(var(--primary))]" href="/blog">المدونة</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/about">About Us</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/contact">Contact Us</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/blog">Blog</Link></li>
             </ul>
           </div>
 
           {/* Help */}
           <div>
-            <h3 className="mb-3 text-lg font-semibold text-white">المساعدة</h3>
+            <h3 className="mb-3 text-lg font-semibold text-white">Help</h3>
             <ul className="space-y-2 text-sm">
-              <li><Link className="hover:text-[hsl(var(--primary))]" href="/faq">الأسئلة الشائعة</Link></li>
-              <li><Link className="hover:text-[hsl(var(--primary))]" href="/order-tracking">تتبع الطلب</Link></li>
-              <li><Link className="hover:text-[hsl(var(--primary))]" href="/contact">مركز الدعم</Link></li>
-              <li><Link className="hover:text-[hsl(var(--primary))]" href="/privacy-policy">سياسة الخصوصية</Link></li>
-              <li><Link className="hover:text-[hsl(var(--primary))]" href="/terms">شروط الخدمة</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/faq">FAQ</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/order-tracking">Track Order</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/contact">Support Center</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/privacy-policy">Privacy Policy</Link></li>
+              <li><Link className="hover:text-[hsl(var(--primary))]" href="/terms">Terms of Service</Link></li>
             </ul>
           </div>
 
           {/* Customer Service */}
           <div>
-            <h3 className="mb-3 text-lg font-semibold text-white">خدمة العملاء</h3>
+            <h3 className="mb-3 text-lg font-semibold text-white">Customer Service</h3>
             <ul className="space-y-2 text-sm">
-              <li className="flex items-center gap-2"><Phone size={16} className="text-[hsl(var(--primary))]" /><span>دعم سريع عبر البريد</span></li>
+              <li className="flex items-center gap-2"><Phone size={16} className="text-[hsl(var(--primary))]" /><span>Fast email support</span></li>
               <li className="flex items-center gap-2"><Mail size={16} className="text-[hsl(var(--primary))]" /><a className="hover:text-[hsl(var(--primary))]" href="mailto:support@shopixo.com">support@shopixo.com</a></li>
-              <li className="flex items-center gap-2"><MapPin size={16} className="text-[hsl(var(--primary))]" /><span>خدمة توصيل لمعظم المناطق</span></li>
+              <li className="flex items-center gap-2"><MapPin size={16} className="text-[hsl(var(--primary))]" /><span>Shipping to most areas</span></li>
             </ul>
           </div>
 
           {/* App Download (Coming soon) */}
           <div>
-            <h3 className="mb-3 text-lg font-semibold text-white">تنزيل التطبيق</h3>
+            <h3 className="mb-3 text-lg font-semibold text-white">Download the App</h3>
             <ul className="mb-4 space-y-1 text-sm text-slate-400">
-              <li>• تتبع الطلبات في أي وقت</li>
-              <li>• تنبيهات العروض والأسعار</li>
-              <li>• عملية دفع أسرع</li>
+              <li>• Track orders anytime</li>
+              <li>• Deal and price alerts</li>
+              <li>• Faster checkout</li>
             </ul>
             <div className="flex items-center gap-3">
-              <a href="#" aria-label="App Store (قريباً)" className="inline-flex items-center gap-2 rounded-md bg-white px-3 py-2 text-xs font-medium text-slate-900">
+              <a href="#" aria-label="App Store (Coming soon)" className="inline-flex items-center gap-2 rounded-md bg-white px-3 py-2 text-xs font-medium text-slate-900">
                 <Apple size={16} />
                 <span>App Store</span>
               </a>
-              <a href="#" aria-label="Google Play (قريباً)" className="inline-flex items-center gap-2 rounded-md bg-black px-3 py-2 text-xs font-medium text-white">
+              <a href="#" aria-label="Google Play (Coming soon)" className="inline-flex items-center gap-2 rounded-md bg-black px-3 py-2 text-xs font-medium text-white">
                 <Play size={16} />
                 <span>Google Play</span>
               </a>
             </div>
-            <p className="mt-2 text-[11px] text-white/70">قريبًا على متاجر التطبيقات</p>
+            <p className="mt-2 text-[11px] text-white/70">Coming soon to app stores</p>
           </div>
         </div>
 
@@ -117,7 +117,6 @@ export default function Footer() {
           <Badge>American&nbsp;Express</Badge>
           <Badge>JCB</Badge>
           <Badge>Discover</Badge>
-          <Badge>mada</Badge>
         </div>
         <div className="mb-2 flex flex-wrap items-center justify-center gap-2 text-[12px] text-white/80">
           <span className="inline-flex items-center gap-1"><ShieldCheck size={14} className="text-[hsl(var(--primary))]" /> SSL Secure</span>
@@ -127,12 +126,12 @@ export default function Footer() {
 
         {/* Lower links */}
         <div className="mt-6 flex flex-wrap items-center justify-center gap-6 text-sm">
-          <Link href="/privacy-policy" className="text-white/80 hover:text-white">سياسة الخصوصية</Link>
-          <Link href="/terms" className="text-white/80 hover:text-white">شروط الاستخدام</Link>
-          <Link href="/contact" className="text-white/80 hover:text-white">الدعم</Link>
+          <Link href="/privacy-policy" className="text-white/80 hover:text-white">Privacy Policy</Link>
+          <Link href="/terms" className="text-white/80 hover:text-white">Terms of Use</Link>
+          <Link href="/contact" className="text-white/80 hover:text-white">Support</Link>
         </div>
 
-        <p className="mt-4 text-center text-xs text-white/70">© {new Date().getFullYear()} {storeName}. جميع الحقوق محفوظة.</p>
+        <p className="mt-4 text-center text-xs text-white/70">© {new Date().getFullYear()} {storeName}. All rights reserved.</p>
       </div>
     </footer>
   );

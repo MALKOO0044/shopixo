@@ -21,12 +21,12 @@ export default function PasswordForm({ action }: PasswordFormProps) {
 
     if (newPassword.length < 8) {
       e.preventDefault();
-      toast({ variant: "error", description: "يجب أن تتكون كلمة المرور من 8 أحرف على الأقل." });
+      toast({ variant: "error", description: "Password must be at least 8 characters." });
       return;
     }
     if (newPassword !== confirm) {
       e.preventDefault();
-      toast({ variant: "error", description: "كلمتا المرور غير متطابقتين." });
+      toast({ variant: "error", description: "Passwords do not match." });
       return;
     }
   }, [toast]);
@@ -34,7 +34,7 @@ export default function PasswordForm({ action }: PasswordFormProps) {
   return (
     <form ref={formRef} action={action} className="space-y-3 max-w-md" noValidate onSubmit={onSubmit}>
       <div>
-        <label className="block text-sm font-medium mb-1">كلمة المرور الجديدة</label>
+        <label className="block text-sm font-medium mb-1">New Password</label>
         <div className="relative">
           <input
             name="new_password"
@@ -42,21 +42,21 @@ export default function PasswordForm({ action }: PasswordFormProps) {
             required
             minLength={8}
             autoComplete="new-password"
-            className="w-full rounded border px-3 py-2 pr-10"
+            className="w-full rounded border px-3 py-2 pr-16"
             placeholder="••••••••"
           />
           <button
             type="button"
             onClick={() => setShow((s) => !s)}
-            className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-600 hover:text-black"
-            aria-label={show ? "إخفاء" : "إظهار"}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-600 hover:text-black"
+            aria-label={show ? "Hide" : "Show"}
           >
-            {show ? "إخفاء" : "إظهار"}
+            {show ? "Hide" : "Show"}
           </button>
         </div>
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1">تأكيد كلمة المرور</label>
+        <label className="block text-sm font-medium mb-1">Confirm Password</label>
         <input
           name="confirm_password"
           type={show ? "text" : "password"}
@@ -67,8 +67,8 @@ export default function PasswordForm({ action }: PasswordFormProps) {
           placeholder="••••••••"
         />
       </div>
-      <SubmitButton label="تحديث كلمة المرور" pendingLabel="جارٍ التحديث..." />
-      <FormStatusToast successMessage="تم تحديث كلمة المرور" />
+      <SubmitButton label="Update Password" pendingLabel="Updating..." />
+      <FormStatusToast successMessage="Password updated" />
     </form>
   );
 }

@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatCurrency(value: number, currency?: string, locale?: string) {
-  const curr = (currency || process.env.NEXT_PUBLIC_CURRENCY || "SAR");
-  const loc = locale || (typeof window !== 'undefined' && typeof navigator !== 'undefined' ? navigator.language : 'ar-SA');
+  const curr = (currency || process.env.NEXT_PUBLIC_CURRENCY || "USD");
+  const loc = locale || (typeof window !== 'undefined' && typeof navigator !== 'undefined' ? navigator.language : 'en-US');
   return new Intl.NumberFormat(loc, { style: "currency", currency: curr }).format(value);
 }

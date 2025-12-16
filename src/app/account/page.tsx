@@ -3,11 +3,10 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { format } from "date-fns";
-import { arSA } from "date-fns/locale";
 import { formatCurrency } from "@/lib/utils";
 import type { Order } from "@/lib/types";
 
-export const metadata = { title: "الحساب" };
+export const metadata = { title: "Account" };
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -39,18 +38,18 @@ export default async function AccountPage() {
   const lastOrder = allOrders[0];
 
   const tiles: { href: any; label: string; value: number }[] = [
-    { href: { pathname: "/account/orders" }, label: "كل الطلبات", value: counts.all },
-    { href: { pathname: "/account/orders", query: { status: "paid" } }, label: "مدفوعة", value: counts.paid || 0 },
-    { href: { pathname: "/account/orders", query: { status: "processing" } }, label: "قيد المعالجة", value: counts.processing || 0 },
-    { href: { pathname: "/account/orders", query: { status: "shipped" } }, label: "تم الشحن", value: counts.shipped || 0 },
-    { href: { pathname: "/account/orders", query: { status: "delivered" } }, label: "تم التسليم", value: counts.delivered || 0 },
-    { href: { pathname: "/account/orders", query: { status: "returned" } }, label: "مرتجعات", value: counts.returned || 0 },
+    { href: { pathname: "/account/orders" }, label: "All Orders", value: counts.all },
+    { href: { pathname: "/account/orders", query: { status: "paid" } }, label: "Paid", value: counts.paid || 0 },
+    { href: { pathname: "/account/orders", query: { status: "processing" } }, label: "Processing", value: counts.processing || 0 },
+    { href: { pathname: "/account/orders", query: { status: "shipped" } }, label: "Shipped", value: counts.shipped || 0 },
+    { href: { pathname: "/account/orders", query: { status: "delivered" } }, label: "Delivered", value: counts.delivered || 0 },
+    { href: { pathname: "/account/orders", query: { status: "returned" } }, label: "Returned", value: counts.returned || 0 },
   ];
 
   return (
-    <div dir="rtl" className="py-10 text-right">
-      <h1 className="text-3xl font-bold mb-2">نظرة عامة على الحساب</h1>
-      <p className="text-slate-600 mb-6">مرحبًا بك، قم بإدارة طلباتك وإعداداتك.</p>
+    <div className="py-10">
+      <h1 className="text-3xl font-bold mb-2">Account Overview</h1>
+      <p className="text-slate-600 mb-6">Welcome back! Manage your orders and settings.</p>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
         {tiles.map((t) => (
@@ -63,21 +62,21 @@ export default async function AccountPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="rounded-xl border bg-white p-6">
-          <h3 className="text-lg font-semibold mb-1">مسجّل الدخول</h3>
+          <h3 className="text-lg font-semibold mb-1">Signed In</h3>
           <p className="text-slate-700">{user.email}</p>
         </div>
 
         <div className="rounded-xl border bg-white p-6">
-          <h3 className="text-lg font-semibold mb-3">آخر طلب</h3>
+          <h3 className="text-lg font-semibold mb-3">Last Order</h3>
           {lastOrder ? (
             <div className="space-y-1">
-              <p className="text-sm text-gray-600">طلب رقم #{lastOrder.id}</p>
-              <p className="text-sm text-gray-600">{format(new Date(lastOrder.created_at), "d MMMM yyyy", { locale: arSA })}</p>
-              <p className="font-medium">{formatCurrency(lastOrder.total_amount, "USD", "ar-SA")}</p>
-              <Link className="text-sm text-blue-600 hover:underline" href={{ pathname: "/account/orders", query: { status: lastOrder.status } }}>عرض الطلبات المشابهة</Link>
+              <p className="text-sm text-gray-600">Order #{lastOrder.id}</p>
+              <p className="text-sm text-gray-600">{format(new Date(lastOrder.created_at), "MMMM d, yyyy")}</p>
+              <p className="font-medium">{formatCurrency(lastOrder.total_amount)}</p>
+              <Link className="text-sm text-blue-600 hover:underline" href={{ pathname: "/account/orders", query: { status: lastOrder.status } }}>View similar orders</Link>
             </div>
           ) : (
-            <p className="text-gray-600">لا توجد طلبات بعد.</p>
+            <p className="text-gray-600">No orders yet.</p>
           )}
         </div>
       </div>

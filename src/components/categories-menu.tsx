@@ -47,10 +47,10 @@ export default function CategoriesMenu() {
   const activeCat = filteredCats[safeActiveIndex];
 
   return (
-    <div className="relative" dir="rtl">
+    <div className="relative" dir="ltr">
       <button
         type="button"
-        aria-label="فتح القائمة"
+        aria-label="Open menu"
         className="inline-flex items-center rounded-md border p-2 text-sm hover:bg-muted"
         onClick={() => setOpen(true)}
       >
@@ -66,18 +66,18 @@ export default function CategoriesMenu() {
           >
             <div className="flex items-center justify-between gap-3 border-b p-3 md:p-4">
               <div className="flex-1">
-                <div className="text-base font-semibold mb-2">كل التصنيفات</div>
-                <label className="sr-only" htmlFor="cat-search">ابحث</label>
+                <div className="text-base font-semibold mb-2">All Categories</div>
+                <label className="sr-only" htmlFor="cat-search">Search</label>
                 <input
                   id="cat-search"
                   value={query}
                   onChange={(e) => { setQuery(e.target.value); setActive(0); }}
-                  placeholder="ابحث في التصنيفات..."
+                  placeholder="Search categories..."
                   className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-                  dir="rtl"
+                  dir="ltr"
                 />
               </div>
-              <button aria-label="إغلاق" className="self-start rounded-md p-2 hover:bg-muted" onClick={() => setOpen(false)}>
+              <button aria-label="Close" className="self-start rounded-md p-2 hover:bg-muted" onClick={() => setOpen(false)}>
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -103,7 +103,7 @@ export default function CategoriesMenu() {
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <h3 className="text-lg font-semibold">{activeCat?.label}</h3>
                   {activeCat && (
-                    <Link href={`/category/${activeCat.slug}`} className="text-sm text-primary hover:underline" onClick={() => setOpen(false)}>عرض الكل</Link>
+                    <Link href={`/category/${activeCat.slug}`} className="text-sm text-primary hover:underline" onClick={() => setOpen(false)}>View All</Link>
                   )}
                 </div>
                 {/* Children grid: circular thumbnails like Shein */}
@@ -123,7 +123,7 @@ export default function CategoriesMenu() {
                       </Link>
                     ))
                   ) : (
-                    <div className="text-sm text-muted-foreground">لا توجد أقسام فرعية.</div>
+                    <div className="text-sm text-muted-foreground">No subcategories available.</div>
                   )}
                 </div>
               </section>

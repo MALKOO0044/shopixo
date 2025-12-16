@@ -16,8 +16,8 @@ interface ConfirmSubmitButtonProps
 
 export default function ConfirmSubmitButton({
   label,
-  pendingLabel = "جارٍ...",
-  confirmMessage = "هل أنت متأكد؟",
+  pendingLabel = "Processing...",
+  confirmMessage = "Are you sure?",
   variant = "danger",
   className,
   disabled,

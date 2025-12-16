@@ -1,9 +1,9 @@
 export default function TrustBadges() {
   const items = [
-    { icon: "🔒", label: "دفع آمن" },
-    { icon: "↩️", label: "إرجاع خلال 30 يومًا" },
-    { icon: "⚡", label: "توصيل سريع" },
-    { icon: "⭐", label: "تقييمات مميزة" },
+    { icon: "🔒", label: "Secure Payment" },
+    { icon: "↩️", label: "30-Day Returns" },
+    { icon: "⚡", label: "Fast Shipping" },
+    { icon: "⭐", label: "Excellent Reviews" },
   ];
   return (
     <div className="container">

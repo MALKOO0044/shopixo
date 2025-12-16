@@ -57,14 +57,14 @@ export default function CategoriesBar() {
   }
 
   return (
-    <nav className="w-full border-t bg-background/95" dir="rtl" aria-label="تصنيفات المتجر">
+    <nav className="w-full border-t bg-background/95" dir="ltr" aria-label="Store Categories">
       <div className="container relative">
         {/* Left/Right arrows */}
         <button
           type="button"
           onClick={() => scrollByDir(-1)}
           className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full border bg-background p-1 shadow-sm disabled:opacity-30"
-          aria-label="مرر يسارًا"
+          aria-label="Scroll left"
           disabled={atStart}
         >
           {/* In RTL, left button shows ChevronRight for visual cue */}
@@ -74,7 +74,7 @@ export default function CategoriesBar() {
           type="button"
           onClick={() => scrollByDir(1)}
           className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full border bg-background p-1 shadow-sm disabled:opacity-30"
-          aria-label="مرر يمينًا"
+          aria-label="Scroll right"
           disabled={atEnd}
         >
           {/* In RTL, right button shows ChevronLeft for visual cue */}

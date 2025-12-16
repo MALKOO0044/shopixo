@@ -11,9 +11,9 @@ export const runtime = 'nodejs';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 
 const KNOWLEDGE = `
-You are Shopixo Assistant. Language: Arabic primarily; answer in Arabic unless user writes in English.
+You are Shopixo Assistant. Language: English primarily.
 Policies:
-- KSA shipping: Prefer DDP door-to-door when available. DDP includes Customs Duty + 15% VAT + clearance + fuel/surcharges.
+- US shipping: Fast delivery with DDP (Delivered Duty Paid) when available.
 - Packaging: Neutral outer packaging. Allowed inserts: unbranded packing slip + neutral thank-you card.
 - Sizes: Provide clear guidance; if unsure, suggest checking size charts.
 - Order status: Ask user to log in and visit /order-tracking or share order number to check.
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
   // Prefer centralized env access
   const key = (getEnv('OPENAI_API_KEY') as string | undefined) || process.env.OPENAI_API_KEY;
   if (!key) {
-    const fallback = 'مرحباً! أنا مساعد المتجر. للردود الذكية، فعّل مفتاح OPENAI_API_KEY في الخادم. بإمكانك دائماً طرح أسئلتك بالعربية وسأحاول مساعدتك.';
+    const fallback = 'Hello! I am the store assistant. For smart responses, enable the OPENAI_API_KEY on the server. Feel free to ask your questions and I will try to help.';
     log.info('chat_no_api_key');
     const r = NextResponse.json({ reply: fallback });
     r.headers.set('x-request-id', log.requestId);

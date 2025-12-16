@@ -3,7 +3,7 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 
-export const metadata = { title: "استعادة كلمة المرور" }
+export const metadata = { title: "Reset Password" }
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 

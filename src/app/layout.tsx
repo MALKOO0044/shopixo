@@ -74,7 +74,7 @@ export const runtime = "nodejs";
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const nonce = headers().get('x-csp-nonce') || undefined;
   return (
-    <html lang="ar" dir="rtl" suppressHydrationWarning>
+    <html lang="en" dir="ltr" suppressHydrationWarning>
       <body className={`${inter.variable} ${playfair.variable} ${inter.className} min-h-screen flex flex-col`}>
         {/* Analytics: Plausible (loads only in production if domain is set) */}
         {(() => {
@@ -96,7 +96,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <ToastProvider>
             {/* Skip to content for accessibility */}
-            <a href="#main-content" className="skip-link">تخطي إلى المحتوى</a>
+            <a href="#main-content" className="skip-link">Skip to content</a>
             {/* Announcement Bar */}
             <AnnouncementBar />
             {/* Site-wide Structured Data: Organization + WebSite with SearchAction */}

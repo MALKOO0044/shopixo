@@ -22,7 +22,7 @@ export default function CartItem({ item }: { item: CartItemType }) {
   const { product, variant } = item;
 
   if (!product) {
-    return null; // Or some fallback UI
+    return null;
   }
 
   return (
@@ -35,16 +35,16 @@ export default function CartItem({ item }: { item: CartItemType }) {
           {product.title}
         </Link>
         {product.product_code && (
-          <p className="text-xs text-slate-500">رمز: {product.product_code}</p>
+          <p className="text-xs text-slate-500">Code: {product.product_code}</p>
         )}
         <div className="text-sm text-slate-600">
           {variant ? (
             <>
-              <span className="mr-2 inline-block rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">المقاس: {variant.option_value}</span>
-              {formatCurrency((variant.price ?? product.price))} للقطعة الواحدة
+              <span className="mr-2 inline-block rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">Size: {variant.option_value}</span>
+              {formatCurrency((variant.price ?? product.price))} each
             </>
           ) : (
-            <>{formatCurrency(product.price)} للقطعة الواحدة</>
+            <>{formatCurrency(product.price)} each</>
           )}
         </div>
         <div className="mt-2 flex items-center">
@@ -63,7 +63,7 @@ export default function CartItem({ item }: { item: CartItemType }) {
       </div>
       <form action={removeAction}>
         <input type="hidden" name="itemId" value={item.id} />
-        <SubmitButton className="text-sm text-red-600 underline">إزالة</SubmitButton>
+        <SubmitButton className="text-sm text-red-600 underline">Remove</SubmitButton>
       </form>
     </div>
   );

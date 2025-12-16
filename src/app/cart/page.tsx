@@ -5,7 +5,7 @@ import CartItem from "@/app/cart/cart-item";
 import CheckoutButton from "./checkout-button";
 
 export const metadata = {
-  title: "سلة التسوق",
+  title: "Shopping Cart",
 };
 
 export const dynamic = "force-dynamic";
@@ -26,14 +26,13 @@ export default async function CartPage() {
 
   return (
     <div className="container py-10">
-      <h1 className="text-3xl font-bold">سلة التسوق</h1>
+      <h1 className="text-3xl font-bold">Shopping Cart</h1>
       {cartItems.length === 0 ? (
         <div className="mt-6 text-slate-600">
-          سلة التسوق فارغة.
+          Your cart is empty.{" "}
           <Link href="/shop" className="underline">
-            متابعة التسوق
+            Continue Shopping
           </Link>
-          
         </div>
       ) : (
         <div className="mt-8 grid gap-8 lg:grid-cols-3">
@@ -43,20 +42,19 @@ export default async function CartPage() {
             ))}
           </div>
           <div className="rounded-xl border bg-white p-6 shadow-sm h-fit">
-            <h2 className="text-lg font-semibold">ملخص الطلب</h2>
+            <h2 className="text-lg font-semibold">Order Summary</h2>
             <div className="mt-3 flex justify-between text-sm text-slate-700">
-              <span>الإجمالي الفرعي</span>
+              <span>Subtotal</span>
               <span>{formatCurrency(subtotal)}</span>
             </div>
-            <p className="mt-2 text-xs text-slate-500">الشحن مجاني لجميع المنتجات. الضرائب تُحسب عند الدفع.</p>
+            <p className="mt-2 text-xs text-slate-500">Free shipping on all products. Taxes calculated at checkout.</p>
             <div className="mt-4">
               <CheckoutButton />
             </div>
-            <div className="mt-4 text-xs text-slate-500">هل لديك كوبون؟ يمكنك تطبيقه عند الدفع.</div>
+            <div className="mt-4 text-xs text-slate-500">Have a coupon? You can apply it at checkout.</div>
           </div>
         </div>
       )}
     </div>
   );
 }
-

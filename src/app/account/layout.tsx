@@ -16,21 +16,21 @@ export default async function AccountLayout({ children }: { children: ReactNode 
   }
 
   const navItems = [
-    { href: { pathname: "/account" }, label: "نظرة عامة" },
-    { href: { pathname: "/account/orders" }, label: "الطلبات" },
-    { href: { pathname: "/account/addresses" }, label: "العناوين" },
-    { href: { pathname: "/account/coupons" }, label: "القسائم" },
-    { href: { pathname: "/account/reviews" }, label: "المراجعات" },
-    { href: { pathname: "/account/security" }, label: "الأمان" },
-    { href: { pathname: "/account/notifications" }, label: "الإشعارات" },
+    { href: { pathname: "/account" }, label: "Overview" },
+    { href: { pathname: "/account/orders" }, label: "Orders" },
+    { href: { pathname: "/account/addresses" }, label: "Addresses" },
+    { href: { pathname: "/account/coupons" }, label: "Coupons" },
+    { href: { pathname: "/account/reviews" }, label: "Reviews" },
+    { href: { pathname: "/account/security" }, label: "Security" },
+    { href: { pathname: "/account/notifications" }, label: "Notifications" },
   ];
 
   return (
-    <div className="container mx-auto py-8" dir="rtl">
+    <div className="container mx-auto py-8">
       {/* Mobile: compact header + horizontal chips nav */}
       <div className="md:hidden space-y-3 mb-4">
         <div className="rounded-lg border bg-white p-4">
-          <p className="text-sm text-gray-500">مسجّل الدخول باسم</p>
+          <p className="text-sm text-gray-500">Signed in as</p>
           <p className="font-semibold truncate">{user.email}</p>
         </div>
         <nav className="overflow-x-auto whitespace-nowrap">
@@ -51,9 +51,9 @@ export default async function AccountLayout({ children }: { children: ReactNode 
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
         {/* Desktop/Tablet: sticky sidebar */}
-        <aside className="hidden md:block md:col-span-3 bg-white rounded-lg border p-4 h-fit sticky top-6 text-right">
+        <aside className="hidden md:block md:col-span-3 bg-white rounded-lg border p-4 h-fit sticky top-6">
           <div className="mb-6">
-            <p className="text-sm text-gray-500">مسجّل الدخول باسم</p>
+            <p className="text-sm text-gray-500">Signed in as</p>
             <p className="font-semibold truncate">{user.email}</p>
           </div>
           <nav>

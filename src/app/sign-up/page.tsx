@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import AuthForm from "@/app/login/auth-form";
 
-export const metadata = { title: "تسجيل الدخول أو إنشاء حساب" };
+export const metadata = { title: "Sign In or Create Account" };
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;

@@ -202,7 +202,7 @@ export default function ProductCard({ product }: { product: Product }) {
           return (
             <SmartImage
               src={thumb}
-              alt={`صورة المنتج ${product.title}`}
+              alt={`Product image: ${product.title}`}
               loading="lazy"
               className="h-full w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03]"
               fill

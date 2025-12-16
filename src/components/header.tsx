@@ -39,13 +39,13 @@ export default function Header() {
           <div className="justify-self-center w-full flex items-center justify-center">
             <Link
               href="/search"
-              aria-label="ابحث عن المنتجات"
-              className="inline-flex w-[230px] items-center flex-row-reverse gap-2 rounded-full bg-muted px-8 py-2.5 text-[16px] text-muted-foreground"
+              aria-label="Search products"
+              className="inline-flex w-[230px] items-center gap-2 rounded-full bg-muted px-8 py-2.5 text-[16px] text-muted-foreground"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
                 <path fillRule="evenodd" d="M10 3.75a6.25 6.25 0 104.76 10.41l3.54 3.54a.75.75 0 101.06-1.06l-3.54-3.54A6.25 6.25 0 0010 3.75zm-4.75 6.25a4.75 4.75 0 119.5 0 4.75 4.75 0 01-9.5 0z" clipRule="evenodd" />
               </svg>
-              <span>ألعاب</span>
+              <span>Search</span>
             </Link>
           </div>
           {/* Left (end in RTL): three icons — cart, user, menu */}
@@ -60,8 +60,8 @@ export default function Header() {
         <div className="ml-auto hidden md:flex items-center gap-2 sm:gap-4 flex-wrap overflow-hidden">
           {/* Desktop CTA */}
           <Link href="/shop" className="hidden md:inline-flex">
-            <Button variant="cta" size="default" aria-label="تسوّق الآن">
-              تسوّق الآن
+            <Button variant="cta" size="default" aria-label="Shop Now">
+              Shop Now
             </Button>
           </Link>
           {/* Mobile menu is handled inside the left group above via <CategoriesMenu /> */}

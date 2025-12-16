@@ -37,25 +37,25 @@ describe('ThemeToggle Component', () => {
 
   it('should render the toggle button', () => {
     render(<ThemeToggle />)
-    const button = screen.getByRole('button', { name: /(?:تبديل السمة|toggle theme)/i })
+    const button = screen.getByRole('button', { name: /toggle theme/i })
     expect(button).toBeInTheDocument()
   })
 
   it('should open the dropdown and show theme options on click', async () => {
     const user = userEvent.setup()
     render(<ThemeToggle />)
-    const button = screen.getByRole('button', { name: /(?:تبديل السمة|toggle theme)/i })
+    const button = screen.getByRole('button', { name: /toggle theme/i })
     await user.click(button)
 
-    expect(await screen.findByRole('menuitem', { name: /(?:الوضع الفاتح|light)/i })).toBeInTheDocument()
-    expect(await screen.findByRole('menuitem', { name: /(?:الوضع الداكن|dark)/i })).toBeInTheDocument()
-    expect(await screen.findByRole('menuitem', { name: /(?:نظام الجهاز|system)/i })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitem', { name: /light/i })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitem', { name: /dark/i })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitem', { name: /system/i })).toBeInTheDocument()
   })
 
   it('should call setTheme with "light" when light option is clicked', async () => {
     render(<ThemeToggle />)
-    fireEvent.click(screen.getByRole('button', { name: /(?:تبديل السمة|toggle theme)/i }))
-    const lightItem = await screen.findByRole('menuitem', { name: /(?:الوضع الفاتح|light)/i })
+    fireEvent.click(screen.getByRole('button', { name: /toggle theme/i }))
+    const lightItem = await screen.findByRole('menuitem', { name: /light/i })
     fireEvent.click(lightItem)
 
     await waitFor(() => expect(setTheme).toHaveBeenCalledWith('light'))
@@ -63,8 +63,8 @@ describe('ThemeToggle Component', () => {
 
   it('should call setTheme with "dark" when dark option is clicked', async () => {
     render(<ThemeToggle />)
-    fireEvent.click(screen.getByRole('button', { name: /(?:تبديل السمة|toggle theme)/i }))
-    const darkItem = await screen.findByRole('menuitem', { name: /(?:الوضع الداكن|dark)/i })
+    fireEvent.click(screen.getByRole('button', { name: /toggle theme/i }))
+    const darkItem = await screen.findByRole('menuitem', { name: /dark/i })
     fireEvent.click(darkItem)
 
     await waitFor(() => expect(setTheme).toHaveBeenCalledWith('dark'))
@@ -72,8 +72,8 @@ describe('ThemeToggle Component', () => {
 
   it('should call setTheme with "system" when system option is clicked', async () => {
     render(<ThemeToggle />)
-    fireEvent.click(screen.getByRole('button', { name: /(?:تبديل السمة|toggle theme)/i }))
-    const systemItem = await screen.findByRole('menuitem', { name: /(?:نظام الجهاز|system)/i })
+    fireEvent.click(screen.getByRole('button', { name: /toggle theme/i }))
+    const systemItem = await screen.findByRole('menuitem', { name: /system/i })
     fireEvent.click(systemItem)
 
     await waitFor(() => expect(setTheme).toHaveBeenCalledWith('system'))

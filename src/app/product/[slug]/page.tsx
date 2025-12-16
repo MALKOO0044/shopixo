@@ -56,7 +56,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   const supabase = getSupabaseAnonServer();
   const storeName = process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo";
   if (!supabase) {
-    return { title: `${params.slug} | ${storeName}`, description: 'تفاصيل المنتج' };
+    return { title: `${params.slug} | ${storeName}`, description: 'Product details' };
   }
   const isNumeric = /^\d+$/.test(params.slug);
   let product: { title: string; description: string; images: string[]; slug?: string } | null = null;
@@ -100,8 +100,8 @@ export async function generateMetadata({ params }: { params: { slug: string } })
  
   if (!product) {
     return {
-      title: 'المنتج غير موجود',
-      description: 'المنتج المطلوب غير متوفر.',
+      title: 'Product Not Found',
+      description: 'The requested product is not available.',
     }
   }
  

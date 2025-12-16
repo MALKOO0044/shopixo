@@ -19,11 +19,11 @@ export default function AdminProductActions({
         href={`/admin/products/${productId}/edit`}
         className="rounded-md bg-gradient-to-r from-primary/90 to-primary px-3 py-1.5 font-medium text-primary-foreground shadow hover:opacity-90"
       >
-        تعديل
+        Edit
       </Link>
       <ArchiveProductButton productId={productId} isActive={isActive} />
       <DeleteProductButton productId={productId} doubleConfirm />
-      <span className="ms-auto text-xs text-muted-foreground">لوحة تحكم المسؤول</span>
+      <span className="ms-auto text-xs text-muted-foreground">Admin Panel</span>
     </div>
   );
 }

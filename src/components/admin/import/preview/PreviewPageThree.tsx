@@ -62,14 +62,14 @@ function HtmlContent({ html }: { html: string }) {
 function NoDataFallback({ product }: { product?: PricedProduct }) {
   // Even with no structured data, show basic info from product fields if available
   const basicInfo: string[] = [];
-  if (product?.material) basicInfo.push(`المادة: ${product.material}`);
-  if (product?.productWeight) basicInfo.push(`الوزن: ${product.productWeight}g`);
+  if (product?.material) basicInfo.push(`Material: ${product.material}`);
+  if (product?.productWeight) basicInfo.push(`Weight: ${product.productWeight}g`);
   if (product?.packLength && product?.packWidth && product?.packHeight) {
-    basicInfo.push(`الأبعاد: ${product.packLength} × ${product.packWidth} × ${product.packHeight} سم`);
+    basicInfo.push(`Dimensions: ${product.packLength} × ${product.packWidth} × ${product.packHeight} cm`);
   }
-  if (product?.categoryName) basicInfo.push(`الفئة: ${product.categoryName}`);
-  if (product?.hsCode) basicInfo.push(`رمز HS: ${product.hsCode}`);
-  if (product?.originCountry) basicInfo.push(`بلد المنشأ: ${product.originCountry}`);
+  if (product?.categoryName) basicInfo.push(`Category: ${product.categoryName}`);
+  if (product?.hsCode) basicInfo.push(`HS Code: ${product.hsCode}`);
+  if (product?.originCountry) basicInfo.push(`Origin Country: ${product.originCountry}`);
 
   if (basicInfo.length > 0) {
     return (
@@ -78,7 +78,7 @@ function NoDataFallback({ product }: { product?: PricedProduct }) {
           <div className="bg-blue-100 text-blue-600 p-2 rounded-lg">
             <Info className="h-5 w-5" />
           </div>
-          <h3 className="text-base font-bold text-gray-800">معلومات أساسية</h3>
+          <h3 className="text-base font-bold text-gray-800">Basic Information</h3>
         </div>
         <div className="space-y-2">
           {basicInfo.map((info, idx) => (
@@ -94,9 +94,9 @@ function NoDataFallback({ product }: { product?: PricedProduct }) {
       <div className="bg-gray-100 p-4 rounded-full mb-4">
         <Info className="h-8 w-8 text-gray-400" />
       </div>
-      <h3 className="text-lg font-semibold text-gray-600 mb-2">لا توجد معلومات إضافية</h3>
+      <h3 className="text-lg font-semibold text-gray-600 mb-2">No Additional Information</h3>
       <p className="text-gray-400 text-center text-sm max-w-md">
-        لا تتوفر معلومات تفصيلية لهذا المنتج من المورد. يمكنك إضافة المعلومات يدوياً بعد الاستيراد.
+        Detailed information for this product is not available from the supplier. You can add information manually after import.
       </p>
     </div>
   );
@@ -118,10 +118,10 @@ export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" dir="rtl">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {hasDescription && (
         <SectionCard
-          title="وصف المنتج"
+          title="Product Description"
           icon={<BookOpen className="h-5 w-5" />}
           bgColor="bg-white"
           borderColor="border-indigo-100"
@@ -135,7 +135,7 @@ export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
 
       {hasOverview && (
         <SectionCard
-          title="نظرة عامة"
+          title="Overview"
           icon={<List className="h-5 w-5" />}
           bgColor="bg-white"
           borderColor="border-teal-100"
@@ -148,7 +148,7 @@ export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
 
       {hasProductInfo && (
         <SectionCard
-          title="معلومات المنتج"
+          title="Product Information"
           icon={<FileText className="h-5 w-5" />}
           bgColor="bg-white"
           borderColor="border-blue-100"
@@ -161,7 +161,7 @@ export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
 
       {(hasSizeInfo || hasSizeChartImages) && (
         <SectionCard
-          title="معلومات المقاسات"
+          title="Size Information"
           icon={<Ruler className="h-5 w-5" />}
           bgColor="bg-white"
           borderColor="border-purple-100"
@@ -179,7 +179,7 @@ export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
                   <div key={index} className="rounded-lg overflow-hidden border border-gray-100 bg-gray-50">
                     <img
                       src={imgUrl}
-                      alt={`جدول المقاسات ${index + 1}`}
+                      alt={`Size Chart ${index + 1}`}
                       className="w-full h-auto object-contain"
                       loading="lazy"
                     />
@@ -193,7 +193,7 @@ export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
 
       {hasProductNote && (
         <SectionCard
-          title="ملاحظات المنتج"
+          title="Product Notes"
           icon={<AlertCircle className="h-5 w-5" />}
           bgColor="bg-white"
           borderColor="border-amber-100"
@@ -206,7 +206,7 @@ export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
 
       {hasPackingList && (
         <SectionCard
-          title="محتويات العبوة"
+          title="Package Contents"
           icon={<Package className="h-5 w-5" />}
           bgColor="bg-white"
           borderColor="border-green-100"
