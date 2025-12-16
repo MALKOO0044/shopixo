@@ -74,18 +74,18 @@ export async function POST(req: Request) {
       chosenSku = min?.sku
     }
 
-    // Freight calculation - use SKU and product weight
+    // Freight calculation - use variant vid for exact CJ "According to Shipping Method" data
     let shippingSar = 0
     let options: any[] = []
     try {
-      // Get weight from raw CJ data (packWeight > packingWeight > productWeight)
-      const productWeight = Number(itemRaw?.packWeight || itemRaw?.packingWeight || itemRaw?.productWeight || 0);
+      // Find the variant's vid (UUID) from the raw CJ data
+      const chosenVariant = (itemRaw?.variants || []).find((v: any) => v.variantSku === chosenSku || v.vid === chosenSku);
+      const variantVid = chosenVariant?.vid || chosenSku || mapped.productId;
       
       const fc = await freightCalculate({ 
         countryCode: parsed.countryCode.toUpperCase(), 
-        vid: chosenSku || mapped.productId, // Use SKU as identifier
-        quantity: parsed.quantity,
-        weightGram: productWeight > 0 ? productWeight : undefined
+        vid: variantVid,
+        quantity: parsed.quantity
       })
       if (fc.ok) {
         options = fc.options || []

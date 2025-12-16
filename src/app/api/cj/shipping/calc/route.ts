@@ -19,28 +19,18 @@ export async function POST(req: Request) {
       return r
     }
 
+    // Uses CJ's "According to Shipping Method" - exact pre-calculated shipping options
     const Body = z.object({
       countryCode: z.string().min(2).max(3),
       quantity: z.number().int().positive().default(1),
-      vid: z.string().optional(), // variant ID (UUID) - preferred
-      sku: z.string().optional(), // product/variant SKU - fallback
-      pid: z.string().optional(), // product ID - fallback
-      weightGram: z.number().positive().optional(), // product weight from CJ data
+      vid: z.string().min(1), // variant ID (UUID) - required for exact CJ shipping data
     })
     let parsed: z.infer<typeof Body>
     try {
       const json = await req.json()
       parsed = Body.parse(json)
     } catch (e: any) {
-      const r = NextResponse.json({ ok: false, error: 'Invalid body', details: e?.errors || String(e) }, { status: 400 })
-      r.headers.set('x-request-id', log.requestId)
-      return r
-    }
-
-    // Use vid, sku, or pid (in priority order)
-    const identifier = parsed.vid || parsed.sku || parsed.pid
-    if (!identifier) {
-      const r = NextResponse.json({ ok: false, error: 'vid, sku, or pid is required' }, { status: 400 })
+      const r = NextResponse.json({ ok: false, error: 'Invalid body - vid (variant UUID) is required', details: e?.errors || String(e) }, { status: 400 })
       r.headers.set('x-request-id', log.requestId)
       return r
     }
@@ -48,8 +38,7 @@ export async function POST(req: Request) {
     const res = await freightCalculate({
       countryCode: parsed.countryCode.toUpperCase(),
       quantity: parsed.quantity,
-      vid: identifier,
-      weightGram: parsed.weightGram,
+      vid: parsed.vid,
     })
     
     if (!res.ok) {

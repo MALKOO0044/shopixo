@@ -138,14 +138,13 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
         const policy = await loadPricingPolicy()
         let shippingSar = 0
         try {
-          // Get weight from product data
-          const productWeight = Number((cj as any).packWeight || (cj as any).packingWeight || (cj as any).productWeight || 0);
+          // Use variant vid for exact CJ "According to Shipping Method" data
+          const variantVid = (minVariant as any)?.vid || minVariant?.sku || cj.productId;
           
           const fc = await freightCalculate({ 
             countryCode: 'US', 
-            vid: minVariant?.sku || cj.productId, 
-            quantity: 1,
-            weightGram: productWeight > 0 ? productWeight : undefined
+            vid: variantVid, 
+            quantity: 1
           })
           if (fc.ok) {
             const cheapest = (fc.options || []).reduce<{ price: number; currency?: string; aging?: { min?: number; max?: number } } | null>((best: { price: number; currency?: string; aging?: { min?: number; max?: number } } | null, opt: any) => {

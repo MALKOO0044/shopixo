@@ -145,11 +145,11 @@ async function getVariantsForProduct(token: string, base: string, pid: string): 
         }
       }
       
-      // Also log variantKey and vid which is needed for freight calculation
+      // Log shipping-critical fields: vid is needed for "According to Shipping Method" freight calculation
+      console.log(`[Variants] vid = ${sample.vid || 'NOT_FOUND'}`);
+      console.log(`[Variants] variantSku = ${sample.variantSku || 'NOT_FOUND'}`);
       if (sample.variantKey) console.log(`[Variants] variantKey = ${sample.variantKey}`);
       if (sample.variantNameEn) console.log(`[Variants] variantNameEn = ${sample.variantNameEn}`);
-      if (sample.vid) console.log(`[Variants] vid = ${sample.vid}`);
-      if (sample.variantSku) console.log(`[Variants] variantSku = ${sample.variantSku}`);
     }
     
     return variants;
@@ -1322,57 +1322,65 @@ export async function GET(req: Request) {
         let allShippingOptions: ShippingOption[] = [];
         
         try {
-          // Pass product ID and weight to CJ for accurate shipping calculation
-          console.log(`[Search&Price] Product ${pid} freight calc: weight=${productWeight}g`);
+          // Use CJ's "According to Shipping Method" - requires variant vid (UUID)
+          // For products without explicit variants, try to get vid from item or first variant
+          const firstVariant = variants[0] || item.variants?.[0];
+          const variantVid = String(firstVariant?.vid || item.vid || '');
           
-          const freight = await freightCalculate({
-            countryCode: 'US',
-            vid: pid, // For products without variants, use pid as vid
-            quantity: 1,
-            weightGram: productWeight, // Pass actual product weight from CJ data
-          });
-          
-          // Handle freight result with proper error handling
-          if (!freight.ok) {
-            shippingError = freight.message;
-          } else if (freight.options.length > 0) {
-            // Store all shipping options for display
-            allShippingOptions = freight.options.map(opt => {
-              let days = 'Unknown';
-              if (opt.logisticAgingDays) {
-                const { min, max } = opt.logisticAgingDays;
-                days = max ? `${min}-${max} days` : `${min} days`;
-              }
-              return {
-                name: opt.name,
-                code: opt.code,
-                priceUSD: opt.price,
-                deliveryDays: days,
-              };
-            });
-            
-            // If specific shipping method requested, find it
-            let selectedOption = shippingMethod !== 'any' 
-              ? freight.options.find(o => o.name.toLowerCase().includes(shippingMethod.toLowerCase()) || o.code.toLowerCase().includes(shippingMethod.toLowerCase()))
-              : null;
-            
-            // If requested method not found, skip this product when filtering
-            if (shippingMethod !== 'any' && !selectedOption) {
-              shippingError = `Shipping method ${shippingMethod} not available`;
-            } else {
-              // Use selected method or cheapest
-              const option = selectedOption || freight.options.reduce((a, b) => a.price < b.price ? a : b);
-              shippingPriceUSD = option.price;
-              shippingPriceSAR = usdToSar(shippingPriceUSD);
-              shippingAvailable = true;
-              logisticName = option.name;
-              if (option.logisticAgingDays) {
-                const { min, max } = option.logisticAgingDays;
-                deliveryDays = max ? `${min}-${max} days` : `${min} days`;
-              }
-            }
+          if (!variantVid) {
+            shippingError = 'No variant ID available - shipping cannot be calculated';
+            console.log(`[Search&Price] Product ${pid} has no vid - skipping shipping calc`);
           } else {
-            shippingError = 'No shipping options available to USA';
+            console.log(`[Search&Price] Product ${pid} freight calc using vid=${variantVid}`);
+            
+            const freight = await freightCalculate({
+              countryCode: 'US',
+              vid: variantVid,
+              quantity: 1,
+            });
+          
+            // Handle freight result with proper error handling
+            if (!freight.ok) {
+              shippingError = freight.message;
+            } else if (freight.options.length > 0) {
+              // Store all shipping options for display
+              allShippingOptions = freight.options.map(opt => {
+                let days = 'Unknown';
+                if (opt.logisticAgingDays) {
+                  const { min, max } = opt.logisticAgingDays;
+                  days = max ? `${min}-${max} days` : `${min} days`;
+                }
+                return {
+                  name: opt.name,
+                  code: opt.code,
+                  priceUSD: opt.price,
+                  deliveryDays: days,
+                };
+              });
+              
+              // If specific shipping method requested, find it
+              let selectedOption = shippingMethod !== 'any' 
+                ? freight.options.find(o => o.name.toLowerCase().includes(shippingMethod.toLowerCase()) || o.code.toLowerCase().includes(shippingMethod.toLowerCase()))
+                : null;
+              
+              // If requested method not found, skip this product when filtering
+              if (shippingMethod !== 'any' && !selectedOption) {
+                shippingError = `Shipping method ${shippingMethod} not available`;
+              } else {
+                // Use selected method or cheapest
+                const option = selectedOption || freight.options.reduce((a, b) => a.price < b.price ? a : b);
+                shippingPriceUSD = option.price;
+                shippingPriceSAR = usdToSar(shippingPriceUSD);
+                shippingAvailable = true;
+                logisticName = option.name;
+                if (option.logisticAgingDays) {
+                  const { min, max } = option.logisticAgingDays;
+                  deliveryDays = max ? `${min}-${max} days` : `${min} days`;
+                }
+              }
+            } else {
+              shippingError = 'No shipping options available to USA';
+            }
           }
         } catch (e: any) {
           shippingError = e?.message || 'Shipping calculation failed';
@@ -1422,60 +1430,61 @@ export async function GET(req: Request) {
           let allShippingOptions: ShippingOption[] = [];
           
           try {
-            // Use variant-specific weight if available, fallback to product weight
-            const variantWeight = Number(variant.variantWeight || variant.weight || variant.weightGram || 0);
-            const effectiveWeight = variantWeight > 0 ? Math.round(variantWeight) : productWeight;
-            
-            console.log(`[Search&Price] Variant ${variantSku} (vid=${variantId}) freight calc: weight=${effectiveWeight}g`);
-            
-            const freight = await freightCalculate({
-              countryCode: 'US',
-              vid: variantId || variantSku, // Use variant ID for accurate shipping
-              quantity: 1,
-              weightGram: effectiveWeight, // Use variant weight or fallback to product weight
-            });
-            
-            // Handle freight result with proper error handling
-            if (!freight.ok) {
-              shippingError = freight.message;
-            } else if (freight.options.length > 0) {
-              // Store all shipping options for display
-              allShippingOptions = freight.options.map(opt => {
-                let days = 'Unknown';
-                if (opt.logisticAgingDays) {
-                  const { min, max } = opt.logisticAgingDays;
-                  days = max ? `${min}-${max} days` : `${min} days`;
-                }
-                return {
-                  name: opt.name,
-                  code: opt.code,
-                  priceUSD: opt.price,
-                  deliveryDays: days,
-                };
+            // Use CJ's "According to Shipping Method" - requires variant vid (UUID)
+            if (!variantId) {
+              shippingError = 'No variant ID available - shipping cannot be calculated';
+              console.log(`[Search&Price] Variant ${variantSku} has no vid - skipping shipping calc`);
+            } else {
+              console.log(`[Search&Price] Variant ${variantSku} (vid=${variantId}) freight calc`);
+              
+              const freight = await freightCalculate({
+                countryCode: 'US',
+                vid: variantId, // Use variant UUID for exact CJ shipping data
+                quantity: 1,
               });
               
-              // If specific shipping method requested, find it
-              let selectedOption = shippingMethod !== 'any' 
-                ? freight.options.find(o => o.name.toLowerCase().includes(shippingMethod.toLowerCase()) || o.code.toLowerCase().includes(shippingMethod.toLowerCase()))
-                : null;
-              
-              // If requested method not found, skip this variant when filtering
-              if (shippingMethod !== 'any' && !selectedOption) {
-                shippingError = `Shipping method ${shippingMethod} not available`;
-              } else {
-                // Use selected method or cheapest
-                const option = selectedOption || freight.options.reduce((a, b) => a.price < b.price ? a : b);
-                shippingPriceUSD = option.price;
-                shippingPriceSAR = usdToSar(shippingPriceUSD);
-                shippingAvailable = true;
-                logisticName = option.name;
-                if (option.logisticAgingDays) {
-                  const { min, max } = option.logisticAgingDays;
-                  deliveryDays = max ? `${min}-${max} days` : `${min} days`;
+              // Handle freight result with proper error handling
+              if (!freight.ok) {
+                shippingError = freight.message;
+              } else if (freight.options.length > 0) {
+                // Store all shipping options for display
+                allShippingOptions = freight.options.map(opt => {
+                  let days = 'Unknown';
+                  if (opt.logisticAgingDays) {
+                    const { min, max } = opt.logisticAgingDays;
+                    days = max ? `${min}-${max} days` : `${min} days`;
+                  }
+                  return {
+                    name: opt.name,
+                    code: opt.code,
+                    priceUSD: opt.price,
+                    deliveryDays: days,
+                  };
+                });
+                
+                // If specific shipping method requested, find it
+                let selectedOption = shippingMethod !== 'any' 
+                  ? freight.options.find(o => o.name.toLowerCase().includes(shippingMethod.toLowerCase()) || o.code.toLowerCase().includes(shippingMethod.toLowerCase()))
+                  : null;
+                
+                // If requested method not found, skip this variant when filtering
+                if (shippingMethod !== 'any' && !selectedOption) {
+                  shippingError = `Shipping method ${shippingMethod} not available`;
+                } else {
+                  // Use selected method or cheapest
+                  const option = selectedOption || freight.options.reduce((a, b) => a.price < b.price ? a : b);
+                  shippingPriceUSD = option.price;
+                  shippingPriceSAR = usdToSar(shippingPriceUSD);
+                  shippingAvailable = true;
+                  logisticName = option.name;
+                  if (option.logisticAgingDays) {
+                    const { min, max } = option.logisticAgingDays;
+                    deliveryDays = max ? `${min}-${max} days` : `${min} days`;
+                  }
                 }
+              } else {
+                shippingError = 'No shipping options available to USA';
               }
-            } else {
-              shippingError = 'No shipping options available to USA';
             }
           } catch (e: any) {
             shippingError = e?.message || 'Shipping calculation failed';

@@ -75,14 +75,13 @@ export async function listCjProductsPage(params: { pageNum: number; pageSize?: n
 }
 
 // --- Freight / Shipping ---
-// Gets shipping methods from CJ's "Shipping Method" data for each product
-// Uses freightCalculate with UUID vid, falls back to freightCalculateTip with SKU
+// Uses CJ's "According to Shipping Method" feature - exact pre-calculated shipping options
+// Calls POST /logistic/freightCalculate with variant ID (vid) to get exact CJ pricing
 export type CjFreightCalcParams = {
   countryCode: string; // e.g., 'US' - destination country
   startCountryCode?: string; // e.g., 'CN' - origin country (defaults to China)
   quantity?: number;
-  vid: string; // variant ID (UUID) or SKU - we try both endpoints
-  weightGram?: number; // product weight in grams from CJ product data (for accurate shipping)
+  vid: string; // variant ID (UUID format required for freightCalculate)
 };
 
 export type CjShippingOption = {
@@ -98,14 +97,9 @@ export type FreightResult = {
   options: CjShippingOption[];
 } | {
   ok: false;
-  reason: 'weight_missing' | 'no_options' | 'api_error';
+  reason: 'invalid_vid' | 'no_options' | 'api_error';
   message: string;
 };
-
-// Helper to check if vid looks like a UUID
-function isUuidFormat(s: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
-}
 
 export async function freightCalculate(params: CjFreightCalcParams): Promise<FreightResult> {
   const startCountry = params.startCountryCode || 'CN';
@@ -116,108 +110,48 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<Fre
   if (!vid) {
     return {
       ok: false,
-      reason: 'api_error',
+      reason: 'invalid_vid',
       message: 'Variant ID (vid) is required for shipping calculation',
     };
   }
   
-  console.log(`[CJ Freight] Calculating shipping for vid=${vid}, qty=${qty}, ${startCountry} → ${endCountry}`);
-  
-  // If vid is UUID format, try freightCalculate first (more accurate)
-  if (isUuidFormat(vid)) {
-    try {
-      const body = {
-        startCountryCode: startCountry,
-        endCountryCode: endCountry,
-        products: [{ vid, quantity: qty }],
-      };
-      
-      console.log(`[CJ Freight] Trying freightCalculate with UUID vid`);
-      const r = await cjFetch<any>('/logistic/freightCalculate', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      
-      console.log(`[CJ Freight] Response: ${JSON.stringify(r).slice(0, 1500)}`);
-      
-      const result = parseFreightResponse(r);
-      if (result.ok && result.options.length > 0) {
-        return result;
-      }
-    } catch (e: any) {
-      console.log(`[CJ Freight] freightCalculate failed: ${e?.message}, trying freightCalculateTip...`);
-    }
-  }
-  
-  // Fallback: Use freightCalculateTip with SKU (works with non-UUID identifiers)
-  // Require actual weight from CJ product data - no fabricated values
-  if (!params.weightGram || params.weightGram <= 0) {
-    console.log(`[CJ Freight] Weight data missing - shipping unavailable`);
-    return {
-      ok: false,
-      reason: 'weight_missing',
-      message: 'CJ product weight data not available - shipping rates cannot be calculated',
-    };
-  }
-  
-  const weight = Math.round(params.weightGram);
+  console.log(`[CJ Freight] Getting "According to Shipping Method" for vid=${vid}, qty=${qty}, ${startCountry} → ${endCountry}`);
   
   try {
-    const tipBody = {
-      reqDTOS: [{
-        srcAreaCode: startCountry,
-        destAreaCode: endCountry,
-        skuList: [vid],
-        freightTrialSkuList: [{
-          sku: vid,
-          skuQuantity: qty,
-        }],
-        productProp: ['COMMON'],
-        weight: weight, // Use actual product weight from CJ data
-        wrapWeight: weight,
-        volume: Math.round(weight * 2), // Estimate volume from weight
-      }],
+    // Use CJ's freightCalculate API - this returns the exact "According to Shipping Method" data
+    const body = {
+      startCountryCode: startCountry,
+      endCountryCode: endCountry,
+      products: [{ vid, quantity: qty }],
     };
     
-    console.log(`[CJ Freight Tip] Using weight=${weight}g from CJ product data`);
-    
-    console.log(`[CJ Freight Tip] Trying freightCalculateTip with SKU=${vid}`);
-    const tipRes = await cjFetch<any>('/logistic/freightCalculateTip', {
+    const r = await cjFetch<any>('/logistic/freightCalculate', {
       method: 'POST',
-      body: JSON.stringify(tipBody),
+      body: JSON.stringify(body),
     });
     
-    console.log(`[CJ Freight Tip] Response: ${JSON.stringify(tipRes).slice(0, 1500)}`);
+    console.log(`[CJ Freight] Response: ${JSON.stringify(r).slice(0, 2000)}`);
     
-    if (tipRes?.result && Array.isArray(tipRes?.data) && tipRes.data.length > 0) {
-      const out: CjShippingOption[] = [];
-      for (const it of tipRes.data) {
-        const price = Number(it.postage || it.wrapPostage || it.discountFee || 0);
-        if (price <= 0) continue;
-        
-        const name = String(it.option?.enName || it.channel?.enName || it.logisticName || 'Shipping');
-        const code = String(it.optionId || it.channelId || name);
-        const age = it.arrivalTime || it.logisticAging || null;
-        const aging = typeof age === 'string'
-          ? (() => { const m = age.match(/(\d+)[^\d]*(\d+)/); if (m) return { min: Number(m[1]), max: Number(m[2]) }; const n = age.match(/(\d+)/); return n ? { min: Number(n[1]) } : undefined; })()
-          : (typeof age === 'number' ? { min: age, max: age } : undefined);
-        out.push({ code, name, price, currency: 'USD', logisticAgingDays: aging });
-      }
-      
-      if (out.length > 0) {
-        console.log(`[CJ Freight Tip] Parsed ${out.length} shipping options`);
-        return { ok: true, options: out };
-      }
+    const result = parseFreightResponse(r);
+    if (result.ok && result.options.length > 0) {
+      console.log(`[CJ Freight] Got ${result.options.length} shipping options from CJ "According to Shipping Method"`);
+      return result;
     }
+    
+    // No options returned
+    return {
+      ok: false,
+      reason: 'no_options',
+      message: 'CJ returned no shipping options for this variant/destination',
+    };
   } catch (e: any) {
-    console.error(`[CJ Freight Tip] API error: ${e?.message}`);
+    console.error(`[CJ Freight] API error: ${e?.message}`);
+    return {
+      ok: false,
+      reason: 'api_error',
+      message: `CJ shipping API error: ${e?.message || 'Unknown error'}`,
+    };
   }
-  
-  return {
-    ok: false,
-    reason: 'no_options',
-    message: 'No shipping options available for this product/destination',
-  };
 }
 
 // Helper to parse freightCalculate response
