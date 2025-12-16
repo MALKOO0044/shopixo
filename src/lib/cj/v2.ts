@@ -128,30 +128,41 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<Fre
   }
   
   const weight = params.weightGram!;
-  const length = params.lengthCm && params.lengthCm > 0 ? params.lengthCm : 15;
-  const width = params.widthCm && params.widthCm > 0 ? params.widthCm : 10;
-  const height = params.heightCm && params.heightCm > 0 ? params.heightCm : 5;
-  const volume = length * width * height; // cm³
   
-  console.log(`[CJ Freight] Using weight=${weight}g (from CJ data), dimensions=${length}x${width}x${height}cm, volume=${volume}cm³`);
+  // Only use dimensions if ALL are provided from CJ data - no fabrication
+  const hasRealDimensions = params.lengthCm && params.lengthCm > 0 && 
+                            params.widthCm && params.widthCm > 0 && 
+                            params.heightCm && params.heightCm > 0;
+  
+  const length = hasRealDimensions ? params.lengthCm! : undefined;
+  const width = hasRealDimensions ? params.widthCm! : undefined;
+  const height = hasRealDimensions ? params.heightCm! : undefined;
+  const volume = hasRealDimensions ? length! * width! * height! : undefined; // Only calculate if real dimensions exist
+  
+  console.log(`[CJ Freight] Using weight=${weight}g (from CJ data), dimensions=${hasRealDimensions ? `${length}x${width}x${height}cm, volume=${volume}cm³` : 'not provided (using CJ internal data)'}`);
   
   // First try freightCalculateTip which accepts SKU directly
   try {
-    const tipBody: any = {
-      reqDTOS: [{
-        srcAreaCode: startCountry,
-        destAreaCode: endCountry,
-        skuList: [sku],
-        freightTrialSkuList: [{
-          sku: sku,
-          skuQuantity: qty,
-        }],
-        productProp: ['COMMON'],
-        weight: weight,
-        wrapWeight: weight,
-        volume: volume,
+    // Build request with only real data - no fabricated values
+    const reqDTO: any = {
+      srcAreaCode: startCountry,
+      destAreaCode: endCountry,
+      skuList: [sku],
+      freightTrialSkuList: [{
+        sku: sku,
+        skuQuantity: qty,
       }],
+      productProp: ['COMMON'],
+      weight: weight,
+      wrapWeight: weight,
     };
+    
+    // Only include volume if we have real dimension data from CJ
+    if (volume !== undefined) {
+      reqDTO.volume = volume;
+    }
+    
+    const tipBody: any = { reqDTOS: [reqDTO] };
     
     console.log(`[CJ Freight Tip] Request for ${sku}: ${JSON.stringify(tipBody).slice(0, 500)}`);
     
