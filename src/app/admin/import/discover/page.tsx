@@ -34,7 +34,8 @@ export default function ProductDiscoveryPage() {
   const [profitMargin, setProfitMargin] = useState(8);
   const [popularity, setPopularity] = useState("any");
   const [minRating, setMinRating] = useState("any");
-  const [shippingMethod, setShippingMethod] = useState("any");
+  // Always use CJPacket Ordinary - no filter option (100% accuracy requirement)
+  const shippingMethod = "cjpacket ordinary";
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
   
   const [loading, setLoading] = useState(false);
@@ -519,22 +520,10 @@ export default function ProductDiscoveryPage() {
               <Truck className="h-4 w-4 text-blue-500" />
               Shipping Method
             </label>
-            <select
-              value={shippingMethod}
-              onChange={(e) => setShippingMethod(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded"
-            >
-              <option value="any">Any Method (Cheapest)</option>
-              <option value="cjpacket ordinary">CJPacket Ordinary (7-12 days)</option>
-              <option value="cjpacket">CJPacket (7-17 days)</option>
-              <option value="epacket">ePacket (10-20 days)</option>
-              <option value="yunexpress">YunExpress (8-18 days)</option>
-              <option value="usps">USPS (5-10 days)</option>
-              <option value="ems">EMS Express (5-12 days)</option>
-              <option value="dhl">DHL Express (3-7 days)</option>
-              <option value="fedex">FedEx (3-7 days)</option>
-              <option value="ups">UPS (3-7 days)</option>
-            </select>
+            <div className="w-full px-3 py-2 border border-blue-300 rounded bg-blue-50 text-blue-800 font-medium">
+              CJPacket Ordinary (7-12 days)
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Fixed for 100% accuracy</p>
           </div>
           
         </div>

@@ -1319,7 +1319,6 @@ export async function GET(req: Request) {
         let deliveryDays = 'Unknown';
         let logisticName: string | undefined;
         let shippingError: string | undefined;
-        let allShippingOptions: ShippingOption[] = [];
         
         try {
           // Use CJ's "According to Shipping Method" - requires variant vid (UUID)
@@ -1339,44 +1338,30 @@ export async function GET(req: Request) {
               quantity: 1,
             });
           
-            // Handle freight result with proper error handling
+            // Handle freight result - ONLY select CJPacket Ordinary (100% accuracy requirement)
             if (!freight.ok) {
               shippingError = freight.message;
             } else if (freight.options.length > 0) {
-              // Store all shipping options for display
-              allShippingOptions = freight.options.map(opt => {
-                let days = 'Unknown';
-                if (opt.logisticAgingDays) {
-                  const { min, max } = opt.logisticAgingDays;
-                  days = max ? `${min}-${max} days` : `${min} days`;
-                }
-                return {
-                  name: opt.name,
-                  code: opt.code,
-                  priceUSD: opt.price,
-                  deliveryDays: days,
-                };
+              // Find CJPacket Ordinary specifically - check both name and code fields
+              const cjPacketOrdinary = freight.options.find(o => {
+                const nameLower = (o.name || '').toLowerCase();
+                const codeLower = (o.code || '').toLowerCase();
+                return nameLower.includes('cjpacket ordinary') || 
+                       codeLower.includes('cjpacket ordinary') ||
+                       codeLower === 'cjpacketordinary';
               });
               
-              // If specific shipping method requested, find it
-              let selectedOption = shippingMethod !== 'any' 
-                ? freight.options.find(o => o.name.toLowerCase().includes(shippingMethod.toLowerCase()) || o.code.toLowerCase().includes(shippingMethod.toLowerCase()))
-                : null;
-              
-              // If requested method not found, skip this product when filtering
-              if (shippingMethod !== 'any' && !selectedOption) {
-                shippingError = `Shipping method ${shippingMethod} not available`;
-              } else {
-                // Use selected method or cheapest
-                const option = selectedOption || freight.options.reduce((a, b) => a.price < b.price ? a : b);
-                shippingPriceUSD = option.price;
+              if (cjPacketOrdinary) {
+                shippingPriceUSD = cjPacketOrdinary.price;
                 shippingPriceSAR = usdToSar(shippingPriceUSD);
                 shippingAvailable = true;
-                logisticName = option.name;
-                if (option.logisticAgingDays) {
-                  const { min, max } = option.logisticAgingDays;
+                logisticName = cjPacketOrdinary.name;
+                if (cjPacketOrdinary.logisticAgingDays) {
+                  const { min, max } = cjPacketOrdinary.logisticAgingDays;
                   deliveryDays = max ? `${min}-${max} days` : `${min} days`;
                 }
+              } else {
+                shippingError = 'CJPacket Ordinary not available for this product';
               }
             } else {
               shippingError = 'No shipping options available to USA';
@@ -1386,8 +1371,8 @@ export async function GET(req: Request) {
           shippingError = e?.message || 'Shipping calculation failed';
         }
         
-        // Skip if shipping method filter active and method not found
-        if (shippingMethod !== 'any' && !shippingAvailable) {
+        // Skip products where CJPacket Ordinary is not available
+        if (!shippingAvailable) {
           continue;
         }
         
@@ -1412,7 +1397,6 @@ export async function GET(req: Request) {
           totalCostSAR,
           profitSAR,
           error: shippingError,
-          allShippingOptions,
         });
       } else {
         for (const variant of variants.slice(0, 5)) {
@@ -1427,7 +1411,6 @@ export async function GET(req: Request) {
           let deliveryDays = 'Unknown';
           let logisticName: string | undefined;
           let shippingError: string | undefined;
-          let allShippingOptions: ShippingOption[] = [];
           
           try {
             // Use CJ's "According to Shipping Method" - requires variant vid (UUID)
@@ -1443,44 +1426,30 @@ export async function GET(req: Request) {
                 quantity: 1,
               });
               
-              // Handle freight result with proper error handling
+              // Handle freight result - ONLY select CJPacket Ordinary (100% accuracy requirement)
               if (!freight.ok) {
                 shippingError = freight.message;
               } else if (freight.options.length > 0) {
-                // Store all shipping options for display
-                allShippingOptions = freight.options.map(opt => {
-                  let days = 'Unknown';
-                  if (opt.logisticAgingDays) {
-                    const { min, max } = opt.logisticAgingDays;
-                    days = max ? `${min}-${max} days` : `${min} days`;
-                  }
-                  return {
-                    name: opt.name,
-                    code: opt.code,
-                    priceUSD: opt.price,
-                    deliveryDays: days,
-                  };
+                // Find CJPacket Ordinary specifically - check both name and code fields
+                const cjPacketOrdinary = freight.options.find(o => {
+                  const nameLower = (o.name || '').toLowerCase();
+                  const codeLower = (o.code || '').toLowerCase();
+                  return nameLower.includes('cjpacket ordinary') || 
+                         codeLower.includes('cjpacket ordinary') ||
+                         codeLower === 'cjpacketordinary';
                 });
                 
-                // If specific shipping method requested, find it
-                let selectedOption = shippingMethod !== 'any' 
-                  ? freight.options.find(o => o.name.toLowerCase().includes(shippingMethod.toLowerCase()) || o.code.toLowerCase().includes(shippingMethod.toLowerCase()))
-                  : null;
-                
-                // If requested method not found, skip this variant when filtering
-                if (shippingMethod !== 'any' && !selectedOption) {
-                  shippingError = `Shipping method ${shippingMethod} not available`;
-                } else {
-                  // Use selected method or cheapest
-                  const option = selectedOption || freight.options.reduce((a, b) => a.price < b.price ? a : b);
-                  shippingPriceUSD = option.price;
+                if (cjPacketOrdinary) {
+                  shippingPriceUSD = cjPacketOrdinary.price;
                   shippingPriceSAR = usdToSar(shippingPriceUSD);
                   shippingAvailable = true;
-                  logisticName = option.name;
-                  if (option.logisticAgingDays) {
-                    const { min, max } = option.logisticAgingDays;
+                  logisticName = cjPacketOrdinary.name;
+                  if (cjPacketOrdinary.logisticAgingDays) {
+                    const { min, max } = cjPacketOrdinary.logisticAgingDays;
                     deliveryDays = max ? `${min}-${max} days` : `${min} days`;
                   }
+                } else {
+                  shippingError = 'CJPacket Ordinary not available for this variant';
                 }
               } else {
                 shippingError = 'No shipping options available to USA';
@@ -1490,8 +1459,8 @@ export async function GET(req: Request) {
             shippingError = e?.message || 'Shipping calculation failed';
           }
           
-          // Skip if shipping method filter active and method not found
-          if (shippingMethod !== 'any' && !shippingAvailable) {
+          // Skip variants where CJPacket Ordinary is not available
+          if (!shippingAvailable) {
             continue;
           }
           
@@ -1516,7 +1485,6 @@ export async function GET(req: Request) {
             totalCostSAR,
             profitSAR,
             error: shippingError,
-            allShippingOptions,
           });
         }
       }
