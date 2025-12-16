@@ -66,28 +66,28 @@ Shopixo is a modern, professional e-commerce platform designed for the USA marke
   - `src/app/api/cj/shipping/calc/route.ts` - Handler for FreightResult type
   - `src/app/api/admin/cj/products/search-and-price/route.ts` - Weight extraction and error handling
 
-## Shipping Method Filter and Detailed Pricing Breakdown (December 16, 2025)
-- **New Feature**: Shipping Method filter on Discover page
-  - Dropdown filter to select specific shipping method: CJPacket, ePacket, USPS, EMS, DHL, FedEx, UPS
-  - When selected, only products offering that shipping method are returned
-  - Default is "Any Method" which uses the cheapest available option
-- **Enhanced PreviewPageFive** (Shipping & Delivery):
-  - New price breakdown section: Product Cost, Shipping Cost, Total Cost, Sell Price, Profit
-  - Full table of ALL available shipping methods to USA with:
-    - Method name, delivery time, shipping cost
-    - Total cost with shipping, estimated sell price
-    - Visual indicator for cheapest option
-  - Processing & handling time display
-  - Delivery time cards and shipping cost range
-- **Enhanced PreviewPageSix** (Pricing Details):
-  - Summary cards: Total Product Cost, Total Shipping, Total Revenue, Total Profit
-  - Per-variant pricing table with shipping method and delivery time columns
-  - Visual variant images and shipping method indicators
+## CJPacket Ordinary Only - 100% Accurate Shipping (December 16, 2025)
+- **Requirement**: Use only CJPacket Ordinary shipping method for 100% accuracy
+- **Previous Issue**: Multiple shipping options caused confusion and incorrect total calculations
+- **Solution**: Hardcoded to CJPacket Ordinary only
+- **How it works**:
+  - Discover page shows fixed "CJPacket Ordinary (7-12 days)" - no dropdown selection
+  - API searches for CJPacket Ordinary by checking both `name` and `code` fields (case-insensitive)
+  - Products/variants without CJPacket Ordinary available are skipped (marked unavailable)
+  - All pricing calculations use only CJPacket Ordinary shipping cost
+- **UI Changes**:
+  - Removed shipping method dropdown filter from Discover page
+  - Removed "All Available Shipping Methods to USA" table from PreviewPageFive
+  - PreviewPageFive shows only CJPacket Ordinary price breakdown
+  - PreviewPageSix totals now correctly sum CJPacket Ordinary shipping per variant
+- **Matching Logic**: Finds CJPacket Ordinary via:
+  - `name.includes('cjpacket ordinary')` OR
+  - `code.includes('cjpacket ordinary')` OR
+  - `code === 'cjpacketordinary'`
 - **Files Modified**:
-  - `src/app/admin/import/discover/page.tsx` - Added shippingMethod state and UI filter
-  - `src/components/admin/import/preview/PreviewPageFive.tsx` - Complete rewrite with shipping breakdown
-  - `src/components/admin/import/preview/PreviewPageSix.tsx` - Enhanced with shipping details per variant
-  - `src/components/admin/import/preview/types.ts` - ShippingOption type already defined
+  - `src/app/admin/import/discover/page.tsx` - Removed filter, hardcoded CJPacket Ordinary
+  - `src/app/api/admin/cj/products/search-and-price/route.ts` - CJPacket Ordinary only selection
+  - `src/components/admin/import/preview/PreviewPageFive.tsx` - Removed multi-shipping table
 
 # User Preferences
 
