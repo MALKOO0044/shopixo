@@ -1,8 +1,19 @@
 # Overview
 
-Shopixo is a modern, professional e-commerce platform designed for the Saudi Arabian market. It provides a bilingual (Arabic/English with RTL support) shopping experience, secure payment processing, and efficient dropshipping fulfillment. The platform aims to offer a curated selection of products, emphasizing security, speed, and a strong content policy.
+Shopixo is a modern, professional e-commerce platform designed for the USA market. It provides an English-only (LTR layout) shopping experience, secure payment processing via Stripe, and efficient dropshipping fulfillment through CJ Dropshipping. The platform offers a curated selection of products, emphasizing security, speed, and a strong content policy.
 
 # Recent Changes (December 2025)
+
+## Full Localization to USA Market (December 16, 2025)
+- **Change**: Converted platform from Saudi Arabia market (Arabic/RTL/SAR) to USA market (English/LTR/USD)
+- **Scope**: Complete translation of 150+ files including:
+  - Layout direction: RTL → LTR (root layout)
+  - All admin pages (sync, inventory, import, products, CJ settings)
+  - All 6 product preview pages (PreviewPageOne through PreviewPageSix)
+  - CATEGORIES array (35 main categories)
+  - FULL_CATEGORIES array (800+ lines including all subcategories)
+  - Currency display: SAR (ر.س) → USD ($)
+- **Note**: Shipping logic intentionally unchanged - will be updated separately for US shipping methods
 
 ## Estimated Rating System for All Products (December 12, 2025)
 - **Issue**: CJ Dropshipping deprecated their reviews/comments API in June 2024 - no real rating data available
@@ -44,7 +55,7 @@ Preferred communication style: Simple, everyday language.
 # System Architecture
 
 ## Frontend Architecture
-Shopixo utilizes Next.js 14 (App Router) with TypeScript for server-side rendering, streaming, and code splitting. Styling is managed with Tailwind CSS, incorporating a custom gold/navy HSL color palette and design tokens. UI components are built using Radix UI primitives, styled with shadcn/ui patterns and `class-variance-authority`, ensuring accessibility. It supports dark/light mode via `next-themes` and full internationalization with RTL design for Arabic using CSS and HTML `dir` attributes. Lucide React provides consistent iconography.
+Shopixo utilizes Next.js 14 (App Router) with TypeScript for server-side rendering, streaming, and code splitting. Styling is managed with Tailwind CSS, incorporating a custom gold/navy HSL color palette and design tokens. UI components are built using Radix UI primitives, styled with shadcn/ui patterns and `class-variance-authority`, ensuring accessibility. It supports dark/light mode via `next-themes`. Lucide React provides consistent iconography.
 
 ## Backend Architecture
 The backend leverages Next.js API routes and React Server Components. Supabase (PostgreSQL with Row Level Security) is the primary database, handling data and authentication via Supabase Auth and `auth-helpers-nextjs`. Stripe processes payments, utilizing checkout sessions and webhooks for order fulfillment. Rate limiting for API protection is implemented with Upstash Redis and `@upstash/ratelimit`. Error tracking is optional via Sentry. Server Components directly fetch data from Supabase, Server Actions handle mutations, and webhooks trigger backend processes for orders and inventory.
