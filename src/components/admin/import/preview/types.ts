@@ -19,8 +19,8 @@ export type PricedVariant = {
   profitSAR: number;
   error?: string;
   stock?: number;
-  cjStock?: number;          // CJ warehouse stock (verified)
-  factoryStock?: number;     // Factory/supplier stock (unverified)
+  cjStock?: number;
+  factoryStock?: number;
   variantName?: string;
   variantImage?: string;
   size?: string;
@@ -44,6 +44,16 @@ export type ProductInventory = {
   warehouses: WarehouseStock[];
 };
 
+export type InventoryVariant = {
+  variantId: string;
+  sku: string;
+  shortName: string;
+  priceUSD: number;
+  cjStock: number;
+  factoryStock: number;
+  totalStock: number;
+};
+
 export type PricedProduct = {
   pid: string;
   cjSku: string;
@@ -54,15 +64,13 @@ export type PricedProduct = {
   avgPriceSAR: number;
   stock: number;
   listedNum: number;
-  // Inventory breakdown from CJ listV2 API (primary source)
-  totalVerifiedInventory?: number;    // CJ warehouse stock (verified)
-  totalUnVerifiedInventory?: number;  // Factory/supplier stock (unverified)
-  // Detailed warehouse inventory from inventory API (fallback/enrichment)
+  totalVerifiedInventory?: number;
+  totalUnVerifiedInventory?: number;
   inventory?: ProductInventory;
-  // Inventory status: 'ok' = successfully fetched, 'error' = failed to fetch, 'partial' = some data missing
   inventoryStatus?: 'ok' | 'error' | 'partial';
   inventoryErrorMessage?: string;
   variants: PricedVariant[];
+  inventoryVariants?: InventoryVariant[];
   successfulVariants: number;
   totalVariants: number;
   description?: string;
