@@ -52,6 +52,10 @@ export type PricedProduct = {
   avgPriceSAR: number;
   stock: number;
   listedNum: number;
+  // Inventory breakdown from CJ listV2 API (primary source)
+  totalVerifiedInventory?: number;    // CJ warehouse stock (verified)
+  totalUnVerifiedInventory?: number;  // Factory/supplier stock (unverified)
+  // Detailed warehouse inventory from inventory API (fallback/enrichment)
   inventory?: ProductInventory;
   variants: PricedVariant[];
   successfulVariants: number;

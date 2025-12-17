@@ -888,6 +888,26 @@ function mergeListV2Fields(productData: any, match: any, source: string): void {
   if (match.categoryId && !productData.categoryId) productData.categoryId = match.categoryId;
   if (match.listedNum && !productData.listedNum) productData.listedNum = match.listedNum;
   if (match.addMarkStatus !== undefined) productData.addMarkStatus = match.addMarkStatus;
+  
+  // IMPORTANT: Copy inventory fields from listV2 (these are the REAL stock values)
+  // warehouseInventoryNum = total inventory number
+  // totalVerifiedInventory = CJ warehouse stock (verified)
+  // totalUnVerifiedInventory = Factory/supplier stock (unverified)
+  if (match.warehouseInventoryNum !== undefined && match.warehouseInventoryNum !== null) {
+    productData.warehouseInventoryNum = Number(match.warehouseInventoryNum);
+    console.log(`[CJ Details] Got warehouseInventoryNum from listV2 (${source}): ${productData.warehouseInventoryNum}`);
+  }
+  if (match.totalVerifiedInventory !== undefined && match.totalVerifiedInventory !== null) {
+    productData.totalVerifiedInventory = Number(match.totalVerifiedInventory);
+  }
+  if (match.totalUnVerifiedInventory !== undefined && match.totalUnVerifiedInventory !== null) {
+    productData.totalUnVerifiedInventory = Number(match.totalUnVerifiedInventory);
+  }
+  // Also copy listedNum for popularity (override if we have a better value)
+  if (match.listedNum !== undefined && match.listedNum !== null && Number(match.listedNum) > 0) {
+    productData.listedNum = Number(match.listedNum);
+    console.log(`[CJ Details] Got listedNum from listV2 (${source}): ${productData.listedNum}`);
+  }
 }
 
 // Fetch full product details by PID - returns complete product with all images and variants

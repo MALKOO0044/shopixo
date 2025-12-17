@@ -54,11 +54,21 @@ function getPopularityLevel(listedNum: number): { label: string; level: number; 
 }
 
 export default function PreviewPageFour({ product }: PreviewPageFourProps) {
-  // Use real inventory data if available, fallback to old stock field
-  const realInventory = product.inventory;
-  const totalStock = realInventory?.totalAvailable ?? product.stock;
+  // Use stock from CJ listV2 API (warehouseInventoryNum)
+  // This is the primary source of inventory data from CJ
+  const totalStock = product.stock;
   const stockStatus = getStockStatus(totalStock);
   const popularity = getPopularityLevel(product.listedNum);
+  
+  // Inventory breakdown from CJ listV2 API
+  // totalVerifiedInventory = CJ warehouse stock (verified, ready to ship)
+  // totalUnVerifiedInventory = Factory/supplier stock (unverified, may need processing)
+  const cjWarehouseStock = product.totalVerifiedInventory ?? 0;
+  const factoryStock = product.totalUnVerifiedInventory ?? 0;
+  const hasInventoryBreakdown = cjWarehouseStock > 0 || factoryStock > 0;
+  
+  // Fallback to detailed warehouse data from inventory API if available
+  const detailedInventory = product.inventory;
 
   return (
     <div className="space-y-6">
@@ -80,42 +90,34 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
               <span className="font-semibold">{stockStatus.label}</span>
             </div>
             
-            {realInventory && (
-              <>
-                <div className="border-t border-gray-200 pt-3 mt-3">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500 flex items-center gap-1">
-                      <Warehouse className="h-4 w-4" /> CJ Warehouse:
-                    </span>
-                    <span className="font-semibold text-blue-600">{realInventory.totalCJ.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-sm mt-1">
-                    <span className="text-gray-500 flex items-center gap-1">
-                      <Factory className="h-4 w-4" /> Factory/Supplier:
-                    </span>
-                    <span className="font-semibold text-orange-600">{realInventory.totalFactory.toLocaleString()}</span>
-                  </div>
+            {hasInventoryBreakdown && (
+              <div className="border-t border-gray-200 pt-3 mt-3">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-500 flex items-center gap-1">
+                    <Warehouse className="h-4 w-4" /> CJ Warehouse (Verified):
+                  </span>
+                  <span className="font-semibold text-blue-600">{cjWarehouseStock.toLocaleString()}</span>
                 </div>
-                
-                {realInventory.warehouses && realInventory.warehouses.length > 0 && (
-                  <div className="border-t border-gray-200 pt-3 mt-3">
-                    <span className="text-xs text-gray-500 block mb-2">Stock by Warehouse:</span>
-                    <div className="space-y-1">
-                      {realInventory.warehouses.map((wh, idx) => (
-                        <div key={idx} className="flex justify-between items-center text-xs">
-                          <span className="text-gray-600">{wh.areaName} ({wh.countryCode})</span>
-                          <span className="font-medium">{wh.totalInventory.toLocaleString()}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
+                <div className="flex justify-between items-center text-sm mt-1">
+                  <span className="text-gray-500 flex items-center gap-1">
+                    <Factory className="h-4 w-4" /> Factory/Supplier:
+                  </span>
+                  <span className="font-semibold text-orange-600">{factoryStock.toLocaleString()}</span>
+                </div>
+              </div>
             )}
             
-            {!realInventory && product.stock === 0 && (
-              <div className="text-xs text-gray-400 italic mt-2">
-                Inventory data unavailable from CJ API
+            {detailedInventory && detailedInventory.warehouses && detailedInventory.warehouses.length > 0 && (
+              <div className="border-t border-gray-200 pt-3 mt-3">
+                <span className="text-xs text-gray-500 block mb-2">Stock by Warehouse:</span>
+                <div className="space-y-1">
+                  {detailedInventory.warehouses.map((wh, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-xs">
+                      <span className="text-gray-600">{wh.areaName} ({wh.countryCode})</span>
+                      <span className="font-medium">{wh.totalInventory.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

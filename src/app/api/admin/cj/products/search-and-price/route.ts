@@ -46,6 +46,9 @@ type PricedProduct = {
   avgPriceSAR: number;
   stock: number;
   listedNum: number;
+  // Inventory breakdown from CJ listV2 API
+  totalVerifiedInventory?: number;    // CJ warehouse stock (verified)
+  totalUnVerifiedInventory?: number;  // Factory/supplier stock (unverified)
   variants: PricedVariant[];
   successfulVariants: number;
   totalVariants: number;
@@ -526,83 +529,76 @@ export async function GET(req: Request) {
       // Get full product details for all images and additional info
       const fullDetails = productDetailsMap.get(pid);
       
-      // DEBUG: Log all stock/listedNum related fields from both sources
+      // Extract stock and listedNum from fullDetails (listV2 data) which has the correct fields
+      // According to CJ API docs:
+      // - warehouseInventoryNum = total inventory number (STOCK)
+      // - totalVerifiedInventory = CJ warehouse stock
+      // - totalUnVerifiedInventory = Factory/supplier stock
+      // - listedNum = number of times product is listed (popularity)
+      
       console.log(`[Search&Price] Product ${pid} - Extracting stock/listedNum:`);
-      console.log(`  FROM item (list API):`);
-      console.log(`    - stock: ${item.stock}`);
-      console.log(`    - inventory: ${item.inventory}`);
-      console.log(`    - inventoryCount: ${item.inventoryCount}`);
-      console.log(`    - stockNum: ${item.stockNum}`);
-      console.log(`    - listedNum: ${item.listedNum}`);
-      console.log(`    - listNum: ${item.listNum}`);
-      console.log(`    - listingNum: ${item.listingNum}`);
-      console.log(`    - salesCount: ${item.salesCount}`);
-      console.log(`    - sellCount: ${item.sellCount}`);
       if (fullDetails) {
-        console.log(`  FROM fullDetails (query API):`);
-        console.log(`    - stock: ${fullDetails.stock}`);
-        console.log(`    - inventory: ${fullDetails.inventory}`);
-        console.log(`    - inventoryCount: ${fullDetails.inventoryCount}`);
-        console.log(`    - stockNum: ${fullDetails.stockNum}`);
+        console.log(`  FROM fullDetails (listV2 merged):`);
+        console.log(`    - warehouseInventoryNum: ${fullDetails.warehouseInventoryNum}`);
+        console.log(`    - totalVerifiedInventory: ${fullDetails.totalVerifiedInventory}`);
+        console.log(`    - totalUnVerifiedInventory: ${fullDetails.totalUnVerifiedInventory}`);
         console.log(`    - listedNum: ${fullDetails.listedNum}`);
-        console.log(`    - listNum: ${fullDetails.listNum}`);
-        console.log(`    - listingNum: ${fullDetails.listingNum}`);
-        console.log(`    - salesCount: ${fullDetails.salesCount}`);
-        console.log(`    - sellCount: ${fullDetails.sellCount}`);
       } else {
         console.log(`  fullDetails: NOT AVAILABLE`);
       }
+      console.log(`  FROM item (list API):`);
+      console.log(`    - stock: ${item.stock}, inventory: ${item.inventory}`);
+      console.log(`    - listedNum: ${item.listedNum}`);
       
-      // Extract stock - check multiple sources and field names
-      // Priority: fullDetails > item, and check multiple field names
+      // Extract stock - priority: warehouseInventoryNum from listV2 > other fields
       const stockCandidates = [
+        fullDetails?.warehouseInventoryNum,        // listV2 total inventory (BEST)
+        fullDetails?.totalVerifiedInventory,       // CJ warehouse stock
+        fullDetails?.totalUnVerifiedInventory,     // Factory stock
         fullDetails?.stock,
         fullDetails?.inventory,
-        fullDetails?.inventoryCount,
-        fullDetails?.stockNum,
+        item.warehouseInventoryNum,
         item.stock,
         item.inventory,
-        item.inventoryCount,
-        item.stockNum,
       ];
       let stock = 0;
-      for (const val of stockCandidates) {
+      let stockSource = 'none';
+      for (let i = 0; i < stockCandidates.length; i++) {
+        const val = stockCandidates[i];
         if (val !== undefined && val !== null && val !== '') {
           const numVal = Number(val);
           if (Number.isFinite(numVal) && numVal > 0) {
             stock = numVal;
-            console.log(`  => Final stock: ${stock}`);
+            stockSource = ['warehouseInventoryNum', 'totalVerifiedInventory', 'totalUnVerifiedInventory', 'fullDetails.stock', 'fullDetails.inventory', 'item.warehouseInventoryNum', 'item.stock', 'item.inventory'][i] || 'unknown';
             break;
           }
         }
       }
+      console.log(`  => Final stock: ${stock} (from ${stockSource})`);
       
-      // Extract listedNum - check multiple sources and field names
+      // Extract verified/unverified inventory for warehouse breakdown
+      const totalVerifiedInventory = Number(fullDetails?.totalVerifiedInventory || 0);
+      const totalUnVerifiedInventory = Number(fullDetails?.totalUnVerifiedInventory || 0);
+      
+      // Extract listedNum - priority: listV2 listedNum > other fields
       const listedNumCandidates = [
-        fullDetails?.listedNum,
-        fullDetails?.listNum,
-        fullDetails?.listingNum,
-        fullDetails?.salesCount,
-        fullDetails?.sellCount,
-        fullDetails?.storeCount,
+        fullDetails?.listedNum,                    // listV2 popularity (BEST)
         item.listedNum,
-        item.listNum,
-        item.listingNum,
-        item.salesCount,
-        item.sellCount,
-        item.storeCount,
       ];
       let listedNum = 0;
-      for (const val of listedNumCandidates) {
+      let listedNumSource = 'none';
+      for (let i = 0; i < listedNumCandidates.length; i++) {
+        const val = listedNumCandidates[i];
         if (val !== undefined && val !== null && val !== '') {
           const numVal = Number(val);
           if (Number.isFinite(numVal) && numVal > 0) {
             listedNum = numVal;
-            console.log(`  => Final listedNum: ${listedNum}`);
+            listedNumSource = ['fullDetails.listedNum', 'item.listedNum'][i] || 'unknown';
             break;
           }
         }
       }
+      console.log(`  => Final listedNum: ${listedNum} (from ${listedNumSource})`)
       
       let images = extractAllImages(fullDetails || item);
       console.log(`[Search&Price] Product ${pid}: ${images.length} images from details`);
@@ -1739,6 +1735,9 @@ export async function GET(req: Request) {
         avgPriceSAR,
         stock,
         listedNum,
+        // Inventory breakdown from CJ listV2 API
+        totalVerifiedInventory: totalVerifiedInventory > 0 ? totalVerifiedInventory : undefined,
+        totalUnVerifiedInventory: totalUnVerifiedInventory > 0 ? totalUnVerifiedInventory : undefined,
         variants: pricedVariants,
         successfulVariants,
         totalVariants: pricedVariants.length,
