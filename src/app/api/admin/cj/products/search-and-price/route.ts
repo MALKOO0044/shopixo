@@ -1588,6 +1588,16 @@ export async function GET(req: Request) {
               totalStock: allStocks.reduce((sum, s) => sum + s.totalStock, 0),
             };
           }
+          // FALLBACK: For single-variant products, use product-level inventory if per-variant lookup failed
+          // This ensures we don't show 0/0 when product-level data is available
+          if (!variantStock && realInventory) {
+            console.log(`[Search&Price] Product ${pid}: Using product-level inventory for single variant`);
+            variantStock = {
+              cjStock: realInventory.totalCJ,
+              factoryStock: realInventory.totalFactory,
+              totalStock: realInventory.totalAvailable,
+            };
+          }
           
           pricedVariants.push({
             variantId: pid,
