@@ -86,16 +86,21 @@ async function fetchCjProductPage(
   categoryId: string | null,
   pageNum: number
 ): Promise<{ list: any[]; total: number }> {
-  // Use the original product/list endpoint which is stable and reliable
+  // Use /product/listV2 endpoint which includes warehouseInventoryNum and listedNum
+  // The /product/list endpoint does NOT return inventory/popularity data
   const params = new URLSearchParams();
-  params.set('pageNum', String(pageNum));
+  params.set('page', String(pageNum));
+  params.set('size', '50'); // listV2 uses 'size' not 'pageSize'
+  
+  // Add features to get additional useful data
+  params.set('features', 'enable_description,enable_category');
   
   if (categoryId && categoryId !== 'all' && !categoryId.startsWith('first-') && !categoryId.startsWith('second-')) {
     params.set('categoryId', categoryId);
   }
   
-  const url = `${base}/product/list?${params}`;
-  console.log(`[Search&Price] Fetching: ${url}`);
+  const url = `${base}/product/listV2?${params}`;
+  console.log(`[Search&Price] Fetching listV2: ${url}`);
   
   try {
     const res = await fetchJson<any>(url, {
@@ -107,39 +112,44 @@ async function fetchCjProductPage(
       timeoutMs: 30000,
     });
     
-    const list = res?.data?.list || [];
-    const total = res?.data?.total || 0;
-    console.log(`[Search&Price] Page ${pageNum} returned ${list.length} items (total: ${total})`);
+    // listV2 response structure: data.list or data.products or data directly
+    const data = res?.data;
+    let list: any[] = [];
+    let total = 0;
+    
+    if (Array.isArray(data)) {
+      list = data;
+      total = data.length;
+    } else if (data?.list) {
+      list = data.list;
+      total = data.total || data.count || data.list.length;
+    } else if (data?.products) {
+      list = data.products;
+      total = data.total || data.count || data.products.length;
+    }
+    
+    console.log(`[Search&Price] listV2 page ${pageNum} returned ${list.length} items (total: ${total})`);
     
     if (list.length > 0) {
       const sample = list[0];
-      // Log ALL fields to understand CJ response structure
-      console.log(`[Search&Price] Sample product ALL fields: ${Object.keys(sample).join(', ')}`);
-      // Log specific stock/inventory fields
-      console.log(`[Search&Price] Sample product STOCK fields:`);
+      // Log ALL fields to understand CJ listV2 response structure
+      console.log(`[Search&Price] listV2 Sample ALL fields: ${Object.keys(sample).join(', ')}`);
+      // Log specific stock/inventory fields from listV2
+      console.log(`[Search&Price] listV2 Sample STOCK fields:`);
+      console.log(`  - warehouseInventoryNum: ${sample.warehouseInventoryNum}`);
+      console.log(`  - totalVerifiedInventory: ${sample.totalVerifiedInventory}`);
+      console.log(`  - totalUnVerifiedInventory: ${sample.totalUnVerifiedInventory}`);
       console.log(`  - stock: ${sample.stock}`);
-      console.log(`  - inventory: ${sample.inventory}`);
-      console.log(`  - inventoryCount: ${sample.inventoryCount}`);
-      console.log(`  - stockCount: ${sample.stockCount}`);
-      console.log(`  - quantity: ${sample.quantity}`);
-      console.log(`  - availableStock: ${sample.availableStock}`);
-      // Log specific listedNum/popularity fields
-      console.log(`[Search&Price] Sample product POPULARITY fields:`);
+      // Log specific listedNum/popularity fields from listV2
+      console.log(`[Search&Price] listV2 Sample POPULARITY fields:`);
       console.log(`  - listedNum: ${sample.listedNum}`);
-      console.log(`  - listNum: ${sample.listNum}`);
-      console.log(`  - listingNum: ${sample.listingNum}`);
-      console.log(`  - listed_num: ${sample.listed_num}`);
-      console.log(`  - salesCount: ${sample.salesCount}`);
-      console.log(`  - sellCount: ${sample.sellCount}`);
-      console.log(`  - orderCount: ${sample.orderCount}`);
-      console.log(`  - storeCount: ${sample.storeCount}`);
       // Log the full sample for first product (limit to 2000 chars)
-      console.log(`[Search&Price] Sample product FULL JSON: ${JSON.stringify(sample).slice(0, 2000)}`);
+      console.log(`[Search&Price] listV2 Sample FULL JSON: ${JSON.stringify(sample).slice(0, 2000)}`);
     }
     
     return { list, total };
   } catch (e: any) {
-    console.error(`[Search&Price] Fetch error:`, e?.message);
+    console.error(`[Search&Price] listV2 Fetch error:`, e?.message);
     return { list: [], total: 0 };
   }
 }
@@ -428,7 +438,8 @@ export async function GET(req: Request) {
             continue;
           }
           
-          const stockRaw = item.stock ?? item.inventory;
+          // listV2 uses warehouseInventoryNum for stock (not stock field)
+          const stockRaw = item.warehouseInventoryNum ?? item.stock ?? item.inventory;
           const hasStockInfo = stockRaw !== undefined && stockRaw !== null;
           const stock = hasStockInfo ? Number(stockRaw) : Infinity;
           if (hasStockInfo && stock < minStock) {
@@ -436,6 +447,7 @@ export async function GET(req: Request) {
             continue;
           }
           
+          // listV2 provides listedNum directly
           const listedNum = Number(item.listedNum || 0);
           if (popularity === 'high' && listedNum < 1000) {
             totalFiltered.popularity++;
