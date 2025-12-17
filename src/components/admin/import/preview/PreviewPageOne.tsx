@@ -274,26 +274,40 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
           <PopularityDisplay listedNum={product.listedNum} />
         </div>
 
-        {/* Price */}
+        {/* Price - Single Final Sell Price */}
         <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-200 p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-4">
             <DollarSign className="h-5 w-5 text-green-600" />
             <span className="text-gray-600 font-medium">Price</span>
           </div>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600">Price Range:</span>
-              <span className="text-2xl font-bold text-green-700">
-                ${product.minPriceSAR.toFixed(0)} - ${product.maxPriceSAR.toFixed(0)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center border-t border-green-200 pt-3">
-              <span className="text-gray-500">Average Price:</span>
-              <span className="text-xl font-semibold text-green-600">
-                ${product.avgPriceSAR.toFixed(0)}
-              </span>
-            </div>
-          </div>
+          {(() => {
+            // Calculate final sell price from first available variant (highest shipping)
+            const availableVariants = product.variants.filter(v => v.shippingAvailable);
+            const firstVariant = availableVariants[0];
+            
+            if (firstVariant) {
+              const productCostUSD = firstVariant.variantPriceUSD || 0;
+              const shippingCostUSD = firstVariant.shippingPriceUSD || 0;
+              const totalCostUSD = productCostUSD + shippingCostUSD;
+              const profitMargin = 0.08;
+              const sellPriceUSD = totalCostUSD / (1 - profitMargin);
+              
+              return (
+                <div className="text-center py-2">
+                  <span className="text-4xl font-bold text-green-700">
+                    ${sellPriceUSD.toFixed(2)}
+                  </span>
+                  <p className="text-sm text-gray-500 mt-2">
+                    Final price (includes product, shipping & 8% margin)
+                  </p>
+                </div>
+              );
+            } else {
+              return (
+                <p className="text-gray-500 italic text-center">Price unavailable</p>
+              );
+            }
+          })()}
         </div>
 
       </div>

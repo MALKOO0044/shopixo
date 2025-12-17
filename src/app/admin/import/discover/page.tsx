@@ -737,10 +737,19 @@ export default function ProductDiscoveryPage() {
                       <div className="flex justify-between items-center">
                         <span className="text-xs text-gray-600">Sell Price</span>
                         <span className="font-bold text-green-700 text-lg">
-                          {product.minPriceSAR === product.maxPriceSAR
-                            ? `$${product.avgPriceSAR.toFixed(0)}`
-                            : `$${product.minPriceSAR.toFixed(0)} - $${product.maxPriceSAR.toFixed(0)}`
-                          }
+                          {(() => {
+                            // Calculate final sell price from first available variant
+                            const availableVariants = product.variants.filter((v: any) => v.shippingAvailable);
+                            const firstVariant = availableVariants[0];
+                            if (firstVariant) {
+                              const productCostUSD = firstVariant.variantPriceUSD || 0;
+                              const shippingCostUSD = firstVariant.shippingPriceUSD || 0;
+                              const totalCostUSD = productCostUSD + shippingCostUSD;
+                              const sellPriceUSD = totalCostUSD / (1 - 0.08);
+                              return `$${sellPriceUSD.toFixed(2)}`;
+                            }
+                            return "N/A";
+                          })()}
                         </span>
                       </div>
                     </div>
