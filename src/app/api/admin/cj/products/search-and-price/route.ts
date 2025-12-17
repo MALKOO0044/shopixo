@@ -86,21 +86,16 @@ async function fetchCjProductPage(
   categoryId: string | null,
   pageNum: number
 ): Promise<{ list: any[]; total: number }> {
-  // Use /product/listV2 endpoint which includes warehouseInventoryNum and listedNum
-  // The /product/list endpoint does NOT return inventory/popularity data
+  // Use /product/list for category filtering (stable and reliable)
   const params = new URLSearchParams();
-  params.set('page', String(pageNum));
-  params.set('size', '50'); // listV2 uses 'size' not 'pageSize'
-  
-  // Add features to get additional useful data
-  params.set('features', 'enable_description,enable_category');
+  params.set('pageNum', String(pageNum));
   
   if (categoryId && categoryId !== 'all' && !categoryId.startsWith('first-') && !categoryId.startsWith('second-')) {
     params.set('categoryId', categoryId);
   }
   
-  const url = `${base}/product/listV2?${params}`;
-  console.log(`[Search&Price] Fetching listV2: ${url}`);
+  const url = `${base}/product/list?${params}`;
+  console.log(`[Search&Price] Fetching product/list: ${url}`);
   
   try {
     const res = await fetchJson<any>(url, {
@@ -112,45 +107,59 @@ async function fetchCjProductPage(
       timeoutMs: 30000,
     });
     
-    // listV2 response structure: data.list or data.products or data directly
-    const data = res?.data;
-    let list: any[] = [];
-    let total = 0;
-    
-    if (Array.isArray(data)) {
-      list = data;
-      total = data.length;
-    } else if (data?.list) {
-      list = data.list;
-      total = data.total || data.count || data.list.length;
-    } else if (data?.products) {
-      list = data.products;
-      total = data.total || data.count || data.products.length;
-    }
-    
-    console.log(`[Search&Price] listV2 page ${pageNum} returned ${list.length} items (total: ${total})`);
-    
-    if (list.length > 0) {
-      const sample = list[0];
-      // Log ALL fields to understand CJ listV2 response structure
-      console.log(`[Search&Price] listV2 Sample ALL fields: ${Object.keys(sample).join(', ')}`);
-      // Log specific stock/inventory fields from listV2
-      console.log(`[Search&Price] listV2 Sample STOCK fields:`);
-      console.log(`  - warehouseInventoryNum: ${sample.warehouseInventoryNum}`);
-      console.log(`  - totalVerifiedInventory: ${sample.totalVerifiedInventory}`);
-      console.log(`  - totalUnVerifiedInventory: ${sample.totalUnVerifiedInventory}`);
-      console.log(`  - stock: ${sample.stock}`);
-      // Log specific listedNum/popularity fields from listV2
-      console.log(`[Search&Price] listV2 Sample POPULARITY fields:`);
-      console.log(`  - listedNum: ${sample.listedNum}`);
-      // Log the full sample for first product (limit to 2000 chars)
-      console.log(`[Search&Price] listV2 Sample FULL JSON: ${JSON.stringify(sample).slice(0, 2000)}`);
-    }
+    const list = res?.data?.list || [];
+    const total = res?.data?.total || 0;
+    console.log(`[Search&Price] Page ${pageNum} returned ${list.length} items (total: ${total})`);
     
     return { list, total };
   } catch (e: any) {
-    console.error(`[Search&Price] listV2 Fetch error:`, e?.message);
+    console.error(`[Search&Price] Fetch error:`, e?.message);
     return { list: [], total: 0 };
+  }
+}
+
+// Fetch inventory data from listV2 by PID keyword search
+async function enrichWithListV2Inventory(
+  token: string,
+  base: string, 
+  pid: string
+): Promise<{ warehouseInventoryNum?: number; listedNum?: number; totalVerifiedInventory?: number; totalUnVerifiedInventory?: number } | null> {
+  try {
+    const url = `${base}/product/listV2?keyWord=${encodeURIComponent(pid)}&page=1&size=5&features=enable_description`;
+    const res = await fetchJson<any>(url, {
+      headers: {
+        'CJ-Access-Token': token,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+      timeoutMs: 10000,
+    });
+    
+    // Extract product list from response
+    const data = res?.data;
+    let productList: any[] = [];
+    if (Array.isArray(data)) {
+      productList = data;
+    } else if (data?.list) {
+      productList = data.list;
+    } else if (data?.products) {
+      productList = data.products;
+    }
+    
+    // Find matching product by PID
+    const match = productList.find((p: any) => p.id === pid || p.pid === pid);
+    if (match) {
+      return {
+        warehouseInventoryNum: Number(match.warehouseInventoryNum || 0),
+        listedNum: Number(match.listedNum || 0),
+        totalVerifiedInventory: Number(match.totalVerifiedInventory || 0),
+        totalUnVerifiedInventory: Number(match.totalUnVerifiedInventory || 0),
+      };
+    }
+    return null;
+  } catch (e: any) {
+    console.log(`[Search&Price] listV2 enrichment failed for ${pid}:`, e?.message);
+    return null;
   }
 }
 
@@ -438,39 +447,9 @@ export async function GET(req: Request) {
             continue;
           }
           
-          // listV2 uses warehouseInventoryNum for stock (not stock field)
-          const stockRaw = item.warehouseInventoryNum ?? item.stock ?? item.inventory;
-          const hasStockInfo = stockRaw !== undefined && stockRaw !== null;
-          const stock = hasStockInfo ? Number(stockRaw) : Infinity;
-          if (hasStockInfo && stock < minStock) {
-            totalFiltered.stock++;
-            continue;
-          }
-          
-          // listV2 provides listedNum directly
-          const listedNum = Number(item.listedNum || 0);
-          if (popularity === 'high' && listedNum < 1000) {
-            totalFiltered.popularity++;
-            continue;
-          }
-          if (popularity === 'medium' && (listedNum < 100 || listedNum >= 1000)) {
-            totalFiltered.popularity++;
-            continue;
-          }
-          if (popularity === 'low' && listedNum >= 100) {
-            totalFiltered.popularity++;
-            continue;
-          }
-          
-          // Filter by estimated rating (based on listedNum)
-          if (minRating !== 'any') {
-            const estimatedRating = calculateEstimatedRating(listedNum);
-            const requiredRating = parseFloat(minRating);
-            if (estimatedRating < requiredRating) {
-              totalFiltered.rating++;
-              continue;
-            }
-          }
+          // NOTE: /product/list doesn't return stock/listedNum data
+          // We'll fetch inventory from listV2 during processing phase
+          // Skip early filtering on stock/popularity here - do it after enrichment
           
           candidateProducts.push(item);
         }
@@ -541,76 +520,46 @@ export async function GET(req: Request) {
       // Get full product details for all images and additional info
       const fullDetails = productDetailsMap.get(pid);
       
-      // Extract stock and listedNum from fullDetails (listV2 data) which has the correct fields
+      // CRITICAL: Fetch inventory data directly from listV2 API
+      // The /product/list endpoint does NOT return warehouseInventoryNum or listedNum
+      // We must fetch it separately from /product/listV2 using PID keyword search
+      const inventoryData = await enrichWithListV2Inventory(token, base, pid);
+      
+      // Extract stock and listedNum from inventory data (from listV2)
       // According to CJ API docs:
       // - warehouseInventoryNum = total inventory number (STOCK)
       // - totalVerifiedInventory = CJ warehouse stock
       // - totalUnVerifiedInventory = Factory/supplier stock
       // - listedNum = number of times product is listed (popularity)
       
-      console.log(`[Search&Price] Product ${pid} - Extracting stock/listedNum:`);
-      if (fullDetails) {
-        console.log(`  FROM fullDetails (listV2 merged):`);
-        console.log(`    - warehouseInventoryNum: ${fullDetails.warehouseInventoryNum}`);
-        console.log(`    - totalVerifiedInventory: ${fullDetails.totalVerifiedInventory}`);
-        console.log(`    - totalUnVerifiedInventory: ${fullDetails.totalUnVerifiedInventory}`);
-        console.log(`    - listedNum: ${fullDetails.listedNum}`);
+      console.log(`[Search&Price] Product ${pid} - Inventory from listV2:`);
+      if (inventoryData) {
+        console.log(`  - warehouseInventoryNum: ${inventoryData.warehouseInventoryNum}`);
+        console.log(`  - listedNum: ${inventoryData.listedNum}`);
+        console.log(`  - totalVerifiedInventory: ${inventoryData.totalVerifiedInventory}`);
+        console.log(`  - totalUnVerifiedInventory: ${inventoryData.totalUnVerifiedInventory}`);
       } else {
-        console.log(`  fullDetails: NOT AVAILABLE`);
+        console.log(`  - inventoryData: NOT FOUND`);
       }
-      console.log(`  FROM item (list API):`);
-      console.log(`    - stock: ${item.stock}, inventory: ${item.inventory}`);
-      console.log(`    - listedNum: ${item.listedNum}`);
       
-      // Extract stock - priority: warehouseInventoryNum from listV2 > other fields
-      const stockCandidates = [
-        fullDetails?.warehouseInventoryNum,        // listV2 total inventory (BEST)
-        fullDetails?.totalVerifiedInventory,       // CJ warehouse stock
-        fullDetails?.totalUnVerifiedInventory,     // Factory stock
-        fullDetails?.stock,
-        fullDetails?.inventory,
-        item.warehouseInventoryNum,
-        item.stock,
-        item.inventory,
-      ];
-      let stock = 0;
-      let stockSource = 'none';
-      for (let i = 0; i < stockCandidates.length; i++) {
-        const val = stockCandidates[i];
-        if (val !== undefined && val !== null && val !== '') {
-          const numVal = Number(val);
-          if (Number.isFinite(numVal) && numVal > 0) {
-            stock = numVal;
-            stockSource = ['warehouseInventoryNum', 'totalVerifiedInventory', 'totalUnVerifiedInventory', 'fullDetails.stock', 'fullDetails.inventory', 'item.warehouseInventoryNum', 'item.stock', 'item.inventory'][i] || 'unknown';
-            break;
-          }
-        }
-      }
-      console.log(`  => Final stock: ${stock} (from ${stockSource})`);
+      // Extract stock - use inventoryData from listV2 enrichment as PRIMARY source
+      const stock = inventoryData?.warehouseInventoryNum ?? 
+                   fullDetails?.warehouseInventoryNum ?? 
+                   fullDetails?.stock ?? 
+                   Number(item.stock || 0);
       
       // Extract verified/unverified inventory for warehouse breakdown
-      const totalVerifiedInventory = Number(fullDetails?.totalVerifiedInventory || 0);
-      const totalUnVerifiedInventory = Number(fullDetails?.totalUnVerifiedInventory || 0);
+      const totalVerifiedInventory = inventoryData?.totalVerifiedInventory ?? 
+                                     Number(fullDetails?.totalVerifiedInventory || 0);
+      const totalUnVerifiedInventory = inventoryData?.totalUnVerifiedInventory ?? 
+                                       Number(fullDetails?.totalUnVerifiedInventory || 0);
       
-      // Extract listedNum - priority: listV2 listedNum > other fields
-      const listedNumCandidates = [
-        fullDetails?.listedNum,                    // listV2 popularity (BEST)
-        item.listedNum,
-      ];
-      let listedNum = 0;
-      let listedNumSource = 'none';
-      for (let i = 0; i < listedNumCandidates.length; i++) {
-        const val = listedNumCandidates[i];
-        if (val !== undefined && val !== null && val !== '') {
-          const numVal = Number(val);
-          if (Number.isFinite(numVal) && numVal > 0) {
-            listedNum = numVal;
-            listedNumSource = ['fullDetails.listedNum', 'item.listedNum'][i] || 'unknown';
-            break;
-          }
-        }
-      }
-      console.log(`  => Final listedNum: ${listedNum} (from ${listedNumSource})`)
+      // Extract listedNum - use inventoryData from listV2 enrichment as PRIMARY source
+      const listedNum = inventoryData?.listedNum ?? 
+                       fullDetails?.listedNum ?? 
+                       Number(item.listedNum || 0);
+      
+      console.log(`  => Final: stock=${stock}, listedNum=${listedNum}, CJ=${totalVerifiedInventory}, Factory=${totalUnVerifiedInventory}`);
       
       let images = extractAllImages(fullDetails || item);
       console.log(`[Search&Price] Product ${pid}: ${images.length} images from details`);
