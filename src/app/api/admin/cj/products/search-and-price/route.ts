@@ -36,6 +36,22 @@ type PricedVariant = {
   allShippingOptions?: ShippingOption[];
 };
 
+type WarehouseStock = {
+  areaId: number;
+  areaName: string;
+  countryCode: string;
+  totalInventory: number;
+  cjInventory: number;
+  factoryInventory: number;
+};
+
+type ProductInventory = {
+  totalCJ: number;
+  totalFactory: number;
+  totalAvailable: number;
+  warehouses: WarehouseStock[];
+};
+
 type PricedProduct = {
   pid: string;
   cjSku: string;
@@ -46,9 +62,11 @@ type PricedProduct = {
   avgPriceSAR: number;
   stock: number;
   listedNum: number;
-  // Inventory breakdown from CJ listV2 API
+  // Inventory breakdown from CJ's dedicated inventory API
   totalVerifiedInventory?: number;    // CJ warehouse stock (verified)
   totalUnVerifiedInventory?: number;  // Factory/supplier stock (unverified)
+  // Full warehouse inventory object for detailed display
+  inventory?: ProductInventory;
   variants: PricedVariant[];
   successfulVariants: number;
   totalVariants: number;
@@ -520,46 +538,41 @@ export async function GET(req: Request) {
       // Get full product details for all images and additional info
       const fullDetails = productDetailsMap.get(pid);
       
-      // CRITICAL: Fetch inventory data directly from listV2 API
-      // The /product/list endpoint does NOT return warehouseInventoryNum or listedNum
-      // We must fetch it separately from /product/listV2 using PID keyword search
-      const inventoryData = await enrichWithListV2Inventory(token, base, pid);
+      // CRITICAL: Fetch REAL inventory data from CJ's dedicated inventory API
+      // This is the ONLY reliable way to get per-warehouse stock breakdown
+      // GET /product/stock/getInventoryByPid returns: inventories[].{areaId, areaEn, cjInventoryNum, factoryInventoryNum}
+      let realInventory: { 
+        totalCJ: number; 
+        totalFactory: number; 
+        totalAvailable: number; 
+        warehouses: Array<{ areaId: number; areaName: string; countryCode: string; totalInventory: number; cjInventory: number; factoryInventory: number }>;
+      } | null = null;
       
-      // Extract stock and listedNum from inventory data (from listV2)
-      // According to CJ API docs:
-      // - warehouseInventoryNum = total inventory number (STOCK)
-      // - totalVerifiedInventory = CJ warehouse stock
-      // - totalUnVerifiedInventory = Factory/supplier stock
-      // - listedNum = number of times product is listed (popularity)
-      
-      console.log(`[Search&Price] Product ${pid} - Inventory from listV2:`);
-      if (inventoryData) {
-        console.log(`  - warehouseInventoryNum: ${inventoryData.warehouseInventoryNum}`);
-        console.log(`  - listedNum: ${inventoryData.listedNum}`);
-        console.log(`  - totalVerifiedInventory: ${inventoryData.totalVerifiedInventory}`);
-        console.log(`  - totalUnVerifiedInventory: ${inventoryData.totalUnVerifiedInventory}`);
-      } else {
-        console.log(`  - inventoryData: NOT FOUND`);
+      try {
+        realInventory = await getInventoryByPid(pid);
+        if (realInventory) {
+          console.log(`[Search&Price] Product ${pid} - Inventory from getInventoryByPid:`);
+          console.log(`  - Total: ${realInventory.totalAvailable} (CJ: ${realInventory.totalCJ}, Factory: ${realInventory.totalFactory})`);
+          console.log(`  - Warehouses: ${realInventory.warehouses.length}`);
+          for (const wh of realInventory.warehouses) {
+            console.log(`    - ${wh.areaName}: CJ=${wh.cjInventory}, Factory=${wh.factoryInventory}, Total=${wh.totalInventory}`);
+          }
+        } else {
+          console.log(`[Search&Price] Product ${pid} - No inventory data returned from getInventoryByPid`);
+        }
+      } catch (e: any) {
+        console.log(`[Search&Price] Product ${pid} - Error fetching inventory: ${e?.message}`);
       }
       
-      // Extract stock - use inventoryData from listV2 enrichment as PRIMARY source
-      const stock = inventoryData?.warehouseInventoryNum ?? 
-                   fullDetails?.warehouseInventoryNum ?? 
-                   fullDetails?.stock ?? 
-                   Number(item.stock || 0);
+      // Use REAL inventory data from dedicated API (most accurate)
+      const stock = realInventory?.totalAvailable ?? Number(item.stock || 0);
+      const totalVerifiedInventory = realInventory?.totalCJ ?? 0;
+      const totalUnVerifiedInventory = realInventory?.totalFactory ?? 0;
       
-      // Extract verified/unverified inventory for warehouse breakdown
-      const totalVerifiedInventory = inventoryData?.totalVerifiedInventory ?? 
-                                     Number(fullDetails?.totalVerifiedInventory || 0);
-      const totalUnVerifiedInventory = inventoryData?.totalUnVerifiedInventory ?? 
-                                       Number(fullDetails?.totalUnVerifiedInventory || 0);
+      // listedNum comes from listV2 or fullDetails - not inventory API
+      const listedNum = fullDetails?.listedNum ?? Number(item.listedNum || 0);
       
-      // Extract listedNum - use inventoryData from listV2 enrichment as PRIMARY source
-      const listedNum = inventoryData?.listedNum ?? 
-                       fullDetails?.listedNum ?? 
-                       Number(item.listedNum || 0);
-      
-      console.log(`  => Final: stock=${stock}, listedNum=${listedNum}, CJ=${totalVerifiedInventory}, Factory=${totalUnVerifiedInventory}`);
+      console.log(`[Search&Price] Product ${pid} => Final: stock=${stock}, listedNum=${listedNum}, CJ=${totalVerifiedInventory}, Factory=${totalUnVerifiedInventory}`);
       
       let images = extractAllImages(fullDetails || item);
       console.log(`[Search&Price] Product ${pid}: ${images.length} images from details`);
@@ -1696,9 +1709,16 @@ export async function GET(req: Request) {
         avgPriceSAR,
         stock,
         listedNum,
-        // Inventory breakdown from CJ listV2 API
+        // Inventory breakdown from CJ's dedicated inventory API (most accurate)
         totalVerifiedInventory: totalVerifiedInventory > 0 ? totalVerifiedInventory : undefined,
         totalUnVerifiedInventory: totalUnVerifiedInventory > 0 ? totalUnVerifiedInventory : undefined,
+        // Full warehouse inventory object (for detailed display on Page 4)
+        inventory: realInventory ? {
+          totalCJ: realInventory.totalCJ,
+          totalFactory: realInventory.totalFactory,
+          totalAvailable: realInventory.totalAvailable,
+          warehouses: realInventory.warehouses,
+        } : undefined,
         variants: pricedVariants,
         successfulVariants,
         totalVariants: pricedVariants.length,
@@ -1750,48 +1770,8 @@ export async function GET(req: Request) {
       console.log(`[Search&Price] Filtered ${filteredBySizes} products not matching sizes: ${requestedSizes.join(',')}`);
     }
     
-    // Enrich products with real inventory data from CJ's dedicated inventory API
-    // Only fetch for products that will be returned, with time budget awareness
-    const inventoryStartTime = Date.now();
-    const remainingTimeBudget = 55000 - (inventoryStartTime - startTime);
-    
-    if (remainingTimeBudget > 5000 && filteredProducts.length > 0) {
-      console.log(`[Search&Price] Fetching inventory for ${filteredProducts.length} products (${remainingTimeBudget}ms budget remaining)`);
-      
-      let inventoryFetched = 0;
-      for (const product of filteredProducts) {
-        // Check time budget before each inventory fetch
-        if (Date.now() - startTime > 50000) {
-          console.log(`[Search&Price] Time budget exceeded, skipping remaining inventory fetches`);
-          break;
-        }
-        
-        try {
-          const inventoryData = await getInventoryByPid(product.pid);
-          if (inventoryData) {
-            // Update product with real inventory data
-            (product as any).inventory = {
-              totalCJ: inventoryData.totalCJ,
-              totalFactory: inventoryData.totalFactory,
-              totalAvailable: inventoryData.totalAvailable,
-              warehouses: inventoryData.warehouses,
-            };
-            // Update the stock field with the real total
-            (product as any).stock = inventoryData.totalAvailable;
-            inventoryFetched++;
-          }
-        } catch (e: any) {
-          console.log(`[Search&Price] Failed to fetch inventory for ${product.pid}: ${e?.message}`);
-        }
-        
-        // Rate limiting delay between inventory calls
-        await new Promise(r => setTimeout(r, 200));
-      }
-      
-      console.log(`[Search&Price] Enriched ${inventoryFetched}/${filteredProducts.length} products with inventory data`);
-    } else {
-      console.log(`[Search&Price] Skipping inventory fetch (budget: ${remainingTimeBudget}ms, products: ${filteredProducts.length})`);
-    }
+    // NOTE: Inventory is now fetched DURING product processing loop via getInventoryByPid
+    // This ensures each product has inventory data before being pushed to pricedProducts
     
     const duration = Date.now() - startTime;
     console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size) in ${duration}ms`);
