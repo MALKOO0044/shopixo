@@ -109,7 +109,29 @@ async function fetchCjProductPage(
     console.log(`[Search&Price] Page ${pageNum} returned ${list.length} items (total: ${total})`);
     
     if (list.length > 0) {
-      console.log(`[Search&Price] Sample product: pid=${list[0].pid}, name=${list[0].productNameEn?.slice(0, 50)}, price=${list[0].sellPrice}, listedNum=${list[0].listedNum}`);
+      const sample = list[0];
+      // Log ALL fields to understand CJ response structure
+      console.log(`[Search&Price] Sample product ALL fields: ${Object.keys(sample).join(', ')}`);
+      // Log specific stock/inventory fields
+      console.log(`[Search&Price] Sample product STOCK fields:`);
+      console.log(`  - stock: ${sample.stock}`);
+      console.log(`  - inventory: ${sample.inventory}`);
+      console.log(`  - inventoryCount: ${sample.inventoryCount}`);
+      console.log(`  - stockCount: ${sample.stockCount}`);
+      console.log(`  - quantity: ${sample.quantity}`);
+      console.log(`  - availableStock: ${sample.availableStock}`);
+      // Log specific listedNum/popularity fields
+      console.log(`[Search&Price] Sample product POPULARITY fields:`);
+      console.log(`  - listedNum: ${sample.listedNum}`);
+      console.log(`  - listNum: ${sample.listNum}`);
+      console.log(`  - listingNum: ${sample.listingNum}`);
+      console.log(`  - listed_num: ${sample.listed_num}`);
+      console.log(`  - salesCount: ${sample.salesCount}`);
+      console.log(`  - sellCount: ${sample.sellCount}`);
+      console.log(`  - orderCount: ${sample.orderCount}`);
+      console.log(`  - storeCount: ${sample.storeCount}`);
+      // Log the full sample for first product (limit to 2000 chars)
+      console.log(`[Search&Price] Sample product FULL JSON: ${JSON.stringify(sample).slice(0, 2000)}`);
     }
     
     return { list, total };
@@ -500,11 +522,88 @@ export async function GET(req: Request) {
       const pid = String(item.pid || item.productId || '');
       const cjSku = String(item.productSku || item.sku || `CJ-${pid}`);
       const name = String(item.productNameEn || item.name || item.productName || '');
-      const stock = Number(item.stock || item.inventory || 0);
-      const listedNum = Number(item.listedNum || 0);
       
       // Get full product details for all images and additional info
       const fullDetails = productDetailsMap.get(pid);
+      
+      // DEBUG: Log all stock/listedNum related fields from both sources
+      console.log(`[Search&Price] Product ${pid} - Extracting stock/listedNum:`);
+      console.log(`  FROM item (list API):`);
+      console.log(`    - stock: ${item.stock}`);
+      console.log(`    - inventory: ${item.inventory}`);
+      console.log(`    - inventoryCount: ${item.inventoryCount}`);
+      console.log(`    - stockNum: ${item.stockNum}`);
+      console.log(`    - listedNum: ${item.listedNum}`);
+      console.log(`    - listNum: ${item.listNum}`);
+      console.log(`    - listingNum: ${item.listingNum}`);
+      console.log(`    - salesCount: ${item.salesCount}`);
+      console.log(`    - sellCount: ${item.sellCount}`);
+      if (fullDetails) {
+        console.log(`  FROM fullDetails (query API):`);
+        console.log(`    - stock: ${fullDetails.stock}`);
+        console.log(`    - inventory: ${fullDetails.inventory}`);
+        console.log(`    - inventoryCount: ${fullDetails.inventoryCount}`);
+        console.log(`    - stockNum: ${fullDetails.stockNum}`);
+        console.log(`    - listedNum: ${fullDetails.listedNum}`);
+        console.log(`    - listNum: ${fullDetails.listNum}`);
+        console.log(`    - listingNum: ${fullDetails.listingNum}`);
+        console.log(`    - salesCount: ${fullDetails.salesCount}`);
+        console.log(`    - sellCount: ${fullDetails.sellCount}`);
+      } else {
+        console.log(`  fullDetails: NOT AVAILABLE`);
+      }
+      
+      // Extract stock - check multiple sources and field names
+      // Priority: fullDetails > item, and check multiple field names
+      const stockCandidates = [
+        fullDetails?.stock,
+        fullDetails?.inventory,
+        fullDetails?.inventoryCount,
+        fullDetails?.stockNum,
+        item.stock,
+        item.inventory,
+        item.inventoryCount,
+        item.stockNum,
+      ];
+      let stock = 0;
+      for (const val of stockCandidates) {
+        if (val !== undefined && val !== null && val !== '') {
+          const numVal = Number(val);
+          if (Number.isFinite(numVal) && numVal > 0) {
+            stock = numVal;
+            console.log(`  => Final stock: ${stock}`);
+            break;
+          }
+        }
+      }
+      
+      // Extract listedNum - check multiple sources and field names
+      const listedNumCandidates = [
+        fullDetails?.listedNum,
+        fullDetails?.listNum,
+        fullDetails?.listingNum,
+        fullDetails?.salesCount,
+        fullDetails?.sellCount,
+        fullDetails?.storeCount,
+        item.listedNum,
+        item.listNum,
+        item.listingNum,
+        item.salesCount,
+        item.sellCount,
+        item.storeCount,
+      ];
+      let listedNum = 0;
+      for (const val of listedNumCandidates) {
+        if (val !== undefined && val !== null && val !== '') {
+          const numVal = Number(val);
+          if (Number.isFinite(numVal) && numVal > 0) {
+            listedNum = numVal;
+            console.log(`  => Final listedNum: ${listedNum}`);
+            break;
+          }
+        }
+      }
+      
       let images = extractAllImages(fullDetails || item);
       console.log(`[Search&Price] Product ${pid}: ${images.length} images from details`);
       
