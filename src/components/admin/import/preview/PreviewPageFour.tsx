@@ -265,15 +265,16 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
                 </thead>
                 <tbody className="bg-white">
                   {variantsWithStock.map((v, idx) => {
-                    const displayName = v.variantName || 
-                      [v.color, v.size].filter(Boolean).join('-') || 
+                    // Match CJ's format: short variant name like "Black-L", "HA0127-XXL"
+                    const shortVariantName = [v.color, v.size].filter(Boolean).join('-') || 
+                      v.variantName || 
                       v.variantSku || 
                       `Variant ${idx + 1}`;
                     
                     return (
                       <tr key={idx} className="border-b border-blue-100 hover:bg-blue-50 transition-colors">
                         <td className="py-3 px-4">
-                          <div className="font-medium text-blue-800">{displayName}</div>
+                          <div className="font-medium text-blue-800">{shortVariantName}</div>
                           <span className="text-blue-400 text-xs">SKU: {v.variantSku}</span>
                         </td>
                         <td className="py-3 px-4 text-right font-medium text-gray-900">

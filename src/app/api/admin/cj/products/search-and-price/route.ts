@@ -1759,8 +1759,36 @@ export async function GET(req: Request) {
           const costSAR = usdToSar(variantPriceUSD);
           const variantName = String(variant.variantNameEn || variant.variantName || '').replace(/[\u4e00-\u9fff]/g, '').trim() || undefined;
           const variantImage = variant.variantImage || variant.whiteImage || variant.image || undefined;
-          const size = variant.size || variant.sizeNameEn || undefined;
-          const color = variant.color || variant.colorNameEn || undefined;
+          
+          // Extract color and size - first try explicit fields, then parse from variantKey
+          let size = variant.size || variant.sizeNameEn || undefined;
+          let color = variant.color || variant.colorNameEn || undefined;
+          const variantKeyRaw = String(variant.variantKey || variant.variantNameEn || variantName || '');
+          
+          // If color/size not explicitly provided, parse from variantKey (format: "Color-Size" or "Model-Size")
+          if ((!color || !size) && variantKeyRaw.includes('-')) {
+            const parts = variantKeyRaw.split('-');
+            if (parts.length >= 2) {
+              // Last part is usually size (L, XL, XXL, M, S, etc.)
+              const lastPart = parts[parts.length - 1].trim();
+              const firstPart = parts.slice(0, -1).join('-').trim();
+              
+              // Check if last part looks like a size
+              const sizePattern = /^(XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|6XL|One Size|Free Size|\d{2,3})$/i;
+              if (sizePattern.test(lastPart)) {
+                if (!size) size = lastPart;
+                if (!color) color = firstPart;
+              } else {
+                // Fallback: use whole variantKey as display name
+                if (!color) color = variantKeyRaw;
+              }
+            }
+          }
+          
+          // If still no values, use variantKey as display name
+          if (!color && !size && variantKeyRaw) {
+            color = variantKeyRaw;
+          }
           
           const totalCostSAR = costSAR + highest.shippingPriceSAR;
           const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
