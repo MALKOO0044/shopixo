@@ -70,6 +70,9 @@ type PricedProduct = {
   totalUnVerifiedInventory?: number;  // Factory/supplier stock (unverified)
   // Full warehouse inventory object for detailed display
   inventory?: ProductInventory;
+  // Inventory status: 'ok' = successfully fetched, 'error' = failed to fetch, 'partial' = some data missing
+  inventoryStatus?: 'ok' | 'error' | 'partial';
+  inventoryErrorMessage?: string;
   variants: PricedVariant[];
   successfulVariants: number;
   totalVariants: number;
