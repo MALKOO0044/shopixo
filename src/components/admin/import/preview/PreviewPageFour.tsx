@@ -66,11 +66,31 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
   const warehouses = detailedInventory?.warehouses || [];
   const hasWarehouses = warehouses.length > 0;
   
-  // Check if variants have per-variant stock data
-  const variantsWithStock = product.variants.filter(v => 
-    v.cjStock !== undefined || v.factoryStock !== undefined || v.stock !== undefined
-  );
+  // For single-variant products, use product-level inventory if variant stock is missing
+  const isSingleVariant = product.variants.length === 1;
+  
+  // Build variant list with accurate stock - filter out variants with 0 stock
+  const variantsWithStock = product.variants.map(v => {
+    // For single-variant products, use product-level inventory if variant-level is 0/undefined
+    let variantCjStock = v.cjStock;
+    let variantFactoryStock = v.factoryStock;
+    
+    if (isSingleVariant && (variantCjStock === undefined || variantCjStock === 0) && 
+        (variantFactoryStock === undefined || variantFactoryStock === 0)) {
+      variantCjStock = cjStock;
+      variantFactoryStock = factoryStock;
+    }
+    
+    return {
+      ...v,
+      cjStock: variantCjStock ?? 0,
+      factoryStock: variantFactoryStock ?? 0,
+      totalStock: (variantCjStock ?? 0) + (variantFactoryStock ?? 0),
+    };
+  }).filter(v => v.totalStock > 0); // Hide variants with 0 stock
+  
   const hasVariantStock = variantsWithStock.length > 0;
+  const availableVariantsCount = variantsWithStock.length;
   
   // Check for inventory fetch errors
   const inventoryHasError = product.inventoryStatus === 'error' || product.inventoryStatus === 'partial';
@@ -140,12 +160,12 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
             
             <div className="flex justify-between items-center">
               <span className="text-gray-600">Available Variants:</span>
-              <span className="font-semibold text-green-600">{product.successfulVariants}</span>
+              <span className="font-semibold text-green-600">{availableVariantsCount}</span>
             </div>
 
-            {product.totalVariants !== product.successfulVariants && (
+            {product.totalVariants !== availableVariantsCount && (
               <div className="text-sm text-amber-600 bg-amber-50 rounded-lg p-2">
-                {product.totalVariants - product.successfulVariants} variants unavailable for shipping
+                {product.totalVariants - availableVariantsCount} variants out of stock or unavailable
               </div>
             )}
           </div>
@@ -159,10 +179,10 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
             <h3 className="text-lg font-bold text-gray-900">Inventory by Warehouse</h3>
           </div>
           
-          <div className="overflow-x-auto">
+          <div className="max-h-60 overflow-y-auto overflow-x-auto border border-gray-100 rounded-lg">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
+              <thead className="sticky top-0 bg-white border-b border-gray-200">
+                <tr>
                   <th className="text-left py-2 px-3 font-semibold text-gray-700">Warehouse Location</th>
                   <th className="text-right py-2 px-3 font-semibold text-blue-600">
                     <span className="flex items-center justify-end gap-1">
@@ -196,15 +216,18 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
                   </tr>
                 ))}
               </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-gray-200 bg-gray-50">
-                  <td className="py-2 px-3 font-bold text-gray-900">Total</td>
-                  <td className="py-2 px-3 text-right font-bold text-blue-600">{cjStock.toLocaleString()}</td>
-                  <td className="py-2 px-3 text-right font-bold text-orange-600">{factoryStock.toLocaleString()}</td>
-                  <td className="py-2 px-3 text-right font-bold text-gray-900">{totalStock.toLocaleString()}</td>
-                </tr>
-              </tfoot>
             </table>
+          </div>
+          
+          <div className="mt-3 pt-3 border-t border-gray-200">
+            <div className="flex justify-between text-sm font-bold">
+              <span className="text-gray-900">Total</span>
+              <div className="flex gap-6">
+                <span className="text-blue-600">{cjStock.toLocaleString()}</span>
+                <span className="text-orange-600">{factoryStock.toLocaleString()}</span>
+                <span className="text-gray-900">{totalStock.toLocaleString()}</span>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -216,10 +239,10 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
             <h3 className="text-lg font-bold text-gray-900">Inventory Details by Variant</h3>
           </div>
           
-          <div className="overflow-x-auto">
+          <div className="max-h-80 overflow-y-auto overflow-x-auto border border-gray-100 rounded-lg">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
+              <thead className="sticky top-0 bg-white border-b border-gray-200">
+                <tr>
                   <th className="text-left py-2 px-3 font-semibold text-gray-700">Variant</th>
                   <th className="text-right py-2 px-3 font-semibold text-gray-700">Price</th>
                   <th className="text-right py-2 px-3 font-semibold text-blue-600">
@@ -235,7 +258,7 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
                 </tr>
               </thead>
               <tbody>
-                {product.variants.map((v, idx) => {
+                {variantsWithStock.map((v, idx) => {
                   const displayName = v.variantName || 
                     [v.color, v.size].filter(Boolean).join(' - ') || 
                     v.variantSku || 
@@ -244,17 +267,17 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
                   return (
                     <tr key={idx} className="border-b border-gray-100 last:border-b-0">
                       <td className="py-2 px-3 text-gray-700">
-                        {displayName}
-                        <span className="text-gray-400 ml-1 text-xs">SKU: {v.variantSku}</span>
+                        <div>{displayName}</div>
+                        <span className="text-gray-400 text-xs">SKU: {v.variantSku}</span>
                       </td>
                       <td className="py-2 px-3 text-right text-gray-900">
                         ${v.variantPriceUSD.toFixed(2)}
                       </td>
                       <td className="py-2 px-3 text-right font-medium text-blue-600">
-                        {v.cjStock !== undefined ? v.cjStock.toLocaleString() : '-'}
+                        {v.cjStock.toLocaleString()}
                       </td>
                       <td className="py-2 px-3 text-right font-medium text-orange-600">
-                        {v.factoryStock !== undefined ? v.factoryStock.toLocaleString() : '-'}
+                        {v.factoryStock.toLocaleString()}
                       </td>
                     </tr>
                   );
