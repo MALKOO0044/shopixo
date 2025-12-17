@@ -19,6 +19,8 @@ export type PricedVariant = {
   profitSAR: number;
   error?: string;
   stock?: number;
+  cjStock?: number;          // CJ warehouse stock (verified)
+  factoryStock?: number;     // Factory/supplier stock (unverified)
   variantName?: string;
   variantImage?: string;
   size?: string;
@@ -57,6 +59,9 @@ export type PricedProduct = {
   totalUnVerifiedInventory?: number;  // Factory/supplier stock (unverified)
   // Detailed warehouse inventory from inventory API (fallback/enrichment)
   inventory?: ProductInventory;
+  // Inventory status: 'ok' = successfully fetched, 'error' = failed to fetch, 'partial' = some data missing
+  inventoryStatus?: 'ok' | 'error' | 'partial';
+  inventoryErrorMessage?: string;
   variants: PricedVariant[];
   successfulVariants: number;
   totalVariants: number;

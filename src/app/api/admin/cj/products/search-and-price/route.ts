@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAccessToken, freightCalculate, fetchProductDetailsBatch, getProductRatings, findCJPacketOrdinary, getInventoryByPid } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsBatch, getProductRatings, findCJPacketOrdinary, getInventoryByPid, queryVariantInventory, waitForCjRateLimit } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
@@ -29,6 +29,9 @@ type PricedVariant = {
   totalCostSAR: number;
   profitSAR: number;
   error?: string;
+  stock?: number;
+  cjStock?: number;          // CJ warehouse stock (verified)
+  factoryStock?: number;     // Factory/supplier stock (unverified)
   variantName?: string;
   variantImage?: string;
   size?: string;
@@ -548,7 +551,50 @@ export async function GET(req: Request) {
         warehouses: Array<{ areaId: number; areaName: string; countryCode: string; totalInventory: number; cjInventory: number; factoryInventory: number }>;
       } | null = null;
       
+      // Map to store per-variant inventory with MULTIPLE KEYS for reliable matching
+      // Store same stock data under: normalized SKU, vid, variantId, variantKey
+      const variantStockMap = new Map<string, { cjStock: number; factoryStock: number; totalStock: number }>();
+      
+      // Normalize key for matching: lowercase, trim, remove special chars
+      const normalizeKey = (s: string | undefined | null): string => {
+        if (!s) return '';
+        return String(s).toLowerCase().trim().replace(/[\s\-_\.]/g, '');
+      };
+      
+      // Function to look up variant stock by multiple possible keys
+      // Uses the SAME normalization as storage (SKU and name)
+      const getVariantStock = (vid?: string, sku?: string, variantName?: string): { cjStock: number; factoryStock: number; totalStock: number } | undefined => {
+        const keysToTry = [
+          normalizeKey(sku),         // Try SKU first (most common match)
+          normalizeKey(vid),          // Try vid (variant ID)
+          normalizeKey(variantName),  // Try variant name
+        ].filter(k => k.length > 0);
+        
+        for (const key of keysToTry) {
+          const stock = variantStockMap.get(key);
+          if (stock) return stock;
+        }
+        
+        // Fallback: scan all stored entries for partial match
+        if (keysToTry.length > 0) {
+          for (const [storedKey, stockData] of variantStockMap.entries()) {
+            for (const searchKey of keysToTry) {
+              if (searchKey && (storedKey.includes(searchKey) || searchKey.includes(storedKey))) {
+                return stockData;
+              }
+            }
+          }
+        }
+        
+        return undefined;
+      };
+      
+      // Track inventory fetch status for UI feedback
+      let inventoryStatus: 'ok' | 'error' | 'partial' = 'ok';
+      let inventoryErrorMessage: string | undefined;
+      
       try {
+        // Fetch product-level inventory from dedicated API
         realInventory = await getInventoryByPid(pid);
         if (realInventory) {
           console.log(`[Search&Price] Product ${pid} - Inventory from getInventoryByPid:`);
@@ -559,9 +605,54 @@ export async function GET(req: Request) {
           }
         } else {
           console.log(`[Search&Price] Product ${pid} - No inventory data returned from getInventoryByPid`);
+          inventoryStatus = 'partial';
+          inventoryErrorMessage = 'Could not fetch warehouse inventory';
+        }
+        
+        // Also fetch per-variant inventory (CJ vs Factory breakdown per variant)
+        // This matches CJ's "Inventory Details" modal showing: White-L (CJ:0, Factory:6714), etc.
+        // Use shared rate limiter to respect CJ's 1 rps limit across all concurrent requests
+        const rateLimitAcquired = await waitForCjRateLimit();
+        if (!rateLimitAcquired) {
+          console.warn(`[Search&Price] Product ${pid} - Rate limit timeout for queryVariantInventory`);
+          inventoryStatus = 'error';
+          inventoryErrorMessage = 'Rate limit timeout - too many concurrent requests';
+        }
+        
+        let variantInventory: Awaited<ReturnType<typeof queryVariantInventory>> = [];
+        
+        try {
+          variantInventory = await queryVariantInventory(pid);
+        } catch (e: any) {
+          const errorMsg = e?.message || 'Failed to fetch variant inventory';
+          console.log(`[Search&Price] Product ${pid} - queryVariantInventory error: ${errorMsg}`);
+          inventoryStatus = inventoryStatus === 'ok' ? 'partial' : 'error';
+          inventoryErrorMessage = inventoryErrorMessage ? `${inventoryErrorMessage}; ${errorMsg}` : errorMsg;
+        }
+        if (variantInventory && variantInventory.length > 0) {
+          console.log(`[Search&Price] Product ${pid} - Per-variant inventory: ${variantInventory.length} variants`);
+          for (const vi of variantInventory) {
+            const stockData = {
+              cjStock: vi.cjStock,
+              factoryStock: vi.factoryStock,
+              totalStock: vi.totalStock,
+            };
+            // Store under MULTIPLE normalized keys for robust matching
+            const normalizedSku = normalizeKey(vi.variantSku);
+            const normalizedName = normalizeKey(vi.variantName);
+            if (normalizedSku) variantStockMap.set(normalizedSku, stockData);
+            if (normalizedName) variantStockMap.set(normalizedName, stockData);
+            console.log(`    - ${vi.variantName || vi.variantSku}: CJ=${vi.cjStock}, Factory=${vi.factoryStock}, Total=${vi.totalStock} (keys: ${normalizedSku}, ${normalizedName})`);
+          }
+          console.log(`[Search&Price] Product ${pid} - Stored ${variantStockMap.size} stock keys`);
+        } else if (!inventoryErrorMessage) {
+          // No variants returned but no error - mark as partial
+          inventoryStatus = inventoryStatus === 'ok' ? 'partial' : inventoryStatus;
         }
       } catch (e: any) {
         console.log(`[Search&Price] Product ${pid} - Error fetching inventory: ${e?.message}`);
+        inventoryStatus = 'error';
+        inventoryErrorMessage = e?.message || 'Failed to fetch inventory data';
       }
       
       // Use REAL inventory data from dedicated API (most accurate)
@@ -1461,6 +1552,20 @@ export async function GET(req: Request) {
           const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
           const profitSAR = sellPriceSAR - totalCostSAR;
           
+          // Get variant stock from the inventory map using multiple key fallbacks
+          // Single-variant product: try productSku, pid, or first available stock entry (aggregate if multiple rows)
+          let variantStock = getVariantStock(pid, item.productSku, undefined);
+          if (!variantStock && variantStockMap.size > 0) {
+            // For single-variant products with multiple inventory rows (e.g., different warehouses),
+            // aggregate all entries to get the total stock
+            const allStocks = Array.from(variantStockMap.values());
+            variantStock = {
+              cjStock: allStocks.reduce((sum, s) => sum + s.cjStock, 0),
+              factoryStock: allStocks.reduce((sum, s) => sum + s.factoryStock, 0),
+              totalStock: allStocks.reduce((sum, s) => sum + s.totalStock, 0),
+            };
+          }
+          
           pricedVariants.push({
             variantId: pid,
             variantSku: item.productSku || pid,
@@ -1474,6 +1579,9 @@ export async function GET(req: Request) {
             totalCostSAR,
             profitSAR,
             error: shippingError,
+            stock: variantStock?.totalStock,
+            cjStock: variantStock?.cjStock,
+            factoryStock: variantStock?.factoryStock,
           });
         }
         
@@ -1625,6 +1733,9 @@ export async function GET(req: Request) {
           const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
           const profitSAR = sellPriceSAR - totalCostSAR;
           
+          // Get variant stock from the inventory map using multiple key fallbacks
+          const variantStock = getVariantStock(variantId, variantSku, variantName);
+          
           pricedVariants.push({
             variantId,
             variantSku,
@@ -1641,6 +1752,9 @@ export async function GET(req: Request) {
             variantImage,
             size,
             color,
+            stock: variantStock?.totalStock,
+            cjStock: variantStock?.cjStock,
+            factoryStock: variantStock?.factoryStock,
           });
         }
       }
@@ -1719,6 +1833,9 @@ export async function GET(req: Request) {
           totalAvailable: realInventory.totalAvailable,
           warehouses: realInventory.warehouses,
         } : undefined,
+        // Inventory fetch status for UI feedback
+        inventoryStatus,
+        inventoryErrorMessage: inventoryErrorMessage || undefined,
         variants: pricedVariants,
         successfulVariants,
         totalVariants: pricedVariants.length,

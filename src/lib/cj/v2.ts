@@ -8,6 +8,83 @@ import { getSetting } from '@/lib/settings';
 // The apiKey format is: CJUserNum@api@xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 // Token lives 15 days; refresh token 180 days; getAccessToken limited to once/5 minutes.
 
+// ============================================================================
+// GLOBAL RATE LIMITER FOR CJ API (1 request/second limit)
+// Uses Redis for cross-process coordination + in-memory fallback
+// ============================================================================
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
+
+// In-memory fallback for single-process rate limiting
+let lastCjRequestTime = 0;
+const CJ_REQUEST_INTERVAL_MS = 1100; // 1.1 seconds to be safe
+const CJ_MAX_WAIT_MS = 55000; // 55 second timeout (CJ API timeout)
+
+// Initialize Redis-backed rate limiter (if Redis is available)
+let redisRateLimiter: Ratelimit | null = null;
+try {
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    const redis = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    });
+    redisRateLimiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.fixedWindow(1, '1 s'), // 1 request per second
+      prefix: 'cj-api-ratelimit',
+    });
+  }
+} catch (e) {
+  console.warn('[CJ RateLimiter] Failed to initialize Redis rate limiter, using in-memory fallback');
+}
+
+/**
+ * Wait if needed to respect CJ's 1 request/second rate limit.
+ * Uses Redis for cross-process coordination, with in-memory fallback.
+ * @returns true if rate limit was acquired, false if timed out
+ */
+export async function waitForCjRateLimit(): Promise<boolean> {
+  const startTime = Date.now();
+  
+  // Try Redis-backed rate limiting first (for cross-process coordination)
+  if (redisRateLimiter) {
+    while (Date.now() - startTime < CJ_MAX_WAIT_MS) {
+      try {
+        const { success, remaining, reset } = await redisRateLimiter.limit('cj-inventory');
+        if (success) {
+          // Also update local timestamp for extra safety
+          lastCjRequestTime = Date.now();
+          return true;
+        }
+        // Calculate wait time until reset
+        const waitMs = Math.min(reset - Date.now(), CJ_REQUEST_INTERVAL_MS);
+        if (waitMs > 0) {
+          await new Promise(r => setTimeout(r, waitMs));
+        }
+      } catch (e) {
+        console.warn('[CJ RateLimiter] Redis error, falling back to in-memory:', e);
+        break; // Fall through to in-memory limiter
+      }
+    }
+  }
+  
+  // In-memory fallback (single-process coordination)
+  const now = Date.now();
+  const elapsed = now - lastCjRequestTime;
+  if (elapsed < CJ_REQUEST_INTERVAL_MS) {
+    const waitTime = CJ_REQUEST_INTERVAL_MS - elapsed;
+    if (Date.now() - startTime + waitTime >= CJ_MAX_WAIT_MS) {
+      console.warn('[CJ RateLimiter] Timeout waiting for rate limit slot');
+      return false;
+    }
+    await new Promise(r => setTimeout(r, waitTime));
+  }
+  lastCjRequestTime = Date.now();
+  return true;
+}
+
+// ============================================================================
+
 type CjConfig = { email?: string | null; apiKey?: string | null; base?: string | null };
 
 async function getCjApiKey(): Promise<string | null> {
@@ -278,8 +355,10 @@ export async function getInventoryByPid(pid: string): Promise<CjProductInventory
     
     console.log(`[CJ Inventory] Response for ${pid}:`, JSON.stringify(res).slice(0, 1000));
     
-    if (!res || res.code !== 200 || !res.data) {
-      console.log(`[CJ Inventory] No inventory data returned for ${pid}`);
+    // CJ API returns code as either number 200 or string "200" - handle both
+    const isSuccess = res && (res.code === 200 || res.code === '200' || String(res.code) === '200');
+    if (!isSuccess || !res.data) {
+      console.log(`[CJ Inventory] No inventory data returned for ${pid} (code: ${res?.code})`);
       return null;
     }
     

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Package, TrendingUp, Layers, AlertTriangle, CheckCircle, XCircle, Warehouse, Factory } from "lucide-react";
+import { Package, TrendingUp, Layers, AlertTriangle, CheckCircle, XCircle, Warehouse, Factory, Globe, ShoppingBag } from "lucide-react";
 import type { PricedProduct } from "./types";
 
 type PreviewPageFourProps = {
@@ -54,24 +54,41 @@ function getPopularityLevel(listedNum: number): { label: string; level: number; 
 }
 
 export default function PreviewPageFour({ product }: PreviewPageFourProps) {
-  // Use stock from CJ listV2 API (warehouseInventoryNum)
-  // This is the primary source of inventory data from CJ
-  const totalStock = product.stock;
+  const detailedInventory = product.inventory;
+  const totalStock = detailedInventory?.totalAvailable ?? product.stock;
+  const cjStock = detailedInventory?.totalCJ ?? product.totalVerifiedInventory ?? 0;
+  const factoryStock = detailedInventory?.totalFactory ?? product.totalUnVerifiedInventory ?? 0;
+  const hasInventoryData = totalStock > 0 || cjStock > 0 || factoryStock > 0;
+  
   const stockStatus = getStockStatus(totalStock);
   const popularity = getPopularityLevel(product.listedNum);
   
-  // Inventory breakdown from CJ listV2 API
-  // totalVerifiedInventory = CJ warehouse stock (verified, ready to ship)
-  // totalUnVerifiedInventory = Factory/supplier stock (unverified, may need processing)
-  const cjWarehouseStock = product.totalVerifiedInventory ?? 0;
-  const factoryStock = product.totalUnVerifiedInventory ?? 0;
-  const hasInventoryBreakdown = cjWarehouseStock > 0 || factoryStock > 0;
+  const warehouses = detailedInventory?.warehouses || [];
+  const hasWarehouses = warehouses.length > 0;
   
-  // Fallback to detailed warehouse data from inventory API if available
-  const detailedInventory = product.inventory;
+  // Check if variants have per-variant stock data
+  const variantsWithStock = product.variants.filter(v => 
+    v.cjStock !== undefined || v.factoryStock !== undefined || v.stock !== undefined
+  );
+  const hasVariantStock = variantsWithStock.length > 0;
+  
+  // Check for inventory fetch errors
+  const inventoryHasError = product.inventoryStatus === 'error' || product.inventoryStatus === 'partial';
 
   return (
     <div className="space-y-6">
+      {inventoryHasError && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium text-amber-800">Inventory Data Incomplete</p>
+            <p className="text-sm text-amber-700 mt-1">
+              {product.inventoryErrorMessage || 'Could not fetch complete inventory data from CJ. Stock values shown may not be accurate.'}
+            </p>
+          </div>
+        </div>
+      )}
+      
       <div className="grid md:grid-cols-2 gap-5">
         <div className={`rounded-xl border p-5 ${stockStatus.color}`}>
           <div className="flex items-center gap-3 mb-4">
@@ -90,33 +107,19 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
               <span className="font-semibold">{stockStatus.label}</span>
             </div>
             
-            {hasInventoryBreakdown && (
+            {hasInventoryData && (
               <div className="border-t border-gray-200 pt-3 mt-3">
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-gray-500 flex items-center gap-1">
-                    <Warehouse className="h-4 w-4" /> CJ Warehouse (Verified):
+                    <Warehouse className="h-4 w-4" /> CJ Warehouse:
                   </span>
-                  <span className="font-semibold text-blue-600">{cjWarehouseStock.toLocaleString()}</span>
+                  <span className="font-semibold text-blue-600">{cjStock.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between items-center text-sm mt-1">
                   <span className="text-gray-500 flex items-center gap-1">
-                    <Factory className="h-4 w-4" /> Factory/Supplier:
+                    <Factory className="h-4 w-4" /> Factory:
                   </span>
                   <span className="font-semibold text-orange-600">{factoryStock.toLocaleString()}</span>
-                </div>
-              </div>
-            )}
-            
-            {detailedInventory && detailedInventory.warehouses && detailedInventory.warehouses.length > 0 && (
-              <div className="border-t border-gray-200 pt-3 mt-3">
-                <span className="text-xs text-gray-500 block mb-2">Stock by Warehouse:</span>
-                <div className="space-y-1">
-                  {detailedInventory.warehouses.map((wh, idx) => (
-                    <div key={idx} className="flex justify-between items-center text-xs">
-                      <span className="text-gray-600">{wh.areaName} ({wh.countryCode})</span>
-                      <span className="font-medium">{wh.totalInventory.toLocaleString()}</span>
-                    </div>
-                  ))}
                 </div>
               </div>
             )}
@@ -148,6 +151,124 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
           </div>
         </div>
       </div>
+
+      {hasWarehouses && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <Globe className="h-5 w-5 text-green-500" />
+            <h3 className="text-lg font-bold text-gray-900">Inventory by Warehouse</h3>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-2 px-3 font-semibold text-gray-700">Warehouse Location</th>
+                  <th className="text-right py-2 px-3 font-semibold text-blue-600">
+                    <span className="flex items-center justify-end gap-1">
+                      <Warehouse className="h-4 w-4" /> CJ
+                    </span>
+                  </th>
+                  <th className="text-right py-2 px-3 font-semibold text-orange-600">
+                    <span className="flex items-center justify-end gap-1">
+                      <Factory className="h-4 w-4" /> Factory
+                    </span>
+                  </th>
+                  <th className="text-right py-2 px-3 font-semibold text-gray-700">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {warehouses.map((wh, idx) => (
+                  <tr key={idx} className="border-b border-gray-100 last:border-b-0">
+                    <td className="py-2 px-3 text-gray-700">
+                      {wh.areaName}
+                      {wh.countryCode && <span className="text-gray-400 ml-1">({wh.countryCode})</span>}
+                    </td>
+                    <td className="py-2 px-3 text-right font-medium text-blue-600">
+                      {wh.cjInventory.toLocaleString()}
+                    </td>
+                    <td className="py-2 px-3 text-right font-medium text-orange-600">
+                      {wh.factoryInventory.toLocaleString()}
+                    </td>
+                    <td className="py-2 px-3 text-right font-bold text-gray-900">
+                      {wh.totalInventory.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-gray-200 bg-gray-50">
+                  <td className="py-2 px-3 font-bold text-gray-900">Total</td>
+                  <td className="py-2 px-3 text-right font-bold text-blue-600">{cjStock.toLocaleString()}</td>
+                  <td className="py-2 px-3 text-right font-bold text-orange-600">{factoryStock.toLocaleString()}</td>
+                  <td className="py-2 px-3 text-right font-bold text-gray-900">{totalStock.toLocaleString()}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {hasVariantStock && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <ShoppingBag className="h-5 w-5 text-purple-500" />
+            <h3 className="text-lg font-bold text-gray-900">Inventory Details by Variant</h3>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-2 px-3 font-semibold text-gray-700">Variant</th>
+                  <th className="text-right py-2 px-3 font-semibold text-gray-700">Price</th>
+                  <th className="text-right py-2 px-3 font-semibold text-blue-600">
+                    <span className="flex items-center justify-end gap-1">
+                      <Warehouse className="h-4 w-4" /> CJ
+                    </span>
+                  </th>
+                  <th className="text-right py-2 px-3 font-semibold text-orange-600">
+                    <span className="flex items-center justify-end gap-1">
+                      <Factory className="h-4 w-4" /> Factory
+                    </span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {product.variants.map((v, idx) => {
+                  const displayName = v.variantName || 
+                    [v.color, v.size].filter(Boolean).join(' - ') || 
+                    v.variantSku || 
+                    `Variant ${idx + 1}`;
+                  
+                  return (
+                    <tr key={idx} className="border-b border-gray-100 last:border-b-0">
+                      <td className="py-2 px-3 text-gray-700">
+                        {displayName}
+                        <span className="text-gray-400 ml-1 text-xs">SKU: {v.variantSku}</span>
+                      </td>
+                      <td className="py-2 px-3 text-right text-gray-900">
+                        ${v.variantPriceUSD.toFixed(2)}
+                      </td>
+                      <td className="py-2 px-3 text-right font-medium text-blue-600">
+                        {v.cjStock !== undefined ? v.cjStock.toLocaleString() : '-'}
+                      </td>
+                      <td className="py-2 px-3 text-right font-medium text-orange-600">
+                        {v.factoryStock !== undefined ? v.factoryStock.toLocaleString() : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          
+          <div className="mt-4 text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
+            <p><strong>CJ:</strong> Stock in CJ warehouse, ready for immediate shipping.</p>
+            <p><strong>Factory:</strong> Stock at supplier. May require 1-3 days processing before shipping.</p>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <div className="flex items-center gap-3 mb-5">
