@@ -437,6 +437,8 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
   
   let allVariants: CjVariantInventory[] = [];
   const stockBySku: Map<string, { cjStock: number; factoryStock: number }> = new Map();
+  // Store original stockList items for fallback variant building
+  let stockListItems: any[] = [];
   
   try {
     const inventoryBody: any = { pid };
@@ -521,6 +523,7 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
     };
     
     const stockList = Array.isArray(stockData) ? stockData : (stockData?.list || stockData?.variants || stockData?.variantList || []);
+    stockListItems = stockList; // Save for fallback variant building
     
     // Normalize key helper - same logic as in search-and-price route
     const normalizeKey = (s: any): string => {
@@ -661,6 +664,112 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
     }
   } catch (e: any) {
     console.error(`[CJ Variants] Error fetching variants for ${pid}:`, e?.message);
+  }
+  
+  // If variant query returned nothing but we have stock data, build variants directly from stockList
+  // This handles products where /product/variant/query returns empty but /inventory/queryVariantStock has data
+  if (allVariants.length === 0 && stockListItems.length > 0) {
+    console.log(`[CJ Variants] No variants from query but ${stockListItems.length} stock items available - building from stock data`);
+    
+    const toSafeNum = (val: any, fallback = 0): number => {
+      if (val === undefined || val === null || val === '') return fallback;
+      const num = typeof val === 'number' ? val : Number(val);
+      return isNaN(num) ? fallback : num;
+    };
+    
+    const parseNestedStocksFallback = (item: any): { cjStock: number; factoryStock: number } => {
+      let cjTotal = 0;
+      let factoryTotal = 0;
+      
+      // Check variantStocks first
+      const variantStocks = item.variantStocks || [];
+      if (Array.isArray(variantStocks) && variantStocks.length > 0) {
+        for (const vs of variantStocks) {
+          const innerWS = vs.warehouseStocks || [];
+          if (Array.isArray(innerWS) && innerWS.length > 0) {
+            for (const ws of innerWS) {
+              const warehouseType = String(ws.warehouseType || ws.type || ws.warehouseName || '').toLowerCase();
+              const availNum = toSafeNum(ws.availableNum || ws.availableStock || ws.quantity || ws.stock || 0);
+              if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
+                cjTotal += availNum;
+              } else {
+                factoryTotal += availNum;
+              }
+            }
+          } else {
+            const warehouseType = String(vs.warehouseType || vs.type || '').toLowerCase();
+            const availNum = toSafeNum(vs.availableNum || vs.availableStock || vs.quantity || vs.stock || 0);
+            if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
+              cjTotal += availNum;
+            } else {
+              factoryTotal += availNum;
+            }
+          }
+        }
+      }
+      
+      // Check warehouseStocks
+      const warehouseStocks = item.warehouseStocks || [];
+      if (Array.isArray(warehouseStocks) && warehouseStocks.length > 0 && cjTotal === 0 && factoryTotal === 0) {
+        for (const ws of warehouseStocks) {
+          const warehouseType = String(ws.warehouseType || ws.type || ws.warehouseName || '').toLowerCase();
+          const availNum = toSafeNum(ws.availableNum || ws.availableStock || ws.quantity || ws.stock || 0);
+          if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
+            cjTotal += availNum;
+          } else {
+            factoryTotal += availNum;
+          }
+        }
+      }
+      
+      // Direct fields fallback
+      if (cjTotal === 0 && factoryTotal === 0) {
+        cjTotal = toSafeNum(item.cjAvailableNum || item.cjStock || item.warehouseStock || 0);
+        factoryTotal = toSafeNum(item.supplierAvailableNum || item.factoryStock || item.factoryAvailableNum || 0);
+      }
+      
+      // Total stock fallback
+      if (cjTotal === 0 && factoryTotal === 0) {
+        const totalStock = toSafeNum(item.stock || item.totalStock || item.availableNum || item.quantity || 0);
+        if (totalStock > 0) {
+          factoryTotal = totalStock;
+        }
+      }
+      
+      return { cjStock: Math.floor(cjTotal), factoryStock: Math.floor(factoryTotal) };
+    };
+    
+    for (const v of stockListItems) {
+      const stocks = parseNestedStocksFallback(v);
+      const totalStock = stocks.cjStock + stocks.factoryStock;
+      
+      // Skip variants with no stock
+      if (totalStock <= 0) continue;
+      
+      const sku = v.variantSku || v.sku || v.skuId || '';
+      const vid = v.vid || '';
+      const variantId = v.variantId || '';
+      const variantKey = v.variantKey || '';
+      const variantName = v.variantName || v.variantNameEn || '';
+      const price = toSafeNum(v.variantSellPrice || v.sellPrice || v.variantPrice || v.price, 0);
+      
+      const primarySku = sku || vid || variantId || variantKey || '';
+      
+      if (primarySku) {
+        allVariants.push({
+          variantSku: primarySku,
+          variantName: variantName || variantKey || undefined,
+          vid: vid || undefined,
+          variantId: variantId || undefined,
+          variantKey: variantKey || undefined,
+          price,
+          cjStock: stocks.cjStock,
+          factoryStock: stocks.factoryStock,
+          totalStock,
+        });
+      }
+    }
+    console.log(`[CJ Variants] Built ${allVariants.length} variants from stock data fallback`);
   }
   
   console.log(`[CJ Variants] Final result: ${allVariants.length} variants for ${pid}`);
