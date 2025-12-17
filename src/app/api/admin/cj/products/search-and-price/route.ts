@@ -55,6 +55,16 @@ type ProductInventory = {
   warehouses: WarehouseStock[];
 };
 
+type InventoryVariant = {
+  variantId: string;
+  sku: string;
+  shortName: string;
+  priceUSD: number;
+  cjStock: number;
+  factoryStock: number;
+  totalStock: number;
+};
+
 type PricedProduct = {
   pid: string;
   cjSku: string;
@@ -74,6 +84,7 @@ type PricedProduct = {
   inventoryStatus?: 'ok' | 'error' | 'partial';
   inventoryErrorMessage?: string;
   variants: PricedVariant[];
+  inventoryVariants?: InventoryVariant[];
   successfulVariants: number;
   totalVariants: number;
   description?: string;
@@ -605,6 +616,9 @@ export async function GET(req: Request) {
       let inventoryStatus: 'ok' | 'error' | 'partial' = 'ok';
       let inventoryErrorMessage: string | undefined;
       
+      // Declare variantInventory outside try block so it's accessible for inventoryVariants building
+      let variantInventory: Awaited<ReturnType<typeof queryVariantInventory>> = [];
+      
       try {
         // Fetch product-level inventory from dedicated API
         realInventory = await getInventoryByPid(pid);
@@ -630,8 +644,6 @@ export async function GET(req: Request) {
           inventoryStatus = 'error';
           inventoryErrorMessage = 'Rate limit timeout - too many concurrent requests';
         }
-        
-        let variantInventory: Awaited<ReturnType<typeof queryVariantInventory>> = [];
         
         try {
           variantInventory = await queryVariantInventory(pid);
@@ -673,6 +685,53 @@ export async function GET(req: Request) {
         console.log(`[Search&Price] Product ${pid} - Error fetching inventory: ${e?.message}`);
         inventoryStatus = 'error';
         inventoryErrorMessage = e?.message || 'Failed to fetch inventory data';
+      }
+      
+      // Build inventoryVariants array from ALL variant inventory data
+      // This is for the blue Inventory Details box on Page 4 - shows ALL variants
+      const inventoryVariants: InventoryVariant[] = [];
+      if (variantInventory && variantInventory.length > 0) {
+        for (const vi of variantInventory) {
+          // Only include variants with stock > 0
+          if (vi.totalStock <= 0) continue;
+          
+          // Parse short name from variantKey or variantName (format: "Black-L", "HA0127-XXL")
+          const variantKeyRaw = String(vi.variantKey || vi.variantName || vi.variantSku || '');
+          let shortName = variantKeyRaw;
+          
+          // Clean up the name - remove any Chinese characters
+          shortName = shortName.replace(/[\u4e00-\u9fff]/g, '').trim();
+          
+          // If still empty, use SKU
+          if (!shortName) {
+            shortName = vi.variantSku || `Variant-${vi.vid || vi.variantId || '?'}`;
+          }
+          
+          inventoryVariants.push({
+            variantId: String(vi.vid || vi.variantId || ''),
+            sku: vi.variantSku,
+            shortName,
+            priceUSD: vi.price,
+            cjStock: vi.cjStock,
+            factoryStock: vi.factoryStock,
+            totalStock: vi.totalStock,
+          });
+        }
+        console.log(`[Search&Price] Product ${pid} - Built ${inventoryVariants.length} inventoryVariants for display`);
+      }
+      
+      // Fallback for single-variant products: if no inventoryVariants but we have product-level stock
+      if (inventoryVariants.length === 0 && (realInventory?.totalAvailable || 0) > 0) {
+        inventoryVariants.push({
+          variantId: cjSku,
+          sku: cjSku,
+          shortName: 'Default',
+          priceUSD: 0, // Will be filled from variant data if available
+          cjStock: realInventory?.totalCJ ?? 0,
+          factoryStock: realInventory?.totalFactory ?? 0,
+          totalStock: realInventory?.totalAvailable ?? 0,
+        });
+        console.log(`[Search&Price] Product ${pid} - Used product-level inventory as single inventoryVariant`);
       }
       
       // Use REAL inventory data from dedicated API (most accurate)
@@ -1905,6 +1964,8 @@ export async function GET(req: Request) {
         inventoryStatus,
         inventoryErrorMessage: inventoryErrorMessage || undefined,
         variants: pricedVariants,
+        // ALL variant inventory data for Page 4 blue box display
+        inventoryVariants: inventoryVariants.length > 0 ? inventoryVariants : undefined,
         successfulVariants,
         totalVariants: pricedVariants.length,
         description,

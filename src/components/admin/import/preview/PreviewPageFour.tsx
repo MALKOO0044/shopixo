@@ -66,31 +66,11 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
   const warehouses = detailedInventory?.warehouses || [];
   const hasWarehouses = warehouses.length > 0;
   
-  // For single-variant products, use product-level inventory if variant stock is missing
-  const isSingleVariant = product.variants.length === 1;
-  
-  // Build variant list with accurate stock - filter out variants with 0 stock
-  const variantsWithStock = product.variants.map(v => {
-    // For single-variant products, use product-level inventory if variant-level is 0/undefined
-    let variantCjStock = v.cjStock;
-    let variantFactoryStock = v.factoryStock;
-    
-    if (isSingleVariant && (variantCjStock === undefined || variantCjStock === 0) && 
-        (variantFactoryStock === undefined || variantFactoryStock === 0)) {
-      variantCjStock = cjStock;
-      variantFactoryStock = factoryStock;
-    }
-    
-    return {
-      ...v,
-      cjStock: variantCjStock ?? 0,
-      factoryStock: variantFactoryStock ?? 0,
-      totalStock: (variantCjStock ?? 0) + (variantFactoryStock ?? 0),
-    };
-  }).filter(v => v.totalStock > 0); // Hide variants with 0 stock
-  
-  const hasVariantStock = variantsWithStock.length > 0;
-  const availableVariantsCount = variantsWithStock.length;
+  // Use inventoryVariants for the blue Inventory Details box (contains ALL variant stock data)
+  // This comes from queryVariantInventory API and includes all 54+ variants for multi-variant products
+  const inventoryVariants = product.inventoryVariants || [];
+  const hasInventoryVariants = inventoryVariants.length > 0;
+  const inventoryVariantsCount = inventoryVariants.length;
   
   // Check for inventory fetch errors
   const inventoryHasError = product.inventoryStatus === 'error' || product.inventoryStatus === 'partial';
@@ -160,12 +140,12 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
             
             <div className="flex justify-between items-center">
               <span className="text-gray-600">Available Variants:</span>
-              <span className="font-semibold text-green-600">{availableVariantsCount}</span>
+              <span className="font-semibold text-green-600">{inventoryVariantsCount}</span>
             </div>
 
-            {product.totalVariants !== availableVariantsCount && (
+            {product.totalVariants !== inventoryVariantsCount && inventoryVariantsCount > 0 && (
               <div className="text-sm text-amber-600 bg-amber-50 rounded-lg p-2">
-                {product.totalVariants - availableVariantsCount} variants out of stock or unavailable
+                {product.totalVariants - inventoryVariantsCount} variants out of stock or unavailable
               </div>
             )}
           </div>
@@ -232,7 +212,7 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
         </div>
       )}
 
-      {hasVariantStock && (
+      {hasInventoryVariants && (
         <div className="rounded-xl border-2 border-blue-400 overflow-hidden shadow-lg">
           <div className="bg-blue-600 text-white px-5 py-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -240,7 +220,7 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
               <h3 className="text-lg font-bold">Inventory Details</h3>
             </div>
             <span className="text-sm bg-blue-500 px-3 py-1 rounded-full">
-              {availableVariantsCount} variants in stock
+              {inventoryVariantsCount} variants in stock
             </span>
           </div>
           
@@ -264,31 +244,23 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
                   </tr>
                 </thead>
                 <tbody className="bg-white">
-                  {variantsWithStock.map((v, idx) => {
-                    // Match CJ's format: short variant name like "Black-L", "HA0127-XXL"
-                    const shortVariantName = [v.color, v.size].filter(Boolean).join('-') || 
-                      v.variantName || 
-                      v.variantSku || 
-                      `Variant ${idx + 1}`;
-                    
-                    return (
-                      <tr key={idx} className="border-b border-blue-100 hover:bg-blue-50 transition-colors">
-                        <td className="py-3 px-4">
-                          <div className="font-medium text-blue-800">{shortVariantName}</div>
-                          <span className="text-blue-400 text-xs">SKU: {v.variantSku}</span>
-                        </td>
-                        <td className="py-3 px-4 text-right font-medium text-gray-900">
-                          ${v.variantPriceUSD.toFixed(2)}
-                        </td>
-                        <td className="py-3 px-4 text-right font-bold text-blue-600 border-l border-blue-100">
-                          {v.cjStock.toLocaleString()}
-                        </td>
-                        <td className="py-3 px-4 text-right font-bold text-orange-500">
-                          {v.factoryStock.toLocaleString()}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {inventoryVariants.map((v, idx) => (
+                    <tr key={idx} className="border-b border-blue-100 hover:bg-blue-50 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="font-medium text-blue-800">{v.shortName}</div>
+                        <span className="text-blue-400 text-xs">SKU: {v.sku}</span>
+                      </td>
+                      <td className="py-3 px-4 text-right font-medium text-gray-900">
+                        ${(v.priceUSD || 0).toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-bold text-blue-600 border-l border-blue-100">
+                        {v.cjStock.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4 text-right font-bold text-orange-500">
+                        {v.factoryStock.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
