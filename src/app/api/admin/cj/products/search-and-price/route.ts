@@ -565,12 +565,21 @@ export async function GET(req: Request) {
       };
       
       // Function to look up variant stock by multiple possible keys
-      // Uses the SAME normalization as storage (SKU and name)
-      const getVariantStock = (vid?: string, sku?: string, variantName?: string): { cjStock: number; factoryStock: number; totalStock: number } | undefined => {
+      // Uses the SAME normalization as storage
+      const getVariantStock = (identifiers: {
+        vid?: string;
+        variantId?: string;
+        sku?: string;
+        variantKey?: string;
+        variantName?: string;
+      }): { cjStock: number; factoryStock: number; totalStock: number } | undefined => {
+        // Try ALL possible keys in priority order
         const keysToTry = [
-          normalizeKey(sku),         // Try SKU first (most common match)
-          normalizeKey(vid),          // Try vid (variant ID)
-          normalizeKey(variantName),  // Try variant name
+          normalizeKey(identifiers.sku),         // Try SKU first (most common match)
+          normalizeKey(identifiers.vid),          // Try vid (variant ID)
+          normalizeKey(identifiers.variantId),    // Try variantId
+          normalizeKey(identifiers.variantKey),   // Try variantKey (e.g., "White-L")
+          normalizeKey(identifiers.variantName),  // Try variant name
         ].filter(k => k.length > 0);
         
         for (const key of keysToTry) {
@@ -640,14 +649,22 @@ export async function GET(req: Request) {
               factoryStock: vi.factoryStock,
               totalStock: vi.totalStock,
             };
-            // Store under MULTIPLE normalized keys for robust matching
-            const normalizedSku = normalizeKey(vi.variantSku);
-            const normalizedName = normalizeKey(vi.variantName);
-            if (normalizedSku) variantStockMap.set(normalizedSku, stockData);
-            if (normalizedName) variantStockMap.set(normalizedName, stockData);
-            console.log(`    - ${vi.variantName || vi.variantSku}: CJ=${vi.cjStock}, Factory=${vi.factoryStock}, Total=${vi.totalStock} (keys: ${normalizedSku}, ${normalizedName})`);
+            // Store under ALL possible normalized keys for robust matching
+            // This ensures we can match by ANY identifier CJ uses
+            const keysToStore = [
+              normalizeKey(vi.variantSku),
+              normalizeKey(vi.vid),
+              normalizeKey(vi.variantId),
+              normalizeKey(vi.variantKey),
+              normalizeKey(vi.variantName),
+            ].filter(k => k && k.length > 0);
+            
+            for (const key of keysToStore) {
+              variantStockMap.set(key, stockData);
+            }
+            console.log(`    - ${vi.variantName || vi.variantSku}: CJ=${vi.cjStock}, Factory=${vi.factoryStock}, Total=${vi.totalStock} (${keysToStore.length} keys stored)`);
           }
-          console.log(`[Search&Price] Product ${pid} - Stored ${variantStockMap.size} stock keys`);
+          console.log(`[Search&Price] Product ${pid} - Stored ${variantStockMap.size} total stock keys`);
         } else if (!inventoryErrorMessage) {
           // No variants returned but no error - mark as partial
           inventoryStatus = inventoryStatus === 'ok' ? 'partial' : inventoryStatus;
@@ -1557,7 +1574,10 @@ export async function GET(req: Request) {
           
           // Get variant stock from the inventory map using multiple key fallbacks
           // Single-variant product: try productSku, pid, or first available stock entry (aggregate if multiple rows)
-          let variantStock = getVariantStock(pid, item.productSku, undefined);
+          let variantStock = getVariantStock({
+            vid: pid,
+            sku: item.productSku,
+          });
           if (!variantStock && variantStockMap.size > 0) {
             // For single-variant products with multiple inventory rows (e.g., different warehouses),
             // aggregate all entries to get the total stock
@@ -1737,7 +1757,14 @@ export async function GET(req: Request) {
           const profitSAR = sellPriceSAR - totalCostSAR;
           
           // Get variant stock from the inventory map using multiple key fallbacks
-          const variantStock = getVariantStock(variantId, variantSku, variantName);
+          const variantKey = String(variant.variantKey || '');
+          const variantStock = getVariantStock({
+            vid: variantId,
+            variantId: variantId,
+            sku: variantSku,
+            variantKey: variantKey,
+            variantName: variantName,
+          });
           
           pricedVariants.push({
             variantId,

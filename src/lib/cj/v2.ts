@@ -416,6 +416,9 @@ export async function getInventoryByPid(pid: string): Promise<CjProductInventory
 export type CjVariantInventory = {
   variantSku: string;
   variantName?: string;
+  vid?: string;           // CJ's variant ID (vid)
+  variantId?: string;     // Alternative variant ID field
+  variantKey?: string;    // Variant key (e.g., "White-L")
   price: number;
   cjStock: number; // CJ warehouse stock
   factoryStock: number; // Factory/supplier stock
@@ -519,14 +522,45 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
     
     const stockList = Array.isArray(stockData) ? stockData : (stockData?.list || stockData?.variants || stockData?.variantList || []);
     
+    // Normalize key helper - same logic as in search-and-price route
+    const normalizeKey = (s: any): string => {
+      if (s === undefined || s === null) return '';
+      // Convert to string first (handles numeric vids, UUIDs, etc.)
+      const str = String(s).trim();
+      if (!str) return '';
+      return str.toLowerCase().replace(/[\s\-_\.]/g, '');
+    };
+    
     for (const v of stockList) {
-      const sku = v.variantSku || v.vid || v.sku || v.skuId || '';
-      if (sku) {
-        const stocks = parseNestedStocks(v);
-        stockBySku.set(sku, stocks);
+      const stocks = parseNestedStocks(v);
+      
+      // Store under ALL possible keys - convert any value to string first
+      // This handles numeric vids, UUIDs, and other non-string identifiers
+      const possibleKeys = [
+        v.variantSku,
+        v.vid,
+        v.sku,
+        v.skuId,
+        v.variantId,
+        v.variantKey,
+        v.variantName,
+        v.variantNameEn,
+      ].filter(k => k !== undefined && k !== null && String(k).trim());
+      
+      for (const rawKey of possibleKeys) {
+        // Convert to string and store under both raw and normalized key
+        // Only set if key doesn't already exist (avoid overwriting earlier entries for collision safety)
+        const rawKeyStr = String(rawKey).trim();
+        if (!stockBySku.has(rawKeyStr)) {
+          stockBySku.set(rawKeyStr, stocks);
+        }
+        const normalized = normalizeKey(rawKeyStr);
+        if (normalized && normalized !== rawKeyStr && !stockBySku.has(normalized)) {
+          stockBySku.set(normalized, stocks);
+        }
       }
     }
-    console.log(`[CJ Inventory] Parsed ${stockBySku.size} stock entries from inventory API`);
+    console.log(`[CJ Inventory] Parsed ${stockBySku.size} stock entries from inventory API (from ${stockList.length} items)`);
   } catch (e: any) {
     console.error(`[CJ Inventory] Error fetching stock for ${pid}:`, e?.message);
   }
@@ -550,12 +584,43 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       console.log(`[CJ Variants] First variant sample:`, JSON.stringify(variantList[0]));
     }
     
+    // Normalize key helper (same as storage)
+    const normalizeKeyForLookup = (s: any): string => {
+      if (s === undefined || s === null) return '';
+      const str = String(s).trim();
+      if (!str) return '';
+      return str.toLowerCase().replace(/[\s\-_\.]/g, '');
+    };
+    
     for (const v of variantList) {
-      const variantSku = v.variantSku || v.vid || v.sku || v.skuId || v.variantId || '';
-      const variantName = v.variantKey || v.variantName || v.skuName || v.variantNameEn || '';
+      // Capture ALL identifier fields from the response
+      const variantSku = v.variantSku || v.sku || v.skuId || '';
+      const vid = v.vid || '';
+      const variantId = v.variantId || '';
+      const variantKey = v.variantKey || '';
+      const variantName = v.variantName || v.skuName || v.variantNameEn || '';
       const price = toSafeNumber(v.variantSellPrice || v.sellPrice || v.variantPrice || v.price, 0);
       
-      const stockInfo = stockBySku.get(variantSku);
+      // Try matching stock by ANY of the possible keys (both raw and normalized)
+      const rawKeys = [variantSku, vid, variantId, variantKey, variantName].filter(Boolean);
+      const allKeysToTry = [...rawKeys];
+      // Add normalized versions of each key
+      for (const raw of rawKeys) {
+        const normalized = normalizeKeyForLookup(raw);
+        if (normalized && !allKeysToTry.includes(normalized)) {
+          allKeysToTry.push(normalized);
+        }
+      }
+      
+      let stockInfo: { cjStock: number; factoryStock: number } | undefined;
+      
+      for (const key of allKeysToTry) {
+        stockInfo = stockBySku.get(key);
+        if (stockInfo) {
+          console.log(`[CJ Variants] Matched stock for ${variantName || variantSku} via key: ${key}`);
+          break;
+        }
+      }
       
       let cjStock = 0;
       let factoryStock = 0;
@@ -564,6 +629,7 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
         cjStock = stockInfo.cjStock;
         factoryStock = stockInfo.factoryStock;
       } else {
+        console.log(`[CJ Variants] No stock match for variant, trying direct fields. Keys tried: ${allKeysToTry.join(', ')}`);
         cjStock = Math.floor(toSafeNumber(v.cjAvailableNum || v.cjStock || v.warehouseStock || v.cjQuantity || 0));
         factoryStock = Math.floor(toSafeNumber(
           v.supplierAvailableNum || v.factoryStock || v.factoryAvailableNum || 
@@ -576,10 +642,16 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
         }
       }
       
-      if (variantSku) {
+      // Use the first non-empty identifier as the primary SKU
+      const primarySku = variantSku || vid || variantId || variantKey || '';
+      
+      if (primarySku) {
         allVariants.push({
-          variantSku,
-          variantName: variantName || undefined,
+          variantSku: primarySku,
+          variantName: variantName || variantKey || undefined,
+          vid: vid || undefined,
+          variantId: variantId || undefined,
+          variantKey: variantKey || undefined,
           price,
           cjStock,
           factoryStock,
