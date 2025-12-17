@@ -26,6 +26,22 @@ export type PricedVariant = {
   allShippingOptions?: ShippingOption[];
 };
 
+export type WarehouseStock = {
+  areaId: number;
+  areaName: string;
+  countryCode: string;
+  totalInventory: number;
+  cjInventory: number;
+  factoryInventory: number;
+};
+
+export type ProductInventory = {
+  totalCJ: number;
+  totalFactory: number;
+  totalAvailable: number;
+  warehouses: WarehouseStock[];
+};
+
 export type PricedProduct = {
   pid: string;
   cjSku: string;
@@ -36,6 +52,7 @@ export type PricedProduct = {
   avgPriceSAR: number;
   stock: number;
   listedNum: number;
+  inventory?: ProductInventory;
   variants: PricedVariant[];
   successfulVariants: number;
   totalVariants: number;

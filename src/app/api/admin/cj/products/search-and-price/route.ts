@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAccessToken, freightCalculate, fetchProductDetailsBatch, getProductRatings, findCJPacketOrdinary } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsBatch, getProductRatings, findCJPacketOrdinary, getInventoryByPid } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
@@ -1689,6 +1689,49 @@ export async function GET(req: Request) {
       });
       filteredBySizes = beforeCount - filteredProducts.length;
       console.log(`[Search&Price] Filtered ${filteredBySizes} products not matching sizes: ${requestedSizes.join(',')}`);
+    }
+    
+    // Enrich products with real inventory data from CJ's dedicated inventory API
+    // Only fetch for products that will be returned, with time budget awareness
+    const inventoryStartTime = Date.now();
+    const remainingTimeBudget = 55000 - (inventoryStartTime - startTime);
+    
+    if (remainingTimeBudget > 5000 && filteredProducts.length > 0) {
+      console.log(`[Search&Price] Fetching inventory for ${filteredProducts.length} products (${remainingTimeBudget}ms budget remaining)`);
+      
+      let inventoryFetched = 0;
+      for (const product of filteredProducts) {
+        // Check time budget before each inventory fetch
+        if (Date.now() - startTime > 50000) {
+          console.log(`[Search&Price] Time budget exceeded, skipping remaining inventory fetches`);
+          break;
+        }
+        
+        try {
+          const inventoryData = await getInventoryByPid(product.pid);
+          if (inventoryData) {
+            // Update product with real inventory data
+            (product as any).inventory = {
+              totalCJ: inventoryData.totalCJ,
+              totalFactory: inventoryData.totalFactory,
+              totalAvailable: inventoryData.totalAvailable,
+              warehouses: inventoryData.warehouses,
+            };
+            // Update the stock field with the real total
+            (product as any).stock = inventoryData.totalAvailable;
+            inventoryFetched++;
+          }
+        } catch (e: any) {
+          console.log(`[Search&Price] Failed to fetch inventory for ${product.pid}: ${e?.message}`);
+        }
+        
+        // Rate limiting delay between inventory calls
+        await new Promise(r => setTimeout(r, 200));
+      }
+      
+      console.log(`[Search&Price] Enriched ${inventoryFetched}/${filteredProducts.length} products with inventory data`);
+    } else {
+      console.log(`[Search&Price] Skipping inventory fetch (budget: ${remainingTimeBudget}ms, products: ${filteredProducts.length})`);
     }
     
     const duration = Date.now() - startTime;

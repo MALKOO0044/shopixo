@@ -238,6 +238,93 @@ export function findCJPacketOrdinary(options: CjShippingOption[]): CjShippingOpt
   
   return undefined;
 }
+
+// --- Product Inventory by PID ---
+// Uses CJ's dedicated inventory API: GET /product/stock/getInventoryByPid
+// Returns warehouse-level stock breakdown (CJ warehouse vs Factory)
+export type CjWarehouseInventory = {
+  areaId: number;
+  areaName: string;
+  countryCode: string;
+  totalInventory: number;
+  cjInventory: number;
+  factoryInventory: number;
+};
+
+export type CjProductInventory = {
+  pid: string;
+  totalCJ: number;
+  totalFactory: number;
+  totalAvailable: number;
+  warehouses: CjWarehouseInventory[];
+};
+
+export async function getInventoryByPid(pid: string): Promise<CjProductInventory | null> {
+  const token = await getAccessToken();
+  const base = await resolveBase();
+  
+  console.log(`[CJ Inventory] Fetching inventory for pid=${pid}`);
+  
+  try {
+    const url = `${base}/product/stock/getInventoryByPid?pid=${encodeURIComponent(pid)}`;
+    const res = await fetchJson<any>(url, {
+      method: 'GET',
+      headers: {
+        'CJ-Access-Token': token,
+      },
+      cache: 'no-store',
+      timeoutMs: 10000,
+    });
+    
+    console.log(`[CJ Inventory] Response for ${pid}:`, JSON.stringify(res).slice(0, 1000));
+    
+    if (!res || res.code !== 200 || !res.data) {
+      console.log(`[CJ Inventory] No inventory data returned for ${pid}`);
+      return null;
+    }
+    
+    const data = res.data;
+    const inventories = data.inventories || [];
+    
+    let totalCJ = 0;
+    let totalFactory = 0;
+    const warehouses: CjWarehouseInventory[] = [];
+    
+    for (const inv of inventories) {
+      const cjInv = Number(inv.cjInventoryNum || inv.cjInventory || 0);
+      const factoryInv = Number(inv.factoryInventoryNum || inv.factoryInventory || 0);
+      const totalInv = Number(inv.totalInventoryNum || inv.totalInventory || cjInv + factoryInv);
+      
+      totalCJ += cjInv;
+      totalFactory += factoryInv;
+      
+      warehouses.push({
+        areaId: Number(inv.areaId || 0),
+        areaName: inv.areaEn || inv.countryNameEn || inv.area || 'Unknown',
+        countryCode: inv.countryCode || '',
+        totalInventory: totalInv,
+        cjInventory: cjInv,
+        factoryInventory: factoryInv,
+      });
+    }
+    
+    const result: CjProductInventory = {
+      pid,
+      totalCJ,
+      totalFactory,
+      totalAvailable: totalCJ + totalFactory,
+      warehouses,
+    };
+    
+    console.log(`[CJ Inventory] Parsed for ${pid}: total=${result.totalAvailable} (CJ=${totalCJ}, Factory=${totalFactory}), warehouses=${warehouses.length}`);
+    
+    return result;
+  } catch (e: any) {
+    console.error(`[CJ Inventory] Error fetching inventory for ${pid}:`, e?.message);
+    return null;
+  }
+}
+
 // - POST /authentication/refreshAccessToken { refreshToken }
 // Token lives 15 days; refresh token 180 days; getAccessToken limited to once/5 minutes.
 // Env vars supported:

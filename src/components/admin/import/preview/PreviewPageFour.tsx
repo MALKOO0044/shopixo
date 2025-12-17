@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Package, TrendingUp, Layers, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import { Package, TrendingUp, Layers, AlertTriangle, CheckCircle, XCircle, Warehouse, Factory } from "lucide-react";
 import type { PricedProduct } from "./types";
 
 type PreviewPageFourProps = {
@@ -54,7 +54,10 @@ function getPopularityLevel(listedNum: number): { label: string; level: number; 
 }
 
 export default function PreviewPageFour({ product }: PreviewPageFourProps) {
-  const stockStatus = getStockStatus(product.stock);
+  // Use real inventory data if available, fallback to old stock field
+  const realInventory = product.inventory;
+  const totalStock = realInventory?.totalAvailable ?? product.stock;
+  const stockStatus = getStockStatus(totalStock);
   const popularity = getPopularityLevel(product.listedNum);
 
   return (
@@ -68,14 +71,53 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
           
           <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <span className="text-gray-600">Available Quantity:</span>
-              <span className="text-2xl font-bold">{product.stock.toLocaleString()}</span>
+              <span className="text-gray-600">Total Available:</span>
+              <span className="text-2xl font-bold">{totalStock.toLocaleString()}</span>
             </div>
             
             <div className="flex justify-between items-center">
               <span className="text-gray-600">Status:</span>
               <span className="font-semibold">{stockStatus.label}</span>
             </div>
+            
+            {realInventory && (
+              <>
+                <div className="border-t border-gray-200 pt-3 mt-3">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-500 flex items-center gap-1">
+                      <Warehouse className="h-4 w-4" /> CJ Warehouse:
+                    </span>
+                    <span className="font-semibold text-blue-600">{realInventory.totalCJ.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm mt-1">
+                    <span className="text-gray-500 flex items-center gap-1">
+                      <Factory className="h-4 w-4" /> Factory/Supplier:
+                    </span>
+                    <span className="font-semibold text-orange-600">{realInventory.totalFactory.toLocaleString()}</span>
+                  </div>
+                </div>
+                
+                {realInventory.warehouses && realInventory.warehouses.length > 0 && (
+                  <div className="border-t border-gray-200 pt-3 mt-3">
+                    <span className="text-xs text-gray-500 block mb-2">Stock by Warehouse:</span>
+                    <div className="space-y-1">
+                      {realInventory.warehouses.map((wh, idx) => (
+                        <div key={idx} className="flex justify-between items-center text-xs">
+                          <span className="text-gray-600">{wh.areaName} ({wh.countryCode})</span>
+                          <span className="font-medium">{wh.totalInventory.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+            
+            {!realInventory && product.stock === 0 && (
+              <div className="text-xs text-gray-400 italic mt-2">
+                Inventory data unavailable from CJ API
+              </div>
+            )}
           </div>
         </div>
 
