@@ -84,6 +84,9 @@ export default function PreviewPageFive({ product }: PreviewPageFiveProps) {
                 <span>Selected: {firstVariant.logisticName} ({firstVariant.deliveryDays})</span>
               </div>
             )}
+            <div className="text-xs text-gray-500 mt-2 italic">
+              * Using highest shipping cost variant for 100% accuracy with CJ website
+            </div>
           </div>
         ) : (
           <p className="text-indigo-600 italic">No pricing data available</p>

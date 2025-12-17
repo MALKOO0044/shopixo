@@ -1414,15 +1414,37 @@ export async function GET(req: Request) {
           break;
         }
       } else {
-        // Multi-variant product - check up to 3 variants sequentially to find CJPacket Ordinary
-        // Stop early once we find one variant with shipping OR hit quota
-        const MAX_VARIANTS_TO_CHECK = 2; // Limit variants to stay under timeout
+        // Multi-variant product - check heaviest variants first to find HIGHEST shipping cost
+        // This ensures we match CJ's "According to Shipping Method" which uses the heaviest variant
+        const MAX_VARIANTS_TO_CHECK = 2; // Only check 2 variants (heaviest first) to stay within timeout
         
-        for (let i = 0; i < Math.min(variants.length, MAX_VARIANTS_TO_CHECK); i++) {
-          // Stop if we already found shipping or hit quota
-          if (pricedVariants.length > 0) break; // Found shipping, stop checking variants
+        // Sort variants by weight (descending) to check heaviest first
+        // CJ shipping cost is primarily driven by weight, so heaviest = highest shipping
+        const sortedVariants = [...variants].sort((a, b) => {
+          const weightA = Number(a.packWeight || a.variantWeight || a.weight || 0);
+          const weightB = Number(b.packWeight || b.variantWeight || b.weight || 0);
+          return weightB - weightA; // Descending (heaviest first)
+        });
+        
+        // Collect all valid shipping quotes, then pick the highest
+        const variantShippingQuotes: Array<{
+          variantIndex: number;
+          variant: any;
+          shippingPriceUSD: number;
+          shippingPriceSAR: number;
+          deliveryDays: string;
+          logisticName: string;
+        }> = [];
+        
+        for (let i = 0; i < Math.min(sortedVariants.length, MAX_VARIANTS_TO_CHECK); i++) {
+          // Stop checking if we hit rate limit or time budget exceeded
+          if (consecutiveRateLimitErrors >= 3) break;
+          if (Date.now() - startTime > 50000) {
+            console.log(`[Search&Price] Time budget exceeded (50s), stopping variant checks`);
+            break;
+          }
           
-          const variant = variants[i];
+          const variant = sortedVariants[i];
           const variantId = String(variant.vid || variant.variantId || variant.id || '');
           const variantSku = String(variant.variantSku || variant.sku || variantId);
           const variantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
@@ -1496,35 +1518,61 @@ export async function GET(req: Request) {
             break;
           }
           
-          if (shippingAvailable) {
-            const totalCostSAR = costSAR + shippingPriceSAR;
-            const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
-            const profitSAR = sellPriceSAR - totalCostSAR;
-            
-            pricedVariants.push({
-              variantId,
-              variantSku,
-              variantPriceUSD,
-              shippingAvailable,
+          if (shippingAvailable && logisticName) {
+            // Collect this quote - we'll pick the highest later
+            variantShippingQuotes.push({
+              variantIndex: i,
+              variant,
               shippingPriceUSD,
               shippingPriceSAR,
               deliveryDays,
               logisticName,
-              sellPriceSAR,
-              totalCostSAR,
-              profitSAR,
-              error: shippingError,
-              variantName,
-              variantImage,
-              size,
-              color,
             });
-            console.log(`[Search&Price] Product ${pid} variant ${i+1}: got exact CJPacket Ordinary $${shippingPriceUSD.toFixed(2)}`);
-            break; // Stop checking more variants - we found CJPacket Ordinary
+            console.log(`[Search&Price] Product ${pid} variant ${i+1}: CJPacket Ordinary $${shippingPriceUSD.toFixed(2)}`);
           } else {
             console.log(`[Search&Price] Product ${pid} variant ${i+1}: ${shippingError}`);
-            // Continue to next variant to look for CJPacket Ordinary
           }
+        }
+        
+        // Now pick the variant with the HIGHEST shipping cost (matches CJ's heaviest variant logic)
+        if (variantShippingQuotes.length > 0) {
+          // Sort by shipping price descending and take the highest
+          variantShippingQuotes.sort((a, b) => b.shippingPriceUSD - a.shippingPriceUSD);
+          const highest = variantShippingQuotes[0];
+          const variant = highest.variant;
+          
+          console.log(`[Search&Price] Product ${pid}: Using HIGHEST shipping $${highest.shippingPriceUSD.toFixed(2)} from variant ${highest.variantIndex + 1} of ${variantShippingQuotes.length} checked`);
+          
+          const variantId = String(variant.vid || variant.variantId || variant.id || '');
+          const variantSku = String(variant.variantSku || variant.sku || variantId);
+          const variantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
+          const costSAR = usdToSar(variantPriceUSD);
+          const variantName = String(variant.variantNameEn || variant.variantName || '').replace(/[\u4e00-\u9fff]/g, '').trim() || undefined;
+          const variantImage = variant.variantImage || variant.whiteImage || variant.image || undefined;
+          const size = variant.size || variant.sizeNameEn || undefined;
+          const color = variant.color || variant.colorNameEn || undefined;
+          
+          const totalCostSAR = costSAR + highest.shippingPriceSAR;
+          const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
+          const profitSAR = sellPriceSAR - totalCostSAR;
+          
+          pricedVariants.push({
+            variantId,
+            variantSku,
+            variantPriceUSD,
+            shippingAvailable: true,
+            shippingPriceUSD: highest.shippingPriceUSD,
+            shippingPriceSAR: highest.shippingPriceSAR,
+            deliveryDays: highest.deliveryDays,
+            logisticName: highest.logisticName,
+            sellPriceSAR,
+            totalCostSAR,
+            profitSAR,
+            variantName,
+            variantImage,
+            size,
+            color,
+          });
         }
       }
       
