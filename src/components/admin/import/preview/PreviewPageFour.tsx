@@ -72,6 +72,15 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
   const hasInventoryVariants = inventoryVariants.length > 0;
   const inventoryVariantsCount = inventoryVariants.length;
   
+  // Count variants with ACTUAL stock (> 0) - only these should be counted as "in stock"
+  // Variants with cjStock or factoryStock = -1 have unknown per-variant stock
+  // Variants with cjStock and factoryStock = 0 are known to be out of stock
+  const variantsWithActualStock = inventoryVariants.filter(v => (v.cjStock > 0 || v.factoryStock > 0));
+  const inStockCount = variantsWithActualStock.length;
+  
+  // Check if any variant has unknown stock (-1)
+  const hasUnknownVariantStock = inventoryVariants.some(v => v.cjStock < 0 || v.factoryStock < 0);
+  
   // Check for inventory fetch errors
   const inventoryHasError = product.inventoryStatus === 'error' || product.inventoryStatus === 'partial';
 
@@ -139,13 +148,23 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
             </div>
             
             <div className="flex justify-between items-center">
-              <span className="text-gray-600">Available Variants:</span>
-              <span className="font-semibold text-green-600">{inventoryVariantsCount}</span>
+              <span className="text-gray-600">
+                {hasUnknownVariantStock ? 'Listed Variants:' : 'Available Variants:'}
+              </span>
+              <span className={`font-semibold ${hasUnknownVariantStock ? 'text-gray-600' : 'text-green-600'}`}>
+                {hasUnknownVariantStock ? inventoryVariantsCount : inStockCount}
+              </span>
             </div>
 
-            {product.totalVariants !== inventoryVariantsCount && inventoryVariantsCount > 0 && (
+            {!hasUnknownVariantStock && product.totalVariants !== inStockCount && inStockCount > 0 && (
               <div className="text-sm text-amber-600 bg-amber-50 rounded-lg p-2">
-                {product.totalVariants - inventoryVariantsCount} variants out of stock or unavailable
+                {product.totalVariants - inStockCount} variants out of stock or unavailable
+              </div>
+            )}
+            
+            {hasUnknownVariantStock && (
+              <div className="text-sm text-amber-600 bg-amber-50 rounded-lg p-2">
+                Per-variant stock data not available from CJ. Product has {totalStock.toLocaleString()} total units.
               </div>
             )}
           </div>
@@ -219,8 +238,10 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
               <ShoppingBag className="h-5 w-5" />
               <h3 className="text-lg font-bold">Inventory Details</h3>
             </div>
-            <span className="text-sm bg-blue-500 px-3 py-1 rounded-full">
-              {inventoryVariantsCount} variants in stock
+            <span className={`text-sm px-3 py-1 rounded-full ${hasUnknownVariantStock ? 'bg-amber-500' : 'bg-blue-500'}`}>
+              {hasUnknownVariantStock 
+                ? `${inventoryVariantsCount} variants listed`
+                : `${inStockCount} variants in stock`}
             </span>
           </div>
           
@@ -244,23 +265,30 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
                   </tr>
                 </thead>
                 <tbody className="bg-white">
-                  {inventoryVariants.map((v, idx) => (
-                    <tr key={idx} className="border-b border-blue-100 hover:bg-blue-50 transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="font-medium text-blue-800">{v.shortName}</div>
-                        <span className="text-blue-400 text-xs">SKU: {v.sku}</span>
-                      </td>
-                      <td className="py-3 px-4 text-right font-medium text-gray-900">
-                        ${(v.priceUSD || 0).toFixed(2)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-bold text-blue-600 border-l border-blue-100">
-                        {v.cjStock.toLocaleString()}
-                      </td>
-                      <td className="py-3 px-4 text-right font-bold text-orange-500">
-                        {v.factoryStock.toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
+                  {inventoryVariants.map((v, idx) => {
+                    // Handle unknown per-variant stock (-1 means per-variant data not available)
+                    const cjDisplay = v.cjStock < 0 ? '-' : v.cjStock.toLocaleString();
+                    const factoryDisplay = v.factoryStock < 0 ? '-' : v.factoryStock.toLocaleString();
+                    const isUnknownStock = v.cjStock < 0 || v.factoryStock < 0;
+                    
+                    return (
+                      <tr key={idx} className="border-b border-blue-100 hover:bg-blue-50 transition-colors">
+                        <td className="py-3 px-4">
+                          <div className="font-medium text-blue-800">{v.shortName}</div>
+                          <span className="text-blue-400 text-xs">SKU: {v.sku}</span>
+                        </td>
+                        <td className="py-3 px-4 text-right font-medium text-gray-900">
+                          ${(v.priceUSD || 0).toFixed(2)}
+                        </td>
+                        <td className={`py-3 px-4 text-right font-bold border-l border-blue-100 ${isUnknownStock ? 'text-gray-400' : 'text-blue-600'}`}>
+                          {cjDisplay}
+                        </td>
+                        <td className={`py-3 px-4 text-right font-bold ${isUnknownStock ? 'text-gray-400' : 'text-orange-500'}`}>
+                          {factoryDisplay}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -269,6 +297,11 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
           <div className="bg-blue-50 border-t border-blue-200 px-4 py-3 text-xs text-blue-700">
             <p><strong>CJ:</strong> Stock in CJ warehouse, ready for immediate shipping.</p>
             <p><strong>Factory:</strong> Stock at supplier. May require 1-3 days processing before shipping.</p>
+            {inventoryVariants.some(v => v.cjStock < 0) && (
+              <p className="mt-2 text-amber-600">
+                <strong>Note:</strong> "-" indicates per-variant stock not available from CJ. See total stock in "Stock Status" above.
+              </p>
+            )}
           </div>
         </div>
       )}

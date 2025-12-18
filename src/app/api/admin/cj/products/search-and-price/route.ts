@@ -720,18 +720,57 @@ export async function GET(req: Request) {
         console.log(`[Search&Price] Product ${pid} - Built ${inventoryVariants.length} inventoryVariants for display`);
       }
       
-      // Fallback for single-variant products: if no inventoryVariants but we have product-level stock
+      // Fallback: if no inventoryVariants but we have product-level stock,
+      // try to build from product's variant list (from fullDetails or item)
+      // IMPORTANT: We show real variant names/prices but mark stock as -1 (unknown)
+      // to maintain 100% accuracy - we never fabricate per-variant stock counts
       if (inventoryVariants.length === 0 && (realInventory?.totalAvailable || 0) > 0) {
-        inventoryVariants.push({
-          variantId: cjSku,
-          sku: cjSku,
-          shortName: 'Default',
-          priceUSD: 0, // Will be filled from variant data if available
-          cjStock: realInventory?.totalCJ ?? 0,
-          factoryStock: realInventory?.totalFactory ?? 0,
-          totalStock: realInventory?.totalAvailable ?? 0,
-        });
-        console.log(`[Search&Price] Product ${pid} - Used product-level inventory as single inventoryVariant`);
+        const productSource = fullDetails || item;
+        const productVariantList = productSource?.variantList || productSource?.skuList || productSource?.variants || [];
+        
+        if (Array.isArray(productVariantList) && productVariantList.length > 0) {
+          // Build inventoryVariants from product's variant list
+          // Show real names and prices, but use -1 for stock (indicates "per-variant unknown")
+          // The UI can display total stock from product-level data separately
+          for (const pv of productVariantList) {
+            const sku = pv.variantSku || pv.sku || pv.vid || '';
+            const variantName = pv.variantNameEn || pv.variantName || pv.skuName || pv.variantKey || '';
+            const price = Number(pv.variantSellPrice || pv.sellPrice || pv.variantPrice || pv.price || 0);
+            const vid = pv.vid || '';
+            
+            // Parse a clean short name
+            let shortName = variantName || pv.variantKey || '';
+            shortName = shortName.replace(/[\u4e00-\u9fff]/g, '').trim();
+            if (!shortName) {
+              shortName = sku || `Variant-${vid || '?'}`;
+            }
+            
+            // Use -1 to indicate "per-variant stock unknown" 
+            // This maintains accuracy - we don't fabricate numbers
+            inventoryVariants.push({
+              variantId: vid || sku,
+              sku,
+              shortName,
+              priceUSD: price,
+              cjStock: -1,      // Unknown per-variant
+              factoryStock: -1, // Unknown per-variant
+              totalStock: -1,   // Unknown per-variant
+            });
+          }
+          console.log(`[Search&Price] Product ${pid} - Built ${inventoryVariants.length} inventoryVariants from product variant list (stock marked unknown)`);
+        } else {
+          // True single-variant product - show actual totals
+          inventoryVariants.push({
+            variantId: cjSku,
+            sku: cjSku,
+            shortName: 'Default',
+            priceUSD: 0,
+            cjStock: realInventory?.totalCJ ?? 0,
+            factoryStock: realInventory?.totalFactory ?? 0,
+            totalStock: realInventory?.totalAvailable ?? 0,
+          });
+          console.log(`[Search&Price] Product ${pid} - Used product-level inventory as single inventoryVariant`);
+        }
       }
       
       // Use REAL inventory data from dedicated API (most accurate)
