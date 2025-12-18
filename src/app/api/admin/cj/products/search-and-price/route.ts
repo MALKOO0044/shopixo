@@ -563,7 +563,6 @@ export async function GET(req: Request) {
     
     const pricedProducts: PricedProduct[] = [];
     let skippedNoVariants = 0;
-    let skippedNoShipping = 0;
     const shippingErrors: Record<string, number> = {}; // Track error reasons
     let productIndex = 0;
     let candidateIndex = 0; // Track position in candidateProducts
@@ -1816,56 +1815,68 @@ export async function GET(req: Request) {
           shippingError = 'No variant ID available';
         }
         
-        if (shippingAvailable) {
-          const totalCostSAR = costSAR + shippingPriceSAR;
-          const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
-          const profitSAR = sellPriceSAR - totalCostSAR;
-          
-          // Get variant stock from the inventory map using multiple key fallbacks
-          // Single-variant product: try productSku, pid, or first available stock entry (aggregate if multiple rows)
-          let variantStock = getVariantStock({
-            vid: pid,
-            sku: item.productSku,
-          });
-          if (!variantStock && variantStockMap.size > 0) {
-            // For single-variant products with multiple inventory rows (e.g., different warehouses),
-            // aggregate all entries to get the total stock
-            const allStocks = Array.from(variantStockMap.values());
-            variantStock = {
-              cjStock: allStocks.reduce((sum, s) => sum + s.cjStock, 0),
-              factoryStock: allStocks.reduce((sum, s) => sum + s.factoryStock, 0),
-              totalStock: allStocks.reduce((sum, s) => sum + s.totalStock, 0),
-            };
-          }
-          // FALLBACK: For single-variant products, use product-level inventory if per-variant lookup failed
-          // This ensures we don't show 0/0 when product-level data is available
-          if (!variantStock && realInventory) {
-            console.log(`[Search&Price] Product ${pid}: Using product-level inventory for single variant`);
-            variantStock = {
-              cjStock: realInventory.totalCJ,
-              factoryStock: realInventory.totalFactory,
-              totalStock: realInventory.totalAvailable,
-            };
-          }
-          
-          pricedVariants.push({
-            variantId: pid,
-            variantSku: item.productSku || pid,
-            variantPriceUSD: sellPrice,
-            shippingAvailable,
-            shippingPriceUSD,
-            shippingPriceSAR,
-            deliveryDays,
-            logisticName,
-            sellPriceSAR,
-            totalCostSAR,
-            profitSAR,
-            error: shippingError,
-            stock: variantStock?.totalStock,
-            cjStock: variantStock?.cjStock,
-            factoryStock: variantStock?.factoryStock,
-          });
+        // ALWAYS include products - use fallback estimated shipping if API failed
+        // User confirmed ALL CJ products support CJPacket Ordinary
+        if (!shippingAvailable) {
+          // Fallback: estimate shipping based on product price bracket
+          // Typical CJPacket Ordinary rates: $5-15 depending on weight/size
+          const estimatedShippingUSD = sellPrice > 20 ? 8.99 : sellPrice > 10 ? 6.99 : 4.99;
+          shippingPriceUSD = estimatedShippingUSD;
+          shippingPriceSAR = usdToSar(shippingPriceUSD);
+          shippingAvailable = true; // Mark as available with estimate
+          logisticName = 'CJPacket Ordinary (Estimated)';
+          deliveryDays = '7-12 days';
+          console.log(`[Search&Price] Product ${pid}: Using estimated shipping $${estimatedShippingUSD} (API failed: ${shippingError})`);
         }
+        
+        const totalCostSAR = costSAR + shippingPriceSAR;
+        const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
+        const profitSAR = sellPriceSAR - totalCostSAR;
+        
+        // Get variant stock from the inventory map using multiple key fallbacks
+        // Single-variant product: try productSku, pid, or first available stock entry (aggregate if multiple rows)
+        let variantStock = getVariantStock({
+          vid: pid,
+          sku: item.productSku,
+        });
+        if (!variantStock && variantStockMap.size > 0) {
+          // For single-variant products with multiple inventory rows (e.g., different warehouses),
+          // aggregate all entries to get the total stock
+          const allStocks = Array.from(variantStockMap.values());
+          variantStock = {
+            cjStock: allStocks.reduce((sum, s) => sum + s.cjStock, 0),
+            factoryStock: allStocks.reduce((sum, s) => sum + s.factoryStock, 0),
+            totalStock: allStocks.reduce((sum, s) => sum + s.totalStock, 0),
+          };
+        }
+        // FALLBACK: For single-variant products, use product-level inventory if per-variant lookup failed
+        // This ensures we don't show 0/0 when product-level data is available
+        if (!variantStock && realInventory) {
+          console.log(`[Search&Price] Product ${pid}: Using product-level inventory for single variant`);
+          variantStock = {
+            cjStock: realInventory.totalCJ,
+            factoryStock: realInventory.totalFactory,
+            totalStock: realInventory.totalAvailable,
+          };
+        }
+        
+        pricedVariants.push({
+          variantId: pid,
+          variantSku: item.productSku || pid,
+          variantPriceUSD: sellPrice,
+          shippingAvailable,
+          shippingPriceUSD,
+          shippingPriceSAR,
+          deliveryDays,
+          logisticName,
+          sellPriceSAR,
+          totalCostSAR,
+          profitSAR,
+          error: shippingError,
+          stock: variantStock?.totalStock,
+          cjStock: variantStock?.cjStock,
+          factoryStock: variantStock?.factoryStock,
+        });
         
         // Stop processing if we hit 3+ consecutive rate limit errors (likely real quota issue)
         if (consecutiveRateLimitErrors >= 3) {
@@ -1994,13 +2005,42 @@ export async function GET(req: Request) {
         }
         
         // Now pick the variant with the HIGHEST shipping cost (matches CJ's heaviest variant logic)
+        // If no shipping quotes found, use first variant with estimated shipping (ALL CJ products support CJPacket)
+        let useEstimatedShipping = false;
+        let selectedVariant: any;
+        let selectedShipping = { shippingPriceUSD: 0, shippingPriceSAR: 0, deliveryDays: 'Unknown', logisticName: '' };
+        
         if (variantShippingQuotes.length > 0) {
           // Sort by shipping price descending and take the highest
           variantShippingQuotes.sort((a, b) => b.shippingPriceUSD - a.shippingPriceUSD);
           const highest = variantShippingQuotes[0];
-          const variant = highest.variant;
+          selectedVariant = highest.variant;
+          selectedShipping = {
+            shippingPriceUSD: highest.shippingPriceUSD,
+            shippingPriceSAR: highest.shippingPriceSAR,
+            deliveryDays: highest.deliveryDays,
+            logisticName: highest.logisticName,
+          };
+        } else if (sortedVariants.length > 0) {
+          // FALLBACK: No shipping quotes found, use estimated shipping for first variant
+          // User confirmed ALL CJ products support CJPacket Ordinary
+          useEstimatedShipping = true;
+          selectedVariant = sortedVariants[0];
+          const variantPrice = Number(selectedVariant.variantSellPrice || selectedVariant.sellPrice || selectedVariant.price || 0);
+          const estimatedShippingUSD = variantPrice > 20 ? 8.99 : variantPrice > 10 ? 6.99 : 4.99;
+          selectedShipping = {
+            shippingPriceUSD: estimatedShippingUSD,
+            shippingPriceSAR: usdToSar(estimatedShippingUSD),
+            deliveryDays: '7-12 days',
+            logisticName: 'CJPacket Ordinary (Estimated)',
+          };
+          console.log(`[Search&Price] Product ${pid}: Using estimated shipping $${estimatedShippingUSD} (no API quotes found)`);
+        }
+        
+        if (selectedVariant) {
+          const variant = selectedVariant;
           
-          console.log(`[Search&Price] Product ${pid}: Using HIGHEST shipping $${highest.shippingPriceUSD.toFixed(2)} from variant ${highest.variantIndex + 1} of ${variantShippingQuotes.length} checked`);
+          console.log(`[Search&Price] Product ${pid}: Using shipping $${selectedShipping.shippingPriceUSD.toFixed(2)} (${useEstimatedShipping ? 'estimated' : 'from API'})`);
           
           const variantId = String(variant.vid || variant.variantId || variant.id || '');
           const variantSku = String(variant.variantSku || variant.sku || variantId);
@@ -2039,7 +2079,7 @@ export async function GET(req: Request) {
             color = variantKeyRaw;
           }
           
-          const totalCostSAR = costSAR + highest.shippingPriceSAR;
+          const totalCostSAR = costSAR + selectedShipping.shippingPriceSAR;
           const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
           const profitSAR = sellPriceSAR - totalCostSAR;
           
@@ -2058,10 +2098,10 @@ export async function GET(req: Request) {
             variantSku,
             variantPriceUSD,
             shippingAvailable: true,
-            shippingPriceUSD: highest.shippingPriceUSD,
-            shippingPriceSAR: highest.shippingPriceSAR,
-            deliveryDays: highest.deliveryDays,
-            logisticName: highest.logisticName,
+            shippingPriceUSD: selectedShipping.shippingPriceUSD,
+            shippingPriceSAR: selectedShipping.shippingPriceSAR,
+            deliveryDays: selectedShipping.deliveryDays,
+            logisticName: selectedShipping.logisticName,
             sellPriceSAR,
             totalCostSAR,
             profitSAR,
@@ -2082,10 +2122,35 @@ export async function GET(req: Request) {
         break;
       }
       
+      // FALLBACK: If no variants were priced, create a fallback variant from product-level data
+      // User confirmed ALL CJ products support CJPacket Ordinary, so we should never skip products
       if (pricedVariants.length === 0) {
-        console.log(`[Search&Price] SKIPPING product ${pid} - no CJPacket Ordinary shipping`);
-        skippedNoShipping++;
-        continue;
+        const sellPrice = Number(item.sellPrice || item.price || 0);
+        const costSAR = usdToSar(sellPrice);
+        const estimatedShippingUSD = sellPrice > 20 ? 8.99 : sellPrice > 10 ? 6.99 : 4.99;
+        const shippingPriceSAR = usdToSar(estimatedShippingUSD);
+        const totalCostSAR = costSAR + shippingPriceSAR;
+        const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
+        const profitSAR = sellPriceSAR - totalCostSAR;
+        
+        console.log(`[Search&Price] Product ${pid}: Creating fallback variant with estimated shipping $${estimatedShippingUSD}`);
+        
+        pricedVariants.push({
+          variantId: pid,
+          variantSku: item.productSku || pid,
+          variantPriceUSD: sellPrice,
+          shippingAvailable: true,
+          shippingPriceUSD: estimatedShippingUSD,
+          shippingPriceSAR,
+          deliveryDays: '7-12 days',
+          logisticName: 'CJPacket Ordinary (Estimated)',
+          sellPriceSAR,
+          totalCostSAR,
+          profitSAR,
+          stock: realInventory?.totalAvailable,
+          cjStock: realInventory?.totalCJ,
+          factoryStock: realInventory?.totalFactory,
+        });
       }
       
       const successfulVariants = pricedVariants.filter(v => v.shippingAvailable).length;
@@ -2213,7 +2278,7 @@ export async function GET(req: Request) {
     // This ensures each product has inventory data before being pushed to pricedProducts
     
     const duration = Date.now() - startTime;
-    console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size) in ${duration}ms`);
+    console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${filteredBySizes} filtered by size) in ${duration}ms`);
     console.log(`[Search&Price] Shipping error breakdown:`, shippingErrors);
     
     // Check if we hit rate limit issues during processing
@@ -2232,7 +2297,6 @@ export async function GET(req: Request) {
           candidatesFound: candidateProducts.length,
           productsProcessed: productIndex,
           pricedSuccessfully: 0,
-          skippedNoShipping,
           shippingErrors,
           consecutiveRateLimitErrors,
         }
@@ -2251,9 +2315,6 @@ export async function GET(req: Request) {
       const reasons = [];
       if (candidateProducts.length < quantity) {
         reasons.push(`Only ${candidateProducts.length} products exist in this category on CJ`);
-      }
-      if (skippedNoShipping > 0) {
-        reasons.push(`${skippedNoShipping} products don't support CJPacket Ordinary shipping (${cjPacketSuccessRate}% success rate)`);
       }
       if (hitRateLimit) {
         reasons.push('CJ API rate limit was reached during search');
@@ -2280,7 +2341,6 @@ export async function GET(req: Request) {
         candidatesFound: candidateProducts.length,
         productsProcessed: productIndex,
         pricedSuccessfully: pricedProducts.length,
-        skippedNoShipping,
         filteredBySizes,
         shippingErrors,
         cjPacketSuccessRate,
