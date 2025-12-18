@@ -19,7 +19,7 @@ export function formatProductPrice(price: number, currency: string = 'SAR'): str
  * Check if a product is in stock
  */
 export function isInStock(product: Product): boolean {
-  return product.stock > 0;
+  return (product.stock ?? 0) > 0;
 }
 
 /**

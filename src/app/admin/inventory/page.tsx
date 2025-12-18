@@ -449,10 +449,11 @@ export default function InventoryPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <span className={`text-lg font-bold ${
+                          product.stock === null ? "text-gray-400" :
                           product.stock === 0 ? "text-red-600" :
                           product.stock <= LOW_STOCK_THRESHOLD ? "text-amber-600" : "text-green-600"
                         }`}>
-                          {product.stock}
+                          {product.stock === null ? "-" : product.stock}
                         </span>
                         {product.metadata?.variants && product.metadata.variants.length > 1 && (
                           <span className="text-xs text-gray-400">

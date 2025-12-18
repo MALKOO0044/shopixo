@@ -70,8 +70,9 @@ export async function GET(req: NextRequest) {
 
     (allProducts || []).forEach((p: any) => {
       stats.total++;
-      if (p.stock > LOW_STOCK_THRESHOLD) stats.inStock++;
-      else if (p.stock > 0) stats.lowStock++;
+      const stock = p.stock ?? 0; // null stock treated as 0 for stats
+      if (stock > LOW_STOCK_THRESHOLD) stats.inStock++;
+      else if (stock > 0) stats.lowStock++;
       else stats.outOfStock++;
       if (!p.active) stats.hidden++;
       if (p.metadata?.cj_product_id) stats.cjProducts++;

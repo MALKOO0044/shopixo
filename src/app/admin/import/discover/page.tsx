@@ -757,8 +757,8 @@ export default function ProductDiscoveryPage() {
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="flex flex-col">
                         <span className="text-gray-500">Stock</span>
-                        <span className={`font-semibold ${product.stock > 0 ? "text-gray-900" : "text-red-500"}`}>
-                          {product.stock}
+                        <span className={`font-semibold ${(product.stock ?? 0) > 0 ? "text-gray-900" : "text-red-500"}`}>
+                          {product.stock ?? "-"}
                         </span>
                       </div>
                       <div className="flex flex-col">

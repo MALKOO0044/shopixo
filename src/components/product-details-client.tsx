@@ -831,12 +831,12 @@ export default function ProductDetailsClient({
       for (const r of variantRows) {
         const cs = splitColorSize(r.option_value || '');
         if (cs.color === selectedColor && cs.size) {
-          map[cs.size] = r.stock;
+          map[cs.size] = r.stock ?? 0; // null stock treated as 0 for UI
         }
       }
     } else {
       for (const r of variantRows) {
-        map[r.option_value] = r.stock;
+        map[r.option_value] = r.stock ?? 0; // null stock treated as 0 for UI
       }
     }
     return map;
@@ -895,8 +895,8 @@ export default function ProductDetailsClient({
     return () => { cancelled = true; };
   }, [cjPid, selectedVariant?.cj_sku]);
 
-  const isOutOfStock = product.stock <= 0;
-  const variantOutOfStock = selectedVariant ? selectedVariant.stock <= 0 : false;
+  const isOutOfStock = (product.stock ?? 0) <= 0;
+  const variantOutOfStock = selectedVariant ? (selectedVariant.stock ?? 0) <= 0 : false;
   const addToCartDisabled = isOutOfStock || (hasRows && (selectedVariant ? variantOutOfStock : true));
 
   const currentPrice = selectedVariant?.price ?? product.price;
