@@ -785,6 +785,77 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
     console.error(`[CJ Variants] Error fetching variants for ${pid}:`, e?.message);
   }
   
+  // If variants have no per-variant stock data, query each variant individually
+  // using /product/stock/queryByVid endpoint
+  const variantsNeedStock = allVariants.filter(v => v.cjStock === 0 && v.factoryStock === 0 && v.vid);
+  if (variantsNeedStock.length > 0 && variantsNeedStock.length <= 20) {
+    console.log(`[CJ Variants] Querying per-variant stock for ${variantsNeedStock.length} variants with vid...`);
+    
+    // Query each variant's stock individually (respecting rate limits)
+    for (const variant of variantsNeedStock) {
+      if (!variant.vid) continue;
+      
+      try {
+        // Rate limit: wait between requests
+        await new Promise(r => setTimeout(r, 150)); // 150ms between variant stock queries
+        
+        const vidStockRes = await fetchJson<any>(
+          `${base}/product/stock/queryByVid?vid=${encodeURIComponent(variant.vid)}`,
+          {
+            method: 'GET',
+            headers: { 'CJ-Access-Token': token },
+            cache: 'no-store',
+            timeoutMs: 10000,
+          }
+        );
+        
+        const vidData = vidStockRes?.data;
+        if (vidData) {
+          // Parse the inventory array for this variant
+          const inventoryArr = vidData.variantInventories?.[0]?.inventory || vidData.inventory || [];
+          let cjTotal = 0;
+          let factoryTotal = 0;
+          
+          if (Array.isArray(inventoryArr)) {
+            for (const inv of inventoryArr) {
+              const cjInv = toSafeNumber(inv.cjInventory || inv.cjStock || 0);
+              const factoryInv = toSafeNumber(inv.factoryInventory || inv.factoryStock || 0);
+              cjTotal += cjInv;
+              factoryTotal += factoryInv;
+              
+              // Handle totalInventory when breakdown not available
+              const total = toSafeNumber(inv.totalInventory || inv.total || 0);
+              if (cjInv === 0 && factoryInv === 0 && total > 0) {
+                const countryCode = String(inv.countryCode || '').toUpperCase();
+                const verifiedWarehouse = toSafeNumber(inv.verifiedWarehouse, 0);
+                if (verifiedWarehouse === 1 || countryCode !== 'CN') {
+                  cjTotal += total;
+                } else {
+                  factoryTotal += total;
+                }
+              }
+            }
+          }
+          
+          // Also check direct fields on vidData
+          if (cjTotal === 0 && factoryTotal === 0) {
+            cjTotal = toSafeNumber(vidData.cjInventory || vidData.cjStock || 0);
+            factoryTotal = toSafeNumber(vidData.factoryInventory || vidData.factoryStock || 0);
+          }
+          
+          if (cjTotal > 0 || factoryTotal > 0) {
+            variant.cjStock = cjTotal;
+            variant.factoryStock = factoryTotal;
+            variant.totalStock = cjTotal + factoryTotal;
+            console.log(`[CJ Variants] Got stock for vid ${variant.vid}: CJ=${cjTotal}, Factory=${factoryTotal}`);
+          }
+        }
+      } catch (e: any) {
+        console.log(`[CJ Variants] Failed to get stock for vid ${variant.vid}: ${e?.message}`);
+      }
+    }
+  }
+  
   // If variant query returned nothing but we have stock data from inventory API,
   // build variants directly from stockListItems (already pre-parsed with cjStock/factoryStock)
   if (allVariants.length === 0 && stockListItems.length > 0) {
