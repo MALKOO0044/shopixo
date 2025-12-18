@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Package, TrendingUp, Layers, AlertTriangle, CheckCircle, XCircle, Warehouse, Factory, Globe, ShoppingBag } from "lucide-react";
+import { Package, TrendingUp, Layers, AlertTriangle, CheckCircle, XCircle, Globe, ShoppingBag } from "lucide-react";
 import type { PricedProduct } from "./types";
 
 type PreviewPageFourProps = {
@@ -111,13 +111,13 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
               <div className="border-t border-gray-200 pt-3 mt-3">
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-gray-500 flex items-center gap-1">
-                    <Warehouse className="h-4 w-4" /> CJ Warehouse:
+                    🏭 CJ Warehouse:
                   </span>
                   <span className="font-semibold text-blue-600">{cjStock.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between items-center text-sm mt-1">
                   <span className="text-gray-500 flex items-center gap-1">
-                    <Factory className="h-4 w-4" /> Factory:
+                    🏭 Factory:
                   </span>
                   <span className="font-semibold text-orange-600">{factoryStock.toLocaleString()}</span>
                 </div>
@@ -166,12 +166,12 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
                   <th className="text-left py-2 px-3 font-semibold text-gray-700">Warehouse Location</th>
                   <th className="text-right py-2 px-3 font-semibold text-blue-600">
                     <span className="flex items-center justify-end gap-1">
-                      <Warehouse className="h-4 w-4" /> CJ
+                      🏭 CJ
                     </span>
                   </th>
                   <th className="text-right py-2 px-3 font-semibold text-orange-600">
                     <span className="flex items-center justify-end gap-1">
-                      <Factory className="h-4 w-4" /> Factory
+                      🏭 Factory
                     </span>
                   </th>
                   <th className="text-right py-2 px-3 font-semibold text-gray-700">Total</th>
@@ -233,12 +233,12 @@ export default function PreviewPageFour({ product }: PreviewPageFourProps) {
                     <th className="text-right py-3 px-4 font-bold text-blue-900">Price</th>
                     <th className="text-right py-3 px-4 font-bold text-blue-700 border-l border-blue-300">
                       <span className="flex items-center justify-end gap-1">
-                        <Warehouse className="h-4 w-4" /> CJ
+                        🏭 CJ
                       </span>
                     </th>
                     <th className="text-right py-3 px-4 font-bold text-blue-700">
                       <span className="flex items-center justify-end gap-1">
-                        <Factory className="h-4 w-4" /> Factory
+                        🏭 Factory
                       </span>
                     </th>
                   </tr>

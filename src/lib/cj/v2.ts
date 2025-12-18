@@ -455,7 +455,8 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       timeoutMs: 15000,
     });
     
-    console.log(`[CJ Inventory] Response for ${pid}:`, JSON.stringify(stockRes).slice(0, 1500));
+    console.log(`[CJ Inventory] Response for ${pid}:`, JSON.stringify(stockRes).slice(0, 3000));
+    console.log(`[CJ Inventory] Full data structure for ${pid}:`, JSON.stringify(stockRes?.data, null, 2)?.slice(0, 5000));
     
     const stockData = stockRes?.data;
     
@@ -522,23 +523,81 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       return { cjStock: Math.floor(cjTotal), factoryStock: Math.floor(factoryTotal) };
     };
     
-    const stockList = Array.isArray(stockData) ? stockData : (stockData?.list || stockData?.variants || stockData?.variantList || []);
+    // CJ API may return data in different structures:
+    // 1. Direct array of variants
+    // 2. Object with variantStocks array (nested variants)
+    // 3. Object with list/variants array
+    let stockList: any[] = [];
+    
+    // Check for nested variantStocks first (most common for inventory API)
+    if (stockData?.variantStocks && Array.isArray(stockData.variantStocks)) {
+      stockList = stockData.variantStocks;
+      console.log(`[CJ Inventory] Found ${stockList.length} items in variantStocks array`);
+    } else if (Array.isArray(stockData)) {
+      stockList = stockData;
+      console.log(`[CJ Inventory] Found ${stockList.length} items in direct array`);
+    } else if (stockData?.list || stockData?.variants || stockData?.variantList) {
+      stockList = stockData?.list || stockData?.variants || stockData?.variantList || [];
+      console.log(`[CJ Inventory] Found ${stockList.length} items in nested list/variants`);
+    }
+    
     stockListItems = stockList; // Save for fallback variant building
     
     // Normalize key helper - same logic as in search-and-price route
     const normalizeKey = (s: any): string => {
       if (s === undefined || s === null) return '';
-      // Convert to string first (handles numeric vids, UUIDs, etc.)
       const str = String(s).trim();
       if (!str) return '';
       return str.toLowerCase().replace(/[\s\-_\.]/g, '');
     };
     
-    for (const v of stockList) {
-      const stocks = parseNestedStocks(v);
+    // Parse each variant's warehouse stocks to extract CJ vs Factory breakdown
+    const parseVariantWarehouseStocks = (item: any): { cjStock: number; factoryStock: number } => {
+      let cjTotal = 0;
+      let factoryTotal = 0;
       
-      // Store under ALL possible keys - convert any value to string first
-      // This handles numeric vids, UUIDs, and other non-string identifiers
+      // Check warehouseStocks array on the variant itself
+      const warehouseStocks = item.warehouseStocks || [];
+      if (Array.isArray(warehouseStocks) && warehouseStocks.length > 0) {
+        for (const ws of warehouseStocks) {
+          const warehouseType = String(ws.warehouseType || ws.type || ws.warehouseName || '').toLowerCase();
+          const availNum = toSafeNumber(ws.availableNum || ws.availableStock || ws.quantity || ws.stock || 0);
+          
+          if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
+            cjTotal += availNum;
+          } else {
+            factoryTotal += availNum;
+          }
+        }
+      }
+      
+      // Fallback to direct fields
+      if (cjTotal === 0 && factoryTotal === 0) {
+        cjTotal = toSafeNumber(item.cjAvailableNum || item.cjStock || item.warehouseStock || 0);
+        factoryTotal = toSafeNumber(item.supplierAvailableNum || item.factoryStock || item.factoryAvailableNum || 0);
+      }
+      
+      // Final fallback - total stock goes to factory
+      if (cjTotal === 0 && factoryTotal === 0) {
+        const totalStock = toSafeNumber(item.stock || item.totalStock || item.availableNum || item.quantity || 0);
+        if (totalStock > 0) {
+          factoryTotal = totalStock;
+        }
+      }
+      
+      return { cjStock: Math.floor(cjTotal), factoryStock: Math.floor(factoryTotal) };
+    };
+    
+    for (const v of stockList) {
+      const stocks = parseVariantWarehouseStocks(v);
+      
+      // Log first few variants for debugging
+      if (stockBySku.size < 3) {
+        console.log(`[CJ Inventory] Sample variant:`, JSON.stringify(v).slice(0, 500));
+        console.log(`[CJ Inventory] Parsed stocks: CJ=${stocks.cjStock}, Factory=${stocks.factoryStock}`);
+      }
+      
+      // Store under ALL possible keys
       const possibleKeys = [
         v.variantSku,
         v.vid,
@@ -551,8 +610,6 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       ].filter(k => k !== undefined && k !== null && String(k).trim());
       
       for (const rawKey of possibleKeys) {
-        // Convert to string and store under both raw and normalized key
-        // Only set if key doesn't already exist (avoid overwriting earlier entries for collision safety)
         const rawKeyStr = String(rawKey).trim();
         if (!stockBySku.has(rawKeyStr)) {
           stockBySku.set(rawKeyStr, stocks);
