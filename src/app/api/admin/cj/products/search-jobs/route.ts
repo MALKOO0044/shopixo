@@ -6,6 +6,11 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {
+    // Get base URL from the incoming request
+    const requestUrl = new URL(req.url);
+    const baseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
+    console.log(`[SearchJobs] Request base URL: ${baseUrl}`);
+    
     const body = await req.json();
     const {
       keywords,
@@ -50,7 +55,7 @@ export async function POST(req: NextRequest) {
 
     console.log(`[SearchJobs] Created job ${job.id} for ${requestedQuantity} products`);
 
-    runSearchJobInBackground(job.id, params, requestedQuantity);
+    runSearchJobInBackground(job.id, params, requestedQuantity, baseUrl);
 
     return NextResponse.json({
       ok: true,
@@ -66,16 +71,9 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function runSearchJobInBackground(jobId: string, params: SearchJobParams, quantity: number) {
+async function runSearchJobInBackground(jobId: string, params: SearchJobParams, quantity: number, baseUrl: string) {
   try {
     await startJob(jobId);
-    
-    let baseUrl = 'http://localhost:5000';
-    if (process.env.NEXT_PUBLIC_APP_URL) {
-      baseUrl = process.env.NEXT_PUBLIC_APP_URL;
-    } else if (process.env.REPLIT_DEV_DOMAIN) {
-      baseUrl = `https://${process.env.REPLIT_DEV_DOMAIN}`;
-    }
     
     console.log(`[SearchJobs] Using base URL: ${baseUrl}`);
     
