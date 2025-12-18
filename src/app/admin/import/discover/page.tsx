@@ -258,13 +258,48 @@ export default function ProductDiscoveryPage() {
       let stuckCheckCount = 0;
       const maxStuckChecks = 20; // 20 polls * 3 seconds = 60 seconds of no progress
       
+      let tickErrorCount = 0;
+      const maxTickErrors = 3; // Allow up to 3 consecutive tick errors before giving up
+      
       const pollJob = async () => {
         try {
           // First, trigger a tick to process more products (chunked processing for Vercel)
           try {
-            await fetch(`/api/admin/cj/products/search-jobs/${jobId}/tick`, { method: 'POST' });
-          } catch (tickErr) {
-            console.log('[Poll] Tick request failed, continuing with status check');
+            const tickRes = await fetch(`/api/admin/cj/products/search-jobs/${jobId}/tick`, { 
+              method: 'POST',
+              signal: AbortSignal.timeout(45000), // 45s timeout for tick
+            });
+            if (!tickRes.ok) {
+              tickErrorCount++;
+              console.log(`[Poll] Tick failed (${tickErrorCount}/${maxTickErrors}), status: ${tickRes.status}`);
+            } else {
+              tickErrorCount = 0; // Reset on success
+            }
+          } catch (tickErr: any) {
+            tickErrorCount++;
+            console.log(`[Poll] Tick request error (${tickErrorCount}/${maxTickErrors}):`, tickErr?.message);
+          }
+          
+          // Check if tick keeps failing - likely Vercel timeout
+          if (tickErrorCount >= maxTickErrors) {
+            console.log('[Poll] Too many tick errors, checking for partial results');
+            try {
+              const statusRes = await fetch(`/api/admin/cj/products/search-jobs?jobId=${jobId}`);
+              const statusData = await statusRes.json();
+              if (statusData.ok && statusData.job?.results?.length > 0) {
+                setProducts(statusData.job.results);
+                setError(`Server timeout after finding ${statusData.job.results.length} products. Showing available results.`);
+              } else {
+                setError("Server timeout - please try again with fewer products (try 25 or 10).");
+              }
+            } catch {
+              setError("Server timeout - please try again with fewer products.");
+            }
+            setLoading(false);
+            setSearchProgress("");
+            setCurrentJobId(null);
+            setJobProgress(null);
+            return;
           }
           
           // Then check status
@@ -322,7 +357,13 @@ export default function ProductDiscoveryPage() {
           }
           
           if (job.status === 'failed' || job.status === 'cancelled') {
-            setError(job.error_message || 'Search failed');
+            // Check for partial results even on failure
+            if (job.results && job.results.length > 0) {
+              setProducts(job.results);
+              setError(`${job.error_message || 'Search failed'} - showing ${job.results.length} products found.`);
+            } else {
+              setError(job.error_message || 'Search failed');
+            }
             setLoading(false);
             setSearchProgress("");
             return;
@@ -330,7 +371,20 @@ export default function ProductDiscoveryPage() {
           
           setTimeout(pollJob, 2000); // Poll more frequently since each tick does work
         } catch (e: any) {
-          setError(e?.message || 'Failed to check job status');
+          console.error('[Poll] Error:', e?.message);
+          // Try to show partial results on error
+          try {
+            const statusRes = await fetch(`/api/admin/cj/products/search-jobs?jobId=${jobId}`);
+            const statusData = await statusRes.json();
+            if (statusData.ok && statusData.job?.results?.length > 0) {
+              setProducts(statusData.job.results);
+              setError(`Error occurred - showing ${statusData.job.results.length} products found so far.`);
+            } else {
+              setError(e?.message || 'Failed to check job status');
+            }
+          } catch {
+            setError(e?.message || 'Failed to check job status');
+          }
           setLoading(false);
           setSearchProgress("");
         }
