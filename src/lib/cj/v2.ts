@@ -812,6 +812,8 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
 
 export type CjVariantLike = {
   cjSku?: string;
+  variantKey?: string; // Short variant name from CJ (e.g., "Black And Silver-2XL")
+  vid?: string; // CJ variant ID
   size?: string;
   color?: string;
   price?: number;
@@ -1753,12 +1755,24 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
       const widthCm = pickNum(v.width, v.widthCm, v.w) as number | undefined;
       const heightCm = pickNum(v.height, v.heightCm, v.h) as number | undefined;
 
+      // Extract variantKey (short name like "Black And Silver-2XL")
+      const variantKey = v.variantKey || undefined;
+      const vid = v.vid || v.variantId || undefined;
+      
+      // Extract CJ and Factory stock separately
+      const cjStock = pickNum(v.cjStock, v.cjInventory, v.cjAvailableNum);
+      const factoryStock = pickNum(v.factoryStock, v.factoryInventory, v.supplierStock, v.factoryAvailableNum);
+      
       variants.push({
         cjSku: cjSku || undefined,
+        variantKey,
+        vid,
         size: size || undefined,
         color: color || undefined,
         price,
         stock,
+        cjStock,
+        factoryStock,
         weightGrams,
         lengthCm: typeof lengthCm === 'number' ? lengthCm : undefined,
         widthCm: typeof widthCm === 'number' ? widthCm : undefined,
@@ -1785,14 +1799,16 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
   }
 
   // If no variants found, create one from product-level data
+  // IMPORTANT: Never fabricate stock - use actual CJ data or undefined
   if (variants.length === 0) {
     const productPrice = pickNum(item.sellPrice, item.price, item.salePrice, item.costPrice);
-    const productStock = pickNum(item.stock, item.inventory, item.listingCount, item.listedNum) ?? 100;
+    // Do NOT default to 100 - only use actual CJ stock data
+    const productStock = pickNum(item.stock, item.inventory, item.warehouseInventoryNum, item.storageNum);
     const productSku = item.productSku || item.sku || null;
     variants.push({
       cjSku: productSku || undefined,
       price: productPrice,
-      stock: typeof productStock === 'number' ? productStock : undefined,
+      stock: typeof productStock === 'number' ? productStock : undefined, // undefined if not provided by CJ
     });
   }
 

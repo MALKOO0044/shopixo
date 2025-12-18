@@ -102,7 +102,27 @@ export async function POST(req: Request) {
         const baseSlug = await ensureUniqueSlug(supabase, cj.name);
         const priceCandidates = (cj.variants || []).map((v) => (typeof v.price === 'number' ? v.price : NaN)).filter((n) => !isNaN(n));
         const defaultPrice = priceCandidates.length > 0 ? Math.min(...priceCandidates) : 0;
-        const totalStock = (cj.variants || []).reduce((acc, v) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0);
+        
+        // 100% ACCURACY MANDATE: Import ALL variants exactly as CJ provides them
+        // Calculate totalStock from known values only, but keep ALL variants (even with unknown stock)
+        // If ALL variants have unknown stock, product stock should be null (not 0)
+        const variants = cj.variants || [];
+        const variantsWithKnownStock = variants.filter((v) => {
+          if (typeof v.stock === 'number' && v.stock >= 0) return true;
+          if (typeof v.cjStock === 'number' && v.cjStock >= 0) return true;
+          if (typeof v.factoryStock === 'number' && v.factoryStock >= 0) return true;
+          return false;
+        });
+        
+        // If no variants have known stock, totalStock is null (unknown, not fabricated 0)
+        const totalStock: number | null = variantsWithKnownStock.length === 0 
+          ? null 
+          : variantsWithKnownStock.reduce((acc, v) => {
+              if (typeof v.stock === 'number' && v.stock >= 0) return acc + v.stock;
+              const cjVal = (typeof v.cjStock === 'number' && v.cjStock >= 0) ? v.cjStock : 0;
+              const factoryVal = (typeof v.factoryStock === 'number' && v.factoryStock >= 0) ? v.factoryStock : 0;
+              return acc + cjVal + factoryVal;
+            }, 0);
 
         let productPayload: any = {
           title: cj.name,
@@ -175,17 +195,65 @@ export async function POST(req: Request) {
         }
 
         // Insert variants if table exists
+        // CRITICAL: Only import variants with accurate stock data (100% accuracy mandate)
         if (hasVariantsTable) {
           const variantsRows = (cj.variants || [])
-            .filter((v) => v && (v.size || v.cjSku))
-            .map((v) => ({
-              product_id: productId,
-              option_name: 'Size',
-              option_value: v.size || '-',
-              cj_sku: v.cjSku || null,
-              price: typeof v.price === 'number' ? v.price : null,
-              stock: typeof v.stock === 'number' ? v.stock : 0,
-            }));
+            .filter((v) => v && (v.size || v.cjSku || v.variantKey))
+            .map((v) => {
+              // Handle stock values with 100% accuracy:
+              // - null/undefined means unknown - skip this variant
+              // - -1 is a sentinel for "per-variant unknown" - skip this variant  
+              // - 0+ is actual known stock - use this value
+              const cjStockRaw = v.cjStock;
+              const factoryStockRaw = v.factoryStock;
+              
+              // Convert to DB values: null for unknown, actual value for known
+              const cjStockVal = (typeof cjStockRaw === 'number' && cjStockRaw >= 0) ? cjStockRaw : null;
+              const factoryStockVal = (typeof factoryStockRaw === 'number' && factoryStockRaw >= 0) ? factoryStockRaw : null;
+              
+              // Calculate total stock - ONLY from known CJ data, never fabricated
+              // 1. If explicit v.stock provided and >= 0, use it
+              // 2. If cj + factory are known, sum them
+              // 3. If only one is known, use that
+              // 4. If neither is known, mark as null (will be filtered out)
+              let totalStock: number | null;
+              if (typeof v.stock === 'number' && v.stock >= 0) {
+                // CJ provided explicit total for this variant
+                totalStock = v.stock;
+              } else if (cjStockVal !== null && factoryStockVal !== null) {
+                // Both warehouse values known - sum them
+                totalStock = cjStockVal + factoryStockVal;
+              } else if (cjStockVal !== null) {
+                // Only CJ stock known - use it
+                totalStock = cjStockVal;
+              } else if (factoryStockVal !== null) {
+                // Only Factory stock known - use it
+                totalStock = factoryStockVal;
+              } else {
+                // Neither is known - cannot import without fabricating data
+                totalStock = null;
+              }
+              
+              return {
+                product_id: productId,
+                option_name: 'Size',
+                option_value: v.size || v.variantKey || '-',
+                cj_sku: v.cjSku || null,
+                cj_variant_id: v.vid || null,
+                variant_key: v.variantKey || null, // Short name like "Black And Silver-2XL"
+                price: typeof v.price === 'number' ? v.price : null,
+                stock: totalStock, // null if unknown (will be filtered out)
+                cj_stock: cjStockVal, // null if unknown, actual value if known
+                factory_stock: factoryStockVal, // null if unknown, actual value if known
+                weight_grams: typeof v.weightGrams === 'number' ? v.weightGrams : null,
+                length_cm: typeof v.lengthCm === 'number' ? v.lengthCm : null,
+                width_cm: typeof v.widthCm === 'number' ? v.widthCm : null,
+                height_cm: typeof v.heightCm === 'number' ? v.heightCm : null,
+              };
+            });
+          // 100% ACCURACY: Keep ALL variants from CJ, store null for unknown stock
+          // Do NOT filter out variants - that would misrepresent CJ's catalog
+            
           if (variantsRows.length > 0) {
             const { error: vErr } = await supabase
               .from('product_variants')

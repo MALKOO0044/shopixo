@@ -6,7 +6,11 @@ export type ProductVariant = {
   cj_sku: string | null;
   cj_variant_id?: string | null;
   price: number | null; // if null, fallback to product.price
-  stock: number;
+  stock: number | null; // null = unknown (CJ didn't provide), 0 = truly zero, positive = known
+  // CJ-specific variant data
+  variant_key?: string | null; // Short variant name from CJ (e.g., "Black And Silver-2XL")
+  cj_stock?: number | null; // Stock in CJ warehouse (verified, ready to ship)
+  factory_stock?: number | null; // Stock at supplier factory (may require 1-3 days processing)
   // Optional shipping metadata (if available from CJ)
   weight_grams?: number | null;
   length_cm?: number | null;
@@ -23,7 +27,7 @@ export type Product = {
   images: string[];
   category: string;
   rating: number;
-  stock: number;
+  stock: number | null; // null = all variants have unknown stock
   // UI-oriented variants selector (kept for backward compatibility)
   variants: { name: string; options: string[] }[];
   is_active?: boolean; // soft delete flag (optional to avoid breaking existing code)
