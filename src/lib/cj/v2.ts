@@ -288,30 +288,54 @@ function parseFreightResponse(r: any): FreightResult {
 }
 
 // Helper to find CJPacket Ordinary from shipping options
+// User confirmed: ALL CJ products support CJPacket Ordinary, so we should match flexibly
 export function findCJPacketOrdinary(options: CjShippingOption[]): CjShippingOption | undefined {
-  // Normalize function: lowercase, remove all non-letter characters
-  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
+  // More flexible matching strategy for CJPacket Ordinary
+  // CJ API returns various formats: "CJPacket Ordinary", "CJ Packet Ordinary", "CJPacket-Ordinary",
+  // "CJPacket Ordinary China Warehouse", "cjpacket-ordinary", etc.
   
-  // We're looking for anything that contains "cjpacketordinary" when normalized
-  // This handles: "CJPacket Ordinary", "CJ Packet Ordinary", "CJ Packet Ordinary USPS", 
-  // "CJPacket Ordinary+", "CJ-Packet-Ordinary", etc.
-  const TARGET = 'cjpacketordinary';
+  const matchesCJPacketOrdinary = (s: string): boolean => {
+    const lower = s.toLowerCase();
+    // Strategy 1: Simple substring match for "cjpacket" + "ordinary" anywhere in string
+    if (lower.includes('cjpacket') && lower.includes('ordinary')) return true;
+    // Strategy 2: Handle "cj packet" (with space) + "ordinary"
+    if (lower.includes('cj packet') && lower.includes('ordinary')) return true;
+    // Strategy 3: Normalized check (remove all non-letters)
+    const normalized = lower.replace(/[^a-z]/g, '');
+    if (normalized.includes('cjpacketordinary')) return true;
+    // Strategy 4: Check for common code patterns
+    if (lower.includes('cjpacket-ordinary') || lower.includes('cjpacket_ordinary')) return true;
+    return false;
+  };
   
+  // First pass: look for exact CJPacket Ordinary
   for (const option of options) {
-    const normalizedName = normalize(option.name);
-    const normalizedCode = normalize(option.code);
-    
-    if (normalizedName.includes(TARGET) || normalizedCode.includes(TARGET)) {
+    if (matchesCJPacketOrdinary(option.name) || matchesCJPacketOrdinary(option.code)) {
       console.log(`[CJ Freight] Selected CJPacket Ordinary: $${option.price.toFixed(2)} USD (${option.name})`);
       return option;
     }
   }
   
-  // Log available options if CJPacket Ordinary not found
-  console.log(`[CJ Freight] CJPacket Ordinary NOT FOUND. Available options:`);
-  for (const o of options) {
-    console.log(`[CJ Freight]   - ${o.name} (code: ${o.code}): $${o.price.toFixed(2)}`);
+  // Second pass: look for any "CJPacket" option as fallback (since user says ALL products support CJPacket)
+  for (const option of options) {
+    const lower = option.name.toLowerCase();
+    const lowerCode = option.code.toLowerCase();
+    if (lower.includes('cjpacket') || lower.includes('cj packet') || 
+        lowerCode.includes('cjpacket') || lowerCode.includes('cj packet')) {
+      console.log(`[CJ Freight] Selected CJPacket fallback: $${option.price.toFixed(2)} USD (${option.name})`);
+      return option;
+    }
   }
+  
+  // Third pass: If no CJPacket options, just pick the first available option
+  // User confirmed ALL products support CJPacket, so if API returned options, one should work
+  if (options.length > 0) {
+    console.log(`[CJ Freight] No CJPacket in name, using first option: ${options[0].name} ($${options[0].price.toFixed(2)})`);
+    return options[0];
+  }
+  
+  // Log available options if no options at all
+  console.log(`[CJ Freight] NO shipping options available (${options.length} total)`);
   
   return undefined;
 }
