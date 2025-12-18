@@ -217,103 +217,11 @@ export default function ProductDiscoveryPage() {
     setSavedBatchId(null);
     setCurrentJobId(null);
     setJobProgress(null);
-    setSearchProgress("Starting search job...");
     
-    try {
-      const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
-      
-      const jobRes = await fetch('/api/admin/cj/products/search-jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          categoryId: categoryIds.join(","),
-          minPrice,
-          maxPrice,
-          minStock,
-          profitMargin,
-          popularity,
-          minRating,
-          freeShippingOnly,
-          quantity,
-        }),
-      });
-      
-      const jobData = await jobRes.json();
-      
-      if (!jobRes.ok || !jobData.ok) {
-        if (jobData.fallbackToDirectSearch) {
-          console.log('Job system not available, falling back to direct search');
-          await fallbackDirectSearch(categoryIds);
-          return;
-        }
-        throw new Error(jobData.error || 'Failed to start search job');
-      }
-      
-      const jobId = jobData.jobId;
-      setCurrentJobId(jobId);
-      setJobProgress({ found: 0, requested: quantity });
-      setSearchProgress(`Searching for ${quantity} products...`);
-      
-      const eventSource = new EventSource(`/api/admin/cj/products/search-jobs/${jobId}/events`);
-      
-      eventSource.onmessage = async (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          
-          if (data.type === 'progress') {
-            setJobProgress({ found: data.found_count, requested: data.requested_quantity });
-            setSearchProgress(data.progress_message || `Found ${data.found_count} of ${data.requested_quantity} products...`);
-          }
-          
-          if (data.type === 'complete' || data.type === 'error' || data.type === 'timeout') {
-            eventSource.close();
-            
-            if (data.type === 'error' || data.status === 'failed') {
-              setError(data.error || data.message || 'Search failed');
-              setLoading(false);
-              setSearchProgress("");
-              return;
-            }
-            
-            setSearchProgress("Loading results...");
-            const resultsRes = await fetch(`/api/admin/cj/products/search-jobs?jobId=${jobId}`);
-            const resultsData = await resultsRes.json();
-            
-            if (resultsData.ok && resultsData.job?.results) {
-              const pricedProducts: PricedProduct[] = resultsData.job.results || [];
-              setProducts(pricedProducts);
-              
-              if (pricedProducts.length === 0) {
-                setError("No products found. Try different filters.");
-              } else if (pricedProducts.length < quantity) {
-                setError(`Found ${pricedProducts.length} of ${quantity} requested products.`);
-              }
-            } else {
-              setError(resultsData.job?.error_message || 'Failed to load results');
-            }
-            
-            setLoading(false);
-            setSearchProgress("");
-            setCurrentJobId(null);
-            setJobProgress(null);
-          }
-        } catch (e) {
-          console.error('SSE parse error:', e);
-        }
-      };
-      
-      eventSource.onerror = () => {
-        eventSource.close();
-        setError("Connection lost. Please try again.");
-        setLoading(false);
-        setSearchProgress("");
-      };
-      
-    } catch (e: any) {
-      setError(e?.message || "Search failed");
-      setLoading(false);
-      setSearchProgress("");
-    }
+    const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
+    
+    setSearchProgress(`Searching for ${quantity} products... This may take a few minutes.`);
+    await fallbackDirectSearch(categoryIds);
   };
 
   const toggleSelect = (productId: string, e: React.MouseEvent) => {

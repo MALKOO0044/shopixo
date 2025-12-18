@@ -70,13 +70,18 @@ async function runSearchJobInBackground(jobId: string, params: SearchJobParams, 
   try {
     await startJob(jobId);
     
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.REPLIT_DEV_DOMAIN 
-      ? `https://${process.env.REPLIT_DEV_DOMAIN}` 
-      : 'http://localhost:5000';
+    let baseUrl = 'http://localhost:5000';
+    if (process.env.NEXT_PUBLIC_APP_URL) {
+      baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+    } else if (process.env.REPLIT_DEV_DOMAIN) {
+      baseUrl = `https://${process.env.REPLIT_DEV_DOMAIN}`;
+    }
+    
+    console.log(`[SearchJobs] Using base URL: ${baseUrl}`);
     
     const searchParams = new URLSearchParams();
     if (params.keywords) searchParams.set('keywords', params.keywords);
-    if (params.categoryId) searchParams.set('categoryId', params.categoryId);
+    if (params.categoryId) searchParams.set('categoryIds', params.categoryId);
     if (params.minPrice) searchParams.set('minPrice', String(params.minPrice));
     if (params.maxPrice) searchParams.set('maxPrice', String(params.maxPrice));
     if (params.minStock) searchParams.set('minStock', String(params.minStock));
