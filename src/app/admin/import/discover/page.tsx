@@ -147,6 +147,63 @@ export default function ProductDiscoveryPage() {
     }
   };
 
+  const fallbackDirectSearch = async (categoryIds: string[]) => {
+    setSearchProgress("Searching products (direct mode)...");
+    
+    const params = new URLSearchParams({
+      categoryIds: categoryIds.join(","),
+      quantity: quantity.toString(),
+      minPrice: minPrice.toString(),
+      maxPrice: maxPrice.toString(),
+      minStock: minStock.toString(),
+      profitMargin: profitMargin.toString(),
+      popularity: popularity,
+      minRating: minRating,
+      shippingMethod: shippingMethod,
+      freeShippingOnly: freeShippingOnly ? "1" : "0",
+    });
+    
+    try {
+      const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
+        method: 'GET',
+      });
+      
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`Server error: ${text.slice(0, 100)}...`);
+      }
+      
+      const data = await res.json();
+      
+      if (!res.ok || !data.ok) {
+        if (data.quotaExhausted || res.status === 429) {
+          throw new Error("CJ Dropshipping API daily limit reached. Please try again tomorrow.");
+        }
+        throw new Error(data.error || `Search failed: ${res.status}`);
+      }
+      
+      const pricedProducts: PricedProduct[] = data.products || [];
+      setProducts(pricedProducts);
+      
+      if (data.quotaExhausted && pricedProducts.length > 0) {
+        setError("Warning: CJ API limit reached during search. Some products may be missing.");
+      }
+      
+      if (pricedProducts.length === 0) {
+        setError("No products found. Try different filters.");
+      } else if (pricedProducts.length < quantity) {
+        const debug = data.debug;
+        if (debug?.shortfallReason) {
+          setError(`Note: Found ${pricedProducts.length} of ${quantity} requested. Reason: ${debug.shortfallReason}`);
+        }
+      }
+    } finally {
+      setLoading(false);
+      setSearchProgress("");
+    }
+  };
+
   const searchProducts = async () => {
     if (category === "all" && selectedFeatures.length === 0) {
       setError("Please select a category or feature to search");
@@ -184,6 +241,11 @@ export default function ProductDiscoveryPage() {
       const jobData = await jobRes.json();
       
       if (!jobRes.ok || !jobData.ok) {
+        if (jobData.fallbackToDirectSearch) {
+          console.log('Job system not available, falling back to direct search');
+          await fallbackDirectSearch(categoryIds);
+          return;
+        }
         throw new Error(jobData.error || 'Failed to start search job');
       }
       

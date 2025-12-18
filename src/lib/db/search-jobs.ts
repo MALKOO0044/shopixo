@@ -6,10 +6,11 @@ function getSupabaseAdmin(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    console.error('[SearchJobs] Missing Supabase credentials');
+    console.error('[SearchJobs] Missing Supabase credentials:', { url: !!url, key: !!key });
     return null;
   }
   if (!supabaseAdmin) {
+    console.log('[SearchJobs] Creating Supabase admin client for:', url);
     supabaseAdmin = createClient(url, key);
   }
   return supabaseAdmin;
@@ -48,8 +49,13 @@ export interface SearchJob {
 
 export async function createSearchJob(params: SearchJobParams, quantity: number): Promise<{ id: string } | null> {
   const supabase = getSupabaseAdmin();
-  if (!supabase) return null;
+  if (!supabase) {
+    console.error('[SearchJobs] No Supabase client available');
+    return null;
+  }
 
+  console.log('[SearchJobs] Creating job with quantity:', quantity);
+  
   const { data, error } = await supabase
     .from('cj_search_jobs')
     .insert({
@@ -64,9 +70,10 @@ export async function createSearchJob(params: SearchJobParams, quantity: number)
     .single();
 
   if (error) {
-    console.error('[SearchJobs] Failed to create job:', error.message);
+    console.error('[SearchJobs] Failed to create job:', error.message, error.code, error.details);
     return null;
   }
+  console.log('[SearchJobs] Job created successfully:', data.id);
   return data;
 }
 

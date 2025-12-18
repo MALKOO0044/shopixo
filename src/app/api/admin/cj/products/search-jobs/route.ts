@@ -43,8 +43,8 @@ export async function POST(req: NextRequest) {
     const job = await createSearchJob(params, requestedQuantity);
     if (!job) {
       return NextResponse.json(
-        { ok: false, error: 'Failed to create search job. Database may not be configured.' },
-        { status: 500 }
+        { ok: false, error: 'Job system not available. Please run the cj_search_jobs migration in Supabase.', fallbackToDirectSearch: true },
+        { status: 503 }
       );
     }
 
