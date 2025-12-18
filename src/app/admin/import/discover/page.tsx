@@ -217,11 +217,11 @@ export default function ProductDiscoveryPage() {
     setSavedBatchId(null);
     setCurrentJobId(null);
     setJobProgress(null);
-    setSearchProgress("Starting search...");
-    
-    const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
+    setSearchProgress("Starting search job...");
     
     try {
+      const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
+      
       const jobRes = await fetch('/api/admin/cj/products/search-jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -242,11 +242,11 @@ export default function ProductDiscoveryPage() {
       
       if (!jobRes.ok || !jobData.ok) {
         if (jobData.fallbackToDirectSearch) {
-          setSearchProgress(`Searching for ${quantity} products (direct mode)...`);
+          console.log('Job system not available, falling back to direct search');
           await fallbackDirectSearch(categoryIds);
           return;
         }
-        throw new Error(jobData.error || 'Failed to start search');
+        throw new Error(jobData.error || 'Failed to start search job');
       }
       
       const jobId = jobData.jobId;
@@ -254,153 +254,63 @@ export default function ProductDiscoveryPage() {
       setJobProgress({ found: 0, requested: quantity });
       setSearchProgress(`Searching for ${quantity} products...`);
       
-      let lastFoundCount = 0;
-      let stuckCheckCount = 0;
-      const maxStuckChecks = 20; // 20 polls * 3 seconds = 60 seconds of no progress
+      const eventSource = new EventSource(`/api/admin/cj/products/search-jobs/${jobId}/events`);
       
-      let tickErrorCount = 0;
-      const maxTickErrors = 3; // Allow up to 3 consecutive tick errors before giving up
-      
-      const pollJob = async () => {
+      eventSource.onmessage = async (event) => {
         try {
-          // First, trigger a tick to process more products (chunked processing for Vercel)
-          try {
-            const tickRes = await fetch(`/api/admin/cj/products/search-jobs/${jobId}/tick`, { 
-              method: 'POST',
-              signal: AbortSignal.timeout(45000), // 45s timeout for tick
-            });
-            if (!tickRes.ok) {
-              tickErrorCount++;
-              console.log(`[Poll] Tick failed (${tickErrorCount}/${maxTickErrors}), status: ${tickRes.status}`);
-            } else {
-              tickErrorCount = 0; // Reset on success
-            }
-          } catch (tickErr: any) {
-            tickErrorCount++;
-            console.log(`[Poll] Tick request error (${tickErrorCount}/${maxTickErrors}):`, tickErr?.message);
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'progress') {
+            setJobProgress({ found: data.found_count, requested: data.requested_quantity });
+            setSearchProgress(data.progress_message || `Found ${data.found_count} of ${data.requested_quantity} products...`);
           }
           
-          // Check if tick keeps failing - likely Vercel timeout
-          if (tickErrorCount >= maxTickErrors) {
-            console.log('[Poll] Too many tick errors, checking for partial results');
-            try {
-              const statusRes = await fetch(`/api/admin/cj/products/search-jobs?jobId=${jobId}`);
-              const statusData = await statusRes.json();
-              if (statusData.ok && statusData.job?.results?.length > 0) {
-                setProducts(statusData.job.results);
-                setError(`Server timeout after finding ${statusData.job.results.length} products. Showing available results.`);
-              } else {
-                setError("Server timeout - please try again with fewer products (try 25 or 10).");
-              }
-            } catch {
-              setError("Server timeout - please try again with fewer products.");
-            }
-            setLoading(false);
-            setSearchProgress("");
-            setCurrentJobId(null);
-            setJobProgress(null);
-            return;
-          }
-          
-          // Then check status
-          const statusRes = await fetch(`/api/admin/cj/products/search-jobs?jobId=${jobId}`);
-          const statusData = await statusRes.json();
-          
-          if (!statusData.ok || !statusData.job) {
-            throw new Error('Failed to get job status');
-          }
-          
-          const job = statusData.job;
-          const currentFound = job.found_count || 0;
-          
-          // Check if job is stuck (no progress for 60 seconds)
-          if (currentFound === lastFoundCount && job.status === 'running') {
-            stuckCheckCount++;
-            if (stuckCheckCount >= maxStuckChecks) {
-              // Job seems stuck, show what we have
-              if (currentFound > 0 && job.results && job.results.length > 0) {
-                setProducts(job.results);
-                setError(`Search timed out after finding ${currentFound} products. Showing available results.`);
-              } else {
-                setError("Search timed out. The CJ API may be slow - please try again with fewer products.");
-              }
+          if (data.type === 'complete' || data.type === 'error' || data.type === 'timeout') {
+            eventSource.close();
+            
+            if (data.type === 'error' || data.status === 'failed') {
+              setError(data.error || data.message || 'Search failed');
               setLoading(false);
               setSearchProgress("");
-              setCurrentJobId(null);
-              setJobProgress(null);
               return;
             }
-          } else {
-            // Progress was made, reset stuck counter
-            stuckCheckCount = 0;
-            lastFoundCount = currentFound;
-          }
-          
-          setJobProgress({ found: currentFound, requested: job.requested_quantity });
-          setSearchProgress(`Found ${currentFound} of ${job.requested_quantity} products...`);
-          
-          if (job.status === 'completed') {
-            const pricedProducts: PricedProduct[] = job.results || [];
-            setProducts(pricedProducts);
             
-            if (pricedProducts.length === 0) {
-              setError("No products found. Try different filters.");
-            } else if (pricedProducts.length < quantity) {
-              setError(`Found ${pricedProducts.length} of ${quantity} requested products.`);
+            setSearchProgress("Loading results...");
+            const resultsRes = await fetch(`/api/admin/cj/products/search-jobs?jobId=${jobId}`);
+            const resultsData = await resultsRes.json();
+            
+            if (resultsData.ok && resultsData.job?.results) {
+              const pricedProducts: PricedProduct[] = resultsData.job.results || [];
+              setProducts(pricedProducts);
+              
+              if (pricedProducts.length === 0) {
+                setError("No products found. Try different filters.");
+              } else if (pricedProducts.length < quantity) {
+                setError(`Found ${pricedProducts.length} of ${quantity} requested products.`);
+              }
+            } else {
+              setError(resultsData.job?.error_message || 'Failed to load results');
             }
             
             setLoading(false);
             setSearchProgress("");
             setCurrentJobId(null);
             setJobProgress(null);
-            return;
           }
-          
-          if (job.status === 'failed' || job.status === 'cancelled') {
-            // Check for partial results even on failure
-            if (job.results && job.results.length > 0) {
-              setProducts(job.results);
-              setError(`${job.error_message || 'Search failed'} - showing ${job.results.length} products found.`);
-            } else {
-              setError(job.error_message || 'Search failed');
-            }
-            setLoading(false);
-            setSearchProgress("");
-            return;
-          }
-          
-          setTimeout(pollJob, 2000); // Poll more frequently since each tick does work
-        } catch (e: any) {
-          console.error('[Poll] Error:', e?.message);
-          // Try to show partial results on error
-          try {
-            const statusRes = await fetch(`/api/admin/cj/products/search-jobs?jobId=${jobId}`);
-            const statusData = await statusRes.json();
-            if (statusData.ok && statusData.job?.results?.length > 0) {
-              setProducts(statusData.job.results);
-              setError(`Error occurred - showing ${statusData.job.results.length} products found so far.`);
-            } else {
-              setError(e?.message || 'Failed to check job status');
-            }
-          } catch {
-            setError(e?.message || 'Failed to check job status');
-          }
-          setLoading(false);
-          setSearchProgress("");
+        } catch (e) {
+          console.error('SSE parse error:', e);
         }
       };
       
-      setTimeout(pollJob, 2000);
+      eventSource.onerror = () => {
+        eventSource.close();
+        setError("Connection lost. Please try again.");
+        setLoading(false);
+        setSearchProgress("");
+      };
       
     } catch (e: any) {
-      console.error('[Discover] Search error:', e);
-      const errorMsg = e?.message || "Search failed";
-      // More specific error for network failures
-      if (errorMsg.includes('fetch') || errorMsg.includes('network') || errorMsg.includes('Failed to fetch')) {
-        setError("Network error - could not reach the server. Please check your connection and try again.");
-      } else {
-        setError(errorMsg);
-      }
+      setError(e?.message || "Search failed");
       setLoading(false);
       setSearchProgress("");
     }
@@ -803,20 +713,14 @@ export default function ProductDiscoveryPage() {
           <div className="flex items-center gap-3">
             <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
             <div className="flex-1">
-              <div className="h-3 bg-amber-200 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-amber-500 rounded-full transition-all duration-500" 
-                  style={{ width: jobProgress ? `${Math.min(100, (jobProgress.found / jobProgress.requested) * 100)}%` : '5%' }} 
-                />
+              <div className="h-2 bg-amber-200 rounded-full overflow-hidden">
+                <div className="h-full bg-amber-500 rounded-full animate-pulse" style={{ width: '60%' }} />
               </div>
             </div>
-            <span className="text-sm font-medium text-amber-700">
-              {jobProgress ? `${jobProgress.found} / ${jobProgress.requested}` : 'Starting...'}
-            </span>
+            <span className="text-sm text-amber-700">{searchProgress}</span>
           </div>
-          <p className="text-sm text-amber-700 mt-2">{searchProgress}</p>
-          <p className="text-xs text-amber-600 mt-1">
-            This may take several minutes for large quantities. Do not close this page.
+          <p className="text-xs text-amber-600 mt-2">
+            Searching products, calculating shipping costs, and applying {profitMargin}% profit margin. Products will display final USD sell prices including shipping + profit when search completes.
           </p>
         </div>
       )}

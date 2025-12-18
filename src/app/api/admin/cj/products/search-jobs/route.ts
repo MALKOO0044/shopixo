@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSearchJob, startJob, getSearchJob, SearchJobParams } from '@/lib/db/search-jobs';
+import { createSearchJob, startJob, updateJobProgress, completeJob, failJob, getSearchJob, SearchJobParams } from '@/lib/db/search-jobs';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // Vercel Pro limit
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {
@@ -50,8 +50,7 @@ export async function POST(req: NextRequest) {
 
     console.log(`[SearchJobs] Created job ${job.id} for ${requestedQuantity} products`);
 
-    // Mark job as running (the /tick endpoint will do the actual work)
-    await startJob(job.id);
+    runSearchJobInBackground(job.id, params, requestedQuantity);
 
     return NextResponse.json({
       ok: true,
@@ -64,6 +63,59 @@ export async function POST(req: NextRequest) {
       { ok: false, error: e?.message || 'Failed to create search job' },
       { status: 500 }
     );
+  }
+}
+
+async function runSearchJobInBackground(jobId: string, params: SearchJobParams, quantity: number) {
+  try {
+    await startJob(jobId);
+    
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.REPLIT_DEV_DOMAIN 
+      ? `https://${process.env.REPLIT_DEV_DOMAIN}` 
+      : 'http://localhost:5000';
+    
+    const searchParams = new URLSearchParams();
+    if (params.keywords) searchParams.set('keywords', params.keywords);
+    if (params.categoryId) searchParams.set('categoryId', params.categoryId);
+    if (params.minPrice) searchParams.set('minPrice', String(params.minPrice));
+    if (params.maxPrice) searchParams.set('maxPrice', String(params.maxPrice));
+    if (params.minStock) searchParams.set('minStock', String(params.minStock));
+    if (params.minRating) searchParams.set('minRating', String(params.minRating));
+    if (params.popularity) searchParams.set('popularity', params.popularity);
+    if (params.sizes?.length) searchParams.set('sizes', params.sizes.join(','));
+    if (params.features?.length) searchParams.set('features', params.features.join(','));
+    if (params.profitMargin) searchParams.set('profitMargin', String(params.profitMargin));
+    if (params.freeShippingOnly) searchParams.set('freeShippingOnly', 'true');
+    searchParams.set('quantity', String(quantity));
+    searchParams.set('jobId', jobId);
+
+    const url = `${baseUrl}/api/admin/cj/products/search-and-price?${searchParams.toString()}`;
+    
+    console.log(`[SearchJobs] Starting background search for job ${jobId}`);
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Search API failed: ${response.status} ${text}`);
+    }
+
+    const result = await response.json();
+    
+    if (result.ok && result.products) {
+      await completeJob(jobId, result.products);
+      console.log(`[SearchJobs] Job ${jobId} completed with ${result.products.length} products`);
+    } else {
+      await failJob(jobId, result.error || 'Search returned no products');
+    }
+  } catch (e: any) {
+    console.error(`[SearchJobs] Job ${jobId} failed:`, e?.message);
+    await failJob(jobId, e?.message || 'Unknown error');
   }
 }
 
@@ -99,8 +151,7 @@ export async function GET(req: NextRequest) {
       created_at: job.created_at,
       started_at: job.started_at,
       finished_at: job.finished_at,
-      // Return results for completed jobs, and partial results for stuck job recovery
-      results: job.results || undefined,
+      results: job.status === 'completed' ? job.results : undefined,
     },
   });
 }
