@@ -460,90 +460,18 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
     
     const stockData = stockRes?.data;
     
-    const parseNestedStocks = (item: any): { cjStock: number; factoryStock: number } => {
-      let cjTotal = 0;
-      let factoryTotal = 0;
-      
-      const variantStocks = item.variantStocks || [];
-      if (Array.isArray(variantStocks) && variantStocks.length > 0) {
-        for (const vs of variantStocks) {
-          const innerWarehouseStocks = vs.warehouseStocks || [];
-          if (Array.isArray(innerWarehouseStocks) && innerWarehouseStocks.length > 0) {
-            for (const ws of innerWarehouseStocks) {
-              const warehouseType = String(ws.warehouseType || ws.type || ws.warehouseName || '').toLowerCase();
-              const availNum = toSafeNumber(ws.availableNum || ws.availableStock || ws.quantity || ws.stock || 0);
-              
-              if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
-                cjTotal += availNum;
-              } else if (warehouseType.includes('factory') || warehouseType.includes('supplier') || warehouseType.includes('china')) {
-                factoryTotal += availNum;
-              } else {
-                factoryTotal += availNum;
-              }
-            }
-          } else {
-            const warehouseType = String(vs.warehouseType || vs.type || '').toLowerCase();
-            const availNum = toSafeNumber(vs.availableNum || vs.availableStock || vs.quantity || vs.stock || 0);
-            
-            if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
-              cjTotal += availNum;
-            } else {
-              factoryTotal += availNum;
-            }
-          }
-        }
-      }
-      
-      const warehouseStocks = item.warehouseStocks || [];
-      if (Array.isArray(warehouseStocks) && warehouseStocks.length > 0 && cjTotal === 0 && factoryTotal === 0) {
-        for (const ws of warehouseStocks) {
-          const warehouseType = String(ws.warehouseType || ws.type || ws.warehouseName || '').toLowerCase();
-          const availNum = toSafeNumber(ws.availableNum || ws.availableStock || ws.quantity || ws.stock || 0);
-          
-          if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
-            cjTotal += availNum;
-          } else {
-            factoryTotal += availNum;
-          }
-        }
-      }
-      
-      if (cjTotal === 0 && factoryTotal === 0) {
-        cjTotal = toSafeNumber(item.cjAvailableNum || item.cjStock || item.warehouseStock || 0);
-        factoryTotal = toSafeNumber(item.supplierAvailableNum || item.factoryStock || item.factoryAvailableNum || 0);
-      }
-      
-      if (cjTotal === 0 && factoryTotal === 0) {
-        const totalStock = toSafeNumber(item.stock || item.totalStock || item.availableNum || item.quantity || 0);
-        if (totalStock > 0) {
-          factoryTotal = totalStock;
-        }
-      }
-      
-      return { cjStock: Math.floor(cjTotal), factoryStock: Math.floor(factoryTotal) };
-    };
-    
-    // CJ API may return data in different structures:
-    // 1. Direct array of variants
-    // 2. Object with variantStocks array (nested variants)
-    // 3. Object with list/variants array
+    // CJ API getInventoryByPid returns:
+    // {
+    //   data: {
+    //     inventories: [...],  // Product-level by warehouse
+    //     variantInventories: [  // Per-variant inventory
+    //       { vid: "variant-id", inventory: [{ cjInventory, factoryInventory, totalInventory }] }
+    //     ]
+    //   }
+    // }
     let stockList: any[] = [];
     
-    // Check for nested variantStocks first (most common for inventory API)
-    if (stockData?.variantStocks && Array.isArray(stockData.variantStocks)) {
-      stockList = stockData.variantStocks;
-      console.log(`[CJ Inventory] Found ${stockList.length} items in variantStocks array`);
-    } else if (Array.isArray(stockData)) {
-      stockList = stockData;
-      console.log(`[CJ Inventory] Found ${stockList.length} items in direct array`);
-    } else if (stockData?.list || stockData?.variants || stockData?.variantList) {
-      stockList = stockData?.list || stockData?.variants || stockData?.variantList || [];
-      console.log(`[CJ Inventory] Found ${stockList.length} items in nested list/variants`);
-    }
-    
-    stockListItems = stockList; // Save for fallback variant building
-    
-    // Normalize key helper - same logic as in search-and-price route
+    // Normalize key helper
     const normalizeKey = (s: any): string => {
       if (s === undefined || s === null) return '';
       const str = String(s).trim();
@@ -551,75 +479,163 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       return str.toLowerCase().replace(/[\s\-_\.]/g, '');
     };
     
-    // Parse each variant's warehouse stocks to extract CJ vs Factory breakdown
-    const parseVariantWarehouseStocks = (item: any): { cjStock: number; factoryStock: number } => {
-      let cjTotal = 0;
-      let factoryTotal = 0;
+    // Check for CJ's standard variantInventories format first
+    if (stockData?.variantInventories && Array.isArray(stockData.variantInventories)) {
+      console.log(`[CJ Inventory] Found variantInventories array with ${stockData.variantInventories.length} variants`);
       
-      // Check warehouseStocks array on the variant itself
-      const warehouseStocks = item.warehouseStocks || [];
-      if (Array.isArray(warehouseStocks) && warehouseStocks.length > 0) {
-        for (const ws of warehouseStocks) {
-          const warehouseType = String(ws.warehouseType || ws.type || ws.warehouseName || '').toLowerCase();
-          const availNum = toSafeNumber(ws.availableNum || ws.availableStock || ws.quantity || ws.stock || 0);
-          
-          if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
-            cjTotal += availNum;
-          } else {
-            factoryTotal += availNum;
+      for (const vi of stockData.variantInventories) {
+        const vid = vi.vid || vi.variantId || '';
+        const variantSku = vi.variantSku || vi.sku || '';
+        const variantName = vi.variantName || vi.variantNameEn || vi.variantKey || '';
+        const price = toSafeNumber(vi.variantSellPrice || vi.sellPrice || vi.price, 0);
+        
+        // Sum up inventory across all warehouses for this variant
+        let cjTotal = 0;
+        let factoryTotal = 0;
+        let rawTotal = 0; // Total from totalInventory field (when CJ/Factory breakdown not available)
+        
+        const inventoryArr = vi.inventory || [];
+        if (Array.isArray(inventoryArr)) {
+          for (const inv of inventoryArr) {
+            // Try to get CJ and Factory breakdown
+            const cjInv = toSafeNumber(inv.cjInventory || inv.cjStock || 0);
+            const factoryInv = toSafeNumber(inv.factoryInventory || inv.factoryStock || 0);
+            cjTotal += cjInv;
+            factoryTotal += factoryInv;
+            
+            // Also track totalInventory as fallback
+            const total = toSafeNumber(inv.totalInventory || inv.total || 0);
+            if (cjInv === 0 && factoryInv === 0 && total > 0) {
+              // Check warehouse type to classify
+              const countryCode = String(inv.countryCode || '').toUpperCase();
+              const warehouseType = String(inv.warehouseType || inv.type || '').toLowerCase();
+              const verifiedWarehouse = toSafeNumber(inv.verifiedWarehouse, 0);
+              
+              // CJ warehouses are typically verifiedWarehouse=1, outside China
+              if (verifiedWarehouse === 1 || warehouseType.includes('cj') || warehouseType.includes('overseas')) {
+                cjTotal += total;
+              } else if (countryCode === 'CN' || warehouseType.includes('factory') || verifiedWarehouse === 2) {
+                // China warehouse or factory = supplier stock
+                factoryTotal += total;
+              } else {
+                // Unknown - treat as factory stock (safer assumption)
+                factoryTotal += total;
+              }
+            }
           }
         }
-      }
-      
-      // Fallback to direct fields
-      if (cjTotal === 0 && factoryTotal === 0) {
-        cjTotal = toSafeNumber(item.cjAvailableNum || item.cjStock || item.warehouseStock || 0);
-        factoryTotal = toSafeNumber(item.supplierAvailableNum || item.factoryStock || item.factoryAvailableNum || 0);
-      }
-      
-      // Final fallback - total stock goes to factory
-      if (cjTotal === 0 && factoryTotal === 0) {
-        const totalStock = toSafeNumber(item.stock || item.totalStock || item.availableNum || item.quantity || 0);
-        if (totalStock > 0) {
-          factoryTotal = totalStock;
+        
+        // Also check direct fields as fallback
+        if (cjTotal === 0 && factoryTotal === 0) {
+          cjTotal = toSafeNumber(vi.cjInventory || vi.cjStock || 0);
+          factoryTotal = toSafeNumber(vi.factoryInventory || vi.factoryStock || 0);
         }
-      }
-      
-      return { cjStock: Math.floor(cjTotal), factoryStock: Math.floor(factoryTotal) };
-    };
-    
-    for (const v of stockList) {
-      const stocks = parseVariantWarehouseStocks(v);
-      
-      // Log first few variants for debugging
-      if (stockBySku.size < 3) {
-        console.log(`[CJ Inventory] Sample variant:`, JSON.stringify(v).slice(0, 500));
-        console.log(`[CJ Inventory] Parsed stocks: CJ=${stocks.cjStock}, Factory=${stocks.factoryStock}`);
-      }
-      
-      // Store under ALL possible keys
-      const possibleKeys = [
-        v.variantSku,
-        v.vid,
-        v.sku,
-        v.skuId,
-        v.variantId,
-        v.variantKey,
-        v.variantName,
-        v.variantNameEn,
-      ].filter(k => k !== undefined && k !== null && String(k).trim());
-      
-      for (const rawKey of possibleKeys) {
-        const rawKeyStr = String(rawKey).trim();
-        if (!stockBySku.has(rawKeyStr)) {
-          stockBySku.set(rawKeyStr, stocks);
+        
+        // Final fallback: if still no stock but totalStock exists, treat as factory
+        if (cjTotal === 0 && factoryTotal === 0) {
+          const totalFromVariant = toSafeNumber(vi.totalStock || vi.stock || vi.totalInventory || 0);
+          if (totalFromVariant > 0) {
+            factoryTotal = totalFromVariant;
+          }
         }
-        const normalized = normalizeKey(rawKeyStr);
-        if (normalized && normalized !== rawKeyStr && !stockBySku.has(normalized)) {
-          stockBySku.set(normalized, stocks);
+        
+        const totalStock = cjTotal + factoryTotal;
+        
+        // Create a normalized stock list item for later use
+        stockList.push({
+          vid,
+          variantSku,
+          variantName,
+          variantKey: vi.variantKey || variantName,
+          price,
+          cjStock: cjTotal,
+          factoryStock: factoryTotal,
+          totalStock,
+        });
+        
+        // Store in stockBySku map
+        const possibleKeys = [vid, variantSku, variantName].filter(k => k && String(k).trim());
+        for (const rawKey of possibleKeys) {
+          const rawKeyStr = String(rawKey).trim();
+          if (!stockBySku.has(rawKeyStr)) {
+            stockBySku.set(rawKeyStr, { cjStock: cjTotal, factoryStock: factoryTotal });
+          }
+          const normalized = normalizeKey(rawKeyStr);
+          if (normalized && normalized !== rawKeyStr && !stockBySku.has(normalized)) {
+            stockBySku.set(normalized, { cjStock: cjTotal, factoryStock: factoryTotal });
+          }
+        }
+        
+        if (stockList.length <= 3) {
+          console.log(`[CJ Inventory] Variant ${vid}: CJ=${cjTotal}, Factory=${factoryTotal}, Name=${variantName}`);
         }
       }
     }
+    // Fallback: check for variantStocks array
+    else if (stockData?.variantStocks && Array.isArray(stockData.variantStocks)) {
+      console.log(`[CJ Inventory] Found variantStocks array with ${stockData.variantStocks.length} variants`);
+      
+      for (const vs of stockData.variantStocks) {
+        const vid = vs.vid || vs.variantId || '';
+        const variantSku = vs.variantSku || vs.sku || '';
+        const variantName = vs.variantName || vs.variantNameEn || vs.variantKey || '';
+        const price = toSafeNumber(vs.variantSellPrice || vs.sellPrice || vs.price, 0);
+        
+        // Parse warehouse stocks
+        let cjTotal = 0;
+        let factoryTotal = 0;
+        
+        const warehouseStocks = vs.warehouseStocks || [];
+        if (Array.isArray(warehouseStocks)) {
+          for (const ws of warehouseStocks) {
+            const warehouseType = String(ws.warehouseType || ws.type || '').toLowerCase();
+            const availNum = toSafeNumber(ws.availableNum || ws.availableStock || ws.quantity || 0);
+            if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
+              cjTotal += availNum;
+            } else {
+              factoryTotal += availNum;
+            }
+          }
+        }
+        
+        // Direct fields fallback
+        if (cjTotal === 0 && factoryTotal === 0) {
+          cjTotal = toSafeNumber(vs.cjInventory || vs.cjStock || 0);
+          factoryTotal = toSafeNumber(vs.factoryInventory || vs.factoryStock || 0);
+        }
+        
+        const totalStock = cjTotal + factoryTotal;
+        
+        stockList.push({
+          vid,
+          variantSku,
+          variantName,
+          variantKey: vs.variantKey || variantName,
+          price,
+          cjStock: cjTotal,
+          factoryStock: factoryTotal,
+          totalStock,
+        });
+        
+        const possibleKeys = [vid, variantSku, variantName].filter(k => k && String(k).trim());
+        for (const rawKey of possibleKeys) {
+          const rawKeyStr = String(rawKey).trim();
+          if (!stockBySku.has(rawKeyStr)) {
+            stockBySku.set(rawKeyStr, { cjStock: cjTotal, factoryStock: factoryTotal });
+          }
+        }
+      }
+    }
+    // Fallback: direct array or other structures
+    else if (Array.isArray(stockData)) {
+      console.log(`[CJ Inventory] Found direct array with ${stockData.length} items`);
+      stockList = stockData;
+    } else if (stockData?.list || stockData?.variants) {
+      stockList = stockData?.list || stockData?.variants || [];
+      console.log(`[CJ Inventory] Found nested list/variants with ${stockList.length} items`);
+    }
+    
+    stockListItems = stockList; // Save for fallback variant building
     console.log(`[CJ Inventory] Parsed ${stockBySku.size} stock entries from inventory API (from ${stockList.length} items)`);
   } catch (e: any) {
     console.error(`[CJ Inventory] Error fetching stock for ${pid}:`, e?.message);
@@ -723,82 +739,16 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
     console.error(`[CJ Variants] Error fetching variants for ${pid}:`, e?.message);
   }
   
-  // If variant query returned nothing but we have stock data, build variants directly from stockList
-  // This handles products where /product/variant/query returns empty but /inventory/queryVariantStock has data
+  // If variant query returned nothing but we have stock data from inventory API,
+  // build variants directly from stockListItems (already pre-parsed with cjStock/factoryStock)
   if (allVariants.length === 0 && stockListItems.length > 0) {
     console.log(`[CJ Variants] No variants from query but ${stockListItems.length} stock items available - building from stock data`);
     
-    const toSafeNum = (val: any, fallback = 0): number => {
-      if (val === undefined || val === null || val === '') return fallback;
-      const num = typeof val === 'number' ? val : Number(val);
-      return isNaN(num) ? fallback : num;
-    };
-    
-    const parseNestedStocksFallback = (item: any): { cjStock: number; factoryStock: number } => {
-      let cjTotal = 0;
-      let factoryTotal = 0;
-      
-      // Check variantStocks first
-      const variantStocks = item.variantStocks || [];
-      if (Array.isArray(variantStocks) && variantStocks.length > 0) {
-        for (const vs of variantStocks) {
-          const innerWS = vs.warehouseStocks || [];
-          if (Array.isArray(innerWS) && innerWS.length > 0) {
-            for (const ws of innerWS) {
-              const warehouseType = String(ws.warehouseType || ws.type || ws.warehouseName || '').toLowerCase();
-              const availNum = toSafeNum(ws.availableNum || ws.availableStock || ws.quantity || ws.stock || 0);
-              if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
-                cjTotal += availNum;
-              } else {
-                factoryTotal += availNum;
-              }
-            }
-          } else {
-            const warehouseType = String(vs.warehouseType || vs.type || '').toLowerCase();
-            const availNum = toSafeNum(vs.availableNum || vs.availableStock || vs.quantity || vs.stock || 0);
-            if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
-              cjTotal += availNum;
-            } else {
-              factoryTotal += availNum;
-            }
-          }
-        }
-      }
-      
-      // Check warehouseStocks
-      const warehouseStocks = item.warehouseStocks || [];
-      if (Array.isArray(warehouseStocks) && warehouseStocks.length > 0 && cjTotal === 0 && factoryTotal === 0) {
-        for (const ws of warehouseStocks) {
-          const warehouseType = String(ws.warehouseType || ws.type || ws.warehouseName || '').toLowerCase();
-          const availNum = toSafeNum(ws.availableNum || ws.availableStock || ws.quantity || ws.stock || 0);
-          if (warehouseType.includes('cj') || warehouseType.includes('overseas')) {
-            cjTotal += availNum;
-          } else {
-            factoryTotal += availNum;
-          }
-        }
-      }
-      
-      // Direct fields fallback
-      if (cjTotal === 0 && factoryTotal === 0) {
-        cjTotal = toSafeNum(item.cjAvailableNum || item.cjStock || item.warehouseStock || 0);
-        factoryTotal = toSafeNum(item.supplierAvailableNum || item.factoryStock || item.factoryAvailableNum || 0);
-      }
-      
-      // Total stock fallback
-      if (cjTotal === 0 && factoryTotal === 0) {
-        const totalStock = toSafeNum(item.stock || item.totalStock || item.availableNum || item.quantity || 0);
-        if (totalStock > 0) {
-          factoryTotal = totalStock;
-        }
-      }
-      
-      return { cjStock: Math.floor(cjTotal), factoryStock: Math.floor(factoryTotal) };
-    };
-    
     for (const v of stockListItems) {
-      const stocks = parseNestedStocksFallback(v);
-      const totalStock = stocks.cjStock + stocks.factoryStock;
+      // stockListItems is pre-parsed with cjStock/factoryStock from inventory API
+      const cjStock = v.cjStock ?? 0;
+      const factoryStock = v.factoryStock ?? 0;
+      const totalStock = v.totalStock ?? (cjStock + factoryStock);
       
       // Skip variants with no stock
       if (totalStock <= 0) continue;
@@ -808,7 +758,7 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       const variantId = v.variantId || '';
       const variantKey = v.variantKey || '';
       const variantName = v.variantName || v.variantNameEn || '';
-      const price = toSafeNum(v.variantSellPrice || v.sellPrice || v.variantPrice || v.price, 0);
+      const price = v.price ?? 0;
       
       const primarySku = sku || vid || variantId || variantKey || '';
       
@@ -820,8 +770,8 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
           variantId: variantId || undefined,
           variantKey: variantKey || undefined,
           price,
-          cjStock: stocks.cjStock,
-          factoryStock: stocks.factoryStock,
+          cjStock,
+          factoryStock,
           totalStock,
         });
       }
