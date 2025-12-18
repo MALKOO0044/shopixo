@@ -1,11 +1,85 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSearchJob, updateJobProgress, completeJob, failJob } from '@/lib/db/search-jobs';
+import { getAccessToken } from '@/lib/cj/v2';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Vercel Pro allows up to 60s
 
 const CJ_API_BASE = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
-const CJ_API_KEY = process.env.CJ_API_KEY || '';
+
+// Resolve synthetic category IDs to real CJ IDs
+async function resolveToRealCategoryIds(categoryIds: string[]): Promise<string[]> {
+  const realIds: string[] = [];
+  const syntheticIds: string[] = [];
+  
+  for (const id of categoryIds) {
+    if (id.startsWith('first-') || id.startsWith('second-')) {
+      syntheticIds.push(id);
+    } else {
+      realIds.push(id);
+    }
+  }
+  
+  if (syntheticIds.length === 0) {
+    return realIds;
+  }
+  
+  // Fetch category tree to resolve synthetic IDs
+  try {
+    const token = await getAccessToken();
+    if (!token) return realIds;
+    
+    const res = await fetch(`${CJ_API_BASE}/product/getCategory`, {
+      headers: { 'CJ-Access-Token': token },
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json();
+    
+    if (data.code !== 200 || !data.data) return realIds;
+    
+    const rawCategories = Array.isArray(data.data) ? data.data : [];
+    
+    // Parse synthetic IDs and find real children
+    for (const syntheticId of syntheticIds) {
+      if (syntheticId.startsWith('first-')) {
+        // first-X means index X in top-level
+        const idx = parseInt(syntheticId.replace('first-', ''), 10);
+        const firstLevel = rawCategories[idx];
+        if (firstLevel?.categoryFirstList) {
+          for (const secondLevel of firstLevel.categoryFirstList) {
+            if (secondLevel?.categorySecondList) {
+              for (const thirdLevel of secondLevel.categorySecondList) {
+                if (thirdLevel?.categoryId) {
+                  realIds.push(thirdLevel.categoryId);
+                }
+              }
+            }
+          }
+        }
+      } else if (syntheticId.startsWith('second-')) {
+        // second-X-Y means index X in first level, Y in second level
+        const parts = syntheticId.replace('second-', '').split('-');
+        const firstIdx = parseInt(parts[0], 10);
+        const secondIdx = parseInt(parts[1], 10);
+        const firstLevel = rawCategories[firstIdx];
+        if (firstLevel?.categoryFirstList) {
+          const secondLevel = firstLevel.categoryFirstList[secondIdx];
+          if (secondLevel?.categorySecondList) {
+            for (const thirdLevel of secondLevel.categorySecondList) {
+              if (thirdLevel?.categoryId) {
+                realIds.push(thirdLevel.categoryId);
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[Tick] Failed to resolve category IDs:', e);
+  }
+  
+  return realIds;
+}
 
 // Process a small chunk of work for a job
 // Called repeatedly by the frontend poll to make incremental progress
@@ -45,7 +119,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     } catch (e) {}
     
-    const categoryIds = (params_data.categoryId || '').split(',').filter(Boolean);
+    // Resolve synthetic category IDs on first tick
+    let categoryIds = state.resolvedCategoryIds;
+    if (!categoryIds) {
+      const rawCategoryIds = (params_data.categoryId || '').split(',').filter(Boolean);
+      categoryIds = await resolveToRealCategoryIds(rawCategoryIds);
+      console.log(`[Tick] Job ${jobId}: Resolved ${rawCategoryIds.length} input IDs to ${categoryIds.length} real CJ IDs`);
+    }
+    
     const currentCategoryIndex = state.categoryIndex || 0;
     const currentPage = state.page || 1;
     const seenPids = new Set<string>(state.seenPids || []);
@@ -61,6 +142,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     
     const categoryId = categoryIds[currentCategoryIndex];
     
+    // Get access token
+    const token = await getAccessToken();
+    if (!token) {
+      await failJob(jobId, 'Failed to get CJ access token');
+      return NextResponse.json({ ok: false, error: 'CJ authentication failed' }, { status: 500 });
+    }
+    
     // Fetch one page of products (max 20 items)
     const listUrl = `${CJ_API_BASE}/product/list?pageNum=${currentPage}&pageSize=20&categoryId=${categoryId}`;
     console.log(`[Tick] Job ${jobId}: Fetching page ${currentPage} for category ${categoryId}`);
@@ -68,7 +156,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     let pageProducts: any[] = [];
     try {
       const res = await fetch(listUrl, {
-        headers: { 'CJ-Access-Token': CJ_API_KEY },
+        headers: { 'CJ-Access-Token': token },
         signal: AbortSignal.timeout(25000), // 25s timeout for this request
       });
       const data = await res.json();
@@ -131,11 +219,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Check if we're done
     const hasMore = nextCategoryIndex < categoryIds.length && updatedResults.length < requestedQuantity;
     
-    // Save state
+    // Save state (include resolvedCategoryIds so we don't resolve again)
     const newState = {
       categoryIndex: nextCategoryIndex,
       page: nextPage,
       seenPids: Array.from(seenPids).slice(-500), // Keep last 500 to prevent state bloat
+      resolvedCategoryIds: categoryIds, // Persist resolved IDs
     };
     
     const progressMessage = hasMore ? JSON.stringify(newState) : `Found ${updatedResults.length} products`;
