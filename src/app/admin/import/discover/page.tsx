@@ -260,6 +260,14 @@ export default function ProductDiscoveryPage() {
       
       const pollJob = async () => {
         try {
+          // First, trigger a tick to process more products (chunked processing for Vercel)
+          try {
+            await fetch(`/api/admin/cj/products/search-jobs/${jobId}/tick`, { method: 'POST' });
+          } catch (tickErr) {
+            console.log('[Poll] Tick request failed, continuing with status check');
+          }
+          
+          // Then check status
           const statusRes = await fetch(`/api/admin/cj/products/search-jobs?jobId=${jobId}`);
           const statusData = await statusRes.json();
           
@@ -294,7 +302,7 @@ export default function ProductDiscoveryPage() {
           }
           
           setJobProgress({ found: currentFound, requested: job.requested_quantity });
-          setSearchProgress(job.progress_message || `Found ${currentFound} of ${job.requested_quantity} products...`);
+          setSearchProgress(`Found ${currentFound} of ${job.requested_quantity} products...`);
           
           if (job.status === 'completed') {
             const pricedProducts: PricedProduct[] = job.results || [];
@@ -320,7 +328,7 @@ export default function ProductDiscoveryPage() {
             return;
           }
           
-          setTimeout(pollJob, 3000);
+          setTimeout(pollJob, 2000); // Poll more frequently since each tick does work
         } catch (e: any) {
           setError(e?.message || 'Failed to check job status');
           setLoading(false);

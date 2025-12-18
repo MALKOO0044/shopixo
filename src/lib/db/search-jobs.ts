@@ -98,19 +98,27 @@ export async function updateJobProgress(
   jobId: string, 
   foundCount: number, 
   processedCount: number, 
-  message: string
+  message: string,
+  partialResults?: any[]
 ): Promise<boolean> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return false;
 
+  const updateData: any = {
+    found_count: foundCount,
+    processed_count: processedCount,
+    progress_message: message,
+    last_updated_at: new Date().toISOString(),
+  };
+  
+  // Also save partial results if provided (for resumable jobs)
+  if (partialResults !== undefined) {
+    updateData.results = partialResults;
+  }
+
   const { error } = await supabase
     .from('cj_search_jobs')
-    .update({
-      found_count: foundCount,
-      processed_count: processedCount,
-      progress_message: message,
-      last_updated_at: new Date().toISOString(),
-    })
+    .update(updateData)
     .eq('id', jobId);
 
   if (error) {
