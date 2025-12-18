@@ -302,7 +302,14 @@ export default function ProductDiscoveryPage() {
       setTimeout(pollJob, 2000);
       
     } catch (e: any) {
-      setError(e?.message || "Search failed");
+      console.error('[Discover] Search error:', e);
+      const errorMsg = e?.message || "Search failed";
+      // More specific error for network failures
+      if (errorMsg.includes('fetch') || errorMsg.includes('network') || errorMsg.includes('Failed to fetch')) {
+        setError("Network error - could not reach the server. Please check your connection and try again.");
+      } else {
+        setError(errorMsg);
+      }
       setLoading(false);
       setSearchProgress("");
     }
