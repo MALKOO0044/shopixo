@@ -254,6 +254,10 @@ export default function ProductDiscoveryPage() {
       setJobProgress({ found: 0, requested: quantity });
       setSearchProgress(`Searching for ${quantity} products...`);
       
+      let lastFoundCount = 0;
+      let stuckCheckCount = 0;
+      const maxStuckChecks = 20; // 20 polls * 3 seconds = 60 seconds of no progress
+      
       const pollJob = async () => {
         try {
           const statusRes = await fetch(`/api/admin/cj/products/search-jobs?jobId=${jobId}`);
@@ -264,8 +268,33 @@ export default function ProductDiscoveryPage() {
           }
           
           const job = statusData.job;
-          setJobProgress({ found: job.found_count, requested: job.requested_quantity });
-          setSearchProgress(job.progress_message || `Found ${job.found_count} of ${job.requested_quantity} products...`);
+          const currentFound = job.found_count || 0;
+          
+          // Check if job is stuck (no progress for 60 seconds)
+          if (currentFound === lastFoundCount && job.status === 'running') {
+            stuckCheckCount++;
+            if (stuckCheckCount >= maxStuckChecks) {
+              // Job seems stuck, show what we have
+              if (currentFound > 0 && job.results && job.results.length > 0) {
+                setProducts(job.results);
+                setError(`Search timed out after finding ${currentFound} products. Showing available results.`);
+              } else {
+                setError("Search timed out. The CJ API may be slow - please try again with fewer products.");
+              }
+              setLoading(false);
+              setSearchProgress("");
+              setCurrentJobId(null);
+              setJobProgress(null);
+              return;
+            }
+          } else {
+            // Progress was made, reset stuck counter
+            stuckCheckCount = 0;
+            lastFoundCount = currentFound;
+          }
+          
+          setJobProgress({ found: currentFound, requested: job.requested_quantity });
+          setSearchProgress(job.progress_message || `Found ${currentFound} of ${job.requested_quantity} products...`);
           
           if (job.status === 'completed') {
             const pricedProducts: PricedProduct[] = job.results || [];
