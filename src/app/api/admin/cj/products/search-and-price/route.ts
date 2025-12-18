@@ -690,10 +690,6 @@ export async function GET(req: Request) {
         break;
       }
       
-      // Add delay between products to respect CJ API rate limit (1 req/sec)
-      if (productIndex > 0) {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 sec between products
-      }
       productIndex++;
       const pid = String(item.pid || item.productId || '');
       const cjSku = String(item.productSku || item.sku || `CJ-${pid}`);
@@ -2251,6 +2247,12 @@ export async function GET(req: Request) {
         availableModels: extractedModels,
       });
     } // End of for (const item of batchItems)
+    
+    // Add delay between batches (not per-product) to respect CJ API rate limits
+    // This is much more efficient than 1 second per product
+    if (pricedProducts.length < quantity && candidateIndex < candidateProducts.length) {
+      await new Promise(resolve => setTimeout(resolve, 500)); // 500ms between batches
+    }
     } // End of while (pricedProducts.length < quantity)
     
     console.log(`[Search&Price] Batch processing complete: ${pricedProducts.length} valid products from ${productIndex} processed`);
