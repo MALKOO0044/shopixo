@@ -458,6 +458,20 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
     console.log(`[CJ Inventory] Response for ${pid}:`, JSON.stringify(stockRes).slice(0, 3000));
     console.log(`[CJ Inventory] Full data structure for ${pid}:`, JSON.stringify(stockRes?.data, null, 2)?.slice(0, 5000));
     
+    // Log first 3 raw variants to see exact field names CJ provides
+    const rawVariants = stockRes?.data?.variantInventories || stockRes?.data?.variantStocks || [];
+    if (Array.isArray(rawVariants) && rawVariants.length > 0) {
+      console.log(`[CJ Inventory DEBUG] Raw variant fields for ${pid}:`);
+      for (let i = 0; i < Math.min(3, rawVariants.length); i++) {
+        const v = rawVariants[i];
+        console.log(`  Variant ${i + 1}: ${JSON.stringify(v)}`);
+        console.log(`  Fields: variantKey="${v.variantKey}", variantName="${v.variantName}", variantNameEn="${v.variantNameEn}", variantSku="${v.variantSku}", vid="${v.vid}"`);
+        console.log(`  Stock fields: cjInventory=${v.cjInventory}, factoryInventory=${v.factoryInventory}, inventory=${JSON.stringify(v.inventory)}`);
+      }
+    } else {
+      console.log(`[CJ Inventory DEBUG] No variantInventories or variantStocks in response for ${pid}`);
+    }
+    
     const stockData = stockRes?.data;
     
     // CJ API getInventoryByPid returns:
@@ -668,17 +682,28 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       return str.toLowerCase().replace(/[\s\-_\.]/g, '');
     };
     
+    // Log first few variants to debug field values
+    if (Array.isArray(variantList) && variantList.length > 0) {
+      console.log(`[CJ Variants DEBUG] First 3 variants for ${pid}:`);
+      for (let i = 0; i < Math.min(3, variantList.length); i++) {
+        const v = variantList[i];
+        console.log(`  #${i + 1}: variantKey="${v.variantKey || '(empty)'}", variantSku="${v.variantSku || '(empty)'}", variantName="${v.variantName || '(empty)'}", variantNameEn="${v.variantNameEn || '(empty)'}", variantSellPrice=${v.variantSellPrice}`);
+      }
+    }
+    
     for (const v of variantList) {
       // Capture ALL identifier fields from the response
       const variantSku = v.variantSku || v.sku || v.skuId || '';
       const vid = v.vid || '';
       const variantId = v.variantId || '';
+      // variantKey is the SHORT name like "Black And Silver-2XL" - prioritize this!
       const variantKey = v.variantKey || '';
-      const variantName = v.variantName || v.skuName || v.variantNameEn || '';
+      // variantNameEn is typically the full product name with variant - use as fallback
+      const variantNameLong = v.variantName || v.skuName || v.variantNameEn || '';
       const price = toSafeNumber(v.variantSellPrice || v.sellPrice || v.variantPrice || v.price, 0);
       
       // Try matching stock by ANY of the possible keys (both raw and normalized)
-      const rawKeys = [variantSku, vid, variantId, variantKey, variantName].filter(Boolean);
+      const rawKeys = [variantSku, vid, variantId, variantKey, variantNameLong].filter(Boolean);
       const allKeysToTry = [...rawKeys];
       // Add normalized versions of each key
       for (const raw of rawKeys) {
@@ -693,7 +718,7 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       for (const key of allKeysToTry) {
         stockInfo = stockBySku.get(key);
         if (stockInfo) {
-          console.log(`[CJ Variants] Matched stock for ${variantName || variantSku} via key: ${key}`);
+          console.log(`[CJ Variants] Matched stock for ${variantKey || variantSku} via key: ${key}`);
           break;
         }
       }
@@ -724,7 +749,9 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       if (primarySku) {
         allVariants.push({
           variantSku: primarySku,
-          variantName: variantName || variantKey || undefined,
+          // IMPORTANT: Prioritize variantKey (short name like "Black And Silver-2XL")
+          // over variantNameLong (full descriptive name)
+          variantName: variantKey || variantNameLong || undefined,
           vid: vid || undefined,
           variantId: variantId || undefined,
           variantKey: variantKey || undefined,

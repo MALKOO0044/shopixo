@@ -734,12 +734,15 @@ export async function GET(req: Request) {
           // The UI can display total stock from product-level data separately
           for (const pv of productVariantList) {
             const sku = pv.variantSku || pv.sku || pv.vid || '';
-            const variantName = pv.variantNameEn || pv.variantName || pv.skuName || pv.variantKey || '';
+            // IMPORTANT: variantKey is the SHORT name like "Black And Silver-2XL"
+            // variantNameEn is the LONG descriptive name - use as fallback
+            const variantKeyShort = pv.variantKey || '';
+            const variantNameLong = pv.variantNameEn || pv.variantName || pv.skuName || '';
             const price = Number(pv.variantSellPrice || pv.sellPrice || pv.variantPrice || pv.price || 0);
             const vid = pv.vid || '';
             
-            // Parse a clean short name
-            let shortName = variantName || pv.variantKey || '';
+            // Parse a clean short name - prioritize variantKey (short) over variantNameEn (long)
+            let shortName = variantKeyShort || variantNameLong;
             shortName = shortName.replace(/[\u4e00-\u9fff]/g, '').trim();
             if (!shortName) {
               shortName = sku || `Variant-${vid || '?'}`;
