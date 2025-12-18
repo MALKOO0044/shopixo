@@ -441,19 +441,38 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
   let stockListItems: any[] = [];
   
   try {
-    const inventoryBody: any = { pid };
-    if (warehouse) inventoryBody.warehouseId = warehouse;
+    // Try the newer /product/stock/queryByPid endpoint first (better per-variant data)
+    // This is a GET request with pid as query parameter
+    let stockRes: any = null;
     
-    const stockRes = await fetchJson<any>(`${base}/inventory/queryVariantStock`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'CJ-Access-Token': token,
-      },
-      body: JSON.stringify(inventoryBody),
-      cache: 'no-store',
-      timeoutMs: 15000,
-    });
+    try {
+      stockRes = await fetchJson<any>(`${base}/product/stock/queryByPid?pid=${encodeURIComponent(pid)}`, {
+        method: 'GET',
+        headers: {
+          'CJ-Access-Token': token,
+        },
+        cache: 'no-store',
+        timeoutMs: 15000,
+      });
+      console.log(`[CJ Inventory] Used /product/stock/queryByPid for ${pid}`);
+    } catch (e: any) {
+      console.log(`[CJ Inventory] /product/stock/queryByPid failed, trying /inventory/queryVariantStock: ${e?.message}`);
+      
+      // Fallback to old endpoint
+      const inventoryBody: any = { pid };
+      if (warehouse) inventoryBody.warehouseId = warehouse;
+      
+      stockRes = await fetchJson<any>(`${base}/inventory/queryVariantStock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'CJ-Access-Token': token,
+        },
+        body: JSON.stringify(inventoryBody),
+        cache: 'no-store',
+        timeoutMs: 15000,
+      });
+    }
     
     console.log(`[CJ Inventory] Response for ${pid}:`, JSON.stringify(stockRes).slice(0, 3000));
     console.log(`[CJ Inventory] Full data structure for ${pid}:`, JSON.stringify(stockRes?.data, null, 2)?.slice(0, 5000));
