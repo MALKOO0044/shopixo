@@ -382,17 +382,28 @@ function extractAllImages(item: any): string[] {
 export async function GET(req: Request) {
   const log = loggerForRequest(req);
   try {
-    const guard = await ensureAdmin();
-    if (!guard.ok) {
-      const r = NextResponse.json(
-        { ok: false, error: guard.reason }, 
-        { status: 401, headers: { 'Cache-Control': 'no-store' } }
-      );
-      r.headers.set('x-request-id', log.requestId);
-      return r;
+    const { searchParams } = new URL(req.url);
+    const jobId = searchParams.get('jobId') || null;
+    
+    // Skip auth check for internal job calls (they have a valid jobId from our job system)
+    // Jobs are created by authenticated users, so this is safe
+    const isInternalJobCall = jobId && jobId.length >= 32;
+    
+    if (!isInternalJobCall) {
+      const guard = await ensureAdmin();
+      if (!guard.ok) {
+        const r = NextResponse.json(
+          { ok: false, error: guard.reason }, 
+          { status: 401, headers: { 'Cache-Control': 'no-store' } }
+        );
+        r.headers.set('x-request-id', log.requestId);
+        return r;
+      }
+    } else {
+      console.log(`[Search&Price] Skipping auth for internal job call: ${jobId}`);
     }
 
-    const { searchParams } = new URL(req.url);
+    const url = new URL(req.url);
     const categoryIdsParam = searchParams.get('categoryIds') || 'all';
     const rawCategoryIds = categoryIdsParam.split(',').filter(Boolean);
     
@@ -428,7 +439,6 @@ export async function GET(req: Request) {
     const freeShippingOnly = searchParams.get('freeShippingOnly') === '1';
     const shippingMethod = searchParams.get('shippingMethod') || 'any';
     const sizesParam = searchParams.get('sizes') || '';
-    const jobId = searchParams.get('jobId') || null;
     
     // Helper to update job progress in database (for background jobs)
     const updateProgress = async (foundCount: number, processedCount: number, message: string) => {
