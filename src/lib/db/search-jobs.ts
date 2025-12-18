@@ -104,28 +104,39 @@ export async function updateJobProgress(
   const supabase = getSupabaseAdmin();
   if (!supabase) return false;
 
-  const updateData: any = {
-    found_count: foundCount,
-    processed_count: processedCount,
-    progress_message: message,
-    last_updated_at: new Date().toISOString(),
-  };
-  
-  // Also save partial results if provided (for resumable jobs)
-  if (partialResults !== undefined) {
-    updateData.results = partialResults;
-  }
+  try {
+    const updateData: any = {
+      found_count: foundCount,
+      processed_count: processedCount,
+      progress_message: message,
+      last_updated_at: new Date().toISOString(),
+    };
+    
+    // Also save partial results if provided (for resumable jobs)
+    if (partialResults !== undefined) {
+      // Safely serialize to avoid circular refs
+      updateData.results = JSON.parse(JSON.stringify(partialResults));
+    }
 
-  const { error } = await supabase
-    .from('cj_search_jobs')
-    .update(updateData)
-    .eq('id', jobId);
+    const { error } = await supabase
+      .from('cj_search_jobs')
+      .update(updateData)
+      .eq('id', jobId);
 
-  if (error) {
-    console.error('[SearchJobs] Failed to update progress:', error.message);
+    if (error) {
+      console.error('[SearchJobs] Failed to update progress:', error.message);
+      // If results are too large, try without them
+      if (partialResults && (error.message.includes('payload') || error.message.includes('size'))) {
+        delete updateData.results;
+        await supabase.from('cj_search_jobs').update(updateData).eq('id', jobId);
+      }
+      return false;
+    }
+    return true;
+  } catch (e: any) {
+    console.error('[SearchJobs] Exception updating progress:', e.message);
     return false;
   }
-  return true;
 }
 
 export async function startJob(jobId: string): Promise<boolean> {
@@ -153,23 +164,45 @@ export async function completeJob(jobId: string, results: any[]): Promise<boolea
   const supabase = getSupabaseAdmin();
   if (!supabase) return false;
 
-  const { error } = await supabase
-    .from('cj_search_jobs')
-    .update({
-      status: 'completed',
-      results,
-      found_count: results.length,
-      finished_at: new Date().toISOString(),
-      progress_message: `Completed! Found ${results.length} products.`,
-      last_updated_at: new Date().toISOString(),
-    })
-    .eq('id', jobId);
+  try {
+    // Ensure results are safe to store (handle any circular refs or huge objects)
+    const safeResults = JSON.parse(JSON.stringify(results));
+    
+    const { error } = await supabase
+      .from('cj_search_jobs')
+      .update({
+        status: 'completed',
+        results: safeResults,
+        found_count: safeResults.length,
+        finished_at: new Date().toISOString(),
+        progress_message: `Completed! Found ${safeResults.length} products.`,
+        last_updated_at: new Date().toISOString(),
+      })
+      .eq('id', jobId);
 
-  if (error) {
-    console.error('[SearchJobs] Failed to complete job:', error.message);
+    if (error) {
+      console.error('[SearchJobs] Failed to complete job:', error.message, error.code);
+      // Try to complete without results if too large
+      if (error.message.includes('payload') || error.message.includes('size')) {
+        console.log('[SearchJobs] Attempting to complete without full results due to size');
+        await supabase
+          .from('cj_search_jobs')
+          .update({
+            status: 'completed',
+            found_count: results.length,
+            finished_at: new Date().toISOString(),
+            progress_message: `Completed! Found ${results.length} products (results truncated).`,
+            last_updated_at: new Date().toISOString(),
+          })
+          .eq('id', jobId);
+      }
+      return false;
+    }
+    return true;
+  } catch (e: any) {
+    console.error('[SearchJobs] Exception completing job:', e.message);
     return false;
   }
-  return true;
 }
 
 export async function failJob(jobId: string, errorMessage: string): Promise<boolean> {

@@ -173,34 +173,87 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Process products from this page
     const newProducts: any[] = [];
     for (const p of pageProducts) {
-      if (seenPids.has(p.pid)) continue;
-      seenPids.add(p.pid);
-      
-      // Get sell price from CJ
-      const sellPrice = parseFloat(p.sellPrice || p.productSku?.[0]?.sellPrice || '0');
-      if (sellPrice < minPrice || sellPrice > maxPrice) continue;
-      
-      // Calculate final price with profit margin
-      const shippingEstimate = sellPrice <= 10 ? 4.99 : sellPrice <= 20 ? 6.99 : 8.99;
-      const finalPrice = (sellPrice + shippingEstimate) * (1 + profitMargin / 100);
-      
-      // Extract main image
-      const mainImage = p.productImage || p.productImageSet?.[0] || '';
-      
-      newProducts.push({
-        pid: p.pid,
-        productNameEn: p.productNameEn || p.productName || 'Unknown',
-        sellPrice: sellPrice.toFixed(2),
-        finalPrice: finalPrice.toFixed(2),
-        shippingCost: shippingEstimate.toFixed(2),
-        productImage: mainImage,
-        categoryName: p.categoryName || '',
-        listedNum: p.listedNum || 0,
-        estimatedRating: calculateEstimatedRating(p.listedNum || 0),
-        variants: p.productSku || [],
-      });
-      
-      if (currentResults.length + newProducts.length >= requestedQuantity) break;
+      try {
+        if (seenPids.has(p.pid)) continue;
+        seenPids.add(p.pid);
+        
+        // Get sell price from CJ
+        const sellPrice = parseFloat(p.sellPrice || p.productSku?.[0]?.sellPrice || '0');
+        if (sellPrice < minPrice || sellPrice > maxPrice) continue;
+        
+        // Calculate final price with profit margin
+        const shippingEstimate = sellPrice <= 10 ? 4.99 : sellPrice <= 20 ? 6.99 : 8.99;
+        const finalPrice = (sellPrice + shippingEstimate) * (1 + profitMargin / 100);
+        
+        // Extract main image
+        const mainImage = p.productImage || p.productImageSet?.[0] || '';
+        
+        // Build PricedProduct-compatible variant objects
+        const rawVariants = Array.isArray(p.productSku) ? p.productSku : [];
+        const processedVariants = rawVariants.slice(0, 20).map((v: any) => {
+          const varPrice = parseFloat(v.sellPrice || '0') || 0;
+          const varStock = parseInt(v.variantStock || v.stock || '0', 10) || 0;
+          return {
+            variantId: v.vid || v.variantId || '',
+            variantSku: v.variantSku || v.vid || '',
+            variantPriceUSD: varPrice,
+            shippingAvailable: varStock > 0, // Only available if in stock
+            shippingPriceUSD: shippingEstimate,
+            shippingPriceSAR: shippingEstimate * 3.75,
+            deliveryDays: '7-12',
+            sellPriceSAR: (varPrice + shippingEstimate) * (1 + profitMargin / 100) * 3.75,
+            totalCostSAR: (varPrice + shippingEstimate) * 3.75,
+            profitSAR: varPrice * (profitMargin / 100) * 3.75,
+            stock: varStock,
+            cjStock: varStock,
+            variantName: (v.variantNameEn || v.variantName || '').slice(0, 100),
+            variantImage: v.variantImage || mainImage || '',
+          };
+        });
+        
+        // Build images array
+        const images: string[] = [];
+        if (mainImage) images.push(mainImage);
+        if (p.productImageSet && Array.isArray(p.productImageSet)) {
+          for (const img of p.productImageSet.slice(0, 5)) {
+            if (img && !images.includes(img)) images.push(img);
+          }
+        }
+        
+        // Calculate total stock safely
+        const productStock = p.productStock ?? p.stock ?? 0;
+        const variantStockSum = rawVariants.length > 0 
+          ? rawVariants.reduce((sum: number, v: any) => sum + (parseInt(v.variantStock || v.stock || '0', 10) || 0), 0)
+          : 0;
+        const totalStock = productStock || variantStockSum || 0;
+        
+        // Count variants with stock
+        const availableVariants = processedVariants.filter((v: any) => v.shippingAvailable);
+        
+        // Build PricedProduct object matching frontend type
+        newProducts.push({
+          pid: p.pid,
+          cjSku: rawVariants[0]?.variantSku || p.pid || '',
+          name: (p.productNameEn || p.productName || 'Unknown').slice(0, 200),
+          images,
+          minPriceSAR: finalPrice * 3.75,
+          maxPriceSAR: finalPrice * 3.75,
+          avgPriceSAR: finalPrice * 3.75,
+          stock: totalStock,
+          listedNum: p.listedNum || 0,
+          variants: processedVariants,
+          successfulVariants: availableVariants.length,
+          totalVariants: rawVariants.length,
+          categoryName: (p.categoryName || '').slice(0, 100),
+          rating: calculateEstimatedRating(p.listedNum || 0),
+          description: (p.description || p.productDescEn || '').slice(0, 500),
+        });
+        
+        if (currentResults.length + newProducts.length >= requestedQuantity) break;
+      } catch (productError: any) {
+        console.error(`[Tick] Error processing product ${p?.pid}:`, productError.message);
+        // Skip this product and continue with others
+      }
     }
     
     // Merge new products with existing results
