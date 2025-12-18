@@ -481,10 +481,10 @@ export async function GET(req: Request) {
     const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
-    // Background jobs (with jobId) can run for 30 minutes
-    // Direct API calls still have 55s timeout (Vercel caps at 60s)
-    const maxDurationMs = jobId ? 30 * 60 * 1000 : 55000;
-    console.log(`[Search&Price] Timeout set to ${maxDurationMs/1000}s (${jobId ? 'background job' : 'direct call'})`);
+    // On Replit we have much longer timeouts than Vercel
+    // Allow up to 10 minutes for large searches
+    const maxDurationMs = 10 * 60 * 1000; // 10 minutes
+    console.log(`[Search&Price] Timeout set to ${maxDurationMs/1000}s`);
     
     let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0 };
     
