@@ -217,11 +217,95 @@ export default function ProductDiscoveryPage() {
     setSavedBatchId(null);
     setCurrentJobId(null);
     setJobProgress(null);
+    setSearchProgress("Starting search...");
     
     const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
     
-    setSearchProgress(`Searching for ${quantity} products... This may take a few minutes.`);
-    await fallbackDirectSearch(categoryIds);
+    try {
+      const jobRes = await fetch('/api/admin/cj/products/search-jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          categoryId: categoryIds.join(","),
+          minPrice,
+          maxPrice,
+          minStock,
+          profitMargin,
+          popularity,
+          minRating,
+          freeShippingOnly,
+          quantity,
+        }),
+      });
+      
+      const jobData = await jobRes.json();
+      
+      if (!jobRes.ok || !jobData.ok) {
+        if (jobData.fallbackToDirectSearch) {
+          setSearchProgress(`Searching for ${quantity} products (direct mode)...`);
+          await fallbackDirectSearch(categoryIds);
+          return;
+        }
+        throw new Error(jobData.error || 'Failed to start search');
+      }
+      
+      const jobId = jobData.jobId;
+      setCurrentJobId(jobId);
+      setJobProgress({ found: 0, requested: quantity });
+      setSearchProgress(`Searching for ${quantity} products...`);
+      
+      const pollJob = async () => {
+        try {
+          const statusRes = await fetch(`/api/admin/cj/products/search-jobs?jobId=${jobId}`);
+          const statusData = await statusRes.json();
+          
+          if (!statusData.ok || !statusData.job) {
+            throw new Error('Failed to get job status');
+          }
+          
+          const job = statusData.job;
+          setJobProgress({ found: job.found_count, requested: job.requested_quantity });
+          setSearchProgress(job.progress_message || `Found ${job.found_count} of ${job.requested_quantity} products...`);
+          
+          if (job.status === 'completed') {
+            const pricedProducts: PricedProduct[] = job.results || [];
+            setProducts(pricedProducts);
+            
+            if (pricedProducts.length === 0) {
+              setError("No products found. Try different filters.");
+            } else if (pricedProducts.length < quantity) {
+              setError(`Found ${pricedProducts.length} of ${quantity} requested products.`);
+            }
+            
+            setLoading(false);
+            setSearchProgress("");
+            setCurrentJobId(null);
+            setJobProgress(null);
+            return;
+          }
+          
+          if (job.status === 'failed' || job.status === 'cancelled') {
+            setError(job.error_message || 'Search failed');
+            setLoading(false);
+            setSearchProgress("");
+            return;
+          }
+          
+          setTimeout(pollJob, 3000);
+        } catch (e: any) {
+          setError(e?.message || 'Failed to check job status');
+          setLoading(false);
+          setSearchProgress("");
+        }
+      };
+      
+      setTimeout(pollJob, 2000);
+      
+    } catch (e: any) {
+      setError(e?.message || "Search failed");
+      setLoading(false);
+      setSearchProgress("");
+    }
   };
 
   const toggleSelect = (productId: string, e: React.MouseEvent) => {
@@ -621,14 +705,20 @@ export default function ProductDiscoveryPage() {
           <div className="flex items-center gap-3">
             <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
             <div className="flex-1">
-              <div className="h-2 bg-amber-200 rounded-full overflow-hidden">
-                <div className="h-full bg-amber-500 rounded-full animate-pulse" style={{ width: '60%' }} />
+              <div className="h-3 bg-amber-200 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-amber-500 rounded-full transition-all duration-500" 
+                  style={{ width: jobProgress ? `${Math.min(100, (jobProgress.found / jobProgress.requested) * 100)}%` : '5%' }} 
+                />
               </div>
             </div>
-            <span className="text-sm text-amber-700">{searchProgress}</span>
+            <span className="text-sm font-medium text-amber-700">
+              {jobProgress ? `${jobProgress.found} / ${jobProgress.requested}` : 'Starting...'}
+            </span>
           </div>
-          <p className="text-xs text-amber-600 mt-2">
-            Searching products, calculating shipping costs, and applying {profitMargin}% profit margin. Products will display final USD sell prices including shipping + profit when search completes.
+          <p className="text-sm text-amber-700 mt-2">{searchProgress}</p>
+          <p className="text-xs text-amber-600 mt-1">
+            This may take several minutes for large quantities. Do not close this page.
           </p>
         </div>
       )}
