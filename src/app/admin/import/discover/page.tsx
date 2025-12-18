@@ -218,6 +218,15 @@ export default function ProductDiscoveryPage() {
         } else {
           setError("No products found. Try different filters.");
         }
+      } else if (pricedProducts.length < quantity) {
+        // Show informative message when fewer products than requested
+        const debug = data.debug;
+        if (debug?.shortfallReason) {
+          setError(`Note: Found ${pricedProducts.length} of ${quantity} requested. Reason: ${debug.shortfallReason}`);
+        } else if (debug?.candidatesFound !== undefined) {
+          const rate = debug.cjPacketSuccessRate || 0;
+          setError(`Found ${pricedProducts.length} of ${quantity} requested. Only ${rate}% of products in this category support CJPacket Ordinary shipping.`);
+        }
       }
       
     } catch (e: any) {

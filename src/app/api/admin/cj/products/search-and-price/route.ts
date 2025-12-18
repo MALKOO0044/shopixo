@@ -393,7 +393,30 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url);
     const categoryIdsParam = searchParams.get('categoryIds') || 'all';
-    const categoryIds = categoryIdsParam.split(',').filter(Boolean);
+    const rawCategoryIds = categoryIdsParam.split(',').filter(Boolean);
+    
+    // Filter out fake category IDs (first-*, second-*) - only real CJ categoryIds work
+    // These fake IDs come from our categories API for display purposes only
+    const fakePrefixes = ['first-', 'second-'];
+    const fakeIds = rawCategoryIds.filter(id => fakePrefixes.some(p => id.startsWith(p)));
+    const categoryIds = rawCategoryIds.filter(id => !fakePrefixes.some(p => id.startsWith(p)));
+    
+    // If user only selected parent categories (fake IDs), return helpful error
+    if (categoryIds.length === 0 && fakeIds.length > 0) {
+      console.log(`[Search&Price] Rejected fake category IDs: ${fakeIds.join(', ')}`);
+      const r = NextResponse.json({
+        ok: false,
+        error: 'Please select a specific subcategory (feature) to search. Main categories like "Women\'s Clothing" are too broad - select a specific type like "Blazers" or "Dresses" from the Features dropdown.',
+      }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
+    
+    // Log if some fake IDs were filtered out
+    if (fakeIds.length > 0) {
+      console.log(`[Search&Price] Filtered out fake IDs: ${fakeIds.join(', ')}, using: ${categoryIds.join(', ')}`);
+    }
+    
     const quantity = Math.max(1, Math.min(1000, Number(searchParams.get('quantity') || 50)));
     const minPrice = Number(searchParams.get('minPrice') || 0);
     const maxPrice = Number(searchParams.get('maxPrice') || 1000);
@@ -445,7 +468,9 @@ export async function GET(req: Request) {
     const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
-    const maxDurationMs = 55000; // 55 sec to stay under production function timeout
+    // Fixed 55s timeout - Vercel caps at 60s, must stay under that limit
+    const maxDurationMs = 55000;
+    console.log(`[Search&Price] Timeout set to ${maxDurationMs/1000}s`);
     
     let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0 };
     
@@ -2216,10 +2241,39 @@ export async function GET(req: Request) {
       return r;
     }
     
+    // Calculate if we're short of the requested quantity and why
+    const shortfall = quantity - filteredProducts.length;
+    const cjPacketSuccessRate = productIndex > 0 ? Math.round((pricedProducts.length / productIndex) * 100) : 0;
+    
+    // Build explanation for why we may have fewer products than requested
+    let shortfallReason = '';
+    if (shortfall > 0) {
+      const reasons = [];
+      if (candidateProducts.length < quantity) {
+        reasons.push(`Only ${candidateProducts.length} products exist in this category on CJ`);
+      }
+      if (skippedNoShipping > 0) {
+        reasons.push(`${skippedNoShipping} products don't support CJPacket Ordinary shipping (${cjPacketSuccessRate}% success rate)`);
+      }
+      if (hitRateLimit) {
+        reasons.push('CJ API rate limit was reached during search');
+      }
+      if (Date.now() - startTime >= maxDurationMs - 1000) {
+        reasons.push(`Search timed out after ${Math.round(maxDurationMs/1000)}s`);
+      }
+      shortfallReason = reasons.join('; ');
+    }
+    
+    console.log(`[Search&Price] Final: ${filteredProducts.length}/${quantity} requested (${cjPacketSuccessRate}% CJPacket success rate)`);
+    if (shortfallReason) {
+      console.log(`[Search&Price] Shortfall reason: ${shortfallReason}`);
+    }
+    
     const r = NextResponse.json({
       ok: true,
       products: filteredProducts,
       count: filteredProducts.length,
+      requestedQuantity: quantity,
       duration,
       quotaExhausted: hitRateLimit, // Flag if rate limit was hit during processing
       debug: {
@@ -2229,6 +2283,8 @@ export async function GET(req: Request) {
         skippedNoShipping,
         filteredBySizes,
         shippingErrors,
+        cjPacketSuccessRate,
+        shortfallReason: shortfallReason || undefined,
       }
     }, { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);
