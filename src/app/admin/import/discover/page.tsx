@@ -157,68 +157,98 @@ export default function ProductDiscoveryPage() {
     setProducts([]);
     setSelected(new Set());
     setSavedBatchId(null);
-    setSearchProgress("Searching products and calculating prices (estimated 2 min)...");
+    
+    const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
+    const allProducts: PricedProduct[] = [];
+    let cursor: string | undefined = undefined;
+    let batchNumber = 0;
+    let totalDuration = 0;
     
     try {
-      const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
-      
-      const params = new URLSearchParams({
-        categoryIds: categoryIds.join(","),
-        quantity: quantity.toString(),
-        minPrice: minPrice.toString(),
-        maxPrice: maxPrice.toString(),
-        minStock: minStock.toString(),
-        profitMargin: profitMargin.toString(),
-        popularity: popularity,
-        minRating: minRating,
-        shippingMethod: shippingMethod,
-        freeShippingOnly: freeShippingOnly ? "1" : "0",
-      });
-      
-      const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
-        method: 'GET',
-      });
-      
-      // Check content-type before parsing JSON to avoid parse errors on timeouts/errors
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        const text = await res.text();
-        throw new Error(`Server error: ${text.slice(0, 100)}...`);
-      }
-      
-      const data = await res.json();
-      
-      if (!res.ok || !data.ok) {
-        if (data.quotaExhausted || res.status === 429) {
-          throw new Error("CJ Dropshipping API daily limit reached. Please try again tomorrow.");
+      // ITERATIVE POLLING: Keep fetching batches until we have enough products or no more exist
+      while (allProducts.length < quantity) {
+        batchNumber++;
+        setSearchProgress(`Searching... Found ${allProducts.length}/${quantity} products (batch ${batchNumber})`);
+        
+        const params = new URLSearchParams({
+          categoryIds: categoryIds.join(","),
+          quantity: quantity.toString(),
+          minPrice: minPrice.toString(),
+          maxPrice: maxPrice.toString(),
+          minStock: minStock.toString(),
+          profitMargin: profitMargin.toString(),
+          popularity: popularity,
+          minRating: minRating,
+          shippingMethod: shippingMethod,
+          freeShippingOnly: freeShippingOnly ? "1" : "0",
+        });
+        
+        // Add cursor for continuation if we have one
+        if (cursor) {
+          params.set('cursor', cursor);
         }
-        throw new Error(data.error || `Search failed: ${res.status}`);
-      }
-      
-      const pricedProducts: PricedProduct[] = data.products || [];
-      setProducts(pricedProducts);
-      
-      // Show warning if quota was hit during processing but some products were retrieved
-      if (data.quotaExhausted && pricedProducts.length > 0) {
-        setError("Warning: CJ API limit reached during search. Some products may be missing. Results shown have exact pricing.");
-      }
-      
-      if (pricedProducts.length === 0) {
-        const debug = data.debug;
-        if (debug) {
-          let msg = `No products found with available shipping to USA.`;
-          if (debug.shippingErrors && Object.keys(debug.shippingErrors).length > 0) {
-            const errorSummary = Object.entries(debug.shippingErrors as Record<string, number>)
-              .map(([err, count]) => `${err}: ${count}`)
-              .join('; ');
-            msg += ` Reasons: ${errorSummary}.`;
+        
+        const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
+          method: 'GET',
+        });
+        
+        // Check content-type before parsing JSON to avoid parse errors on timeouts/errors
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          const text = await res.text();
+          throw new Error(`Server error: ${text.slice(0, 100)}...`);
+        }
+        
+        const data = await res.json();
+        
+        if (!res.ok || !data.ok) {
+          if (data.quotaExhausted || res.status === 429) {
+            // If we have some products, show them with a warning
+            if (allProducts.length > 0) {
+              setError("CJ API limit reached. Showing partial results.");
+              break;
+            }
+            throw new Error("CJ Dropshipping API daily limit reached. Please try again tomorrow.");
           }
-          msg += ' Try a different category or adjust filters.';
-          setError(msg);
-          console.log('Search debug:', debug);
-        } else {
-          setError("No products found. Try different filters.");
+          throw new Error(data.error || `Search failed: ${res.status}`);
         }
+        
+        // Add new products to our collection
+        const batchProducts: PricedProduct[] = data.products || [];
+        allProducts.push(...batchProducts);
+        totalDuration += data.duration || 0;
+        
+        // Update UI with partial results as they come in
+        setProducts([...allProducts]);
+        
+        console.log(`[Search] Batch ${batchNumber}: +${batchProducts.length} products (total: ${allProducts.length}/${quantity})`);
+        
+        // Check if there are more products to fetch
+        if (data.hasMore && data.nextCursor) {
+          cursor = data.nextCursor;
+          // Small delay between batches to prevent overwhelming the server
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } else {
+          // No more products available
+          console.log(`[Search] No more products available. Final count: ${allProducts.length}`);
+          break;
+        }
+        
+        // Safety: limit to 20 batches max (20 × 15 = 300 products)
+        if (batchNumber >= 20) {
+          console.log(`[Search] Max batch limit reached (20)`);
+          break;
+        }
+      }
+      
+      // Final update
+      setProducts(allProducts);
+      
+      // Show appropriate message based on results
+      if (allProducts.length === 0) {
+        setError("No products found with available shipping to USA. Try a different category or adjust filters.");
+      } else if (allProducts.length < quantity) {
+        setError(`Found ${allProducts.length} of ${quantity} requested products. No more products match your criteria.`);
       }
       
     } catch (e: any) {
