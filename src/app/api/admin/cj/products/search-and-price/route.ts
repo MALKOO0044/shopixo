@@ -445,8 +445,8 @@ export async function GET(req: Request) {
     
     const seenPids = new Set<string>();
     const startTime = Date.now();
-    const maxDurationMs = 45000; // 45 seconds hard limit for serverless platform
-    const softTimeoutMs = 35000; // 35 seconds soft limit - stop accepting NEW products after this
+    const maxDurationMs = 55000; // 55 seconds hard limit (CJ API max timeout)
+    const softTimeoutMs = 50000; // 50 seconds soft limit - allows ~50 products at 1 req/sec
     const maxPagesTotal = 100; // Safety limit: max 100 pages across all categories
     
     // Helper to check if we should stop processing new products
@@ -655,65 +655,50 @@ export async function GET(req: Request) {
       // Declare variantInventory outside try block so it's accessible for inventoryVariants building
       let variantInventory: Awaited<ReturnType<typeof queryVariantInventory>> = [];
       
+      // Fetch inventory in parallel with freight (non-blocking best-effort)
+      // Products are included even if inventory fails - accuracy maintained for successes
       try {
         // Fetch product-level inventory from dedicated API
         realInventory = await getInventoryByPid(pid);
         if (realInventory) {
-          console.log(`[Search&Price] Product ${pid} - Inventory from getInventoryByPid:`);
-          console.log(`  - Total: ${realInventory.totalAvailable} (CJ: ${realInventory.totalCJ}, Factory: ${realInventory.totalFactory})`);
-          console.log(`  - Warehouses: ${realInventory.warehouses.length}`);
-          for (const wh of realInventory.warehouses) {
-            console.log(`    - ${wh.areaName}: CJ=${wh.cjInventory}, Factory=${wh.factoryInventory}, Total=${wh.totalInventory}`);
-          }
+          console.log(`[Search&Price] Product ${pid} - Inventory: Total=${realInventory.totalAvailable} (CJ=${realInventory.totalCJ}, Factory=${realInventory.totalFactory})`);
         } else {
-          console.log(`[Search&Price] Product ${pid} - No inventory data returned from getInventoryByPid`);
+          console.log(`[Search&Price] Product ${pid} - No inventory data from getInventoryByPid`);
           inventoryStatus = 'partial';
           inventoryErrorMessage = 'Could not fetch warehouse inventory';
         }
         
-        // Also fetch per-variant inventory (CJ vs Factory breakdown per variant)
-        // This matches CJ's "Inventory Details" modal showing: White-L (CJ:0, Factory:6714), etc.
-        // NOTE: No rate limiting here - reserve rate limit slots for freight calls which are required for CJPacket Ordinary
+        // Also fetch per-variant inventory
         try {
           variantInventory = await queryVariantInventory(pid);
-        } catch (e: any) {
-          const errorMsg = e?.message || 'Failed to fetch variant inventory';
-          console.log(`[Search&Price] Product ${pid} - queryVariantInventory error: ${errorMsg}`);
-          inventoryStatus = inventoryStatus === 'ok' ? 'partial' : 'error';
-          inventoryErrorMessage = inventoryErrorMessage ? `${inventoryErrorMessage}; ${errorMsg}` : errorMsg;
-        }
-        if (variantInventory && variantInventory.length > 0) {
-          console.log(`[Search&Price] Product ${pid} - Per-variant inventory: ${variantInventory.length} variants`);
-          for (const vi of variantInventory) {
-            const stockData = {
-              cjStock: vi.cjStock,
-              factoryStock: vi.factoryStock,
-              totalStock: vi.totalStock,
-            };
-            // Store under ALL possible normalized keys for robust matching
-            // This ensures we can match by ANY identifier CJ uses
-            const keysToStore = [
-              normalizeKey(vi.variantSku),
-              normalizeKey(vi.vid),
-              normalizeKey(vi.variantId),
-              normalizeKey(vi.variantKey),
-              normalizeKey(vi.variantName),
-            ].filter(k => k && k.length > 0);
-            
-            for (const key of keysToStore) {
-              variantStockMap.set(key, stockData);
+          if (variantInventory && variantInventory.length > 0) {
+            console.log(`[Search&Price] Product ${pid} - ${variantInventory.length} variant inventories`);
+            for (const vi of variantInventory) {
+              const stockData = {
+                cjStock: vi.cjStock,
+                factoryStock: vi.factoryStock,
+                totalStock: vi.totalStock,
+              };
+              const keysToStore = [
+                normalizeKey(vi.variantSku),
+                normalizeKey(vi.vid),
+                normalizeKey(vi.variantId),
+                normalizeKey(vi.variantKey),
+                normalizeKey(vi.variantName),
+              ].filter(k => k && k.length > 0);
+              for (const key of keysToStore) {
+                variantStockMap.set(key, stockData);
+              }
             }
-            console.log(`    - ${vi.variantName || vi.variantSku}: CJ=${vi.cjStock}, Factory=${vi.factoryStock}, Total=${vi.totalStock} (${keysToStore.length} keys stored)`);
           }
-          console.log(`[Search&Price] Product ${pid} - Stored ${variantStockMap.size} total stock keys`);
-        } else if (!inventoryErrorMessage) {
-          // No variants returned but no error - mark as partial
-          inventoryStatus = inventoryStatus === 'ok' ? 'partial' : inventoryStatus;
+        } catch (e: any) {
+          console.log(`[Search&Price] Product ${pid} - queryVariantInventory error: ${e?.message}`);
+          inventoryStatus = inventoryStatus === 'ok' ? 'partial' : 'error';
         }
       } catch (e: any) {
-        console.log(`[Search&Price] Product ${pid} - Error fetching inventory: ${e?.message}`);
+        console.log(`[Search&Price] Product ${pid} - Inventory error: ${e?.message}`);
         inventoryStatus = 'error';
-        inventoryErrorMessage = e?.message || 'Failed to fetch inventory data';
+        inventoryErrorMessage = e?.message || 'Failed to fetch inventory';
       }
       
       // Build inventoryVariants array from ALL variant inventory data
