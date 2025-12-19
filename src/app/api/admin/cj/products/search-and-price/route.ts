@@ -444,8 +444,12 @@ export async function GET(req: Request) {
     
     const seenPids = new Set<string>();
     const startTime = Date.now();
-    const maxDurationMs = 300000; // 5 minutes max for accurate searches (increased from 55s)
+    const maxDurationMs = 45000; // 45 seconds hard limit for serverless platform
+    const softTimeoutMs = 35000; // 35 seconds soft limit - stop accepting NEW products after this
     const maxPagesTotal = 100; // Safety limit: max 100 pages across all categories
+    
+    // Helper to check if we should stop accepting new products
+    const shouldStopProcessing = () => Date.now() - startTime > softTimeoutMs;
     
     let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0 };
     let totalPagesScanned = 0;
@@ -469,9 +473,15 @@ export async function GET(req: Request) {
     
     // MAIN LOOP: Keep fetching and processing until we have enough products or run out
     while (pricedProducts.length < quantity && !noMoreProducts) {
-      // Check timeout
+      // Check hard timeout
       if (Date.now() - startTime > maxDurationMs) {
-        console.log(`[Search&Price] Timeout reached after ${Math.round((Date.now() - startTime) / 1000)}s`);
+        console.log(`[Search&Price] Hard timeout reached after ${Math.round((Date.now() - startTime) / 1000)}s`);
+        break;
+      }
+      
+      // Check soft timeout - if we have ANY products, return them now to avoid platform timeout
+      if (shouldStopProcessing() && pricedProducts.length > 0) {
+        console.log(`[Search&Price] Soft timeout at ${Math.round((Date.now() - startTime) / 1000)}s - returning ${pricedProducts.length} products`);
         break;
       }
       
@@ -545,12 +555,24 @@ export async function GET(req: Request) {
       
       console.log(`[Search&Price] Processing ${candidatesToProcess.length} candidates from page ${currentPage}`);
       
+      // Check soft timeout before expensive batch operations
+      if (shouldStopProcessing() && pricedProducts.length > 0) {
+        console.log(`[Search&Price] Soft timeout before batch fetch - returning ${pricedProducts.length} products`);
+        break;
+      }
+      
       // Fetch product details for this batch
       const pidsToHydrate = candidatesToProcess.map(p => String(p.pid || p.productId || '')).filter(Boolean);
       const [productDetailsMap, productRatingsMap] = await Promise.all([
         fetchProductDetailsBatch(pidsToHydrate, 5),
         getProductRatings(pidsToHydrate)
       ]);
+      
+      // Check again after batch fetch
+      if (shouldStopProcessing() && pricedProducts.length > 0) {
+        console.log(`[Search&Price] Soft timeout after batch fetch - returning ${pricedProducts.length} products`);
+        break;
+      }
       
       // Process each candidate
       for (const item of candidatesToProcess) {
@@ -560,15 +582,19 @@ export async function GET(req: Request) {
           break;
         }
         
-        // Check timeout
+        // Check hard timeout
         if (Date.now() - startTime > maxDurationMs) break;
+        
+        // Check soft timeout - stop processing new products to leave time for response
+        if (shouldStopProcessing() && pricedProducts.length > 0) {
+          console.log(`[Search&Price] Soft timeout in inner loop - stopping at ${pricedProducts.length} products`);
+          break;
+        }
         
         totalCandidatesProcessed++;
         
-        // Add delay between products to respect CJ API rate limit (1 req/sec)
-        if (totalCandidatesProcessed > 1) {
-          await new Promise(resolve => setTimeout(resolve, 800)); // 800ms between products
-        }
+        // Note: CJ rate limiting is handled by waitForCjRateLimit() in individual API calls
+        // No manual delay needed here - the rate limiter ensures 1 req/sec compliance
         
         const pid = String(item.pid || item.productId || '');
       const cjSku = String(item.productSku || item.sku || `CJ-${pid}`);
@@ -642,8 +668,14 @@ export async function GET(req: Request) {
       let variantInventory: Awaited<ReturnType<typeof queryVariantInventory>> = [];
       
       try {
-        // Fetch product-level inventory from dedicated API
-        realInventory = await getInventoryByPid(pid);
+        // Skip expensive inventory fetch if we're running low on time
+        if (shouldStopProcessing()) {
+          console.log(`[Search&Price] Skipping inventory fetch for ${pid} - soft timeout reached`);
+          inventoryStatus = 'partial';
+          inventoryErrorMessage = 'Skipped due to time limit';
+        } else {
+          // Fetch product-level inventory from dedicated API
+          realInventory = await getInventoryByPid(pid);
         if (realInventory) {
           console.log(`[Search&Price] Product ${pid} - Inventory from getInventoryByPid:`);
           console.log(`  - Total: ${realInventory.totalAvailable} (CJ: ${realInventory.totalCJ}, Factory: ${realInventory.totalFactory})`);
@@ -659,21 +691,29 @@ export async function GET(req: Request) {
         
         // Also fetch per-variant inventory (CJ vs Factory breakdown per variant)
         // This matches CJ's "Inventory Details" modal showing: White-L (CJ:0, Factory:6714), etc.
-        // Use shared rate limiter to respect CJ's 1 rps limit across all concurrent requests
-        const rateLimitAcquired = await waitForCjRateLimit();
-        if (!rateLimitAcquired) {
-          console.warn(`[Search&Price] Product ${pid} - Rate limit timeout for queryVariantInventory`);
-          inventoryStatus = 'error';
-          inventoryErrorMessage = 'Rate limit timeout - too many concurrent requests';
-        }
-        
-        try {
-          variantInventory = await queryVariantInventory(pid);
-        } catch (e: any) {
-          const errorMsg = e?.message || 'Failed to fetch variant inventory';
-          console.log(`[Search&Price] Product ${pid} - queryVariantInventory error: ${errorMsg}`);
-          inventoryStatus = inventoryStatus === 'ok' ? 'partial' : 'error';
-          inventoryErrorMessage = inventoryErrorMessage ? `${inventoryErrorMessage}; ${errorMsg}` : errorMsg;
+        // Skip if running low on time
+        if (!shouldStopProcessing()) {
+          // Use shared rate limiter to respect CJ's 1 rps limit across all concurrent requests
+          const rateLimitAcquired = await waitForCjRateLimit();
+          if (!rateLimitAcquired) {
+            console.warn(`[Search&Price] Product ${pid} - Rate limit timeout for queryVariantInventory`);
+            inventoryStatus = 'error';
+            inventoryErrorMessage = 'Rate limit timeout - too many concurrent requests';
+          }
+          
+          // Re-check timeout after rate limit wait before making another expensive call
+          if (!shouldStopProcessing()) {
+            try {
+              variantInventory = await queryVariantInventory(pid);
+            } catch (e: any) {
+              const errorMsg = e?.message || 'Failed to fetch variant inventory';
+              console.log(`[Search&Price] Product ${pid} - queryVariantInventory error: ${errorMsg}`);
+              inventoryStatus = inventoryStatus === 'ok' ? 'partial' : 'error';
+              inventoryErrorMessage = inventoryErrorMessage ? `${inventoryErrorMessage}; ${errorMsg}` : errorMsg;
+            }
+          } else {
+            console.log(`[Search&Price] Product ${pid} - Skipping queryVariantInventory due to soft timeout`);
+          }
         }
         if (variantInventory && variantInventory.length > 0) {
           console.log(`[Search&Price] Product ${pid} - Per-variant inventory: ${variantInventory.length} variants`);
@@ -703,6 +743,8 @@ export async function GET(req: Request) {
           // No variants returned but no error - mark as partial
           inventoryStatus = inventoryStatus === 'ok' ? 'partial' : inventoryStatus;
         }
+        } // end if (!shouldStopProcessing()) for variant inventory
+        } // end else (not soft timeout)
       } catch (e: any) {
         console.log(`[Search&Price] Product ${pid} - Error fetching inventory: ${e?.message}`);
         inventoryStatus = 'error';
@@ -1644,10 +1686,8 @@ export async function GET(req: Request) {
         let logisticName: string | undefined;
         let shippingError: string | undefined;
         
-        if (variantVid) {
-          // Add delay to respect rate limit (1 req/sec) - use 1200ms for safety margin
-          await new Promise(resolve => setTimeout(resolve, 1200));
-          
+        if (variantVid && !shouldStopProcessing()) {
+          // Note: CJ rate limiting is handled by waitForCjRateLimit() in freightCalculate
           try {
             const freight = await freightCalculate({
               countryCode: 'US',
@@ -1772,8 +1812,8 @@ export async function GET(req: Request) {
         for (let i = 0; i < Math.min(sortedVariants.length, MAX_VARIANTS_TO_CHECK); i++) {
           // Stop checking if we hit rate limit or time budget exceeded
           if (consecutiveRateLimitErrors >= 3) break;
-          if (Date.now() - startTime > 50000) {
-            console.log(`[Search&Price] Time budget exceeded (50s), stopping variant checks`);
+          if (shouldStopProcessing()) {
+            console.log(`[Search&Price] Soft timeout reached, stopping variant shipping checks`);
             break;
           }
           
@@ -1795,10 +1835,8 @@ export async function GET(req: Request) {
           let logisticName: string | undefined;
           let shippingError: string | undefined;
           
-          if (variantId) {
-            // Add delay to respect rate limit (1 req/sec) - use 1200ms for safety margin
-            await new Promise(resolve => setTimeout(resolve, 1200));
-            
+          if (variantId && !shouldStopProcessing()) {
+            // Note: CJ rate limiting is handled by waitForCjRateLimit() in freightCalculate
             try {
               const freight = await freightCalculate({
                 countryCode: 'US',
@@ -2085,8 +2123,15 @@ export async function GET(req: Request) {
     // This ensures each product has inventory data before being pushed to pricedProducts
     
     const duration = Date.now() - startTime;
-    console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size) in ${duration}ms`);
+    const softTimedOut = duration >= softTimeoutMs; // Hit soft timeout (35s)
+    const hardTimedOut = duration >= maxDurationMs - 5000; // Near hard timeout (45s)
+    const isPartial = filteredProducts.length < quantity && (softTimedOut || hardTimedOut || noMoreProducts || totalPagesScanned >= maxPagesTotal);
+    
+    console.log(`[Search&Price] Complete: ${filteredProducts.length}/${quantity} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size) in ${duration}ms`);
     console.log(`[Search&Price] Shipping error breakdown:`, shippingErrors);
+    if (isPartial) {
+      console.log(`[Search&Price] Partial results: softTimeout=${softTimedOut}, hardTimeout=${hardTimedOut}, noMoreProducts=${noMoreProducts}, pagesScanned=${totalPagesScanned}/${maxPagesTotal}`);
+    }
     
     // Check if we hit rate limit issues during processing
     const hitRateLimit = consecutiveRateLimitErrors >= 3;
@@ -2118,6 +2163,9 @@ export async function GET(req: Request) {
       ok: true,
       products: filteredProducts,
       count: filteredProducts.length,
+      requestedQuantity: quantity,
+      partial: isPartial, // True if fewer products returned than requested
+      partialReason: isPartial ? (softTimedOut || hardTimedOut ? 'timeout' : noMoreProducts ? 'exhausted' : 'page_limit') : undefined,
       duration,
       quotaExhausted: hitRateLimit, // Flag if rate limit was hit during processing
       debug: {
@@ -2128,6 +2176,8 @@ export async function GET(req: Request) {
         skippedNoShipping,
         filteredBySizes,
         shippingErrors,
+        softTimedOut,
+        hardTimedOut,
       }
     }, { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);
