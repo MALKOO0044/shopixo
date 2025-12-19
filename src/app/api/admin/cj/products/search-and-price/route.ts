@@ -442,113 +442,135 @@ export async function GET(req: Request) {
     
     const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
     
-    const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
-    const maxDurationMs = 55000; // 55 sec to stay under production function timeout
+    const maxDurationMs = 300000; // 5 minutes max for accurate searches (increased from 55s)
+    const maxPagesTotal = 100; // Safety limit: max 100 pages across all categories
     
     let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0 };
-    
-    for (const catId of categoryIds) {
-      if (candidateProducts.length >= quantity * 2) break;
-      if (Date.now() - startTime > maxDurationMs) {
-        console.log(`[Search&Price] Timeout reached`);
-        break;
-      }
-      
-      console.log(`[Search&Price] Searching category: ${catId}`);
-      
-      const maxPages = 50;
-      
-      for (let page = 1; page <= maxPages; page++) {
-        if (Date.now() - startTime > maxDurationMs) break;
-        if (candidateProducts.length >= quantity * 2) break;
-        
-        const pageResult = await fetchCjProductPage(token, base, catId, page);
-        
-        if (pageResult.list.length === 0) {
-          console.log(`[Search&Price] No more products at page ${page}`);
-          break;
-        }
-        
-        for (const item of pageResult.list) {
-          const pid = String(item.pid || item.productId || '');
-          if (!pid || seenPids.has(pid)) continue;
-          seenPids.add(pid);
-          
-          const sellPrice = Number(item.sellPrice || item.price || 0);
-          if (sellPrice < minPrice || sellPrice > maxPrice) {
-            totalFiltered.price++;
-            continue;
-          }
-          
-          // NOTE: /product/list doesn't return stock/listedNum data
-          // We'll fetch inventory from listV2 during processing phase
-          // Skip early filtering on stock/popularity here - do it after enrichment
-          
-          candidateProducts.push(item);
-        }
-      }
-    }
-    
-    console.log(`[Search&Price] ----------------------------------------`);
-    console.log(`[Search&Price] Search complete:`);
-    console.log(`[Search&Price]   Total candidates: ${candidateProducts.length}`);
-    console.log(`[Search&Price]   Filtered by price: ${totalFiltered.price}`);
-    console.log(`[Search&Price]   Filtered by stock: ${totalFiltered.stock}`);
-    console.log(`[Search&Price]   Filtered by popularity: ${totalFiltered.popularity}`);
-    console.log(`[Search&Price]   Filtered by rating: ${totalFiltered.rating}`);
-    console.log(`[Search&Price] ----------------------------------------`);
-    
-    if (candidateProducts.length === 0) {
-      console.log(`[Search&Price] No candidates found! Returning empty result.`);
-      const r = NextResponse.json({
-        ok: true,
-        products: [],
-        count: 0,
-        duration: Date.now() - startTime,
-        debug: {
-          categoriesSearched: categoryIds,
-          totalSeen: seenPids.size,
-          filtered: totalFiltered,
-        }
-      }, { headers: { 'Cache-Control': 'no-store' } });
-      r.headers.set('x-request-id', log.requestId);
-      return r;
-    }
-    
-    // RATE LIMIT: CJ API allows 1 req/sec and 1000/day
-    // Limit to 15 products max per search to stay under production timeout
-    const productsToPrice = candidateProducts.slice(0, Math.min(quantity, 15));
-    console.log(`[Search&Price] Pricing ${productsToPrice.length} products...`);
-    
-    // Fetch full product details to get all images
-    const pidsToHydrate = productsToPrice.map(p => String(p.pid || p.productId || '')).filter(Boolean);
-    console.log(`[Search&Price] Hydrating ${pidsToHydrate.length} products with full details...`);
-    
-    // Fetch product details and ratings in parallel
-    const [productDetailsMap, productRatingsMap] = await Promise.all([
-      fetchProductDetailsBatch(pidsToHydrate, 5),
-      getProductRatings(pidsToHydrate)
-    ]);
-    
-    console.log(`[Search&Price] Successfully hydrated ${productDetailsMap.size} products`);
-    console.log(`[Search&Price] Successfully fetched ratings for ${productRatingsMap.size} products`);
+    let totalPagesScanned = 0;
+    let totalCandidatesProcessed = 0;
     
     const pricedProducts: PricedProduct[] = [];
     let skippedNoVariants = 0;
     let skippedNoShipping = 0;
     const shippingErrors: Record<string, number> = {}; // Track error reasons
-    let productIndex = 0;
     let consecutiveRateLimitErrors = 0; // Track consecutive rate limit errors to detect real quota issues
     
-    for (const item of productsToPrice) {
-      // Add delay between products to respect CJ API rate limit (1 req/sec)
-      if (productIndex > 0) {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 sec between products
+    // Track pagination state per category
+    const categoryPageState: Record<string, number> = {};
+    for (const catId of categoryIds) {
+      categoryPageState[catId] = 1;
+    }
+    let currentCategoryIndex = 0;
+    let noMoreProducts = false;
+    
+    console.log(`[Search&Price] Starting ACCURATE search: will fetch until ${quantity} products found or no more exist`);
+    
+    // MAIN LOOP: Keep fetching and processing until we have enough products or run out
+    while (pricedProducts.length < quantity && !noMoreProducts) {
+      // Check timeout
+      if (Date.now() - startTime > maxDurationMs) {
+        console.log(`[Search&Price] Timeout reached after ${Math.round((Date.now() - startTime) / 1000)}s`);
+        break;
       }
-      productIndex++;
-      const pid = String(item.pid || item.productId || '');
+      
+      // Check page limit
+      if (totalPagesScanned >= maxPagesTotal) {
+        console.log(`[Search&Price] Max pages limit (${maxPagesTotal}) reached`);
+        break;
+      }
+      
+      // Check rate limit errors
+      if (consecutiveRateLimitErrors >= 5) {
+        console.log(`[Search&Price] Too many rate limit errors, stopping`);
+        break;
+      }
+      
+      // Get next category to search
+      const catId = categoryIds[currentCategoryIndex];
+      const currentPage = categoryPageState[catId];
+      
+      console.log(`[Search&Price] Fetching page ${currentPage} of category ${catId} (have ${pricedProducts.length}/${quantity} products)`);
+      
+      const pageResult = await fetchCjProductPage(token, base, catId, currentPage);
+      totalPagesScanned++;
+      
+      if (pageResult.list.length === 0) {
+        console.log(`[Search&Price] No more products in category ${catId}`);
+        // Move to next category
+        currentCategoryIndex++;
+        if (currentCategoryIndex >= categoryIds.length) {
+          // Cycled through all categories - check if any have more pages
+          let anyHasMore = false;
+          for (const cid of categoryIds) {
+            // Only retry if we haven't exhausted this category
+            if (categoryPageState[cid] <= 50) {
+              anyHasMore = true;
+              break;
+            }
+          }
+          if (!anyHasMore) {
+            noMoreProducts = true;
+            console.log(`[Search&Price] All categories exhausted`);
+          }
+          currentCategoryIndex = 0;
+        }
+        continue;
+      }
+      
+      // Increment page for next iteration
+      categoryPageState[catId]++;
+      
+      // Process products from this page
+      const candidatesToProcess: any[] = [];
+      for (const item of pageResult.list) {
+        const pid = String(item.pid || item.productId || '');
+        if (!pid || seenPids.has(pid)) continue;
+        seenPids.add(pid);
+        
+        const sellPrice = Number(item.sellPrice || item.price || 0);
+        if (sellPrice < minPrice || sellPrice > maxPrice) {
+          totalFiltered.price++;
+          continue;
+        }
+        
+        candidatesToProcess.push(item);
+      }
+      
+      if (candidatesToProcess.length === 0) {
+        // No valid candidates on this page, try next
+        continue;
+      }
+      
+      console.log(`[Search&Price] Processing ${candidatesToProcess.length} candidates from page ${currentPage}`);
+      
+      // Fetch product details for this batch
+      const pidsToHydrate = candidatesToProcess.map(p => String(p.pid || p.productId || '')).filter(Boolean);
+      const [productDetailsMap, productRatingsMap] = await Promise.all([
+        fetchProductDetailsBatch(pidsToHydrate, 5),
+        getProductRatings(pidsToHydrate)
+      ]);
+      
+      // Process each candidate
+      for (const item of candidatesToProcess) {
+        // Stop if we have enough
+        if (pricedProducts.length >= quantity) {
+          console.log(`[Search&Price] Reached target quantity: ${quantity}`);
+          break;
+        }
+        
+        // Check timeout
+        if (Date.now() - startTime > maxDurationMs) break;
+        
+        totalCandidatesProcessed++;
+        
+        // Add delay between products to respect CJ API rate limit (1 req/sec)
+        if (totalCandidatesProcessed > 1) {
+          await new Promise(resolve => setTimeout(resolve, 800)); // 800ms between products
+        }
+        
+        const pid = String(item.pid || item.productId || '');
       const cjSku = String(item.productSku || item.sku || `CJ-${pid}`);
       const name = String(item.productNameEn || item.name || item.productName || '');
       
@@ -2037,7 +2059,8 @@ export async function GET(req: Request) {
         availableColors: extractedColors,
         availableModels: extractedModels,
       });
-    }
+      } // end for (item of candidatesToProcess)
+    } // end while (pricedProducts.length < quantity)
     
     // Apply post-hydration filters (sizes)
     let filteredProducts = pricedProducts;
@@ -2078,8 +2101,9 @@ export async function GET(req: Request) {
         count: 0,
         duration,
         debug: {
-          candidatesFound: candidateProducts.length,
-          productsProcessed: productsToPrice.length,
+          totalSeen: seenPids.size,
+          totalCandidatesProcessed,
+          pagesScanned: totalPagesScanned,
           pricedSuccessfully: 0,
           skippedNoShipping,
           shippingErrors,
@@ -2097,8 +2121,9 @@ export async function GET(req: Request) {
       duration,
       quotaExhausted: hitRateLimit, // Flag if rate limit was hit during processing
       debug: {
-        candidatesFound: candidateProducts.length,
-        productsProcessed: productsToPrice.length,
+        totalSeen: seenPids.size,
+        totalCandidatesProcessed,
+        pagesScanned: totalPagesScanned,
         pricedSuccessfully: pricedProducts.length,
         skippedNoShipping,
         filteredBySizes,
