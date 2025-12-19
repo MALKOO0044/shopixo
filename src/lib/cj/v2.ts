@@ -287,61 +287,33 @@ function parseFreightResponse(r: any): FreightResult {
   };
 }
 
-// Helper to find best shipping option from CJ's options
-// Priority: 1) CJPacket Ordinary, 2) Any CJPacket variant, 3) Cheapest option with tracking
+// Helper to find CJPacket Ordinary from shipping options
 export function findCJPacketOrdinary(options: CjShippingOption[]): CjShippingOption | undefined {
-  if (!options || options.length === 0) {
-    console.log(`[CJ Freight] No shipping options available`);
-    return undefined;
-  }
-  
   // Normalize function: lowercase, remove all non-letter characters
   const normalize = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
   
-  // Priority 1: Look for CJPacket Ordinary specifically
-  const TARGET_ORDINARY = 'cjpacketordinary';
+  // We're looking for anything that contains "cjpacketordinary" when normalized
+  // This handles: "CJPacket Ordinary", "CJ Packet Ordinary", "CJ Packet Ordinary USPS", 
+  // "CJPacket Ordinary+", "CJ-Packet-Ordinary", etc.
+  const TARGET = 'cjpacketordinary';
+  
   for (const option of options) {
     const normalizedName = normalize(option.name);
     const normalizedCode = normalize(option.code);
-    if (normalizedName.includes(TARGET_ORDINARY) || normalizedCode.includes(TARGET_ORDINARY)) {
+    
+    if (normalizedName.includes(TARGET) || normalizedCode.includes(TARGET)) {
       console.log(`[CJ Freight] Selected CJPacket Ordinary: $${option.price.toFixed(2)} USD (${option.name})`);
       return option;
     }
   }
   
-  // Priority 2: Look for any CJPacket variant (CJPacket Standard, CJPacket Express, etc.)
-  const TARGET_CJPACKET = 'cjpacket';
-  for (const option of options) {
-    const normalizedName = normalize(option.name);
-    const normalizedCode = normalize(option.code);
-    if (normalizedName.includes(TARGET_CJPACKET) || normalizedCode.includes(TARGET_CJPACKET)) {
-      console.log(`[CJ Freight] Selected CJPacket variant: $${option.price.toFixed(2)} USD (${option.name})`);
-      return option;
-    }
-  }
-  
-  // Priority 3: Look for economical shipping options (often best value)
-  const ECONOMY_KEYWORDS = ['economy', 'epacket', 'yanwen', 'china post', 'small packet'];
-  for (const option of options) {
-    const lowerName = option.name.toLowerCase();
-    const lowerCode = option.code.toLowerCase();
-    for (const keyword of ECONOMY_KEYWORDS) {
-      if (lowerName.includes(keyword) || lowerCode.includes(keyword)) {
-        console.log(`[CJ Freight] Selected economy option: $${option.price.toFixed(2)} USD (${option.name})`);
-        return option;
-      }
-    }
-  }
-  
-  // Priority 4: Select cheapest option as fallback (still uses real CJ price = 100% accuracy)
-  const sorted = [...options].sort((a, b) => a.price - b.price);
-  const cheapest = sorted[0];
-  console.log(`[CJ Freight] Using cheapest option: $${cheapest.price.toFixed(2)} USD (${cheapest.name})`);
-  console.log(`[CJ Freight] All available options:`);
+  // Log available options if CJPacket Ordinary not found
+  console.log(`[CJ Freight] CJPacket Ordinary NOT FOUND. Available options:`);
   for (const o of options) {
-    console.log(`[CJ Freight]   - ${o.name}: $${o.price.toFixed(2)}`);
+    console.log(`[CJ Freight]   - ${o.name} (code: ${o.code}): $${o.price.toFixed(2)}`);
   }
-  return cheapest;
+  
+  return undefined;
 }
 
 // --- Product Inventory by PID ---

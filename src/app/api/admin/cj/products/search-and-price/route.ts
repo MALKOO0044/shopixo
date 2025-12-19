@@ -124,7 +124,6 @@ async function fetchCjProductPage(
   // Use /product/list for category filtering (stable and reliable)
   const params = new URLSearchParams();
   params.set('pageNum', String(pageNum));
-  params.set('pageSize', '200'); // CRITICAL: Set large page size (CJ default is only 20!)
   
   if (categoryId && categoryId !== 'all' && !categoryId.startsWith('first-') && !categoryId.startsWith('second-')) {
     params.set('categoryId', categoryId);
@@ -406,37 +405,6 @@ export async function GET(req: Request) {
     const shippingMethod = searchParams.get('shippingMethod') || 'any';
     const sizesParam = searchParams.get('sizes') || '';
     
-    // CURSOR SUPPORT: Resume from previous search position
-    // Cursor format: base64 encoded JSON with { categoryPageState, currentCategoryIndex, seenPids[], totalPagesScannedSoFar }
-    const cursorParam = searchParams.get('cursor') || '';
-    let resumedFromCursor = false;
-    let cursorData: {
-      categoryPageState: Record<string, number>;
-      currentCategoryIndex: number;
-      seenPids: string[];
-      totalPagesScannedSoFar?: number;
-    } | null = null;
-    
-    if (cursorParam) {
-      try {
-        const decoded = Buffer.from(cursorParam, 'base64').toString('utf-8');
-        cursorData = JSON.parse(decoded);
-        resumedFromCursor = true;
-        console.log(`[Search&Price] ========== RESUMING FROM CURSOR ==========`);
-        console.log(`[Search&Price]   Category index: ${cursorData!.currentCategoryIndex}`);
-        console.log(`[Search&Price]   Seen PIDs: ${cursorData!.seenPids.length}`);
-        console.log(`[Search&Price]   Pages scanned so far: ${cursorData!.totalPagesScannedSoFar || 0}`);
-        console.log(`[Search&Price]   Category page states: ${JSON.stringify(cursorData!.categoryPageState)}`);
-        console.log(`[Search&Price] ==========================================`);
-      } catch (e) {
-        console.warn(`[Search&Price] Invalid cursor, starting fresh`);
-      }
-    }
-    
-    // BATCH SIZE: Process up to 15 products per request to stay within timeout
-    // This allows ~45 seconds of work (15 products × 3 API calls × 1 second each)
-    const batchSize = 15;
-    
     // Rating estimation function (same algorithm as preview)
     function calculateEstimatedRating(listedNum: number): number {
       if (listedNum >= 2000) return 4.8;
@@ -474,158 +442,113 @@ export async function GET(req: Request) {
     
     const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
     
-    // Initialize from cursor or fresh
-    const seenPids = new Set<string>(cursorData?.seenPids || []);
+    const candidateProducts: any[] = [];
+    const seenPids = new Set<string>();
     const startTime = Date.now();
-    const maxDurationMs = 50000; // 50 seconds hard limit for batch processing
-    const softTimeoutMs = 45000; // 45 seconds soft limit - leave headroom for response
-    const maxPagesTotal = 100; // Safety limit: max 100 pages across all categories
-    
-    // Helper to check if we should stop this batch
-    // Will return cursor to continue in next request
-    const shouldStopBatch = () => {
-      const elapsed = Date.now() - startTime;
-      if (elapsed >= softTimeoutMs) {
-        console.log(`[Search&Price] Batch timeout at ${Math.round(elapsed / 1000)}s - will return cursor`);
-        return true;
-      }
-      return false;
-    };
+    const maxDurationMs = 55000; // 55 sec to stay under production function timeout
     
     let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0 };
-    let totalPagesScanned = 0;
-    let totalCandidatesProcessed = 0;
-    let productsProcessedThisBatch = 0; // Track how many products we've processed in THIS batch
+    
+    for (const catId of categoryIds) {
+      if (candidateProducts.length >= quantity * 2) break;
+      if (Date.now() - startTime > maxDurationMs) {
+        console.log(`[Search&Price] Timeout reached`);
+        break;
+      }
+      
+      console.log(`[Search&Price] Searching category: ${catId}`);
+      
+      const maxPages = 50;
+      
+      for (let page = 1; page <= maxPages; page++) {
+        if (Date.now() - startTime > maxDurationMs) break;
+        if (candidateProducts.length >= quantity * 2) break;
+        
+        const pageResult = await fetchCjProductPage(token, base, catId, page);
+        
+        if (pageResult.list.length === 0) {
+          console.log(`[Search&Price] No more products at page ${page}`);
+          break;
+        }
+        
+        for (const item of pageResult.list) {
+          const pid = String(item.pid || item.productId || '');
+          if (!pid || seenPids.has(pid)) continue;
+          seenPids.add(pid);
+          
+          const sellPrice = Number(item.sellPrice || item.price || 0);
+          if (sellPrice < minPrice || sellPrice > maxPrice) {
+            totalFiltered.price++;
+            continue;
+          }
+          
+          // NOTE: /product/list doesn't return stock/listedNum data
+          // We'll fetch inventory from listV2 during processing phase
+          // Skip early filtering on stock/popularity here - do it after enrichment
+          
+          candidateProducts.push(item);
+        }
+      }
+    }
+    
+    console.log(`[Search&Price] ----------------------------------------`);
+    console.log(`[Search&Price] Search complete:`);
+    console.log(`[Search&Price]   Total candidates: ${candidateProducts.length}`);
+    console.log(`[Search&Price]   Filtered by price: ${totalFiltered.price}`);
+    console.log(`[Search&Price]   Filtered by stock: ${totalFiltered.stock}`);
+    console.log(`[Search&Price]   Filtered by popularity: ${totalFiltered.popularity}`);
+    console.log(`[Search&Price]   Filtered by rating: ${totalFiltered.rating}`);
+    console.log(`[Search&Price] ----------------------------------------`);
+    
+    if (candidateProducts.length === 0) {
+      console.log(`[Search&Price] No candidates found! Returning empty result.`);
+      const r = NextResponse.json({
+        ok: true,
+        products: [],
+        count: 0,
+        duration: Date.now() - startTime,
+        debug: {
+          categoriesSearched: categoryIds,
+          totalSeen: seenPids.size,
+          filtered: totalFiltered,
+        }
+      }, { headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
+    
+    // RATE LIMIT: CJ API allows 1 req/sec and 1000/day
+    // Limit to 15 products max per search to stay under production timeout
+    const productsToPrice = candidateProducts.slice(0, Math.min(quantity, 15));
+    console.log(`[Search&Price] Pricing ${productsToPrice.length} products...`);
+    
+    // Fetch full product details to get all images
+    const pidsToHydrate = productsToPrice.map(p => String(p.pid || p.productId || '')).filter(Boolean);
+    console.log(`[Search&Price] Hydrating ${pidsToHydrate.length} products with full details...`);
+    
+    // Fetch product details and ratings in parallel
+    const [productDetailsMap, productRatingsMap] = await Promise.all([
+      fetchProductDetailsBatch(pidsToHydrate, 5),
+      getProductRatings(pidsToHydrate)
+    ]);
+    
+    console.log(`[Search&Price] Successfully hydrated ${productDetailsMap.size} products`);
+    console.log(`[Search&Price] Successfully fetched ratings for ${productRatingsMap.size} products`);
     
     const pricedProducts: PricedProduct[] = [];
     let skippedNoVariants = 0;
     let skippedNoShipping = 0;
     const shippingErrors: Record<string, number> = {}; // Track error reasons
+    let productIndex = 0;
     let consecutiveRateLimitErrors = 0; // Track consecutive rate limit errors to detect real quota issues
     
-    // Track pagination state per category - restore from cursor or initialize
-    const categoryPageState: Record<string, number> = cursorData?.categoryPageState || {};
-    if (!cursorData) {
-      for (const catId of categoryIds) {
-        categoryPageState[catId] = 1;
+    for (const item of productsToPrice) {
+      // Add delay between products to respect CJ API rate limit (1 req/sec)
+      if (productIndex > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 sec between products
       }
-    }
-    let currentCategoryIndex = cursorData?.currentCategoryIndex || 0;
-    let noMoreProducts = false;
-    
-    console.log(`[Search&Price] Starting ACCURATE search: will fetch until ${quantity} products found or no more exist`);
-    
-    // MAIN LOOP: Keep fetching and processing until we have enough products or run out
-    while (pricedProducts.length < quantity && !noMoreProducts) {
-      // Check timeout
-      if (Date.now() - startTime > maxDurationMs) {
-        console.log(`[Search&Price] Timeout reached after ${Math.round((Date.now() - startTime) / 1000)}s`);
-        break;
-      }
-      
-      // Check soft timeout - stop the outer loop to preserve headroom for response
-      if (shouldStopBatch()) break;
-      
-      // Check batch limit - stop after processing batchSize products to return cursor
-      if (productsProcessedThisBatch >= batchSize) {
-        console.log(`[Search&Price] Batch limit reached (${batchSize} products) - will return cursor for continuation`);
-        break;
-      }
-      
-      // Check page limit
-      if (totalPagesScanned >= maxPagesTotal) {
-        console.log(`[Search&Price] Max pages limit (${maxPagesTotal}) reached`);
-        break;
-      }
-      
-      // Check rate limit errors
-      if (consecutiveRateLimitErrors >= 5) {
-        console.log(`[Search&Price] Too many rate limit errors, stopping`);
-        break;
-      }
-      
-      // Get next category to search
-      const catId = categoryIds[currentCategoryIndex];
-      const currentPage = categoryPageState[catId];
-      
-      console.log(`[Search&Price] Fetching page ${currentPage} of category ${catId} (have ${pricedProducts.length}/${quantity} products)`);
-      
-      const pageResult = await fetchCjProductPage(token, base, catId, currentPage);
-      totalPagesScanned++;
-      
-      if (pageResult.list.length === 0) {
-        console.log(`[Search&Price] No more products in category ${catId}`);
-        // Move to next category
-        currentCategoryIndex++;
-        if (currentCategoryIndex >= categoryIds.length) {
-          // Cycled through all categories - check if any have more pages
-          let anyHasMore = false;
-          for (const cid of categoryIds) {
-            // Only retry if we haven't exhausted this category
-            if (categoryPageState[cid] <= 50) {
-              anyHasMore = true;
-              break;
-            }
-          }
-          if (!anyHasMore) {
-            noMoreProducts = true;
-            console.log(`[Search&Price] All categories exhausted`);
-          }
-          currentCategoryIndex = 0;
-        }
-        continue;
-      }
-      
-      // Increment page for next iteration
-      categoryPageState[catId]++;
-      
-      // Process products from this page
-      const candidatesToProcess: any[] = [];
-      for (const item of pageResult.list) {
-        const pid = String(item.pid || item.productId || '');
-        if (!pid || seenPids.has(pid)) continue;
-        seenPids.add(pid);
-        
-        const sellPrice = Number(item.sellPrice || item.price || 0);
-        if (sellPrice < minPrice || sellPrice > maxPrice) {
-          totalFiltered.price++;
-          continue;
-        }
-        
-        candidatesToProcess.push(item);
-      }
-      
-      if (candidatesToProcess.length === 0) {
-        // No valid candidates on this page, try next
-        continue;
-      }
-      
-      console.log(`[Search&Price] Processing ${candidatesToProcess.length} candidates from page ${currentPage}`);
-      
-      // Fetch product details for this batch
-      const pidsToHydrate = candidatesToProcess.map(p => String(p.pid || p.productId || '')).filter(Boolean);
-      const [productDetailsMap, productRatingsMap] = await Promise.all([
-        fetchProductDetailsBatch(pidsToHydrate, 5),
-        getProductRatings(pidsToHydrate)
-      ]);
-      
-      // Process each candidate
-      for (const item of candidatesToProcess) {
-        // Stop if we have enough
-        if (pricedProducts.length >= quantity) {
-          console.log(`[Search&Price] Reached target quantity: ${quantity}`);
-          break;
-        }
-        
-        // Check timeout
-        if (Date.now() - startTime > maxDurationMs) break;
-        
-        totalCandidatesProcessed++;
-        
-        // Check soft timeout before processing this product
-        if (shouldStopBatch()) break;
-        
-        const pid = String(item.pid || item.productId || '');
+      productIndex++;
+      const pid = String(item.pid || item.productId || '');
       const cjSku = String(item.productSku || item.sku || `CJ-${pid}`);
       const name = String(item.productNameEn || item.name || item.productName || '');
       
@@ -696,50 +619,72 @@ export async function GET(req: Request) {
       // Declare variantInventory outside try block so it's accessible for inventoryVariants building
       let variantInventory: Awaited<ReturnType<typeof queryVariantInventory>> = [];
       
-      // Fetch inventory in parallel with freight (non-blocking best-effort)
-      // Products are included even if inventory fails - accuracy maintained for successes
       try {
         // Fetch product-level inventory from dedicated API
         realInventory = await getInventoryByPid(pid);
         if (realInventory) {
-          console.log(`[Search&Price] Product ${pid} - Inventory: Total=${realInventory.totalAvailable} (CJ=${realInventory.totalCJ}, Factory=${realInventory.totalFactory})`);
+          console.log(`[Search&Price] Product ${pid} - Inventory from getInventoryByPid:`);
+          console.log(`  - Total: ${realInventory.totalAvailable} (CJ: ${realInventory.totalCJ}, Factory: ${realInventory.totalFactory})`);
+          console.log(`  - Warehouses: ${realInventory.warehouses.length}`);
+          for (const wh of realInventory.warehouses) {
+            console.log(`    - ${wh.areaName}: CJ=${wh.cjInventory}, Factory=${wh.factoryInventory}, Total=${wh.totalInventory}`);
+          }
         } else {
-          console.log(`[Search&Price] Product ${pid} - No inventory data from getInventoryByPid`);
+          console.log(`[Search&Price] Product ${pid} - No inventory data returned from getInventoryByPid`);
           inventoryStatus = 'partial';
           inventoryErrorMessage = 'Could not fetch warehouse inventory';
         }
         
-        // Also fetch per-variant inventory
+        // Also fetch per-variant inventory (CJ vs Factory breakdown per variant)
+        // This matches CJ's "Inventory Details" modal showing: White-L (CJ:0, Factory:6714), etc.
+        // Use shared rate limiter to respect CJ's 1 rps limit across all concurrent requests
+        const rateLimitAcquired = await waitForCjRateLimit();
+        if (!rateLimitAcquired) {
+          console.warn(`[Search&Price] Product ${pid} - Rate limit timeout for queryVariantInventory`);
+          inventoryStatus = 'error';
+          inventoryErrorMessage = 'Rate limit timeout - too many concurrent requests';
+        }
+        
         try {
           variantInventory = await queryVariantInventory(pid);
-          if (variantInventory && variantInventory.length > 0) {
-            console.log(`[Search&Price] Product ${pid} - ${variantInventory.length} variant inventories`);
-            for (const vi of variantInventory) {
-              const stockData = {
-                cjStock: vi.cjStock,
-                factoryStock: vi.factoryStock,
-                totalStock: vi.totalStock,
-              };
-              const keysToStore = [
-                normalizeKey(vi.variantSku),
-                normalizeKey(vi.vid),
-                normalizeKey(vi.variantId),
-                normalizeKey(vi.variantKey),
-                normalizeKey(vi.variantName),
-              ].filter(k => k && k.length > 0);
-              for (const key of keysToStore) {
-                variantStockMap.set(key, stockData);
-              }
-            }
-          }
         } catch (e: any) {
-          console.log(`[Search&Price] Product ${pid} - queryVariantInventory error: ${e?.message}`);
+          const errorMsg = e?.message || 'Failed to fetch variant inventory';
+          console.log(`[Search&Price] Product ${pid} - queryVariantInventory error: ${errorMsg}`);
           inventoryStatus = inventoryStatus === 'ok' ? 'partial' : 'error';
+          inventoryErrorMessage = inventoryErrorMessage ? `${inventoryErrorMessage}; ${errorMsg}` : errorMsg;
+        }
+        if (variantInventory && variantInventory.length > 0) {
+          console.log(`[Search&Price] Product ${pid} - Per-variant inventory: ${variantInventory.length} variants`);
+          for (const vi of variantInventory) {
+            const stockData = {
+              cjStock: vi.cjStock,
+              factoryStock: vi.factoryStock,
+              totalStock: vi.totalStock,
+            };
+            // Store under ALL possible normalized keys for robust matching
+            // This ensures we can match by ANY identifier CJ uses
+            const keysToStore = [
+              normalizeKey(vi.variantSku),
+              normalizeKey(vi.vid),
+              normalizeKey(vi.variantId),
+              normalizeKey(vi.variantKey),
+              normalizeKey(vi.variantName),
+            ].filter(k => k && k.length > 0);
+            
+            for (const key of keysToStore) {
+              variantStockMap.set(key, stockData);
+            }
+            console.log(`    - ${vi.variantName || vi.variantSku}: CJ=${vi.cjStock}, Factory=${vi.factoryStock}, Total=${vi.totalStock} (${keysToStore.length} keys stored)`);
+          }
+          console.log(`[Search&Price] Product ${pid} - Stored ${variantStockMap.size} total stock keys`);
+        } else if (!inventoryErrorMessage) {
+          // No variants returned but no error - mark as partial
+          inventoryStatus = inventoryStatus === 'ok' ? 'partial' : inventoryStatus;
         }
       } catch (e: any) {
-        console.log(`[Search&Price] Product ${pid} - Inventory error: ${e?.message}`);
+        console.log(`[Search&Price] Product ${pid} - Error fetching inventory: ${e?.message}`);
         inventoryStatus = 'error';
-        inventoryErrorMessage = e?.message || 'Failed to fetch inventory';
+        inventoryErrorMessage = e?.message || 'Failed to fetch inventory data';
       }
       
       // Build inventoryVariants array from ALL variant inventory data
@@ -1670,8 +1615,6 @@ export async function GET(req: Request) {
         // For single-variant products, use pid or product-level vid
         const variantVid = String(item.vid || item.variants?.[0]?.vid || pid || '');
         
-        console.log(`[Search&Price] SINGLE-VARIANT product ${pid}: vid="${variantVid}", sellPrice=$${sellPrice}`);
-        
         let shippingPriceUSD = 0;
         let shippingPriceSAR = 0;
         let shippingAvailable = false;
@@ -1679,10 +1622,10 @@ export async function GET(req: Request) {
         let logisticName: string | undefined;
         let shippingError: string | undefined;
         
-        if (variantVid && !shouldStopBatch()) {
-          // Use the shared rate limiter instead of fixed 1s delay
-          // This only waits when necessary, improving throughput
-          await waitForCjRateLimit();
+        if (variantVid) {
+          // Add delay to respect rate limit (1 req/sec) - use 1200ms for safety margin
+          await new Promise(resolve => setTimeout(resolve, 1200));
+          
           try {
             const freight = await freightCalculate({
               countryCode: 'US',
@@ -1692,14 +1635,12 @@ export async function GET(req: Request) {
             
             if (!freight.ok) {
               shippingError = freight.message;
-              console.log(`[Search&Price] Product ${pid} freight error: ${freight.message}`);
               // Check for rate limit error (code 1600200)
               if (freight.message.includes('1600200') || freight.message.includes('Too Many Requests')) {
                 consecutiveRateLimitErrors++;
                 console.log(`[Search&Price] Rate limit error #${consecutiveRateLimitErrors}: ${freight.message}`);
               }
             } else if (freight.options.length > 0) {
-              console.log(`[Search&Price] Product ${pid} got ${freight.options.length} shipping options`);
               consecutiveRateLimitErrors = 0; // Reset on success
               const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
               if (cjPacketOrdinary) {
@@ -1707,29 +1648,24 @@ export async function GET(req: Request) {
                 shippingPriceSAR = usdToSar(shippingPriceUSD);
                 shippingAvailable = true;
                 logisticName = cjPacketOrdinary.name;
-                console.log(`[Search&Price] Product ${pid} FOUND CJPacket Ordinary: $${shippingPriceUSD}`);
                 if (cjPacketOrdinary.logisticAgingDays) {
                   const { min, max } = cjPacketOrdinary.logisticAgingDays;
                   deliveryDays = max ? `${min}-${max} days` : `${min} days`;
                 }
               } else {
                 shippingError = 'CJPacket Ordinary not available';
-                console.log(`[Search&Price] Product ${pid} NO CJPacket Ordinary found. Options: ${freight.options.map(o => o.name).join(', ')}`);
               }
             } else {
               shippingError = 'No shipping options to USA';
-              console.log(`[Search&Price] Product ${pid} no shipping options returned`);
             }
           } catch (e: any) {
             shippingError = e?.message || 'Shipping failed';
-            console.log(`[Search&Price] Product ${pid} freight exception: ${shippingError}`);
             if (shippingError && (shippingError.includes('429') || shippingError.includes('Too Many'))) {
               consecutiveRateLimitErrors++;
             }
           }
         } else {
           shippingError = 'No variant ID available';
-          console.log(`[Search&Price] Product ${pid} has no variant ID for shipping calc`);
         }
         
         if (shippingAvailable) {
@@ -1811,18 +1747,17 @@ export async function GET(req: Request) {
           logisticName: string;
         }> = [];
         
-        console.log(`[Search&Price] MULTI-VARIANT product ${pid}: ${variants.length} variants, checking up to ${MAX_VARIANTS_TO_CHECK}`);
-        
         for (let i = 0; i < Math.min(sortedVariants.length, MAX_VARIANTS_TO_CHECK); i++) {
-          // Stop checking if we hit rate limit or soft timeout
+          // Stop checking if we hit rate limit or time budget exceeded
           if (consecutiveRateLimitErrors >= 3) break;
-          if (shouldStopBatch()) break;
+          if (Date.now() - startTime > 50000) {
+            console.log(`[Search&Price] Time budget exceeded (50s), stopping variant checks`);
+            break;
+          }
           
           const variant = sortedVariants[i];
           const variantId = String(variant.vid || variant.variantId || variant.id || '');
           const variantSku = String(variant.variantSku || variant.sku || variantId);
-          
-          console.log(`[Search&Price] Variant ${i+1}: vid="${variantId}", sku="${variantSku}"`);
           const variantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
           const costSAR = usdToSar(variantPriceUSD);
           
@@ -1838,10 +1773,10 @@ export async function GET(req: Request) {
           let logisticName: string | undefined;
           let shippingError: string | undefined;
           
-          if (variantId && !shouldStopBatch()) {
-            // Use the shared rate limiter instead of fixed 1s delay
-            // This only waits when necessary, improving throughput
-            await waitForCjRateLimit();
+          if (variantId) {
+            // Add delay to respect rate limit (1 req/sec) - use 1200ms for safety margin
+            await new Promise(resolve => setTimeout(resolve, 1200));
+            
             try {
               const freight = await freightCalculate({
                 countryCode: 'US',
@@ -2000,7 +1935,7 @@ export async function GET(req: Request) {
       }
       
       if (pricedVariants.length === 0) {
-        console.log(`[Search&Price] SKIPPING product ${pid} - no shipping options available to USA`);
+        console.log(`[Search&Price] SKIPPING product ${pid} - no CJPacket Ordinary shipping`);
         skippedNoShipping++;
         continue;
       }
@@ -2046,9 +1981,6 @@ export async function GET(req: Request) {
       
       // Extract video URL if available
       const videoUrl = String(source.videoUrl || source.video || source.productVideo || '').trim() || undefined;
-      
-      // Increment batch counter when product is successfully priced
-      productsProcessedThisBatch++;
       
       pricedProducts.push({
         pid,
@@ -2105,8 +2037,7 @@ export async function GET(req: Request) {
         availableColors: extractedColors,
         availableModels: extractedModels,
       });
-      } // end for (item of candidatesToProcess)
-    } // end while (pricedProducts.length < quantity)
+    }
     
     // Apply post-hydration filters (sizes)
     let filteredProducts = pricedProducts;
@@ -2131,58 +2062,8 @@ export async function GET(req: Request) {
     // This ensures each product has inventory data before being pushed to pricedProducts
     
     const duration = Date.now() - startTime;
-    const softTimedOut = duration >= softTimeoutMs;
-    const batchLimitReached = productsProcessedThisBatch >= batchSize;
-    
-    // Determine if we need a cursor for continuation
-    // We need a cursor if: we haven't found enough products AND there are more to find
-    const needsCursor = filteredProducts.length < quantity && 
-                        !noMoreProducts && 
-                        totalPagesScanned < maxPagesTotal &&
-                        consecutiveRateLimitErrors < 5 &&
-                        (softTimedOut || batchLimitReached);
-    
-    // Generate cursor for continuation
-    let nextCursor: string | undefined;
-    if (needsCursor) {
-      const totalPagesScannedSoFar = (cursorData?.totalPagesScannedSoFar || 0) + totalPagesScanned;
-      const cursorPayload = {
-        categoryPageState,
-        currentCategoryIndex,
-        seenPids: Array.from(seenPids),
-        totalPagesScannedSoFar,
-      };
-      nextCursor = Buffer.from(JSON.stringify(cursorPayload)).toString('base64');
-      console.log(`[Search&Price] ========== GENERATED CURSOR ==========`);
-      console.log(`[Search&Price]   Products this batch: ${productsProcessedThisBatch}`);
-      console.log(`[Search&Price]   Total seen PIDs: ${seenPids.size}`);
-      console.log(`[Search&Price]   Total pages scanned: ${totalPagesScannedSoFar}`);
-      console.log(`[Search&Price]   Next category index: ${currentCategoryIndex}`);
-      console.log(`[Search&Price]   Category page states: ${JSON.stringify(categoryPageState)}`);
-      console.log(`[Search&Price] =====================================`);
-    }
-    
-    const isPartial = filteredProducts.length < quantity && (softTimedOut || noMoreProducts || totalPagesScanned >= maxPagesTotal);
-    
-    console.log(`[Search&Price] ========================================`);
-    console.log(`[Search&Price] FINAL STATS:`);
-    console.log(`[Search&Price]   Requested: ${quantity} products`);
-    console.log(`[Search&Price]   Returned: ${filteredProducts.length} products`);
-    console.log(`[Search&Price]   Pages scanned: ${totalPagesScanned}`);
-    console.log(`[Search&Price]   Products seen: ${seenPids.size}`);
-    console.log(`[Search&Price]   Candidates processed: ${totalCandidatesProcessed}`);
-    console.log(`[Search&Price]   Priced successfully: ${pricedProducts.length}`);
-    console.log(`[Search&Price]   Skipped (no shipping): ${skippedNoShipping}`);
-    console.log(`[Search&Price]   Filtered by price: ${totalFiltered.price}`);
-    console.log(`[Search&Price]   Filtered by sizes: ${filteredBySizes}`);
-    console.log(`[Search&Price]   Duration: ${duration}ms`);
-    console.log(`[Search&Price]   Soft timed out: ${softTimedOut}`);
-    console.log(`[Search&Price]   No more products: ${noMoreProducts}`);
+    console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size) in ${duration}ms`);
     console.log(`[Search&Price] Shipping error breakdown:`, shippingErrors);
-    console.log(`[Search&Price] ========================================`);
-    if (isPartial) {
-      console.log(`[Search&Price] Partial results: softTimeout=${softTimedOut}, noMoreProducts=${noMoreProducts}, pagesScanned=${totalPagesScanned}/${maxPagesTotal}`);
-    }
     
     // Check if we hit rate limit issues during processing
     const hitRateLimit = consecutiveRateLimitErrors >= 3;
@@ -2197,9 +2078,8 @@ export async function GET(req: Request) {
         count: 0,
         duration,
         debug: {
-          totalSeen: seenPids.size,
-          totalCandidatesProcessed,
-          pagesScanned: totalPagesScanned,
+          candidatesFound: candidateProducts.length,
+          productsProcessed: productsToPrice.length,
           pricedSuccessfully: 0,
           skippedNoShipping,
           shippingErrors,
@@ -2214,32 +2094,15 @@ export async function GET(req: Request) {
       ok: true,
       products: filteredProducts,
       count: filteredProducts.length,
-      requestedQuantity: quantity,
-      partial: isPartial,
-      partialReason: isPartial ? (softTimedOut ? 'timeout' : noMoreProducts ? 'exhausted' : 'page_limit') : undefined,
       duration,
       quotaExhausted: hitRateLimit, // Flag if rate limit was hit during processing
-      // CURSOR SUPPORT: If there are more products to fetch, include cursor
-      nextCursor: nextCursor,
-      hasMore: !!nextCursor,
-      batchProgress: {
-        productsThisBatch: productsProcessedThisBatch,
-        totalProductsFound: filteredProducts.length,
-        targetQuantity: quantity,
-        resumedFromCursor,
-      },
       debug: {
-        totalSeen: seenPids.size,
-        totalCandidatesProcessed,
-        pagesScanned: totalPagesScanned,
+        candidatesFound: candidateProducts.length,
+        productsProcessed: productsToPrice.length,
         pricedSuccessfully: pricedProducts.length,
         skippedNoShipping,
-        filteredByPrice: totalFiltered.price,
         filteredBySizes,
         shippingErrors,
-        softTimedOut,
-        noMoreProducts,
-        batchLimitReached,
       }
     }, { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);
@@ -2253,41 +2116,5 @@ export async function GET(req: Request) {
     );
     r.headers.set('x-request-id', loggerForRequest(req).requestId);
     return r;
-  }
-}
-
-export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    
-    const params = new URLSearchParams();
-    if (body.categoryIds) params.set('categoryIds', body.categoryIds);
-    if (body.quantity) params.set('quantity', body.quantity);
-    if (body.minPrice) params.set('minPrice', body.minPrice);
-    if (body.maxPrice) params.set('maxPrice', body.maxPrice);
-    if (body.minStock) params.set('minStock', body.minStock);
-    if (body.profitMargin) params.set('profitMargin', body.profitMargin);
-    if (body.popularity) params.set('popularity', body.popularity);
-    if (body.minRating) params.set('minRating', body.minRating);
-    if (body.shippingMethod) params.set('shippingMethod', body.shippingMethod);
-    if (body.freeShippingOnly) params.set('freeShippingOnly', body.freeShippingOnly);
-    if (body.sizes) params.set('sizes', body.sizes);
-    if (body.cursor) params.set('cursor', body.cursor);
-    
-    const url = new URL(req.url);
-    url.search = params.toString();
-    
-    const getRequest = new Request(url.toString(), {
-      method: 'GET',
-      headers: req.headers,
-    });
-    
-    return GET(getRequest);
-  } catch (e: any) {
-    console.error('[Search&Price POST] Error:', e?.message);
-    return NextResponse.json(
-      { ok: false, error: e?.message || 'Invalid request body' },
-      { status: 400, headers: { 'Cache-Control': 'no-store' } }
-    );
   }
 }

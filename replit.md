@@ -78,21 +78,28 @@ Shopixo is a modern, professional e-commerce platform designed for the USA marke
   - `src/app/api/cj/shipping/calc/route.ts` - Handler for FreightResult type
   - `src/app/api/admin/cj/products/search-and-price/route.ts` - Weight extraction and error handling
 
-## Smart Shipping Method Selection (December 19, 2025)
-- **Issue**: CJPacket Ordinary is not available for all products/categories to USA (e.g., bulky clothing items)
-- **Solution**: Smart fallback with priority-based shipping selection
+## CJPacket Ordinary Only - 100% Accurate Shipping (December 16, 2025)
+- **Requirement**: Use only CJPacket Ordinary shipping method for 100% accuracy
+- **Previous Issue**: Multiple shipping options caused confusion and incorrect total calculations
+- **Solution**: Hardcoded to CJPacket Ordinary only
 - **How it works**:
-  - Priority 1: CJPacket Ordinary (preferred for economy/tracking)
-  - Priority 2: Any CJPacket variant (CJPacket Standard, Express, etc.)
-  - Priority 3: Economy options (ePacket, Yanwen, China Post, Small Packet)
-  - Priority 4: Cheapest available option (fallback)
-- **Key Point**: All shipping costs are still 100% accurate from CJ's API - we just select the best available option rather than requiring CJPacket Ordinary specifically
+  - Discover page shows fixed "CJPacket Ordinary (7-12 days)" - no dropdown selection
+  - API searches for CJPacket Ordinary by checking both `name` and `code` fields (case-insensitive)
+  - Products/variants without CJPacket Ordinary available are skipped (marked unavailable)
+  - All pricing calculations use only CJPacket Ordinary shipping cost
 - **UI Changes**:
-  - Discover page shows "Best Available (CJPacket preferred)"
-  - Helpful message explains the fallback logic
+  - Removed shipping method dropdown filter from Discover page
+  - Removed "All Available Shipping Methods to USA" table from PreviewPageFive
+  - PreviewPageFive shows only CJPacket Ordinary price breakdown
+  - PreviewPageSix totals now correctly sum CJPacket Ordinary shipping per variant
+- **Matching Logic**: Finds CJPacket Ordinary via:
+  - `name.includes('cjpacket ordinary')` OR
+  - `code.includes('cjpacket ordinary')` OR
+  - `code === 'cjpacketordinary'`
 - **Files Modified**:
-  - `src/lib/cj/v2.ts` - `findCJPacketOrdinary()` now returns best available option
-  - `src/app/admin/import/discover/page.tsx` - Updated shipping label and messaging
+  - `src/app/admin/import/discover/page.tsx` - Removed filter, hardcoded CJPacket Ordinary
+  - `src/app/api/admin/cj/products/search-and-price/route.ts` - CJPacket Ordinary only selection
+  - `src/components/admin/import/preview/PreviewPageFive.tsx` - Removed multi-shipping table
 
 # User Preferences
 

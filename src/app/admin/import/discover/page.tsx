@@ -34,9 +34,8 @@ export default function ProductDiscoveryPage() {
   const [profitMargin, setProfitMargin] = useState(8);
   const [popularity, setPopularity] = useState("any");
   const [minRating, setMinRating] = useState("any");
-  // Uses best available shipping method (CJPacket Ordinary preferred, falls back to cheapest)
-  // All shipping costs are 100% accurate from CJ's API
-  const shippingMethod = "best";
+  // Always use CJPacket Ordinary - no filter option (100% accuracy requirement)
+  const shippingMethod = "cjpacket ordinary";
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
   
   const [loading, setLoading] = useState(false);
@@ -157,97 +156,68 @@ export default function ProductDiscoveryPage() {
     setProducts([]);
     setSelected(new Set());
     setSavedBatchId(null);
-    
-    const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
-    const allProducts: PricedProduct[] = [];
-    let cursor: string | undefined = undefined;
-    let batchNumber = 0;
-    let totalDuration = 0;
+    setSearchProgress("Searching products and calculating prices (estimated 2 min)...");
     
     try {
-      // ITERATIVE POLLING: Keep fetching batches until we have enough products or no more exist
-      while (allProducts.length < quantity) {
-        batchNumber++;
-        setSearchProgress(`Searching... Found ${allProducts.length}/${quantity} products (batch ${batchNumber})`);
-        
-        // Use POST to allow large cursor in request body (avoids URL length limits)
-        const requestBody: Record<string, string | undefined> = {
-          categoryIds: categoryIds.join(","),
-          quantity: quantity.toString(),
-          minPrice: minPrice.toString(),
-          maxPrice: maxPrice.toString(),
-          minStock: minStock.toString(),
-          profitMargin: profitMargin.toString(),
-          popularity: popularity,
-          minRating: minRating,
-          shippingMethod: shippingMethod,
-          freeShippingOnly: freeShippingOnly ? "1" : "0",
-          cursor: cursor || undefined,
-        };
-        
-        const res: Response = await fetch(`/api/admin/cj/products/search-and-price`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody),
-        });
-        
-        // Check content-type before parsing JSON to avoid parse errors on timeouts/errors
-        const contentType = res.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          const text = await res.text();
-          throw new Error(`Server error: ${text.slice(0, 100)}...`);
-        }
-        
-        const data: { ok?: boolean; error?: string; products?: PricedProduct[]; duration?: number; hasMore?: boolean; nextCursor?: string; quotaExhausted?: boolean } = await res.json();
-        
-        if (!res.ok || !data.ok) {
-          if (data.quotaExhausted || res.status === 429) {
-            // If we have some products, show them with a warning
-            if (allProducts.length > 0) {
-              setError("CJ API limit reached. Showing partial results.");
-              break;
-            }
-            throw new Error("CJ Dropshipping API daily limit reached. Please try again tomorrow.");
-          }
-          throw new Error(data.error || `Search failed: ${res.status}`);
-        }
-        
-        // Add new products to our collection
-        const batchProducts: PricedProduct[] = data.products || [];
-        allProducts.push(...batchProducts);
-        totalDuration += data.duration || 0;
-        
-        // Update UI with partial results as they come in
-        setProducts([...allProducts]);
-        
-        console.log(`[Search] Batch ${batchNumber}: +${batchProducts.length} products (total: ${allProducts.length}/${quantity})`);
-        
-        // Check if there are more products to fetch
-        if (data.hasMore && data.nextCursor) {
-          cursor = data.nextCursor;
-          // Small delay between batches to prevent overwhelming the server
-          await new Promise(resolve => setTimeout(resolve, 500));
-        } else {
-          // No more products available
-          console.log(`[Search] No more products available. Final count: ${allProducts.length}`);
-          break;
-        }
-        
-        // Safety: limit to 20 batches max (20 × 15 = 300 products)
-        if (batchNumber >= 20) {
-          console.log(`[Search] Max batch limit reached (20)`);
-          break;
-        }
+      const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
+      
+      const params = new URLSearchParams({
+        categoryIds: categoryIds.join(","),
+        quantity: quantity.toString(),
+        minPrice: minPrice.toString(),
+        maxPrice: maxPrice.toString(),
+        minStock: minStock.toString(),
+        profitMargin: profitMargin.toString(),
+        popularity: popularity,
+        minRating: minRating,
+        shippingMethod: shippingMethod,
+        freeShippingOnly: freeShippingOnly ? "1" : "0",
+      });
+      
+      const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
+        method: 'GET',
+      });
+      
+      // Check content-type before parsing JSON to avoid parse errors on timeouts/errors
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`Server error: ${text.slice(0, 100)}...`);
       }
       
-      // Final update
-      setProducts(allProducts);
+      const data = await res.json();
       
-      // Show appropriate message based on results
-      if (allProducts.length === 0) {
-        setError("No products found with available shipping to USA. Try a different category or adjust filters.");
-      } else if (allProducts.length < quantity) {
-        setError(`Found ${allProducts.length} of ${quantity} requested products. No more products match your criteria.`);
+      if (!res.ok || !data.ok) {
+        if (data.quotaExhausted || res.status === 429) {
+          throw new Error("CJ Dropshipping API daily limit reached. Please try again tomorrow.");
+        }
+        throw new Error(data.error || `Search failed: ${res.status}`);
+      }
+      
+      const pricedProducts: PricedProduct[] = data.products || [];
+      setProducts(pricedProducts);
+      
+      // Show warning if quota was hit during processing but some products were retrieved
+      if (data.quotaExhausted && pricedProducts.length > 0) {
+        setError("Warning: CJ API limit reached during search. Some products may be missing. Results shown have exact pricing.");
+      }
+      
+      if (pricedProducts.length === 0) {
+        const debug = data.debug;
+        if (debug) {
+          let msg = `No products with CJPacket Ordinary shipping found.`;
+          if (debug.shippingErrors && Object.keys(debug.shippingErrors).length > 0) {
+            const errorSummary = Object.entries(debug.shippingErrors as Record<string, number>)
+              .map(([err, count]) => `${err}: ${count}`)
+              .join('; ');
+            msg += ` Errors: ${errorSummary}.`;
+          }
+          msg += ' Try a different category.';
+          setError(msg);
+          console.log('Search debug:', debug);
+        } else {
+          setError("No products found. Try different filters.");
+        }
       }
       
     } catch (e: any) {
@@ -580,9 +550,9 @@ export default function ProductDiscoveryPage() {
               Shipping Method
             </label>
             <div className="w-full px-3 py-2 border border-blue-300 rounded bg-blue-50 text-blue-800 font-medium">
-              Best Available (CJPacket preferred)
+              CJPacket Ordinary (7-12 days)
             </div>
-            <p className="text-xs text-gray-500 mt-1">Uses CJPacket Ordinary when available, falls back to cheapest option. All prices are 100% accurate from CJ.</p>
+            <p className="text-xs text-gray-500 mt-1">Fixed for 100% accuracy</p>
           </div>
           
         </div>
