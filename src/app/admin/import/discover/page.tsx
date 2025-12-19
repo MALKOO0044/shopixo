@@ -170,7 +170,8 @@ export default function ProductDiscoveryPage() {
         batchNumber++;
         setSearchProgress(`Searching... Found ${allProducts.length}/${quantity} products (batch ${batchNumber})`);
         
-        const params = new URLSearchParams({
+        // Use POST to allow large cursor in request body (avoids URL length limits)
+        const requestBody: Record<string, string | undefined> = {
           categoryIds: categoryIds.join(","),
           quantity: quantity.toString(),
           minPrice: minPrice.toString(),
@@ -181,15 +182,13 @@ export default function ProductDiscoveryPage() {
           minRating: minRating,
           shippingMethod: shippingMethod,
           freeShippingOnly: freeShippingOnly ? "1" : "0",
-        });
+          cursor: cursor || undefined,
+        };
         
-        // Add cursor for continuation if we have one
-        if (cursor) {
-          params.set('cursor', cursor);
-        }
-        
-        const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
-          method: 'GET',
+        const res: Response = await fetch(`/api/admin/cj/products/search-and-price`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody),
         });
         
         // Check content-type before parsing JSON to avoid parse errors on timeouts/errors
@@ -199,7 +198,7 @@ export default function ProductDiscoveryPage() {
           throw new Error(`Server error: ${text.slice(0, 100)}...`);
         }
         
-        const data = await res.json();
+        const data: { ok?: boolean; error?: string; products?: PricedProduct[]; duration?: number; hasMore?: boolean; nextCursor?: string; quotaExhausted?: boolean } = await res.json();
         
         if (!res.ok || !data.ok) {
           if (data.quotaExhausted || res.status === 429) {

@@ -2255,3 +2255,39 @@ export async function GET(req: Request) {
     return r;
   }
 }
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    
+    const params = new URLSearchParams();
+    if (body.categoryIds) params.set('categoryIds', body.categoryIds);
+    if (body.quantity) params.set('quantity', body.quantity);
+    if (body.minPrice) params.set('minPrice', body.minPrice);
+    if (body.maxPrice) params.set('maxPrice', body.maxPrice);
+    if (body.minStock) params.set('minStock', body.minStock);
+    if (body.profitMargin) params.set('profitMargin', body.profitMargin);
+    if (body.popularity) params.set('popularity', body.popularity);
+    if (body.minRating) params.set('minRating', body.minRating);
+    if (body.shippingMethod) params.set('shippingMethod', body.shippingMethod);
+    if (body.freeShippingOnly) params.set('freeShippingOnly', body.freeShippingOnly);
+    if (body.sizes) params.set('sizes', body.sizes);
+    if (body.cursor) params.set('cursor', body.cursor);
+    
+    const url = new URL(req.url);
+    url.search = params.toString();
+    
+    const getRequest = new Request(url.toString(), {
+      method: 'GET',
+      headers: req.headers,
+    });
+    
+    return GET(getRequest);
+  } catch (e: any) {
+    console.error('[Search&Price POST] Error:', e?.message);
+    return NextResponse.json(
+      { ok: false, error: e?.message || 'Invalid request body' },
+      { status: 400, headers: { 'Cache-Control': 'no-store' } }
+    );
+  }
+}
