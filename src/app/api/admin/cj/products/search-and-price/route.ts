@@ -673,14 +673,7 @@ export async function GET(req: Request) {
         
         // Also fetch per-variant inventory (CJ vs Factory breakdown per variant)
         // This matches CJ's "Inventory Details" modal showing: White-L (CJ:0, Factory:6714), etc.
-        // Use shared rate limiter to respect CJ's 1 rps limit across all concurrent requests
-        const rateLimitAcquired = await waitForCjRateLimit();
-        if (!rateLimitAcquired) {
-          console.warn(`[Search&Price] Product ${pid} - Rate limit timeout for queryVariantInventory`);
-          inventoryStatus = 'error';
-          inventoryErrorMessage = 'Rate limit timeout - too many concurrent requests';
-        }
-        
+        // NOTE: No rate limiting here - reserve rate limit slots for freight calls which are required for CJPacket Ordinary
         try {
           variantInventory = await queryVariantInventory(pid);
         } catch (e: any) {
