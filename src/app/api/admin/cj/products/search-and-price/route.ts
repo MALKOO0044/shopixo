@@ -1651,6 +1651,8 @@ export async function GET(req: Request) {
         // For single-variant products, use pid or product-level vid
         const variantVid = String(item.vid || item.variants?.[0]?.vid || pid || '');
         
+        console.log(`[Search&Price] SINGLE-VARIANT product ${pid}: vid="${variantVid}", sellPrice=$${sellPrice}`);
+        
         let shippingPriceUSD = 0;
         let shippingPriceSAR = 0;
         let shippingAvailable = false;
@@ -1659,8 +1661,9 @@ export async function GET(req: Request) {
         let shippingError: string | undefined;
         
         if (variantVid && !shouldStopEarly()) {
-          // Rate limit: CJ requires ~1 request/second for shipping API
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // Use the shared rate limiter instead of fixed 1s delay
+          // This only waits when necessary, improving throughput
+          await waitForCjRateLimit();
           try {
             const freight = await freightCalculate({
               countryCode: 'US',
@@ -1670,12 +1673,14 @@ export async function GET(req: Request) {
             
             if (!freight.ok) {
               shippingError = freight.message;
+              console.log(`[Search&Price] Product ${pid} freight error: ${freight.message}`);
               // Check for rate limit error (code 1600200)
               if (freight.message.includes('1600200') || freight.message.includes('Too Many Requests')) {
                 consecutiveRateLimitErrors++;
                 console.log(`[Search&Price] Rate limit error #${consecutiveRateLimitErrors}: ${freight.message}`);
               }
             } else if (freight.options.length > 0) {
+              console.log(`[Search&Price] Product ${pid} got ${freight.options.length} shipping options`);
               consecutiveRateLimitErrors = 0; // Reset on success
               const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
               if (cjPacketOrdinary) {
@@ -1683,24 +1688,29 @@ export async function GET(req: Request) {
                 shippingPriceSAR = usdToSar(shippingPriceUSD);
                 shippingAvailable = true;
                 logisticName = cjPacketOrdinary.name;
+                console.log(`[Search&Price] Product ${pid} FOUND CJPacket Ordinary: $${shippingPriceUSD}`);
                 if (cjPacketOrdinary.logisticAgingDays) {
                   const { min, max } = cjPacketOrdinary.logisticAgingDays;
                   deliveryDays = max ? `${min}-${max} days` : `${min} days`;
                 }
               } else {
                 shippingError = 'CJPacket Ordinary not available';
+                console.log(`[Search&Price] Product ${pid} NO CJPacket Ordinary found. Options: ${freight.options.map(o => o.name).join(', ')}`);
               }
             } else {
               shippingError = 'No shipping options to USA';
+              console.log(`[Search&Price] Product ${pid} no shipping options returned`);
             }
           } catch (e: any) {
             shippingError = e?.message || 'Shipping failed';
+            console.log(`[Search&Price] Product ${pid} freight exception: ${shippingError}`);
             if (shippingError && (shippingError.includes('429') || shippingError.includes('Too Many'))) {
               consecutiveRateLimitErrors++;
             }
           }
         } else {
           shippingError = 'No variant ID available';
+          console.log(`[Search&Price] Product ${pid} has no variant ID for shipping calc`);
         }
         
         if (shippingAvailable) {
@@ -1782,6 +1792,8 @@ export async function GET(req: Request) {
           logisticName: string;
         }> = [];
         
+        console.log(`[Search&Price] MULTI-VARIANT product ${pid}: ${variants.length} variants, checking up to ${MAX_VARIANTS_TO_CHECK}`);
+        
         for (let i = 0; i < Math.min(sortedVariants.length, MAX_VARIANTS_TO_CHECK); i++) {
           // Stop checking if we hit rate limit or soft timeout
           if (consecutiveRateLimitErrors >= 3) break;
@@ -1790,6 +1802,8 @@ export async function GET(req: Request) {
           const variant = sortedVariants[i];
           const variantId = String(variant.vid || variant.variantId || variant.id || '');
           const variantSku = String(variant.variantSku || variant.sku || variantId);
+          
+          console.log(`[Search&Price] Variant ${i+1}: vid="${variantId}", sku="${variantSku}"`);
           const variantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
           const costSAR = usdToSar(variantPriceUSD);
           
@@ -1806,8 +1820,9 @@ export async function GET(req: Request) {
           let shippingError: string | undefined;
           
           if (variantId && !shouldStopEarly()) {
-            // Rate limit: CJ requires ~1 request/second for shipping API
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Use the shared rate limiter instead of fixed 1s delay
+            // This only waits when necessary, improving throughput
+            await waitForCjRateLimit();
             try {
               const freight = await freightCalculate({
                 countryCode: 'US',
