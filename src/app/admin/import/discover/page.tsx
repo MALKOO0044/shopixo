@@ -34,8 +34,9 @@ export default function ProductDiscoveryPage() {
   const [profitMargin, setProfitMargin] = useState(8);
   const [popularity, setPopularity] = useState("any");
   const [minRating, setMinRating] = useState("any");
-  // Always use CJPacket Ordinary - no filter option (100% accuracy requirement)
-  const shippingMethod = "cjpacket ordinary";
+  // Uses best available shipping method (CJPacket Ordinary preferred, falls back to cheapest)
+  // All shipping costs are 100% accurate from CJ's API
+  const shippingMethod = "best";
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
   
   const [loading, setLoading] = useState(false);
@@ -205,14 +206,14 @@ export default function ProductDiscoveryPage() {
       if (pricedProducts.length === 0) {
         const debug = data.debug;
         if (debug) {
-          let msg = `No products with CJPacket Ordinary shipping found.`;
+          let msg = `No products found with available shipping to USA.`;
           if (debug.shippingErrors && Object.keys(debug.shippingErrors).length > 0) {
             const errorSummary = Object.entries(debug.shippingErrors as Record<string, number>)
               .map(([err, count]) => `${err}: ${count}`)
               .join('; ');
-            msg += ` Errors: ${errorSummary}.`;
+            msg += ` Reasons: ${errorSummary}.`;
           }
-          msg += ' Try a different category.';
+          msg += ' Try a different category or adjust filters.';
           setError(msg);
           console.log('Search debug:', debug);
         } else {
@@ -550,9 +551,9 @@ export default function ProductDiscoveryPage() {
               Shipping Method
             </label>
             <div className="w-full px-3 py-2 border border-blue-300 rounded bg-blue-50 text-blue-800 font-medium">
-              CJPacket Ordinary (7-12 days)
+              Best Available (CJPacket preferred)
             </div>
-            <p className="text-xs text-gray-500 mt-1">Fixed for 100% accuracy</p>
+            <p className="text-xs text-gray-500 mt-1">Uses CJPacket Ordinary when available, falls back to cheapest option. All prices are 100% accurate from CJ.</p>
           </div>
           
         </div>

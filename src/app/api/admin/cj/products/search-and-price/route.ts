@@ -1959,7 +1959,7 @@ export async function GET(req: Request) {
       }
       
       if (pricedVariants.length === 0) {
-        console.log(`[Search&Price] SKIPPING product ${pid} - no CJPacket Ordinary shipping`);
+        console.log(`[Search&Price] SKIPPING product ${pid} - no shipping options available to USA`);
         skippedNoShipping++;
         continue;
       }
