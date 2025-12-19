@@ -204,17 +204,19 @@ export default function ProductDiscoveryPage() {
       
       if (pricedProducts.length === 0) {
         const debug = data.debug;
-        if (debug?.candidatesFound === 0) {
-          setError("No products found in this category. Try a different category or search terms.");
+        if (debug) {
+          let msg = `No products with CJPacket Ordinary shipping found.`;
+          if (debug.shippingErrors && Object.keys(debug.shippingErrors).length > 0) {
+            const errorSummary = Object.entries(debug.shippingErrors as Record<string, number>)
+              .map(([err, count]) => `${err}: ${count}`)
+              .join('; ');
+            msg += ` Errors: ${errorSummary}.`;
+          }
+          msg += ' Try a different category.';
+          setError(msg);
+          console.log('Search debug:', debug);
         } else {
           setError("No products found. Try different filters.");
-        }
-        console.log('Search debug:', debug);
-      } else if (pricedProducts.length < quantity) {
-        // Show informative message when fewer products than requested
-        const debug = data.debug;
-        if (debug?.shortfallReason) {
-          setError(`Note: Found ${pricedProducts.length} of ${quantity} requested. Reason: ${debug.shortfallReason}`);
         }
       }
       
