@@ -124,6 +124,7 @@ async function fetchCjProductPage(
   // Use /product/list for category filtering (stable and reliable)
   const params = new URLSearchParams();
   params.set('pageNum', String(pageNum));
+  params.set('pageSize', '200'); // CRITICAL: Set large page size (CJ default is only 20!)
   
   if (categoryId && categoryId !== 'all' && !categoryId.startsWith('first-') && !categoryId.startsWith('second-')) {
     params.set('categoryId', categoryId);
@@ -2096,8 +2097,22 @@ export async function GET(req: Request) {
     const softTimedOut = duration >= softTimeoutMs;
     const isPartial = filteredProducts.length < quantity && (softTimedOut || noMoreProducts || totalPagesScanned >= maxPagesTotal);
     
-    console.log(`[Search&Price] Complete: ${filteredProducts.length}/${quantity} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size) in ${duration}ms`);
+    console.log(`[Search&Price] ========================================`);
+    console.log(`[Search&Price] FINAL STATS:`);
+    console.log(`[Search&Price]   Requested: ${quantity} products`);
+    console.log(`[Search&Price]   Returned: ${filteredProducts.length} products`);
+    console.log(`[Search&Price]   Pages scanned: ${totalPagesScanned}`);
+    console.log(`[Search&Price]   Products seen: ${seenPids.size}`);
+    console.log(`[Search&Price]   Candidates processed: ${totalCandidatesProcessed}`);
+    console.log(`[Search&Price]   Priced successfully: ${pricedProducts.length}`);
+    console.log(`[Search&Price]   Skipped (no shipping): ${skippedNoShipping}`);
+    console.log(`[Search&Price]   Filtered by price: ${totalFiltered.price}`);
+    console.log(`[Search&Price]   Filtered by sizes: ${filteredBySizes}`);
+    console.log(`[Search&Price]   Duration: ${duration}ms`);
+    console.log(`[Search&Price]   Soft timed out: ${softTimedOut}`);
+    console.log(`[Search&Price]   No more products: ${noMoreProducts}`);
     console.log(`[Search&Price] Shipping error breakdown:`, shippingErrors);
+    console.log(`[Search&Price] ========================================`);
     if (isPartial) {
       console.log(`[Search&Price] Partial results: softTimeout=${softTimedOut}, noMoreProducts=${noMoreProducts}, pagesScanned=${totalPagesScanned}/${maxPagesTotal}`);
     }
@@ -2143,9 +2158,11 @@ export async function GET(req: Request) {
         pagesScanned: totalPagesScanned,
         pricedSuccessfully: pricedProducts.length,
         skippedNoShipping,
+        filteredByPrice: totalFiltered.price,
         filteredBySizes,
         shippingErrors,
         softTimedOut,
+        noMoreProducts,
       }
     }, { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);
