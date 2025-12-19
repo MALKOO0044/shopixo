@@ -4,7 +4,6 @@ import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 import { usdToSar, computeRetailFromLanded } from '@/lib/pricing';
-import { updateJobProgress } from '@/lib/db/search-jobs';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -428,18 +427,6 @@ export async function GET(req: Request) {
     const freeShippingOnly = searchParams.get('freeShippingOnly') === '1';
     const shippingMethod = searchParams.get('shippingMethod') || 'any';
     const sizesParam = searchParams.get('sizes') || '';
-    const jobId = searchParams.get('jobId') || null;
-    
-    // Helper to update job progress in database (for background jobs)
-    const updateProgress = async (foundCount: number, processedCount: number, message: string) => {
-      if (jobId) {
-        try {
-          await updateJobProgress(jobId, foundCount, processedCount, message);
-        } catch (e) {
-          console.error('[Search&Price] Failed to update job progress:', e);
-        }
-      }
-    };
     
     // Rating estimation function (same algorithm as preview)
     function calculateEstimatedRating(listedNum: number): number {
@@ -481,10 +468,9 @@ export async function GET(req: Request) {
     const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
-    // Background jobs (with jobId) can run for 30 minutes
-    // Direct API calls still have 55s timeout (Vercel caps at 60s)
-    const maxDurationMs = jobId ? 30 * 60 * 1000 : 55000;
-    console.log(`[Search&Price] Timeout set to ${maxDurationMs/1000}s (${jobId ? 'background job' : 'direct call'})`);
+    // Fixed 55s timeout - Vercel caps at 60s, must stay under that limit
+    const maxDurationMs = 55000;
+    console.log(`[Search&Price] Timeout set to ${maxDurationMs/1000}s`);
     
     let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0 };
     
@@ -687,9 +673,6 @@ export async function GET(req: Request) {
       candidateIndex = batchEnd;
       
       console.log(`[Search&Price] Processing batch of ${batchItems.length} products (${pricedProducts.length}/${quantity} valid so far)`);
-      
-      // Update job progress
-      await updateProgress(pricedProducts.length, productIndex, `Processing products... Found ${pricedProducts.length} of ${quantity} requested`);
       
       // Fetch full product details for this batch
       const batchPids = batchItems.map(p => String(p.pid || p.productId || '')).filter(Boolean);

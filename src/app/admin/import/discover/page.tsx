@@ -42,8 +42,6 @@ export default function ProductDiscoveryPage() {
   const [searchProgress, setSearchProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<PricedProduct[]>([]);
-  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
-  const [jobProgress, setJobProgress] = useState<{ found: number; requested: number } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   
   const [categories, setCategories] = useState<Category[]>([]);
@@ -147,27 +145,40 @@ export default function ProductDiscoveryPage() {
     }
   };
 
-  const fallbackDirectSearch = async (categoryIds: string[]) => {
-    setSearchProgress("Searching products (direct mode)...");
+  const searchProducts = async () => {
+    if (category === "all" && selectedFeatures.length === 0) {
+      setError("Please select a category or feature to search");
+      return;
+    }
     
-    const params = new URLSearchParams({
-      categoryIds: categoryIds.join(","),
-      quantity: quantity.toString(),
-      minPrice: minPrice.toString(),
-      maxPrice: maxPrice.toString(),
-      minStock: minStock.toString(),
-      profitMargin: profitMargin.toString(),
-      popularity: popularity,
-      minRating: minRating,
-      shippingMethod: shippingMethod,
-      freeShippingOnly: freeShippingOnly ? "1" : "0",
-    });
+    setLoading(true);
+    setError(null);
+    setProducts([]);
+    setSelected(new Set());
+    setSavedBatchId(null);
+    setSearchProgress("Searching products and calculating prices (estimated 2 min)...");
     
     try {
+      const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
+      
+      const params = new URLSearchParams({
+        categoryIds: categoryIds.join(","),
+        quantity: quantity.toString(),
+        minPrice: minPrice.toString(),
+        maxPrice: maxPrice.toString(),
+        minStock: minStock.toString(),
+        profitMargin: profitMargin.toString(),
+        popularity: popularity,
+        minRating: minRating,
+        shippingMethod: shippingMethod,
+        freeShippingOnly: freeShippingOnly ? "1" : "0",
+      });
+      
       const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
         method: 'GET',
       });
       
+      // Check content-type before parsing JSON to avoid parse errors on timeouts/errors
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
         const text = await res.text();
@@ -186,131 +197,30 @@ export default function ProductDiscoveryPage() {
       const pricedProducts: PricedProduct[] = data.products || [];
       setProducts(pricedProducts);
       
+      // Show warning if quota was hit during processing but some products were retrieved
       if (data.quotaExhausted && pricedProducts.length > 0) {
-        setError("Warning: CJ API limit reached during search. Some products may be missing.");
+        setError("Warning: CJ API limit reached during search. Some products may be missing. Results shown have exact pricing.");
       }
       
       if (pricedProducts.length === 0) {
-        setError("No products found. Try different filters.");
+        const debug = data.debug;
+        if (debug?.candidatesFound === 0) {
+          setError("No products found in this category. Try a different category or search terms.");
+        } else {
+          setError("No products found. Try different filters.");
+        }
+        console.log('Search debug:', debug);
       } else if (pricedProducts.length < quantity) {
+        // Show informative message when fewer products than requested
         const debug = data.debug;
         if (debug?.shortfallReason) {
           setError(`Note: Found ${pricedProducts.length} of ${quantity} requested. Reason: ${debug.shortfallReason}`);
         }
       }
-    } finally {
-      setLoading(false);
-      setSearchProgress("");
-    }
-  };
-
-  const searchProducts = async () => {
-    if (category === "all" && selectedFeatures.length === 0) {
-      setError("Please select a category or feature to search");
-      return;
-    }
-    
-    setLoading(true);
-    setError(null);
-    setProducts([]);
-    setSelected(new Set());
-    setSavedBatchId(null);
-    setCurrentJobId(null);
-    setJobProgress(null);
-    setSearchProgress("Starting search job...");
-    
-    try {
-      const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
-      
-      const jobRes = await fetch('/api/admin/cj/products/search-jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          categoryId: categoryIds.join(","),
-          minPrice,
-          maxPrice,
-          minStock,
-          profitMargin,
-          popularity,
-          minRating,
-          freeShippingOnly,
-          quantity,
-        }),
-      });
-      
-      const jobData = await jobRes.json();
-      
-      if (!jobRes.ok || !jobData.ok) {
-        if (jobData.fallbackToDirectSearch) {
-          console.log('Job system not available, falling back to direct search');
-          await fallbackDirectSearch(categoryIds);
-          return;
-        }
-        throw new Error(jobData.error || 'Failed to start search job');
-      }
-      
-      const jobId = jobData.jobId;
-      setCurrentJobId(jobId);
-      setJobProgress({ found: 0, requested: quantity });
-      setSearchProgress(`Searching for ${quantity} products...`);
-      
-      const eventSource = new EventSource(`/api/admin/cj/products/search-jobs/${jobId}/events`);
-      
-      eventSource.onmessage = async (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          
-          if (data.type === 'progress') {
-            setJobProgress({ found: data.found_count, requested: data.requested_quantity });
-            setSearchProgress(data.progress_message || `Found ${data.found_count} of ${data.requested_quantity} products...`);
-          }
-          
-          if (data.type === 'complete' || data.type === 'error' || data.type === 'timeout') {
-            eventSource.close();
-            
-            if (data.type === 'error' || data.status === 'failed') {
-              setError(data.error || data.message || 'Search failed');
-              setLoading(false);
-              setSearchProgress("");
-              return;
-            }
-            
-            setSearchProgress("Loading results...");
-            const resultsRes = await fetch(`/api/admin/cj/products/search-jobs?jobId=${jobId}`);
-            const resultsData = await resultsRes.json();
-            
-            if (resultsData.ok && resultsData.job?.results) {
-              const pricedProducts: PricedProduct[] = resultsData.job.results || [];
-              setProducts(pricedProducts);
-              
-              if (pricedProducts.length === 0) {
-                setError("No products found. Try different filters.");
-              } else if (pricedProducts.length < quantity) {
-                setError(`Found ${pricedProducts.length} of ${quantity} requested products.`);
-              }
-            } else {
-              setError(resultsData.job?.error_message || 'Failed to load results');
-            }
-            
-            setLoading(false);
-            setSearchProgress("");
-            setCurrentJobId(null);
-            setJobProgress(null);
-          }
-        } catch (e) {
-          console.error('SSE parse error:', e);
-        }
-      };
-      
-      eventSource.onerror = () => {
-        eventSource.close();
-        setError("Connection lost. Please try again.");
-        setLoading(false);
-        setSearchProgress("");
-      };
       
     } catch (e: any) {
       setError(e?.message || "Search failed");
+    } finally {
       setLoading(false);
       setSearchProgress("");
     }
