@@ -394,7 +394,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const categoryIdsParam = searchParams.get('categoryIds') || 'all';
     const categoryIds = categoryIdsParam.split(',').filter(Boolean);
-    const quantity = Math.max(1, Math.min(1000, Number(searchParams.get('quantity') || 50)));
+    const quantity = Math.max(1, Math.min(5000, Number(searchParams.get('quantity') || 50)));
     const minPrice = Number(searchParams.get('minPrice') || 0);
     const maxPrice = Number(searchParams.get('maxPrice') || 1000);
     const minStock = Number(searchParams.get('minStock') || 0);
@@ -445,24 +445,24 @@ export async function GET(req: Request) {
     const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
-    const maxDurationMs = 55000; // 55 sec to stay under production function timeout
+    const maxDurationMs = 300000; // 5 minutes - allow longer processing for large quantities
     
     let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0 };
     
     for (const catId of categoryIds) {
-      if (candidateProducts.length >= quantity * 2) break;
+      if (candidateProducts.length >= quantity * 3) break; // 3x buffer for exact quantity matching
       if (Date.now() - startTime > maxDurationMs) {
-        console.log(`[Search&Price] Timeout reached`);
+        console.log(`[Search&Price] Timeout reached during candidate collection`);
         break;
       }
       
       console.log(`[Search&Price] Searching category: ${catId}`);
       
-      const maxPages = 50;
+      const maxPages = 100; // Increased for large quantity requests
       
       for (let page = 1; page <= maxPages; page++) {
         if (Date.now() - startTime > maxDurationMs) break;
-        if (candidateProducts.length >= quantity * 2) break;
+        if (candidateProducts.length >= quantity * 3) break; // 3x buffer
         
         const pageResult = await fetchCjProductPage(token, base, catId, page);
         
@@ -517,43 +517,60 @@ export async function GET(req: Request) {
       return r;
     }
     
-    // RATE LIMIT: CJ API allows 1 req/sec and 1000/day
-    // Limit to 15 products max per search to stay under production timeout
-    const productsToPrice = candidateProducts.slice(0, Math.min(quantity, 15));
-    console.log(`[Search&Price] Pricing ${productsToPrice.length} products...`);
-    
-    // Fetch full product details to get all images
-    const pidsToHydrate = productsToPrice.map(p => String(p.pid || p.productId || '')).filter(Boolean);
-    console.log(`[Search&Price] Hydrating ${pidsToHydrate.length} products with full details...`);
-    
-    // Fetch product details and ratings in parallel
-    const [productDetailsMap, productRatingsMap] = await Promise.all([
-      fetchProductDetailsBatch(pidsToHydrate, 5),
-      getProductRatings(pidsToHydrate)
-    ]);
-    
-    console.log(`[Search&Price] Successfully hydrated ${productDetailsMap.size} products`);
-    console.log(`[Search&Price] Successfully fetched ratings for ${productRatingsMap.size} products`);
+    // Process candidates until we reach exactly the requested quantity
+    // CJ confirmed ALL products support CJPacket Ordinary shipping
+    console.log(`[Search&Price] Processing candidates to get exactly ${quantity} products...`);
+    console.log(`[Search&Price] Available candidates: ${candidateProducts.length}`);
     
     const pricedProducts: PricedProduct[] = [];
     let skippedNoVariants = 0;
     let skippedNoShipping = 0;
     const shippingErrors: Record<string, number> = {}; // Track error reasons
-    let productIndex = 0;
+    let candidateIndex = 0;
     let consecutiveRateLimitErrors = 0; // Track consecutive rate limit errors to detect real quota issues
     
-    for (const item of productsToPrice) {
+    // Process candidates until we have exactly the requested quantity or run out
+    while (pricedProducts.length < quantity && candidateIndex < candidateProducts.length) {
+      // Check time limit
+      if (Date.now() - startTime > maxDurationMs) {
+        console.log(`[Search&Price] Time limit reached after ${pricedProducts.length} products`);
+        break;
+      }
+      
+      // Check for rate limit issues
+      if (consecutiveRateLimitErrors >= 5) {
+        console.log(`[Search&Price] Stopping due to ${consecutiveRateLimitErrors} consecutive rate limit errors`);
+        break;
+      }
+      
+      const item = candidateProducts[candidateIndex];
+      candidateIndex++;
+      
       // Add delay between products to respect CJ API rate limit (1 req/sec)
-      if (productIndex > 0) {
+      if (candidateIndex > 1) {
         await new Promise(resolve => setTimeout(resolve, 1000)); // 1 sec between products
       }
-      productIndex++;
       const pid = String(item.pid || item.productId || '');
       const cjSku = String(item.productSku || item.sku || `CJ-${pid}`);
       const name = String(item.productNameEn || item.name || item.productName || '');
       
-      // Get full product details for all images and additional info
-      const fullDetails = productDetailsMap.get(pid);
+      // Fetch full product details for this product (on-demand)
+      let fullDetails: any = null;
+      try {
+        const detailsMap = await fetchProductDetailsBatch([pid], 1);
+        fullDetails = detailsMap.get(pid) || null;
+      } catch (e: any) {
+        console.log(`[Search&Price] Product ${pid} - Failed to fetch details: ${e?.message}`);
+      }
+      
+      // Fetch rating for this product
+      let productRating: { rating: number | null; reviewCount: number } | undefined;
+      try {
+        const ratingsMap = await getProductRatings([pid]);
+        productRating = ratingsMap.get(pid);
+      } catch (e: any) {
+        console.log(`[Search&Price] Product ${pid} - Failed to fetch rating: ${e?.message}`);
+      }
       
       // CRITICAL: Fetch REAL inventory data from CJ's dedicated inventory API
       // This is the ONLY reliable way to get per-warehouse stock breakdown
@@ -796,16 +813,15 @@ export async function GET(req: Request) {
       // Get rating from productComments API (reliable source)
       let rating: number | undefined = undefined;
       let reviewCount = 0;
-      const ratingData = productRatingsMap.get(pid);
-      if (ratingData && ratingData.rating !== null && ratingData.rating !== undefined) {
+      if (productRating && productRating.rating !== null && productRating.rating !== undefined) {
         // Ensure rating is a number (CJ API may return strings)
-        const parsedRating = Number(ratingData.rating);
+        const parsedRating = Number(productRating.rating);
         if (Number.isFinite(parsedRating) && parsedRating > 0) {
           rating = parsedRating;
-          reviewCount = Number(ratingData.reviewCount) || 0;
+          reviewCount = Number(productRating.reviewCount) || 0;
           console.log(`[Search&Price] Product ${pid}: Rating ${rating} from comments API (${reviewCount} reviews)`);
         } else {
-          console.log(`[Search&Price] Product ${pid}: Invalid rating value: ${ratingData.rating}`);
+          console.log(`[Search&Price] Product ${pid}: Invalid rating value: ${productRating.rating}`);
         }
       } else {
         console.log(`[Search&Price] Product ${pid}: No rating available from comments API`);
@@ -1935,7 +1951,8 @@ export async function GET(req: Request) {
       }
       
       if (pricedVariants.length === 0) {
-        console.log(`[Search&Price] SKIPPING product ${pid} - no CJPacket Ordinary shipping`);
+        // CJ confirmed ALL products support CJPacket Ordinary - likely a temporary API issue
+        console.log(`[Search&Price] Product ${pid} - shipping calc failed (API issue), skipping`);
         skippedNoShipping++;
         continue;
       }
@@ -2062,24 +2079,45 @@ export async function GET(req: Request) {
     // This ensures each product has inventory data before being pushed to pricedProducts
     
     const duration = Date.now() - startTime;
-    console.log(`[Search&Price] Complete: ${filteredProducts.length} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size) in ${duration}ms`);
+    console.log(`[Search&Price] Complete: ${filteredProducts.length}/${quantity} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size) in ${duration}ms`);
     console.log(`[Search&Price] Shipping error breakdown:`, shippingErrors);
     
-    // Check if we hit rate limit issues during processing
+    // Determine fulfillment status
+    const quantityFulfilled = filteredProducts.length >= quantity;
     const hitRateLimit = consecutiveRateLimitErrors >= 3;
+    const hitTimeLimit = Date.now() - startTime > maxDurationMs;
+    const exhaustedCandidates = candidateIndex >= candidateProducts.length;
+    
+    // Determine shortfall reason
+    let shortfallReason: string | undefined;
+    if (!quantityFulfilled) {
+      if (hitRateLimit) {
+        shortfallReason = 'CJ API rate limit reached. Try again in a few minutes.';
+      } else if (hitTimeLimit) {
+        shortfallReason = `Processing time exceeded. Got ${filteredProducts.length}/${quantity} products.`;
+      } else if (exhaustedCandidates) {
+        shortfallReason = `Not enough matching products found. Got ${filteredProducts.length}/${quantity} products.`;
+      } else {
+        shortfallReason = `Shipping calculation failed for some products. Got ${filteredProducts.length}/${quantity} products.`;
+      }
+      console.log(`[Search&Price] Quantity shortfall: ${shortfallReason}`);
+    }
+    
+    // Return error if no products at all and rate limited
     if (hitRateLimit && filteredProducts.length === 0) {
-      // No products with exact pricing due to rate limits - return error response
-      console.log(`[Search&Price] Rate limit hit (${consecutiveRateLimitErrors} consecutive errors) and no products priced - returning error`);
+      console.log(`[Search&Price] Rate limit hit with no products - returning error`);
       const r = NextResponse.json({
         ok: false,
         error: 'CJ API rate limit reached. Please wait a minute and try again with fewer products.',
         quotaExhausted: true,
         products: [],
         count: 0,
+        requestedQuantity: quantity,
+        quantityFulfilled: false,
         duration,
         debug: {
           candidatesFound: candidateProducts.length,
-          productsProcessed: productsToPrice.length,
+          productsProcessed: candidateIndex,
           pricedSuccessfully: 0,
           skippedNoShipping,
           shippingErrors,
@@ -2094,15 +2132,21 @@ export async function GET(req: Request) {
       ok: true,
       products: filteredProducts,
       count: filteredProducts.length,
+      requestedQuantity: quantity,
+      quantityFulfilled,
+      shortfallReason: quantityFulfilled ? undefined : shortfallReason,
       duration,
-      quotaExhausted: hitRateLimit, // Flag if rate limit was hit during processing
+      quotaExhausted: hitRateLimit,
       debug: {
         candidatesFound: candidateProducts.length,
-        productsProcessed: productsToPrice.length,
+        productsProcessed: candidateIndex,
         pricedSuccessfully: pricedProducts.length,
         skippedNoShipping,
         filteredBySizes,
         shippingErrors,
+        hitTimeLimit,
+        hitRateLimit,
+        exhaustedCandidates,
       }
     }, { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);

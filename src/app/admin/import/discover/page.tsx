@@ -61,7 +61,7 @@ export default function ProductDiscoveryPage() {
   const [previewPage, setPreviewPage] = useState(1);
   const TOTAL_PREVIEW_PAGES = 6;
 
-  const quantityPresets = [1000, 500, 250, 100, 50, 25, 10];
+  const quantityPresets = [2000, 1500, 1000, 500, 250, 100, 50, 25, 10];
   const profitPresets = [100, 50, 25, 15, 8];
   
 
@@ -197,26 +197,38 @@ export default function ProductDiscoveryPage() {
       const pricedProducts: PricedProduct[] = data.products || [];
       setProducts(pricedProducts);
       
-      // Show warning if quota was hit during processing but some products were retrieved
-      if (data.quotaExhausted && pricedProducts.length > 0) {
+      // Check if exact quantity was fulfilled
+      if (!data.quantityFulfilled && pricedProducts.length > 0) {
+        const reason = data.shortfallReason || `Returned ${pricedProducts.length}/${data.requestedQuantity || quantity} products`;
+        setError(`Notice: ${reason}`);
+        console.log('Search shortfall:', data.debug);
+      }
+      // Show warning if quota was hit during processing
+      else if (data.quotaExhausted && pricedProducts.length > 0) {
         setError("Warning: CJ API limit reached during search. Some products may be missing. Results shown have exact pricing.");
       }
       
       if (pricedProducts.length === 0) {
-        const debug = data.debug;
-        if (debug) {
-          let msg = `No products with CJPacket Ordinary shipping found.`;
-          if (debug.shippingErrors && Object.keys(debug.shippingErrors).length > 0) {
-            const errorSummary = Object.entries(debug.shippingErrors as Record<string, number>)
-              .map(([err, count]) => `${err}: ${count}`)
-              .join('; ');
-            msg += ` Errors: ${errorSummary}.`;
-          }
-          msg += ' Try a different category.';
-          setError(msg);
-          console.log('Search debug:', debug);
+        // Use shortfallReason if available (from new API response)
+        if (data.shortfallReason) {
+          setError(data.shortfallReason);
+          console.log('Search shortfall (0 results):', data.debug);
         } else {
-          setError("No products found. Try different filters.");
+          const debug = data.debug;
+          if (debug) {
+            let msg = `No products with CJPacket Ordinary shipping found.`;
+            if (debug.shippingErrors && Object.keys(debug.shippingErrors).length > 0) {
+              const errorSummary = Object.entries(debug.shippingErrors as Record<string, number>)
+                .map(([err, count]) => `${err}: ${count}`)
+                .join('; ');
+              msg += ` Errors: ${errorSummary}.`;
+            }
+            msg += ' Try a different category.';
+            setError(msg);
+            console.log('Search debug:', debug);
+          } else {
+            setError("No products found. Try different filters.");
+          }
         }
       }
       
