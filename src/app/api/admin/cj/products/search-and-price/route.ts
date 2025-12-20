@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAccessToken, freightCalculate, fetchProductDetailsBatch, getProductRatings, findCJPacketOrdinary, getInventoryByPid, queryVariantInventory, waitForCjRateLimit } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsBatch, getProductRatings, findCJPacketOrdinary, getInventoryByPid, queryVariantInventory } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
@@ -656,13 +656,8 @@ export async function GET(req: Request) {
         
         // Also fetch per-variant inventory (CJ vs Factory breakdown per variant)
         // This matches CJ's "Inventory Details" modal showing: White-L (CJ:0, Factory:6714), etc.
-        // Use shared rate limiter to respect CJ's 1 rps limit across all concurrent requests
-        const rateLimitAcquired = await waitForCjRateLimit();
-        if (!rateLimitAcquired) {
-          console.warn(`[Search&Price] Product ${pid} - Rate limit timeout for queryVariantInventory`);
-          inventoryStatus = 'error';
-          inventoryErrorMessage = 'Rate limit timeout - too many concurrent requests';
-        }
+        // NOTE: Removed waitForCjRateLimit() call - it was adding 1100ms delay per product
+        // The CJ API handles rate limiting itself; we only slow down on actual rate limit errors
         
         try {
           variantInventory = await queryVariantInventory(pid);
