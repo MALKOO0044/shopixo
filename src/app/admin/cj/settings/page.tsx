@@ -123,7 +123,7 @@ CREATE POLICY "Service role can manage kv_settings" ON public.kv_settings
         <div className="font-medium mb-2">After saving</div>
         <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
           <li>Run <Link href="/api/admin/cj/diag?kw=dress" className="underline text-blue-600">Diagnostics</Link> to confirm token.</li>
-          <li>Use <Link href="/admin/cj/finder" className="underline text-blue-600">Catalog Finder</Link> or <code className="bg-slate-100 px-1">auto-import</code> endpoints with your target categories.</li>
+          <li>Use <Link href="/admin/import/discover" className="underline text-blue-600">Product Discovery</Link> to search and import products from CJ Dropshipping.</li>
         </ul>
       </section>
     </div>
