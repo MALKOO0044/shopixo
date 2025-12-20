@@ -457,7 +457,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         count: 0,
         requestedQuantity: quantity,
         quantityFulfilled: true,
-        duration: Date.now() - startTime,
+        duration: 0, // No processing time spent
         batch: {
           hasMore: false,
           cursor: cursorParam,
