@@ -546,9 +546,11 @@ export async function GET(req: Request) {
       const item = candidateProducts[candidateIndex];
       candidateIndex++;
       
-      // Add delay between products to respect CJ API rate limit (1 req/sec)
-      if (candidateIndex > 1) {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 sec between products
+      // Reactive rate limiting: only add delay if we hit rate limit errors recently
+      // This keeps things fast when CJ API is responsive
+      if (consecutiveRateLimitErrors > 0 && candidateIndex > 1) {
+        const backoffMs = Math.min(consecutiveRateLimitErrors * 500, 2000); // 500ms, 1s, 1.5s, max 2s
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
       }
       const pid = String(item.pid || item.productId || '');
       const cjSku = String(item.productSku || item.sku || `CJ-${pid}`);
@@ -1639,8 +1641,11 @@ export async function GET(req: Request) {
         let shippingError: string | undefined;
         
         if (variantVid) {
-          // Add delay to respect rate limit (1 req/sec) - use 1200ms for safety margin
-          await new Promise(resolve => setTimeout(resolve, 1200));
+          // Reactive rate limiting: only add delay if we recently hit rate limits
+          if (consecutiveRateLimitErrors > 0) {
+            const backoffMs = Math.min(consecutiveRateLimitErrors * 500, 2000);
+            await new Promise(resolve => setTimeout(resolve, backoffMs));
+          }
           
           try {
             const freight = await freightCalculate({
@@ -1790,8 +1795,11 @@ export async function GET(req: Request) {
           let shippingError: string | undefined;
           
           if (variantId) {
-            // Add delay to respect rate limit (1 req/sec) - use 1200ms for safety margin
-            await new Promise(resolve => setTimeout(resolve, 1200));
+            // Reactive rate limiting: only add delay if we recently hit rate limits
+            if (consecutiveRateLimitErrors > 0) {
+              const backoffMs = Math.min(consecutiveRateLimitErrors * 500, 2000);
+              await new Promise(resolve => setTimeout(resolve, backoffMs));
+            }
             
             try {
               const freight = await freightCalculate({
