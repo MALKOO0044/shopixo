@@ -378,7 +378,16 @@ function extractAllImages(item: any): string[] {
   return finalImages;
 }
 
+// Support both GET (legacy) and POST (batch mode with large seenPids)
+export async function POST(req: Request) {
+  return handleSearch(req, true);
+}
+
 export async function GET(req: Request) {
+  return handleSearch(req, false);
+}
+
+async function handleSearch(req: Request, isPost: boolean) {
   const log = loggerForRequest(req);
   try {
     const guard = await ensureAdmin();
@@ -392,6 +401,17 @@ export async function GET(req: Request) {
     }
 
     const { searchParams } = new URL(req.url);
+    
+    // For POST requests, parse body to get seenPids (can be large)
+    let bodyData: any = {};
+    if (isPost) {
+      try {
+        bodyData = await req.json();
+      } catch {
+        bodyData = {};
+      }
+    }
+    
     const categoryIdsParam = searchParams.get('categoryIds') || 'all';
     const categoryIds = categoryIdsParam.split(',').filter(Boolean);
     const quantity = Math.max(1, Math.min(5000, Number(searchParams.get('quantity') || 50)));
@@ -404,6 +424,53 @@ export async function GET(req: Request) {
     const freeShippingOnly = searchParams.get('freeShippingOnly') === '1';
     const shippingMethod = searchParams.get('shippingMethod') || 'any';
     const sizesParam = searchParams.get('sizes') || '';
+    
+    // Batching parameters for Vercel timeout handling
+    // batchSize: max products to fully process per request (default 3 for safe margin)
+    // Cursor-based pagination: {categoryIndex, pageNum, itemOffset}
+    const batchSize = Math.max(1, Math.min(10, Number(searchParams.get('batchSize') || 3)));
+    const isBatchMode = searchParams.get('batchMode') === '1';
+    
+    // Cursor for resumable pagination: categoryIndex.pageNum.itemOffset
+    // Example: "0.1.5" means category index 0, page 1, item offset 5
+    const cursorParam = searchParams.get('cursor') || '0.1.0';
+    const [cursorCatIdx, cursorPageNum, cursorItemOffset] = cursorParam.split('.').map(n => parseInt(n, 10) || 0);
+    
+    // remainingNeeded: how many more products the client needs (for exact quantity control)
+    // If not provided, defaults to quantity (full request)
+    // Allow 0 to short-circuit when client is already satisfied
+    const remainingNeeded = Math.max(0, Number(searchParams.get('remainingNeeded') || quantity));
+    
+    // seenPids: already-processed product IDs from previous batches
+    // For POST, get from body (supports large lists); for GET, get from query (limited)
+    const seenPidsArray: string[] = isPost && bodyData.seenPids 
+      ? bodyData.seenPids 
+      : (searchParams.get('seenPids') || '').split(',').filter(Boolean);
+    const seenPidsFromClient = new Set(seenPidsArray);
+    
+    // Short-circuit when client already has enough products
+    if (isBatchMode && remainingNeeded === 0) {
+      console.log(`[Search&Price] remainingNeeded=0, returning empty batch`);
+      const r = NextResponse.json({
+        ok: true,
+        products: [],
+        count: 0,
+        requestedQuantity: quantity,
+        quantityFulfilled: true,
+        duration: Date.now() - startTime,
+        batch: {
+          hasMore: false,
+          cursor: cursorParam,
+          attemptedPids: [],
+          processedPids: [],
+          totalCandidates: 0,
+          productsThisBatch: 0,
+          batchSize,
+        }
+      }, { headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
     
     // Rating estimation function (same algorithm as preview)
     function calculateEstimatedRating(listedNum: number): number {
@@ -429,6 +496,9 @@ export async function GET(req: Request) {
     console.log(`[Search&Price]   profitMargin: ${profitMargin}%`);
     console.log(`[Search&Price]   shippingMethod: ${shippingMethod}`);
     console.log(`[Search&Price]   sizes filter: ${requestedSizes.length > 0 ? requestedSizes.join(',') : 'none'}`);
+    console.log(`[Search&Price]   batchMode: ${isBatchMode}, batchSize: ${batchSize}`);
+    console.log(`[Search&Price]   cursor: ${cursorParam} (cat=${cursorCatIdx}, page=${cursorPageNum}, offset=${cursorItemOffset})`);
+    console.log(`[Search&Price]   seenPids: ${seenPidsFromClient.size} already processed`);
     console.log(`[Search&Price] ========================================`);
 
     const token = await getAccessToken();
@@ -445,36 +515,81 @@ export async function GET(req: Request) {
     const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
-    const maxDurationMs = 300000; // 5 minutes - allow longer processing for large quantities
+    // In batch mode: 8 seconds max (Vercel has 10s limit, need buffer)
+    // In non-batch mode: 5 minutes for legacy compatibility
+    const maxDurationMs = isBatchMode ? 8000 : 300000;
     
     let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0 };
     
-    for (const catId of categoryIds) {
-      if (candidateProducts.length >= quantity * 3) break; // 3x buffer for exact quantity matching
+    // For batch mode, use cursor-based pagination to resume from exact position
+    // This avoids re-fetching pages that were already processed in previous batches
+    // seenPidsFromClient is used as backup deduplication
+    const neededCandidates = isBatchMode 
+      ? batchSize * 3 // Just need enough for this batch
+      : quantity * 3; // Non-batch: 3x buffer as before
+    
+    // Track ALL PIDs attempted in this batch (for returning to client)
+    const attemptedPidsThisBatch: string[] = [];
+    
+    // Track current position for cursor (for next batch)
+    let currentCatIdx = isBatchMode ? cursorCatIdx : 0;
+    let currentPage = isBatchMode ? cursorPageNum : 1;
+    let currentItemOffset = isBatchMode ? cursorItemOffset : 0;
+    let exhaustedAllPages = false;
+    
+    // Start from cursor position (for batch mode) or from beginning (for non-batch)
+    for (let catIdx = currentCatIdx; catIdx < categoryIds.length; catIdx++) {
+      const catId = categoryIds[catIdx];
+      if (candidateProducts.length >= neededCandidates) break;
       if (Date.now() - startTime > maxDurationMs) {
         console.log(`[Search&Price] Timeout reached during candidate collection`);
         break;
       }
       
-      console.log(`[Search&Price] Searching category: ${catId}`);
+      // For first category, start from cursor page; for subsequent categories, start from page 1
+      const startPage = (catIdx === cursorCatIdx && isBatchMode) ? cursorPageNum : 1;
+      console.log(`[Search&Price] Searching category: ${catId}, starting from page ${startPage}`);
       
       const maxPages = 100; // Increased for large quantity requests
       
-      for (let page = 1; page <= maxPages; page++) {
+      for (let page = startPage; page <= maxPages; page++) {
         if (Date.now() - startTime > maxDurationMs) break;
-        if (candidateProducts.length >= quantity * 3) break; // 3x buffer
+        if (candidateProducts.length >= neededCandidates) break;
         
         const pageResult = await fetchCjProductPage(token, base, catId, page);
         
         if (pageResult.list.length === 0) {
-          console.log(`[Search&Price] No more products at page ${page}`);
+          console.log(`[Search&Price] No more products at page ${page} in category ${catId}`);
+          // Advance cursor to next category (if any)
+          if (catIdx < categoryIds.length - 1) {
+            currentCatIdx = catIdx + 1;
+            currentPage = 1;
+            currentItemOffset = 0;
+          } else {
+            exhaustedAllPages = true;
+          }
           break;
         }
         
-        for (const item of pageResult.list) {
+        // For the cursor's exact page, skip items before the offset
+        const startOffset = (catIdx === cursorCatIdx && page === cursorPageNum && isBatchMode) ? cursorItemOffset : 0;
+        
+        for (let itemIdx = startOffset; itemIdx < pageResult.list.length; itemIdx++) {
+          // ALWAYS update cursor position, even for skipped items
+          // This ensures we don't revisit the same items in the next batch
+          currentCatIdx = catIdx;
+          currentPage = page;
+          currentItemOffset = itemIdx + 1; // Next item to process
+          
+          const item = pageResult.list[itemIdx];
           const pid = String(item.pid || item.productId || '');
           if (!pid || seenPids.has(pid)) continue;
+          
+          // Skip PIDs already processed by previous batches (backup deduplication)
+          if (isBatchMode && seenPidsFromClient.has(pid)) continue;
+          
           seenPids.add(pid);
+          attemptedPidsThisBatch.push(pid); // Track for returning to client
           
           const sellPrice = Number(item.sellPrice || item.price || 0);
           if (sellPrice < minPrice || sellPrice > maxPrice) {
@@ -482,11 +597,9 @@ export async function GET(req: Request) {
             continue;
           }
           
-          // NOTE: /product/list doesn't return stock/listedNum data
-          // We'll fetch inventory from listV2 during processing phase
-          // Skip early filtering on stock/popularity here - do it after enrichment
-          
           candidateProducts.push(item);
+          
+          if (candidateProducts.length >= neededCandidates) break;
         }
       }
     }
@@ -517,20 +630,31 @@ export async function GET(req: Request) {
       return r;
     }
     
-    // Process candidates until we reach exactly the requested quantity
-    // CJ confirmed ALL products support CJPacket Ordinary shipping
-    console.log(`[Search&Price] Processing candidates to get exactly ${quantity} products...`);
+    // Process candidates until we reach the needed quantity
+    // In batch mode: use remainingNeeded (what client still needs)
+    // In non-batch mode: use quantity (full request)
+    const targetProducts = isBatchMode ? remainingNeeded : quantity;
+    console.log(`[Search&Price] Processing candidates to get ${targetProducts} products (batch mode: ${isBatchMode})...`);
     console.log(`[Search&Price] Available candidates: ${candidateProducts.length}`);
     
     const pricedProducts: PricedProduct[] = [];
     let skippedNoVariants = 0;
     let skippedNoShipping = 0;
     const shippingErrors: Record<string, number> = {}; // Track error reasons
+    // In batch mode: always start from 0 since we collect fresh candidates each batch
+    // In non-batch mode: start from 0 as well (process all candidates)
     let candidateIndex = 0;
     let consecutiveRateLimitErrors = 0; // Track consecutive rate limit errors to detect real quota issues
+    let productsProcessedThisBatch = 0; // Count for batch mode limit
     
-    // Process candidates until we have exactly the requested quantity or run out
-    while (pricedProducts.length < quantity && candidateIndex < candidateProducts.length) {
+    // Process candidates until we have the target quantity or run out
+    // In batch mode: stop after batchSize products OR after reaching remainingNeeded
+    while (pricedProducts.length < targetProducts && candidateIndex < candidateProducts.length) {
+      // In batch mode, stop after processing batchSize products
+      if (isBatchMode && productsProcessedThisBatch >= batchSize) {
+        console.log(`[Search&Price] Batch limit reached (${batchSize} products)`);
+        break;
+      }
       // Check time limit
       if (Date.now() - startTime > maxDurationMs) {
         console.log(`[Search&Price] Time limit reached after ${pricedProducts.length} products`);
@@ -2057,6 +2181,9 @@ export async function GET(req: Request) {
         availableColors: extractedColors,
         availableModels: extractedModels,
       });
+      
+      // Track batch progress
+      productsProcessedThisBatch++;
     }
     
     // Apply post-hydration filters (sizes)
@@ -2131,15 +2258,44 @@ export async function GET(req: Request) {
       return r;
     }
     
+    // In batch mode, calculate pagination info
+    // hasMore is true when EITHER:
+    // 1. There are more pages to fetch (not exhaustedAllPages), OR
+    // 2. There are unprocessed candidates remaining from this batch
+    // AND we're not rate limited
+    const hasMoreCandidatesInBatch = candidateIndex < candidateProducts.length;
+    const moreSourcePagesExist = !exhaustedAllPages;
+    const hasMoreToProcess = (moreSourcePagesExist || hasMoreCandidatesInBatch) && !hitRateLimit;
+    
+    // Return ALL attempted PIDs (including filtered/failed) so client can skip them in next batch
+    // This is simpler and more reliable than complex cursor tracking
+    
+    // In batch mode, limit returned products to remainingNeeded (exact quantity control)
+    const productsToReturn = isBatchMode 
+      ? filteredProducts.slice(0, remainingNeeded)
+      : filteredProducts;
+    
     const r = NextResponse.json({
       ok: true,
-      products: filteredProducts,
-      count: filteredProducts.length,
+      products: productsToReturn,
+      count: productsToReturn.length,
       requestedQuantity: quantity,
       quantityFulfilled,
       shortfallReason: quantityFulfilled ? undefined : shortfallReason,
       duration,
       quotaExhausted: hitRateLimit,
+      // Batch mode pagination info
+      batch: isBatchMode ? {
+        hasMore: hasMoreToProcess && !hitRateLimit,
+        // Cursor for resuming: categoryIndex.pageNum.itemOffset
+        cursor: `${currentCatIdx}.${currentPage}.${currentItemOffset}`,
+        // Return ALL attempted PIDs so client can skip them (backup deduplication)
+        attemptedPids: attemptedPidsThisBatch,
+        processedPids: productsToReturn.map(p => p.pid),
+        totalCandidates: candidateProducts.length,
+        productsThisBatch: productsProcessedThisBatch,
+        batchSize,
+      } : undefined,
       debug: {
         candidatesFound: candidateProducts.length,
         productsProcessed: candidateIndex,

@@ -156,84 +156,148 @@ export default function ProductDiscoveryPage() {
     setProducts([]);
     setSelected(new Set());
     setSavedBatchId(null);
-    setSearchProgress("Searching products and calculating prices (estimated 2 min)...");
+    
+    const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
+    const allProducts: PricedProduct[] = [];
+    let hasMore = true;
+    let cursor = "0.1.0"; // Initial cursor: categoryIndex.pageNum.itemOffset
+    let seenPids: string[] = []; // Track processed PIDs across batches
+    let batchNumber = 0;
+    let lastError: string | null = null;
+    let consecutiveEmptyBatches = 0; // Track stalls
     
     try {
-      const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
-      
-      const params = new URLSearchParams({
-        categoryIds: categoryIds.join(","),
-        quantity: quantity.toString(),
-        minPrice: minPrice.toString(),
-        maxPrice: maxPrice.toString(),
-        minStock: minStock.toString(),
-        profitMargin: profitMargin.toString(),
-        popularity: popularity,
-        minRating: minRating,
-        shippingMethod: shippingMethod,
-        freeShippingOnly: freeShippingOnly ? "1" : "0",
-      });
-      
-      const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
-        method: 'GET',
-      });
-      
-      // Check content-type before parsing JSON to avoid parse errors on timeouts/errors
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        const text = await res.text();
-        throw new Error(`Server error: ${text.slice(0, 100)}...`);
-      }
-      
-      const data = await res.json();
-      
-      if (!res.ok || !data.ok) {
-        if (data.quotaExhausted || res.status === 429) {
-          throw new Error("CJ Dropshipping API daily limit reached. Please try again tomorrow.");
+      // Use batch mode to avoid Vercel timeout (10s limit)
+      // Each request processes 3 products max, then we accumulate results
+      while (hasMore && allProducts.length < quantity) {
+        batchNumber++;
+        setSearchProgress(`Finding products... (batch ${batchNumber}, found ${allProducts.length}/${quantity})`);
+        
+        // Use POST to handle large seenPids arrays (URL length limits)
+        // Cursor stays in URL (small), seenPids goes in body (can be large)
+        const remainingNeeded = quantity - allProducts.length;
+        const params = new URLSearchParams({
+          categoryIds: categoryIds.join(","),
+          quantity: quantity.toString(),
+          minPrice: minPrice.toString(),
+          maxPrice: maxPrice.toString(),
+          minStock: minStock.toString(),
+          profitMargin: profitMargin.toString(),
+          popularity: popularity,
+          minRating: minRating,
+          shippingMethod: shippingMethod,
+          freeShippingOnly: freeShippingOnly ? "1" : "0",
+          // Batch mode params - cursor-based pagination
+          batchMode: "1",
+          batchSize: "3",
+          cursor: cursor,
+          remainingNeeded: remainingNeeded.toString(),
+        });
+        
+        const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seenPids }),
+        });
+        
+        // Check content-type before parsing JSON to avoid parse errors on timeouts/errors
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          const text = await res.text();
+          throw new Error(`Server error: ${text.slice(0, 100)}...`);
         }
-        throw new Error(data.error || `Search failed: ${res.status}`);
-      }
-      
-      const pricedProducts: PricedProduct[] = data.products || [];
-      setProducts(pricedProducts);
-      
-      // Check if exact quantity was fulfilled
-      if (!data.quantityFulfilled && pricedProducts.length > 0) {
-        const reason = data.shortfallReason || `Returned ${pricedProducts.length}/${data.requestedQuantity || quantity} products`;
-        setError(`Notice: ${reason}`);
-        console.log('Search shortfall:', data.debug);
-      }
-      // Show warning if quota was hit during processing
-      else if (data.quotaExhausted && pricedProducts.length > 0) {
-        setError("Warning: CJ API limit reached during search. Some products may be missing. Results shown have exact pricing.");
-      }
-      
-      if (pricedProducts.length === 0) {
-        // Use shortfallReason if available (from new API response)
-        if (data.shortfallReason) {
-          setError(data.shortfallReason);
-          console.log('Search shortfall (0 results):', data.debug);
-        } else {
-          const debug = data.debug;
-          if (debug) {
-            let msg = `No products with CJPacket Ordinary shipping found.`;
-            if (debug.shippingErrors && Object.keys(debug.shippingErrors).length > 0) {
-              const errorSummary = Object.entries(debug.shippingErrors as Record<string, number>)
-                .map(([err, count]) => `${err}: ${count}`)
-                .join('; ');
-              msg += ` Errors: ${errorSummary}.`;
-            }
-            msg += ' Try a different category.';
-            setError(msg);
-            console.log('Search debug:', debug);
-          } else {
-            setError("No products found. Try different filters.");
+        
+        const data = await res.json();
+        
+        if (!res.ok || !data.ok) {
+          if (data.quotaExhausted || res.status === 429) {
+            lastError = "CJ Dropshipping API limit reached. Showing products found so far.";
+            break;
+          }
+          throw new Error(data.error || `Search failed: ${res.status}`);
+        }
+        
+        // Add products from this batch, but stop at exactly the requested quantity
+        const batchProducts: PricedProduct[] = data.products || [];
+        for (const p of batchProducts) {
+          // Stop if we've reached the requested quantity
+          if (allProducts.length >= quantity) break;
+          // Avoid duplicates
+          if (!allProducts.some(existing => existing.pid === p.pid)) {
+            allProducts.push(p);
           }
         }
+        
+        // If we've reached the requested quantity, stop batching
+        if (allProducts.length >= quantity) {
+          console.log(`Reached requested quantity: ${allProducts.length}/${quantity}`);
+          break;
+        }
+        
+        // Update products in real-time so user sees progress
+        setProducts([...allProducts]);
+        
+        // Check batch pagination info
+        if (data.batch) {
+          hasMore = data.batch.hasMore;
+          // Update cursor for next batch (resume from where we left off)
+          if (data.batch.cursor) {
+            cursor = data.batch.cursor;
+          }
+          // Accumulate ALL attempted PIDs (backup deduplication)
+          if (data.batch.attemptedPids) {
+            seenPids = [...seenPids, ...data.batch.attemptedPids];
+          }
+          console.log(`Batch ${batchNumber}: got ${batchProducts.length} products, hasMore=${hasMore}, cursor=${cursor}, totalSeen=${seenPids.length}`);
+        } else {
+          // Non-batch response (fallback)
+          hasMore = false;
+        }
+        
+        // Trust the server's hasMore flag - it knows when categories are exhausted
+        // Only use client-side guards as last-resort safety nets
+        const newAttempts = data.batch?.attemptedPids?.length || 0;
+        if (batchProducts.length === 0) {
+          consecutiveEmptyBatches++;
+          console.log(`Batch returned 0 products (${newAttempts} attempts filtered), consecutiveEmpty=${consecutiveEmptyBatches}`);
+          
+          // Only stop if BOTH: no new attempts AND server says no more
+          // This means cursor is exhausted and nothing left to try
+          if (newAttempts === 0 && !hasMore) {
+            console.log('No new attempts and server says no more - stopping');
+            break;
+          }
+        } else {
+          // Reset counter on successful batch
+          consecutiveEmptyBatches = 0;
+        }
+        
+        // Safety: limit total batches to prevent infinite loops
+        if (batchNumber >= 100) {
+          console.log('Max batch limit reached');
+          break;
+        }
+      }
+      
+      // Set final products
+      setProducts(allProducts);
+      
+      // Check if we got the requested quantity
+      if (allProducts.length < quantity) {
+        const reason = lastError || `Found ${allProducts.length}/${quantity} products. Not enough matching products in this category.`;
+        setError(`Notice: ${reason}`);
+      }
+      
+      if (allProducts.length === 0) {
+        setError("No products found with CJPacket Ordinary shipping. Try a different category.");
       }
       
     } catch (e: any) {
       setError(e?.message || "Search failed");
+      // Keep any products we found before the error
+      if (allProducts.length > 0) {
+        setProducts(allProducts);
+      }
     } finally {
       setLoading(false);
       setSearchProgress("");
