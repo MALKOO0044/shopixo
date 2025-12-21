@@ -1,37 +1,35 @@
 # Overview
 
-LightInTheBox US is a modern e-commerce platform replica designed for the USA market. It provides an English-only shopping experience with USD currency, featuring animated search bars, auto-rotating banners, flash sale countdown timers, and fully interconnected product components.
+Shopixo is a professional e-commerce platform for the global market. It provides an English shopping experience with USD currency, featuring animated search bars, auto-rotating banners, flash sale countdown timers, and real product data from the Supabase database.
 
 # Recent Changes (December 2025)
 
-## LightInTheBox Homepage Replica (December 21, 2025)
-- **Change**: Transformed Shopixo e-commerce store into exact replica of LightInTheBox for US market
-- **Scope**: Complete redesign with new red/white color theme and component structure
-- **Components Created**:
-  - `src/components/litb/LitbHeader.tsx` - Main header with logo, animated search, cart, account
-  - `src/components/litb/AnimatedSearchBar.tsx` - Search bar with cycling placeholder text every 3 seconds
-  - `src/components/litb/LitbNavBar.tsx` - Horizontal navigation with LightInTheBox categories
-  - `src/components/litb/HeroBanners.tsx` - 3-column hero grid with auto-rotating slideshow
-  - `src/components/litb/CategoryCircles.tsx` - Two rows of circular category icons
-  - `src/components/litb/FlashSale.tsx` - Flash sale section with live countdown timer
-  - `src/components/litb/ProductCarousel.tsx` - Reusable horizontal product carousel
-  - `src/components/litb/PromoBanners.tsx` - Three promotional banner grid
-  - `src/components/litb/CategoryShowcase.tsx` - Large lifestyle category images
-  - `src/components/litb/RecommendedProducts.tsx` - Product grid with SALE badges
-  - `src/components/litb/FixedSidebar.tsx` - Right-side fixed sidebar (Cart, App, Support)
-  - `src/components/litb/LitbFooter.tsx` - Footer with links and app download
-- **Features**:
-  - Animated search bar cycles through placeholders: Women's Dresses, Men's Jackets, Running Shoes, etc.
-  - Hero section with 3-column layout: left sidebar banners, center auto-rotating slideshow, right promo card
-  - Flash Sale with live countdown timer (hours:minutes:seconds)
-  - All prices in USD ($)
-  - Red (#e31e24) primary brand color
-  - Fixed right sidebar with quick access buttons
-  - Horizontal scrolling product carousels with hover effects
+## Real Product Data Integration (December 21, 2025)
+- **Change**: Integrated real product data from Supabase database for all homepage sections
+- **Data Layer**: Created `src/lib/homepage-products.ts` for server-side product fetching
+- **Components Updated**:
+  - `FlashSale.tsx` - Now displays 8 real flash sale products from database
+  - `ProductCarousel.tsx` - Shows real New Arrivals (6) and Best Sellers (6)
+  - `RecommendedProducts.tsx` - Displays 10 real recommended products
+- **Product Sources**: CJ Dropshipping products with real images and pricing
+- **Branding**: Replaced all LightInTheBox references with Shopixo
 
-## Previous: Full Localization to USA Market (December 16, 2025)
-- Converted platform from Saudi Arabia market (Arabic/RTL/SAR) to USA market (English/LTR/USD)
-- Complete translation of 150+ files
+## Component Structure
+All Shopixo components are in `src/components/litb/`:
+- Header: LitbHeader, AnimatedSearchBar, LitbNavBar
+- Homepage: HeroBanners, CategoryCircles, FlashSale
+- Products: ProductCarousel, RecommendedProducts
+- Promotional: PromoBanners, CategoryShowcase
+- Navigation: FixedSidebar, LitbFooter
+
+## Features
+- Animated search bar cycles through placeholder text every 3 seconds
+- Hero section with 3-column layout and auto-rotating slideshow
+- Flash Sale with live countdown timer (hours:minutes:seconds)
+- All prices in USD ($) with real product data
+- Red (#e31e24) primary brand color
+- Fixed right sidebar with Cart, App, Support buttons
+- Horizontal scrolling product carousels with hover effects
 
 # User Preferences
 
@@ -40,15 +38,7 @@ Preferred communication style: Simple, everyday language.
 # System Architecture
 
 ## Frontend Architecture
-Next.js 14 (App Router) with TypeScript for server-side rendering. Styling with Tailwind CSS using red/white color scheme matching LightInTheBox branding. UI components built with custom components and Lucide React icons.
-
-## Component Structure
-All LightInTheBox replica components are in `src/components/litb/`:
-- Header components: LitbHeader, AnimatedSearchBar, LitbNavBar
-- Homepage sections: HeroBanners, CategoryCircles, FlashSale
-- Product display: ProductCarousel, RecommendedProducts
-- Promotional: PromoBanners, CategoryShowcase
-- Navigation: FixedSidebar, LitbFooter
+Next.js 14 (App Router) with TypeScript for server-side rendering. Styling with Tailwind CSS using red/white color scheme. UI components built with custom components and Lucide React icons.
 
 ## Backend Architecture
 Next.js API routes and React Server Components. Supabase (PostgreSQL with RLS) for database. Stripe for payments. Upstash Redis for rate limiting.
