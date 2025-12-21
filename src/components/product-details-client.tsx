@@ -5,7 +5,11 @@ import { formatCurrency, cn } from "@/lib/utils";
 import type { Product, ProductVariant } from "@/lib/types";
 import AddToCart from "@/components/add-to-cart";
 import SmartImage from "@/components/smart-image";
-import { Heart, Star, ChevronUp, ChevronDown, X, Plus, Minus, Truck, Shield, RotateCcw } from "lucide-react";
+import { Heart, Star, ChevronUp, ChevronDown, X, Plus, Minus, Truck, Shield, RotateCcw, Ruler } from "lucide-react";
+import SizeGuideModal from "@/components/product/SizeGuideModal";
+import ProductTabs from "@/components/product/ProductTabs";
+import YouMayAlsoLike from "@/components/product/YouMayAlsoLike";
+import MakeItAMatch from "@/components/product/MakeItAMatch";
 import { computeBilledWeightKg, resolveDdpShippingSar } from "@/lib/pricing";
 
 function isLikelyImageUrl(s: string): boolean {
@@ -936,12 +940,49 @@ export default function ProductDetailsClient({
           )}
 
           {currentSizes.length > 0 && (
-            <SizeSelector
-              sizes={currentSizes}
-              selectedSize={selectedSize}
-              onSizeChange={setSelectedSize}
-              sizeStock={sizeStockMap}
-            />
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-foreground">Size:</span>
+                  <span className="text-sm text-muted-foreground">{selectedSize}</span>
+                </div>
+                <SizeGuideModal />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {currentSizes.map((size) => {
+                  const isSelected = size === selectedSize;
+                  const stock = sizeStockMap[size] ?? 0;
+                  const isOutOfStockSize = stock <= 0;
+                  const isLowStock = stock > 0 && stock <= 3;
+
+                  return (
+                    <button
+                      key={size}
+                      onClick={() => !isOutOfStockSize && setSelectedSize(size)}
+                      disabled={isOutOfStockSize}
+                      className={cn(
+                        "relative min-w-[48px] px-4 py-2 rounded-md text-sm font-medium transition-all",
+                        isSelected
+                          ? "bg-primary text-primary-foreground"
+                          : isOutOfStockSize
+                            ? "bg-muted text-muted-foreground cursor-not-allowed line-through"
+                            : "bg-card border border-border hover:border-primary text-foreground"
+                      )}
+                    >
+                      {size}
+                      {isLowStock && !isSelected && (
+                        <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-500 rounded-full" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {sizeStockMap[selectedSize] !== undefined && sizeStockMap[selectedSize] > 0 && sizeStockMap[selectedSize] <= 3 && (
+                <p className="text-sm text-amber-600">
+                  Only {sizeStockMap[selectedSize]} left!
+                </p>
+              )}
+            </div>
           )}
 
           <div className="hidden md:block">
@@ -973,6 +1014,28 @@ export default function ProductDetailsClient({
           {children}
         </div>
       </div>
+
+      <ProductTabs
+        description={product.description}
+        highlights={[
+          "Perfect for Spring and Summer seasons",
+          "Made with chiffon and polyester for a luxurious feel",
+          "Features short sleeves for added comfort",
+          "Designed for women, with an elegant style",
+        ]}
+        sellingPoints={[
+          `${product.category || "Fashion"} Type: ${product.title?.split(' ').slice(0, 3).join(' ')}`,
+          "Gender: Women's",
+          `Style: ${(product as any).style || "Elegant"}`,
+        ]}
+        specifications={{
+          "Category": product.category || "Fashion",
+          "Gender": "Women's",
+          "Style": (product as any).style || "Elegant",
+          "Fit Type": "Regular Fit",
+          "Season": "Summer, Spring",
+        }}
+      />
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 p-3 safe-area-inset-bottom">
         <div className="mx-auto flex max-w-md items-center gap-3">
