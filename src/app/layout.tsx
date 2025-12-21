@@ -1,10 +1,10 @@
 import "@/app/globals.css";
 import type { Metadata } from "next";
-import { Inter, Playfair_Display } from "next/font/google";
-import Header from "@/components/header";
-import AnnouncementBar from "@/components/announcement-bar";
-import NavigationBar from "@/components/navigation-bar";
-import Footer from "@/components/footer";
+import { Inter } from "next/font/google";
+import LitbHeader from "@/components/litb/LitbHeader";
+import LitbNavBar from "@/components/litb/LitbNavBar";
+import LitbFooter from "@/components/litb/LitbFooter";
+import FixedSidebar from "@/components/litb/FixedSidebar";
 import CookieConsent from "@/components/cookie-consent";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Suspense } from "react";
@@ -12,34 +12,29 @@ import { ToastProvider } from "@/components/ui/toast-provider";
 import { getSiteUrl } from "@/lib/site";
 import Script from "next/script";
 import { headers } from "next/headers";
-import ChatWidget from "@/components/chat-widget";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-const playfair = Playfair_Display({ subsets: ["latin"], weight: ["400","600","700"], variable: "--font-playfair" });
 const rawSiteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ||
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 const siteUrl = (() => {
   try {
-    // Ensure an absolute, valid URL string (includes protocol)
     return new URL(rawSiteUrl).toString();
   } catch {
     return "http://localhost:3000";
   }
 })();
 
-// Use the composite header logo (star + wordmark) as brand image in meta
 const brandLogo = "/logo-header.svg";
 const absoluteBrandLogo = `${getSiteUrl()}${brandLogo}`;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Shopixo — Modern Online Store",
-    template: "%s — Shopixo",
+    default: "LightInTheBox - Global Online Shopping",
+    template: "%s | LightInTheBox",
   },
-  description: "Shopixo is a modern, professional online store.",
-  // Use dedicated icons in public/ for favicon + apple
+  description: "Shop quality products at amazing prices. Free worldwide shipping on orders over $50.",
   icons: {
     icon: [
       "/favicon.ico",
@@ -52,21 +47,21 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     url: siteUrl,
-    siteName: "Shopixo",
-    title: "Shopixo — Modern Online Store",
-    description: "Shopixo is a modern, professional online store.",
+    siteName: "LightInTheBox",
+    title: "LightInTheBox - Global Online Shopping",
+    description: "Shop quality products at amazing prices. Free worldwide shipping on orders over $50.",
     images: [brandLogo],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Shopixo — Modern Online Store",
-    description: "Shopixo is a modern, professional online store.",
+    title: "LightInTheBox - Global Online Shopping",
+    description: "Shop quality products at amazing prices. Free worldwide shipping on orders over $50.",
     images: [brandLogo],
   },
 };
 
 export const viewport = {
-  themeColor: "#0b2c4f",
+  themeColor: "#e31e24",
 };
 
 export const runtime = "nodejs";
@@ -75,8 +70,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const nonce = headers().get('x-csp-nonce') || undefined;
   return (
     <html lang="en" dir="ltr" suppressHydrationWarning>
-      <body className={`${inter.variable} ${playfair.variable} ${inter.className} min-h-screen flex flex-col`}>
-        {/* Analytics: Plausible (loads only in production if domain is set) */}
+      <body className={`${inter.variable} ${inter.className} min-h-screen flex flex-col bg-gray-50`}>
         {(() => {
           try {
             const analyticsDomain = process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN || new URL(getSiteUrl()).hostname;
@@ -95,11 +89,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         })()}
         <ThemeProvider>
           <ToastProvider>
-            {/* Skip to content for accessibility */}
             <a href="#main-content" className="skip-link">Skip to content</a>
-            {/* Announcement Bar */}
-            <AnnouncementBar />
-            {/* Site-wide Structured Data: Organization + WebSite with SearchAction */}
             <script
               nonce={nonce}
               type="application/ld+json"
@@ -107,15 +97,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 __html: JSON.stringify({
                   "@context": "https://schema.org",
                   "@type": "Organization",
-                  name: process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo",
+                  name: "LightInTheBox",
                   url: getSiteUrl(),
                   logo: absoluteBrandLogo,
-                  sameAs: [
-                    process.env.NEXT_PUBLIC_SOCIAL_FACEBOOK,
-                    process.env.NEXT_PUBLIC_SOCIAL_INSTAGRAM,
-                    process.env.NEXT_PUBLIC_SOCIAL_TWITTER,
-                    process.env.NEXT_PUBLIC_SOCIAL_YOUTUBE,
-                  ].filter(Boolean),
                 }),
               }}
             />
@@ -126,7 +110,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 __html: JSON.stringify({
                   "@context": "https://schema.org",
                   "@type": "WebSite",
-                  name: process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo",
+                  name: "LightInTheBox",
                   url: getSiteUrl(),
                   potentialAction: {
                     "@type": "SearchAction",
@@ -137,19 +121,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               }}
             />
             <Suspense fallback={null}>
-              <Header />
+              <LitbHeader />
             </Suspense>
             <Suspense fallback={null}>
-              <NavigationBar />
+              <LitbNavBar />
             </Suspense>
             <Suspense fallback={null}>
               <main id="main-content" className="flex-1">{children}</main>
             </Suspense>
             <Suspense fallback={null}>
-              <Footer />
+              <FixedSidebar />
             </Suspense>
             <Suspense fallback={null}>
-              <ChatWidget />
+              <LitbFooter />
             </Suspense>
             <CookieConsent />
           </ToastProvider>

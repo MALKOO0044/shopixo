@@ -4,77 +4,70 @@
  
 @layer base {
   :root {
-    /* Shopixo Brand Tokens (Light) */
-    /* Colors (HSL) */
-    --bg: 0 0% 100%;                 /* #FFFFFF */
-    --surface: 0 0% 100%;            /* #FFFFFF */
-    --text-primary: 0 0% 7%;         /* #111111 */
-    --text-secondary: 0 0% 32%;      /* ~#525252 */
-    --muted-foreground: 0 0% 45%;    /* ~#737373 */
+    --bg: 0 0% 100%;
+    --surface: 0 0% 100%;
+    --text-primary: 0 0% 7%;
+    --text-secondary: 0 0% 32%;
+    --muted-foreground: 0 0% 45%;
 
-    /* Brand palette */
-    --brand-gold: 46 67% 47%;        /* #C9A227 */
-    --brand-navy: 219 65% 29%;       /* #1A3D7C */
-    --brand-error: 0 65% 50%;        /* #D32F2F */
-    --brand-success: 123 43% 39%;    /* #388E3C */
-    --bg-secondary: 0 0% 97%;        /* #F8F8F8 */
+    --brand-red: 0 85% 45%;
+    --brand-red-dark: 0 85% 38%;
+    --brand-orange: 25 95% 53%;
+    --brand-error: 0 65% 50%;
+    --brand-success: 123 43% 39%;
+    --bg-secondary: 0 0% 97%;
 
-    /* Accent gradient stops (hex) for btn-gradient */
-    --accent-start-hex: #c9a227;     /* brand gold start */
-    --accent-end-hex: #e0b84b;       /* brand gold end (lighter) */
+    --accent-start-hex: #e31e24;
+    --accent-end-hex: #ff4444;
 
-    /* Radii */
-    --radius-lg: 16px;   /* cards */
-    --radius-btn: 12px;  /* buttons */
-    --radius-sm: 8px;    /* inputs */
-    --radius-image: 12px;
+    --radius-lg: 8px;
+    --radius-btn: 4px;
+    --radius-sm: 4px;
+    --radius-image: 8px;
     --radius: var(--radius-lg);
 
-    /* Shadows */
-    --shadow-soft: 0 8px 24px rgba(0,0,0,0.06);
-    --shadow-hover: 0 12px 28px rgba(0,0,0,0.08);
+    --shadow-soft: 0 2px 8px rgba(0,0,0,0.08);
+    --shadow-hover: 0 4px 16px rgba(0,0,0,0.12);
 
-    /* Tailwind color mappings */
     --background: var(--bg);
     --foreground: var(--text-primary);
     --card: var(--surface);
     --card-foreground: var(--text-primary);
     --popover: var(--surface);
     --popover-foreground: var(--text-primary);
-    --primary: var(--brand-gold);
+    --primary: var(--brand-red);
     --primary-foreground: 0 0% 100%;
-    --secondary: var(--brand-navy);
+    --secondary: 0 0% 20%;
     --secondary-foreground: 0 0% 100%;
     --muted: var(--bg-secondary);
-    --accent: var(--brand-gold);
+    --accent: var(--brand-red);
     --accent-foreground: 0 0% 100%;
     --destructive: var(--brand-error);
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 87%;              /* #DDDDDD */
-    --input: 0 0% 87%;
-    --ring: var(--brand-gold);
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: var(--brand-red);
   }
 
   .dark {
-    /* Dark mode approximations */
-    --bg: 0 0% 7%;                  /* near black */
+    --bg: 0 0% 7%;
     --surface: 0 0% 10%;
     --text-primary: 0 0% 98%;
     --text-secondary: 0 0% 75%;
     --muted-foreground: 0 0% 60%;
 
-    --brand-gold: 46 67% 45%;
-    --brand-navy: 219 65% 40%;
+    --brand-red: 0 85% 50%;
+    --brand-red-dark: 0 85% 42%;
+    --brand-orange: 25 95% 55%;
     --brand-error: 0 70% 58%;
     --brand-success: 123 45% 48%;
     --bg-secondary: 0 0% 12%;
 
-    /* Accent gradient stops (hex) for dark */
-    --accent-start-hex: #d4ae2e;
-    --accent-end-hex: #f1cc58;
+    --accent-start-hex: #ff3333;
+    --accent-end-hex: #ff5555;
 
-    --shadow-soft: 0 8px 20px rgba(255,255,255,0.06);
-    --shadow-hover: 0 12px 28px rgba(255,255,255,0.08);
+    --shadow-soft: 0 2px 8px rgba(255,255,255,0.06);
+    --shadow-hover: 0 4px 16px rgba(255,255,255,0.08);
 
     --background: var(--bg);
     --foreground: var(--text-primary);
@@ -82,18 +75,18 @@
     --card-foreground: var(--text-primary);
     --popover: var(--surface);
     --popover-foreground: var(--text-primary);
-    --primary: var(--brand-gold);
+    --primary: var(--brand-red);
     --primary-foreground: 0 0% 100%;
-    --secondary: var(--brand-navy);
+    --secondary: 0 0% 30%;
     --secondary-foreground: 0 0% 100%;
     --muted: var(--bg-secondary);
-    --accent: var(--brand-gold);
+    --accent: var(--brand-red);
     --accent-foreground: 0 0% 100%;
     --destructive: var(--brand-error);
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 18%;
     --input: 0 0% 18%;
-    --ring: var(--brand-gold);
+    --ring: var(--brand-red);
   }
 }
 
@@ -104,30 +97,29 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-    font-size: 18px;   /* Body desktop */
-    line-height: 1.5;  /* 27px on 18px */
+    font-size: 14px;
+    line-height: 1.5;
   }
   h1, h2, h3 {
-    font-family: var(--font-playfair), Playfair Display, serif;
+    font-family: Inter, ui-sans-serif, system-ui;
     font-weight: 700;
-    line-height: 1.2;
+    line-height: 1.3;
   }
-  h1 { font-size: 40px; }
-  h2 { font-size: 32px; }
-  h3 { font-size: 24px; }
+  h1 { font-size: 28px; }
+  h2 { font-size: 20px; }
+  h3 { font-size: 16px; }
   @media (max-width: 768px) {
-    body { font-size: 16px; }
-    h1 { font-size: 28px; }
-    h2 { font-size: 24px; }
-    h3 { font-size: 20px; }
+    body { font-size: 13px; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 18px; }
+    h3 { font-size: 15px; }
   }
 }
 
 html, body { height: 100%; overflow-x: hidden; }
 
-.container { @apply mx-auto max-w-7xl px-4 sm:px-6 lg:px-8; }
+.container { @apply mx-auto max-w-[1200px] px-4; }
 
-/* Accessible skip link */
 .skip-link {
   position: absolute;
   left: 1rem;
@@ -145,35 +137,57 @@ html, body { height: 100%; overflow-x: hidden; }
   top: 0.5rem;
 }
 
-/* Utilities for soft-rounded variant */
 .shadow-soft { box-shadow: var(--shadow-soft); }
 .hover\:shadow-soft:hover { box-shadow: var(--shadow-hover); }
 .rounded-image { border-radius: var(--radius-image); }
-.btn-gradient {
-  background: linear-gradient(90deg, var(--accent-start-hex), var(--accent-end-hex));
-  color: #fff;
-  border-radius: var(--radius-btn);
-}
 
-/* Primary button utility for legacy usages (anchors and buttons) */
 .btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 2.75rem; /* ~44px */
-  padding: 0.5rem 1rem;
+  height: 40px;
+  padding: 0 20px;
   border-radius: var(--radius-btn);
   background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  color: white;
   font-weight: 600;
-  line-height: 1;
-  transition: filter 0.15s ease, transform 0.15s ease;
+  font-size: 14px;
+  transition: background 0.15s ease;
 }
-.btn-primary:hover { filter: brightness(0.95); }
-.btn-primary:active { transform: translateY(0.5px); }
-.btn-primary:disabled,
-.btn-primary[aria-disabled="true"] {
-  opacity: 0.6;
-  pointer-events: none;
+.btn-primary:hover { background: hsl(var(--brand-red-dark)); }
+
+.btn-red {
+  background: #e31e24;
+  color: white;
+  font-weight: 600;
+  border-radius: 2px;
+  transition: background 0.15s;
+}
+.btn-red:hover { background: #c91a1f; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-fade-in { animation: fadeIn 0.3s ease-out; }
+.animate-slide-in { animation: slideIn 0.3s ease-out; }
+.animate-pulse-slow { animation: pulse 2s infinite; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #f1f1f1; }
+::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #aaa; }
+
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
