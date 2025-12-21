@@ -201,57 +201,72 @@ export default function LitbNavBar() {
           })}
         </div>
 
-        {hasSubcategories && hoveredCategory && hoveredCategory.children && (
+        {hoveredCategoryId !== null && hoveredCategory && (
           <div className="w-[500px] bg-white shadow-2xl border-l max-h-[calc(100vh-120px)] overflow-y-auto p-5">
-            <div className="grid grid-cols-3 gap-x-4 gap-y-4">
-              {hoveredCategory.children.map((subcat) => (
-                <div key={subcat.id} className="mb-2">
+            {hoveredCategory.children && hoveredCategory.children.length > 0 ? (
+              <>
+                <div className="grid grid-cols-3 gap-x-4 gap-y-4">
+                  {hoveredCategory.children.map((subcat) => (
+                    <div key={subcat.id} className="mb-2">
+                      <Link
+                        href={`/category/${subcat.slug}` as Route}
+                        className="font-semibold text-sm text-[#e31e24] hover:underline block mb-2"
+                        onClick={handleCategoryClick}
+                      >
+                        {subcat.name}
+                      </Link>
+                      {subcat.children && subcat.children.length > 0 && (
+                        <ul className="space-y-1">
+                          {subcat.children.slice(0, 5).map((item) => (
+                            <li key={item.id}>
+                              <Link
+                                href={`/category/${item.slug}` as Route}
+                                className="text-xs text-gray-600 hover:text-[#e31e24] transition-colors block"
+                                onClick={handleCategoryClick}
+                              >
+                                {item.name}
+                              </Link>
+                            </li>
+                          ))}
+                          {subcat.children.length > 5 && (
+                            <li>
+                              <Link
+                                href={`/category/${subcat.slug}` as Route}
+                                className="text-xs text-[#e31e24] hover:underline"
+                                onClick={handleCategoryClick}
+                              >
+                                View all →
+                              </Link>
+                            </li>
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 pt-4 border-t">
                   <Link
-                    href={`/category/${subcat.slug}` as Route}
-                    className="font-semibold text-sm text-[#e31e24] hover:underline block mb-2"
+                    href={`/category/${hoveredCategory.slug}` as Route}
+                    className="text-sm text-[#e31e24] font-medium hover:underline"
                     onClick={handleCategoryClick}
                   >
-                    {subcat.name}
+                    View all {hoveredCategory.name} →
                   </Link>
-                  {subcat.children && subcat.children.length > 0 && (
-                    <ul className="space-y-1">
-                      {subcat.children.slice(0, 5).map((item) => (
-                        <li key={item.id}>
-                          <Link
-                            href={`/category/${item.slug}` as Route}
-                            className="text-xs text-gray-600 hover:text-[#e31e24] transition-colors block"
-                            onClick={handleCategoryClick}
-                          >
-                            {item.name}
-                          </Link>
-                        </li>
-                      ))}
-                      {subcat.children.length > 5 && (
-                        <li>
-                          <Link
-                            href={`/category/${subcat.slug}` as Route}
-                            className="text-xs text-[#e31e24] hover:underline"
-                            onClick={handleCategoryClick}
-                          >
-                            View all →
-                          </Link>
-                        </li>
-                      )}
-                    </ul>
-                  )}
                 </div>
-              ))}
-            </div>
-            
-            <div className="mt-4 pt-4 border-t">
-              <Link
-                href={`/category/${hoveredCategory.slug}` as Route}
-                className="text-sm text-[#e31e24] font-medium hover:underline"
-                onClick={handleCategoryClick}
-              >
-                View all {hoveredCategory.name} →
-              </Link>
-            </div>
+              </>
+            ) : (
+              <div className="text-gray-500 text-sm">
+                <p className="font-semibold text-[#e31e24] mb-2">{hoveredCategory.name}</p>
+                <p>Browse all products in this category</p>
+                <Link
+                  href={`/category/${hoveredCategory.slug}` as Route}
+                  className="text-[#e31e24] hover:underline mt-2 inline-block"
+                  onClick={handleCategoryClick}
+                >
+                  Shop Now →
+                </Link>
+              </div>
+            )}
           </div>
         )}
       </div>
