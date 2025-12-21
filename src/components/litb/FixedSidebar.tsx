@@ -1,7 +1,8 @@
 "use client";
 
-import { ShoppingCart, Smartphone, Headphones, ArrowUp } from "lucide-react";
+import { ShoppingCart, Smartphone, Headphones, ArrowUp, Settings } from "lucide-react";
 import { useState, useEffect } from "react";
+import Link from "next/link";
 
 export default function FixedSidebar() {
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -31,7 +32,7 @@ export default function FixedSidebar() {
         </button>
       )}
 
-      <a
+      <Link
         href="/cart"
         className="relative w-12 h-12 bg-white rounded shadow-lg flex flex-col items-center justify-center text-gray-600 hover:text-[#e31e24] transition-colors"
       >
@@ -42,7 +43,7 @@ export default function FixedSidebar() {
             {cartCount}
           </span>
         )}
-      </a>
+      </Link>
 
       <button className="w-12 h-12 bg-white rounded shadow-lg flex flex-col items-center justify-center text-gray-600 hover:text-[#e31e24] transition-colors">
         <Smartphone className="h-5 w-5" />
@@ -53,6 +54,14 @@ export default function FixedSidebar() {
         <Headphones className="h-5 w-5" />
         <span className="text-[10px]">Support</span>
       </button>
+
+      <Link
+        href="/admin"
+        className="w-12 h-12 bg-gray-800 rounded shadow-lg flex flex-col items-center justify-center text-white hover:bg-[#e31e24] transition-colors"
+      >
+        <Settings className="h-5 w-5" />
+        <span className="text-[10px]">Admin</span>
+      </Link>
     </div>
   );
 }
