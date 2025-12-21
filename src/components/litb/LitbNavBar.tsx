@@ -93,75 +93,18 @@ export default function LitbNavBar() {
             </button>
 
             {menuOpen && (
-              <div className="absolute left-0 top-full mt-1 flex bg-white shadow-xl rounded-lg border z-50 min-w-[800px]">
-                {/* Main categories column */}
-                <div className="w-64 border-r max-h-[500px] overflow-y-auto">
-                  {categories.map((cat) => (
-                    <div
-                      key={cat.id}
-                      className={`flex items-center justify-between px-4 py-2.5 cursor-pointer transition-colors ${
-                        hoveredCategory === cat.id ? 'bg-gray-50 text-[#e31e24]' : 'hover:bg-gray-50'
-                      }`}
-                      onMouseEnter={() => setHoveredCategory(cat.id)}
-                    >
-                      <Link
-                        href={`/category/${cat.slug}` as Route}
-                        className="flex-1 text-sm"
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        {cat.name}
-                      </Link>
-                      {cat.children && cat.children.length > 0 && (
-                        <ChevronRight className="h-4 w-4 text-gray-400" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Subcategories panel */}
-                {hoveredCat && hoveredCat.children && hoveredCat.children.length > 0 && (
-                  <div className="flex-1 p-4 max-h-[500px] overflow-y-auto">
-                    <div className="grid grid-cols-3 gap-6">
-                      {hoveredCat.children.map((subcat) => (
-                        <div key={subcat.id}>
-                          <Link
-                            href={`/category/${subcat.slug}` as Route}
-                            className="font-semibold text-sm text-[#e31e24] hover:underline block mb-2"
-                            onClick={() => setMenuOpen(false)}
-                          >
-                            {subcat.name}
-                          </Link>
-                          {subcat.children && subcat.children.length > 0 && (
-                            <ul className="space-y-1">
-                              {subcat.children.slice(0, 8).map((item) => (
-                                <li key={item.id}>
-                                  <Link
-                                    href={`/category/${item.slug}` as Route}
-                                    className="text-xs text-gray-600 hover:text-[#e31e24] transition-colors"
-                                    onClick={() => setMenuOpen(false)}
-                                  >
-                                    {item.name}
-                                  </Link>
-                                </li>
-                              ))}
-                              {subcat.children.length > 8 && (
-                                <li>
-                                  <Link
-                                    href={`/category/${subcat.slug}` as Route}
-                                    className="text-xs text-[#e31e24] hover:underline"
-                                    onClick={() => setMenuOpen(false)}
-                                  >
-                                    View all →
-                                  </Link>
-                                </li>
-                              )}
-                            </ul>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+              <div className="fixed left-0 top-[90px] w-[220px] bg-white shadow-2xl border-r z-[9999] max-h-[calc(100vh-100px)] overflow-y-auto">
+                {categories.map((cat) => (
+                  <Link
+                    key={cat.id}
+                    href={`/category/${cat.slug}` as Route}
+                    className="flex items-center justify-between px-4 py-3 text-sm border-b border-gray-100 hover:bg-gray-50 hover:text-[#e31e24] transition-colors"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    <span>{cat.name}</span>
+                    <ChevronRight className="h-4 w-4 text-gray-400" />
+                  </Link>
+                ))}
               </div>
             )}
           </div>
