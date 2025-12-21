@@ -171,6 +171,62 @@ export async function POST(req: Request) {
         }
         try { await db.rpc('recompute_product_stock', { product_id_in: productId }) } catch {}
 
+        // Link product to category in product_categories table
+        const hasProductCategories = await hasTable('product_categories').catch(() => false)
+        const hasCategories = await hasTable('categories').catch(() => false)
+        if (hasProductCategories && hasCategories && category) {
+          try {
+            // Find matching category by name (case-insensitive)
+            const { data: matchedCat } = await db
+              .from('categories')
+              .select('id, name, parent_id')
+              .ilike('name', category)
+              .maybeSingle()
+            
+            if (matchedCat) {
+              // Delete existing product-category links
+              await db.from('product_categories').delete().eq('product_id', productId)
+              
+              // Insert the leaf category link
+              await db.from('product_categories').insert({
+                product_id: productId,
+                category_id: matchedCat.id,
+                is_primary: true
+              })
+              
+              // Also link to parent categories for hierarchy
+              if (matchedCat.parent_id) {
+                try {
+                  await db.from('product_categories').insert({
+                    product_id: productId,
+                    category_id: matchedCat.parent_id,
+                    is_primary: false
+                  })
+                } catch {} // Ignore duplicate constraint errors
+                
+                // Get grandparent if exists
+                const { data: parentCat } = await db
+                  .from('categories')
+                  .select('parent_id')
+                  .eq('id', matchedCat.parent_id)
+                  .maybeSingle()
+                
+                if (parentCat?.parent_id) {
+                  try {
+                    await db.from('product_categories').insert({
+                      product_id: productId,
+                      category_id: parentCat.parent_id,
+                      is_primary: false
+                    })
+                  } catch {} // Ignore duplicate constraint errors
+                }
+              }
+            }
+          } catch (catErr: any) {
+            log.warn?.('Category linking failed:', catErr?.message || catErr)
+          }
+        }
+
         results.push({ ok: true, productId, cjPid: cj.productId, title: cj.name })
       } catch (e: any) {
         results.push({ ok: false, error: e?.message || String(e) })
