@@ -27,13 +27,13 @@ export default function LitbHeader() {
             <span className="text-xs text-[#e31e24] font-medium">APP Only! Get Up To 60% Off</span>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="hidden md:flex items-center gap-1 text-sm cursor-pointer hover:text-[#e31e24]">
+          <div className="flex items-center gap-4 shrink-0">
+            <div className="hidden md:flex items-center gap-1 text-sm">
               <span className="text-lg">🇺🇸</span>
               <span className="font-medium">EN</span>
               <span className="text-gray-400">|</span>
               <span className="font-medium">USD</span>
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="h-4 w-4 text-gray-400" />
             </div>
 
             <Link href={"/account" as Route} className="hidden md:flex items-center gap-1 text-sm hover:text-[#e31e24]">
