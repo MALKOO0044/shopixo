@@ -97,11 +97,11 @@ export default function LitbNavBar() {
   const hoveredCat = categories.find(c => c.id === hoveredCategory);
 
   return (
-    <nav className="bg-white border-b relative z-40">
+    <nav className="bg-white border-b relative z-[9999]">
       <div className="max-w-[1320px] mx-auto px-2">
         <div className="flex items-center gap-6 h-[42px] overflow-x-auto hide-scrollbar">
           <div 
-            className="relative"
+            className="relative z-[9999]"
             ref={containerRef}
             onMouseLeave={handleMouseLeaveContainer}
           >
