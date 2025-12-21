@@ -35,6 +35,13 @@ const CENTER_BANNERS = [
   },
 ];
 
+const CURATED_PRODUCTS = [
+  { image: "https://images.unsplash.com/photo-1594938298603-c8148c4dae35?w=150&h=150&fit=crop", price: "$9.99" },
+  { image: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=150&h=150&fit=crop", price: "$9.59" },
+  { image: "https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=150&h=150&fit=crop", price: "$9.99" },
+  { image: "https://images.unsplash.com/photo-1560343090-f0409e92791a?w=150&h=150&fit=crop", price: "$9.99" },
+];
+
 export default function HeroBanners() {
   const [currentSlide, setCurrentSlide] = useState(0);
 
@@ -73,36 +80,41 @@ export default function HeroBanners() {
             ))}
           </div>
 
-          <div className="relative h-[280px] lg:h-[316px] rounded-lg overflow-hidden">
+          <div 
+            className="relative h-[280px] lg:h-[316px] rounded-lg overflow-hidden select-none"
+            onContextMenu={(e) => e.preventDefault()}
+          >
             {CENTER_BANNERS.map((banner, i) => (
               <Link
                 key={i}
                 href={banner.href as Route}
                 className={`absolute inset-0 transition-opacity duration-700 ${
-                  i === currentSlide ? "opacity-100" : "opacity-0"
+                  i === currentSlide ? "opacity-100" : "opacity-0 pointer-events-none"
                 }`}
+                draggable={false}
               >
                 <Image
                   src={banner.image}
                   alt={banner.title}
                   fill
                   sizes="(max-width: 768px) 100vw, 60vw"
-                  className="object-cover"
+                  className="object-cover pointer-events-none"
                   priority={i === 0}
+                  draggable={false}
                 />
-                <div className="absolute inset-0 bg-gradient-to-r from-black/40 to-transparent" />
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-white">
+                <div className="absolute inset-0 bg-gradient-to-r from-black/40 to-transparent pointer-events-none" />
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-white pointer-events-none">
                   <h2 className="text-3xl lg:text-4xl font-bold mb-2 drop-shadow-lg">
                     {banner.title}
                   </h2>
                   <p className="text-lg mb-4 drop-shadow">{banner.subtitle}</p>
-                  <span className="bg-white/90 text-gray-800 px-6 py-2 rounded font-medium hover:bg-white transition">
+                  <span className="bg-white/90 text-gray-800 px-6 py-2 rounded font-medium hover:bg-white transition pointer-events-auto">
                     {banner.cta}
                   </span>
                 </div>
               </Link>
             ))}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
               {CENTER_BANNERS.map((_, i) => (
                 <button
                   key={i}
@@ -115,28 +127,97 @@ export default function HeroBanners() {
             </div>
           </div>
 
-          <div className="hidden lg:block relative rounded-lg overflow-hidden bg-gradient-to-br from-pink-100 to-pink-50 p-4">
-            <div className="text-center">
-              <p className="text-gray-600 text-sm mb-1">CURATED FOR YOU</p>
-              <p className="text-2xl font-bold text-gray-800 mb-1">
+          <div className="hidden lg:block relative rounded-lg overflow-hidden bg-gradient-to-br from-pink-100 to-pink-50 p-3 h-[316px]">
+            <div className="text-center h-full flex flex-col">
+              <p className="text-gray-600 text-xs mb-0.5">CURATED FOR YOU</p>
+              <p className="text-xl font-bold text-gray-800 leading-tight">
                 ITEMS UP TO <span className="text-[#e31e24]">60%</span>OFF
               </p>
-              <p className="text-gray-500 text-sm mb-3">JUST A TAP AWAY</p>
-              <div className="grid grid-cols-2 gap-2">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="bg-white rounded-lg p-2 shadow-sm">
-                    <div className="aspect-square bg-gray-100 rounded mb-1" />
-                    <p className="text-xs text-gray-500">From $9.99</p>
-                  </div>
+              <p className="text-gray-500 text-xs mb-2">JUST A TAP AWAY</p>
+              <div className="grid grid-cols-2 gap-1.5 flex-1">
+                {CURATED_PRODUCTS.map((product, i) => (
+                  <Link href="/shop" key={i} className="bg-white rounded-lg p-1.5 shadow-sm hover:shadow-md transition group">
+                    <div className="aspect-square bg-gray-100 rounded mb-1 overflow-hidden relative">
+                      <Image
+                        src={product.image}
+                        alt={`Product ${i + 1}`}
+                        fill
+                        sizes="80px"
+                        className="object-cover group-hover:scale-105 transition-transform"
+                      />
+                    </div>
+                    <p className="text-xs text-[#e31e24] font-medium">From {product.price}</p>
+                  </Link>
                 ))}
               </div>
-              <div className="mt-3 flex items-center justify-center gap-2">
-                <div className="w-20 h-20 bg-white p-1 rounded">
-                  <div className="w-full h-full bg-gray-200 rounded flex items-center justify-center text-xs text-gray-400">
-                    QR Code
+              <div className="mt-2 flex items-center justify-center">
+                <div className="w-16 h-16 bg-white p-1 rounded shadow-sm">
+                  <div className="w-full h-full bg-gray-800 rounded flex items-center justify-center relative overflow-hidden">
+                    <svg viewBox="0 0 100 100" className="w-full h-full p-1">
+                      <rect fill="white" x="0" y="0" width="100" height="100"/>
+                      <g fill="black">
+                        <rect x="10" y="10" width="8" height="8"/>
+                        <rect x="18" y="10" width="8" height="8"/>
+                        <rect x="26" y="10" width="8" height="8"/>
+                        <rect x="34" y="10" width="8" height="8"/>
+                        <rect x="42" y="10" width="8" height="8"/>
+                        <rect x="50" y="10" width="8" height="8"/>
+                        <rect x="58" y="10" width="8" height="8"/>
+                        <rect x="10" y="18" width="8" height="8"/>
+                        <rect x="58" y="18" width="8" height="8"/>
+                        <rect x="10" y="26" width="8" height="8"/>
+                        <rect x="26" y="26" width="8" height="8"/>
+                        <rect x="34" y="26" width="8" height="8"/>
+                        <rect x="42" y="26" width="8" height="8"/>
+                        <rect x="58" y="26" width="8" height="8"/>
+                        <rect x="10" y="34" width="8" height="8"/>
+                        <rect x="26" y="34" width="8" height="8"/>
+                        <rect x="34" y="34" width="8" height="8"/>
+                        <rect x="42" y="34" width="8" height="8"/>
+                        <rect x="58" y="34" width="8" height="8"/>
+                        <rect x="10" y="42" width="8" height="8"/>
+                        <rect x="26" y="42" width="8" height="8"/>
+                        <rect x="34" y="42" width="8" height="8"/>
+                        <rect x="42" y="42" width="8" height="8"/>
+                        <rect x="58" y="42" width="8" height="8"/>
+                        <rect x="10" y="50" width="8" height="8"/>
+                        <rect x="58" y="50" width="8" height="8"/>
+                        <rect x="10" y="58" width="8" height="8"/>
+                        <rect x="18" y="58" width="8" height="8"/>
+                        <rect x="26" y="58" width="8" height="8"/>
+                        <rect x="34" y="58" width="8" height="8"/>
+                        <rect x="42" y="58" width="8" height="8"/>
+                        <rect x="50" y="58" width="8" height="8"/>
+                        <rect x="58" y="58" width="8" height="8"/>
+                        <rect x="74" y="10" width="8" height="8"/>
+                        <rect x="82" y="10" width="8" height="8"/>
+                        <rect x="74" y="18" width="8" height="8"/>
+                        <rect x="82" y="18" width="8" height="8"/>
+                        <rect x="74" y="34" width="8" height="8"/>
+                        <rect x="82" y="34" width="8" height="8"/>
+                        <rect x="74" y="42" width="8" height="8"/>
+                        <rect x="74" y="50" width="8" height="8"/>
+                        <rect x="82" y="50" width="8" height="8"/>
+                        <rect x="10" y="74" width="8" height="8"/>
+                        <rect x="18" y="74" width="8" height="8"/>
+                        <rect x="26" y="74" width="8" height="8"/>
+                        <rect x="10" y="82" width="8" height="8"/>
+                        <rect x="26" y="82" width="8" height="8"/>
+                        <rect x="42" y="74" width="8" height="8"/>
+                        <rect x="50" y="74" width="8" height="8"/>
+                        <rect x="58" y="74" width="8" height="8"/>
+                        <rect x="42" y="82" width="8" height="8"/>
+                        <rect x="58" y="82" width="8" height="8"/>
+                        <rect x="74" y="74" width="8" height="8"/>
+                        <rect x="82" y="74" width="8" height="8"/>
+                        <rect x="74" y="82" width="8" height="8"/>
+                        <rect x="82" y="82" width="8" height="8"/>
+                      </g>
+                    </svg>
                   </div>
                 </div>
               </div>
+              <p className="text-[10px] text-gray-500 mt-1">Scan to download app</p>
             </div>
           </div>
         </div>
@@ -144,4 +225,3 @@ export default function HeroBanners() {
     </section>
   );
 }
-

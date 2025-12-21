@@ -6,6 +6,70 @@ import AnimatedSearchBar from "./AnimatedSearchBar";
 import { useState } from "react";
 import type { Route } from "next";
 
+function USAFlag() {
+  return (
+    <svg viewBox="0 0 60 30" className="w-6 h-4 rounded-sm shadow-sm">
+      <clipPath id="flag-clip">
+        <rect width="60" height="30" rx="1"/>
+      </clipPath>
+      <g clipPath="url(#flag-clip)">
+        <rect fill="#bf0a30" y="0" width="60" height="2.31"/>
+        <rect fill="#fff" y="2.31" width="60" height="2.31"/>
+        <rect fill="#bf0a30" y="4.62" width="60" height="2.31"/>
+        <rect fill="#fff" y="6.92" width="60" height="2.31"/>
+        <rect fill="#bf0a30" y="9.23" width="60" height="2.31"/>
+        <rect fill="#fff" y="11.54" width="60" height="2.31"/>
+        <rect fill="#bf0a30" y="13.85" width="60" height="2.31"/>
+        <rect fill="#fff" y="16.15" width="60" height="2.31"/>
+        <rect fill="#bf0a30" y="18.46" width="60" height="2.31"/>
+        <rect fill="#fff" y="20.77" width="60" height="2.31"/>
+        <rect fill="#bf0a30" y="23.08" width="60" height="2.31"/>
+        <rect fill="#fff" y="25.38" width="60" height="2.31"/>
+        <rect fill="#bf0a30" y="27.69" width="60" height="2.31"/>
+        <rect fill="#002868" width="24" height="16.15"/>
+        <g fill="#fff">
+          <polygon points="2,1 2.3,1.9 1.2,1.35 2.8,1.35 1.7,1.9" transform="scale(0.8)"/>
+          <polygon points="6,1 6.3,1.9 5.2,1.35 6.8,1.35 5.7,1.9" transform="scale(0.8)"/>
+          <polygon points="10,1 10.3,1.9 9.2,1.35 10.8,1.35 9.7,1.9" transform="scale(0.8)"/>
+          <polygon points="14,1 14.3,1.9 13.2,1.35 14.8,1.35 13.7,1.9" transform="scale(0.8)"/>
+          <polygon points="18,1 18.3,1.9 17.2,1.35 18.8,1.35 17.7,1.9" transform="scale(0.8)"/>
+          <polygon points="22,1 22.3,1.9 21.2,1.35 22.8,1.35 21.7,1.9" transform="scale(0.8)"/>
+          <circle cx="3" cy="3" r="0.6"/>
+          <circle cx="7" cy="3" r="0.6"/>
+          <circle cx="11" cy="3" r="0.6"/>
+          <circle cx="15" cy="3" r="0.6"/>
+          <circle cx="19" cy="3" r="0.6"/>
+          <circle cx="5" cy="5" r="0.6"/>
+          <circle cx="9" cy="5" r="0.6"/>
+          <circle cx="13" cy="5" r="0.6"/>
+          <circle cx="17" cy="5" r="0.6"/>
+          <circle cx="21" cy="5" r="0.6"/>
+          <circle cx="3" cy="7" r="0.6"/>
+          <circle cx="7" cy="7" r="0.6"/>
+          <circle cx="11" cy="7" r="0.6"/>
+          <circle cx="15" cy="7" r="0.6"/>
+          <circle cx="19" cy="7" r="0.6"/>
+          <circle cx="5" cy="9" r="0.6"/>
+          <circle cx="9" cy="9" r="0.6"/>
+          <circle cx="13" cy="9" r="0.6"/>
+          <circle cx="17" cy="9" r="0.6"/>
+          <circle cx="21" cy="9" r="0.6"/>
+          <circle cx="3" cy="11" r="0.6"/>
+          <circle cx="7" cy="11" r="0.6"/>
+          <circle cx="11" cy="11" r="0.6"/>
+          <circle cx="15" cy="11" r="0.6"/>
+          <circle cx="19" cy="11" r="0.6"/>
+          <circle cx="5" cy="13" r="0.6"/>
+          <circle cx="9" cy="13" r="0.6"/>
+          <circle cx="13" cy="13" r="0.6"/>
+          <circle cx="17" cy="13" r="0.6"/>
+          <circle cx="21" cy="13" r="0.6"/>
+        </g>
+      </g>
+    </svg>
+  );
+}
+
 export default function LitbHeader() {
   const [cartCount] = useState(3);
 
@@ -28,8 +92,8 @@ export default function LitbHeader() {
           </div>
 
           <div className="flex items-center gap-4 shrink-0">
-            <div className="hidden md:flex items-center gap-1 text-sm">
-              <span className="text-lg">🇺🇸</span>
+            <div className="hidden md:flex items-center gap-1.5 text-sm">
+              <USAFlag />
               <span className="font-medium">EN</span>
               <span className="text-gray-400">|</span>
               <span className="font-medium">USD</span>
