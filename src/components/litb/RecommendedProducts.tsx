@@ -19,10 +19,10 @@ export default function RecommendedProducts({ products }: RecommendedProductsPro
 
   return (
     <section className="py-6 bg-white border-t">
-      <div className="max-w-[1200px] mx-auto px-4">
+      <div className="max-w-[1320px] mx-auto px-2">
         <h2 className="text-lg font-bold text-gray-800 mb-4">Recommended for You</h2>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-3">
           {products.slice(0, visibleCount).map((product) => (
             <Link
               key={product.id}

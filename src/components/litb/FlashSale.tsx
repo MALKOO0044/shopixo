@@ -67,7 +67,7 @@ export default function FlashSale({ products }: FlashSaleProps) {
 
   return (
     <section className="py-6 bg-white border-t">
-      <div className="max-w-[1200px] mx-auto px-4">
+      <div className="max-w-[1320px] mx-auto px-2">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <span className="text-xl font-bold text-[#e31e24] flex items-center gap-1">
@@ -94,14 +94,14 @@ export default function FlashSale({ products }: FlashSaleProps) {
               <Link
                 key={product.id}
                 href={`/product/${product.slug || product.id}`}
-                className="shrink-0 w-[180px] group/card"
+                className="shrink-0 w-[220px] group/card"
               >
                 <div className="relative aspect-[3/4] rounded-lg overflow-hidden bg-gray-100 mb-2">
                   <Image
                     src={product.image}
                     alt={product.name}
                     fill
-                    sizes="180px"
+                    sizes="220px"
                     className="object-cover group-hover/card:scale-105 transition-transform"
                   />
                   {product.badge && (

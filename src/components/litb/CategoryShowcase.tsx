@@ -22,7 +22,7 @@ const SHOWCASES = [
 export default function CategoryShowcase() {
   return (
     <section className="py-6 bg-white">
-      <div className="max-w-[1200px] mx-auto px-4">
+      <div className="max-w-[1320px] mx-auto px-2">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {SHOWCASES.map((showcase, i) => (
             <Link

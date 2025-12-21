@@ -24,7 +24,7 @@ export default function LitbNavBar() {
 
   return (
     <nav className="bg-white border-b">
-      <div className="max-w-[1200px] mx-auto px-4">
+      <div className="max-w-[1320px] mx-auto px-2">
         <div className="flex items-center gap-6 h-[42px] overflow-x-auto hide-scrollbar">
           <button
             onClick={() => setMenuOpen(!menuOpen)}

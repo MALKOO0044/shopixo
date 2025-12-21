@@ -35,7 +35,7 @@ export default function ProductCarousel({ title, products, viewAllHref }: Produc
 
   return (
     <section className="py-6 bg-white border-t">
-      <div className="max-w-[1200px] mx-auto px-4">
+      <div className="max-w-[1320px] mx-auto px-2">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-gray-800">{title}</h2>
           {viewAllHref && (
@@ -61,14 +61,14 @@ export default function ProductCarousel({ title, products, viewAllHref }: Produc
               <Link
                 key={product.id}
                 href={`/product/${product.slug || product.id}` as Route}
-                className="shrink-0 w-[180px] group/card"
+                className="shrink-0 w-[220px] group/card"
               >
                 <div className="relative aspect-[3/4] rounded-lg overflow-hidden bg-gray-100 mb-2">
                   <Image
                     src={product.image}
                     alt={product.name}
                     fill
-                    sizes="180px"
+                    sizes="220px"
                     className="object-cover group-hover/card:scale-105 transition-transform"
                   />
                   {product.badge && (
