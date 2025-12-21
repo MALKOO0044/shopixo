@@ -49,7 +49,8 @@ export default function LitbNavBar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [categories, setCategories] = useState<Category[]>(FALLBACK_CATEGORIES);
   const [hoveredCategory, setHoveredCategory] = useState<number | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     async function fetchCategories() {
@@ -66,16 +67,32 @@ export default function LitbNavBar() {
     fetchCategories();
   }, []);
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setMenuOpen(false);
-        setHoveredCategory(null);
-      }
+  const handleMouseEnterButton = () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    setMenuOpen(true);
+  };
+
+  const handleMouseLeaveContainer = () => {
+    timeoutRef.current = setTimeout(() => {
+      setMenuOpen(false);
+      setHoveredCategory(null);
+    }, 150);
+  };
+
+  const handleMouseEnterDropdown = () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  };
+
+  const handleCategoryClick = () => {
+    setMenuOpen(false);
+    setHoveredCategory(null);
+  };
 
   const hoveredCat = categories.find(c => c.id === hoveredCategory);
 
@@ -83,8 +100,13 @@ export default function LitbNavBar() {
     <nav className="bg-white border-b relative z-40">
       <div className="max-w-[1320px] mx-auto px-2">
         <div className="flex items-center gap-6 h-[42px] overflow-x-auto hide-scrollbar">
-          <div className="relative" ref={menuRef}>
+          <div 
+            className="relative"
+            ref={containerRef}
+            onMouseLeave={handleMouseLeaveContainer}
+          >
             <button
+              onMouseEnter={handleMouseEnterButton}
               onClick={() => setMenuOpen(!menuOpen)}
               className="flex items-center gap-1 text-sm font-medium hover:text-[#e31e24] shrink-0"
             >
@@ -95,23 +117,24 @@ export default function LitbNavBar() {
 
             {menuOpen && (
               <div 
-                className="fixed left-0 top-[90px] flex z-[9999]"
-                onMouseLeave={() => setHoveredCategory(null)}
+                className="absolute left-0 top-full mt-0 flex z-[9999]"
+                onMouseEnter={handleMouseEnterDropdown}
               >
-                {/* Main categories column */}
-                <div className="w-[220px] bg-white shadow-2xl border-r max-h-[calc(100vh-100px)] overflow-y-auto">
-                  {categories.map((cat) => (
+                <div className="w-[220px] bg-white shadow-2xl border max-h-[500px] overflow-y-auto">
+                  {categories.map((cat, index) => (
                     <div
                       key={cat.id}
-                      className={`flex items-center justify-between px-4 py-3 text-sm border-b border-gray-100 cursor-pointer transition-colors ${
-                        hoveredCategory === cat.id ? 'bg-gray-50 text-[#e31e24]' : 'hover:bg-gray-50'
+                      className={`flex items-center justify-between px-4 py-3 text-sm cursor-pointer transition-colors ${
+                        index < categories.length - 1 ? 'border-b border-gray-100' : ''
+                      } ${
+                        hoveredCategory === cat.id ? 'bg-gray-50 text-[#e31e24]' : 'hover:bg-gray-50 hover:text-[#e31e24]'
                       }`}
                       onMouseEnter={() => setHoveredCategory(cat.id)}
                     >
                       <Link
                         href={`/category/${cat.slug}` as Route}
                         className="flex-1"
-                        onClick={() => setMenuOpen(false)}
+                        onClick={handleCategoryClick}
                       >
                         {cat.name}
                       </Link>
@@ -122,38 +145,37 @@ export default function LitbNavBar() {
                   ))}
                 </div>
 
-                {/* Subcategories flyout panel */}
                 {hoveredCat && hoveredCat.children && hoveredCat.children.length > 0 && (
-                  <div className="w-[400px] bg-white shadow-2xl border-l max-h-[calc(100vh-100px)] overflow-y-auto p-4">
-                    <div className="grid grid-cols-2 gap-4">
+                  <div className="w-[500px] bg-white shadow-2xl border-l max-h-[500px] overflow-y-auto p-5">
+                    <div className="grid grid-cols-3 gap-x-4 gap-y-4">
                       {hoveredCat.children.map((subcat) => (
-                        <div key={subcat.id} className="mb-4">
+                        <div key={subcat.id} className="mb-2">
                           <Link
                             href={`/category/${subcat.slug}` as Route}
                             className="font-semibold text-sm text-[#e31e24] hover:underline block mb-2"
-                            onClick={() => setMenuOpen(false)}
+                            onClick={handleCategoryClick}
                           >
                             {subcat.name}
                           </Link>
                           {subcat.children && subcat.children.length > 0 && (
                             <ul className="space-y-1">
-                              {subcat.children.slice(0, 6).map((item) => (
+                              {subcat.children.slice(0, 5).map((item) => (
                                 <li key={item.id}>
                                   <Link
                                     href={`/category/${item.slug}` as Route}
-                                    className="text-xs text-gray-600 hover:text-[#e31e24] transition-colors"
-                                    onClick={() => setMenuOpen(false)}
+                                    className="text-xs text-gray-600 hover:text-[#e31e24] transition-colors block"
+                                    onClick={handleCategoryClick}
                                   >
                                     {item.name}
                                   </Link>
                                 </li>
                               ))}
-                              {subcat.children.length > 6 && (
+                              {subcat.children.length > 5 && (
                                 <li>
                                   <Link
                                     href={`/category/${subcat.slug}` as Route}
                                     className="text-xs text-[#e31e24] hover:underline"
-                                    onClick={() => setMenuOpen(false)}
+                                    onClick={handleCategoryClick}
                                   >
                                     View all →
                                   </Link>
@@ -165,12 +187,11 @@ export default function LitbNavBar() {
                       ))}
                     </div>
                     
-                    {/* View all link for main category */}
                     <div className="mt-4 pt-4 border-t">
                       <Link
                         href={`/category/${hoveredCat.slug}` as Route}
                         className="text-sm text-[#e31e24] font-medium hover:underline"
-                        onClick={() => setMenuOpen(false)}
+                        onClick={handleCategoryClick}
                       >
                         View all {hoveredCat.name} →
                       </Link>
