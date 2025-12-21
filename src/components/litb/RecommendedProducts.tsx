@@ -19,7 +19,7 @@ export default function RecommendedProducts({ products }: RecommendedProductsPro
 
   return (
     <section className="py-6 bg-white border-t">
-      <div className="container">
+      <div className="max-w-[1200px] mx-auto px-4">
         <h2 className="text-lg font-bold text-gray-800 mb-4">Recommended for You</h2>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -42,15 +42,9 @@ export default function RecommendedProducts({ products }: RecommendedProductsPro
                     {product.badge}
                   </span>
                 )}
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                  className="absolute bottom-2 right-2 bg-white p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-100"
-                >
-                  <ShoppingCart className="h-4 w-4 text-gray-600" />
-                </button>
+                <div className="absolute inset-x-0 bottom-0 bg-black/70 text-white text-center py-2 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                  QUICK SHOP
+                </div>
               </div>
               <div className="p-3">
                 <p className="text-sm text-gray-700 line-clamp-2 mb-2 group-hover:text-[#e31e24]">

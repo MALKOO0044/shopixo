@@ -36,11 +36,11 @@ function CategoryItem({ item }: { item: CategoryItemType }) {
   return (
     <Link
       href={item.href as Route}
-      className="flex flex-col items-center gap-2 group shrink-0"
+      className="flex flex-col items-center gap-3 group shrink-0"
     >
       <div
-        className={`relative w-[80px] h-[80px] md:w-[100px] md:h-[100px] rounded-full overflow-hidden border-2 transition-transform group-hover:scale-105 ${
-          item.highlight ? "border-[#e31e24]" : "border-gray-200"
+        className={`relative w-[100px] h-[100px] md:w-[120px] md:h-[120px] rounded-full overflow-hidden border-3 transition-transform group-hover:scale-105 shadow-md ${
+          item.highlight ? "border-[#e31e24] border-4" : "border-gray-200"
         }`}
       >
         {item.gradient ? (
@@ -82,14 +82,14 @@ function CategoryItem({ item }: { item: CategoryItemType }) {
 
 export default function CategoryCircles() {
   return (
-    <section className="py-6 bg-white">
-      <div className="container">
-        <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-2 justify-center flex-wrap md:flex-nowrap">
+    <section className="py-8 bg-white">
+      <div className="max-w-[1200px] mx-auto px-4">
+        <div className="flex gap-6 overflow-x-auto hide-scrollbar pb-4 justify-center flex-wrap md:flex-nowrap">
           {CATEGORIES_ROW_1.map((item, i) => (
             <CategoryItem key={i} item={item} />
           ))}
         </div>
-        <div className="flex gap-4 overflow-x-auto hide-scrollbar pt-4 justify-center flex-wrap md:flex-nowrap">
+        <div className="flex gap-6 overflow-x-auto hide-scrollbar pt-4 justify-center flex-wrap md:flex-nowrap">
           {CATEGORIES_ROW_2.map((item, i) => (
             <CategoryItem key={i} item={item} />
           ))}

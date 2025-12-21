@@ -29,7 +29,7 @@ const PROMO_BANNERS = [
 export default function PromoBanners() {
   return (
     <section className="py-6 bg-gray-50">
-      <div className="container">
+      <div className="max-w-[1200px] mx-auto px-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {PROMO_BANNERS.map((banner, i) => (
             <Link

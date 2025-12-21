@@ -46,8 +46,10 @@ export default function HeroBanners() {
   }, []);
 
   return (
-    <section className="bg-gradient-to-b from-red-50 to-white py-4">
-      <div className="container">
+    <section className="relative py-4">
+      <div className="absolute inset-0 bg-gradient-to-b from-[#e31e24] via-[#e31e24] to-transparent h-[60px]" />
+      <div className="absolute inset-x-0 top-[60px] h-[200px] bg-gradient-to-b from-[#dc4c50] via-[#f5a0a3] to-white" />
+      <div className="relative max-w-[1200px] mx-auto px-4">
         <div className="grid grid-cols-1 lg:grid-cols-[200px_1fr_280px] gap-3">
           <div className="hidden lg:flex flex-col gap-2">
             {LEFT_BANNERS.map((banner, i) => (
@@ -142,3 +144,4 @@ export default function HeroBanners() {
     </section>
   );
 }
+
