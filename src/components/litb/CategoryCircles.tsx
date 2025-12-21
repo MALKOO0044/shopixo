@@ -11,7 +11,7 @@ const CATEGORIES_ROW_1 = [
   { label: "Home&Garden", image: "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=150&h=150&fit=crop", href: "/category/home" },
   { label: "Lighting", image: "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=150&h=150&fit=crop", href: "/category/lighting" },
   { label: "Toys & Hobbies", image: "https://images.unsplash.com/photo-1558060370-d644479cb6f7?w=150&h=150&fit=crop", href: "/category/toys" },
-  { label: "Carnival Costumes", image: "https://images.unsplash.com/photo-1604882737236-e97a04c23c34?w=150&h=150&fit=crop", href: "/category/costumes" },
+  { label: "Carnival Costumes", image: "https://images.unsplash.com/photo-1578632292335-df3abbb0d586?w=150&h=150&fit=crop", href: "/category/costumes" },
 ];
 
 const CATEGORIES_ROW_2 = [
@@ -56,6 +56,7 @@ function CategoryItem({ item }: { item: CategoryItemType }) {
             src={item.image}
             alt={item.label}
             fill
+            sizes="100px"
             className="object-cover"
           />
         )}

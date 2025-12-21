@@ -34,6 +34,7 @@ export default function CategoryShowcase() {
                 src={showcase.image}
                 alt={showcase.title}
                 fill
+                sizes="(max-width: 768px) 100vw, 50vw"
                 className="object-cover transition-transform group-hover:scale-105"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />

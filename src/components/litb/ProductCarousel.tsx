@@ -67,6 +67,7 @@ export default function ProductCarousel({ title, products, viewAllHref }: Produc
                     src={product.image}
                     alt={product.name}
                     fill
+                    sizes="160px"
                     className="object-cover group-hover/card:scale-105 transition-transform"
                   />
                   {product.badge && (

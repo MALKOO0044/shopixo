@@ -9,7 +9,7 @@ const FLASH_PRODUCTS = [
   { id: 1, name: "Men's Hoodie Pullover", price: 7.39, originalPrice: 18.99, discount: 61, rating: 4.7, image: "https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=200&h=200&fit=crop" },
   { id: 2, name: "Women's Thermal Pants", price: 6.65, originalPrice: 15.99, discount: 58, rating: 4.8, image: "https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?w=200&h=200&fit=crop" },
   { id: 3, name: "Turtleneck Sweater", price: 9.61, originalPrice: 28.99, discount: 67, rating: 4.8, image: "https://images.unsplash.com/photo-1576566588028-4147f3842f27?w=200&h=200&fit=crop" },
-  { id: 4, name: "Winter Face Mask", price: 3.69, originalPrice: 12.99, discount: 72, rating: 4.9, image: "https://images.unsplash.com/photo-1598928506311-c55ez361a58?w=200&h=200&fit=crop" },
+  { id: 4, name: "Winter Beanie Hat", price: 3.69, originalPrice: 12.99, discount: 72, rating: 4.9, image: "https://images.unsplash.com/photo-1576871337622-98d48d1cf531?w=200&h=200&fit=crop" },
   { id: 5, name: "Heated Jacket", price: 5.17, originalPrice: 10.99, discount: 53, rating: 4.6, image: "https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=200&h=200&fit=crop" },
   { id: 6, name: "Casual Shoes", price: 10.35, originalPrice: 36.99, discount: 72, rating: 4.8, image: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=200&h=200&fit=crop" },
   { id: 7, name: "Sports Watch", price: 12.99, originalPrice: 45.99, discount: 72, rating: 4.9, image: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=200&h=200&fit=crop" },
@@ -103,6 +103,7 @@ export default function FlashSale() {
                     src={product.image}
                     alt={product.name}
                     fill
+                    sizes="150px"
                     className="object-cover group-hover/card:scale-105 transition-transform"
                   />
                 </div>

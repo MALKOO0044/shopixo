@@ -61,6 +61,7 @@ export default function HeroBanners() {
                   src={banner.image}
                   alt={banner.title}
                   fill
+                  sizes="200px"
                   className="object-cover mix-blend-overlay"
                 />
                 <div className="absolute inset-0 flex items-center justify-center">
@@ -83,6 +84,7 @@ export default function HeroBanners() {
                   src={banner.image}
                   alt={banner.title}
                   fill
+                  sizes="(max-width: 768px) 100vw, 60vw"
                   className="object-cover"
                   priority={i === 0}
                 />

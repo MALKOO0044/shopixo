@@ -41,6 +41,7 @@ export default function PromoBanners() {
                 src={banner.image}
                 alt={banner.title}
                 fill
+                sizes="(max-width: 768px) 100vw, 33vw"
                 className="object-cover transition-transform group-hover:scale-105"
               />
               <div className="absolute inset-0 bg-gradient-to-r from-white/90 to-white/40" />

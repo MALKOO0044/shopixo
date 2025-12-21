@@ -42,7 +42,7 @@ const CLEARANCE_PRODUCTS = [
   { id: 201, name: "Women's Wide Leg Jumpsuit", price: 8.13, originalPrice: 14.79, rating: 4.8, image: "https://images.unsplash.com/photo-1515372039744-b8f02a3ae446?w=200&h=200&fit=crop", badge: "CLEARANCE" },
   { id: 202, name: "Elegant Lace Midi Dress", price: 12.20, originalPrice: 40.59, rating: 4.6, image: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=200&h=200&fit=crop", badge: "CLEARANCE" },
   { id: 203, name: "Vintage Green Velvet Dress", price: 8.87, originalPrice: 14.85, rating: 4.5, image: "https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=200&h=200&fit=crop", badge: "CLEARANCE" },
-  { id: 204, name: "Floral Print Maxi Skirt", price: 15.99, originalPrice: 35.99, rating: 4.7, image: "https://images.unsplash.com/photo-1583496661160-fb5886a0uj37?w=200&h=200&fit=crop", badge: "CLEARANCE" },
+  { id: 204, name: "Floral Print Maxi Skirt", price: 15.99, originalPrice: 35.99, rating: 4.7, image: "https://images.unsplash.com/photo-1594938298603-c8148c4dae35?w=200&h=200&fit=crop", badge: "CLEARANCE" },
   { id: 205, name: "Bohemian Embroidered Blouse", price: 9.99, originalPrice: 24.99, rating: 4.4, image: "https://images.unsplash.com/photo-1434389677669-e08b4cac3105?w=200&h=200&fit=crop", badge: "CLEARANCE" },
 ];
 

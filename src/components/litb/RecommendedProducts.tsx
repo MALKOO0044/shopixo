@@ -30,7 +30,7 @@ export default function RecommendedProducts() {
           {RECOMMENDED_PRODUCTS.slice(0, visibleCount).map((product) => (
             <Link
               key={product.id}
-              href={`/product/${product.id}`}
+              href={`/product/${product.id}` as any}
               className="group bg-white rounded-lg overflow-hidden border hover:shadow-lg transition-shadow"
             >
               <div className="relative aspect-[3/4] bg-gray-100">
@@ -38,6 +38,7 @@ export default function RecommendedProducts() {
                   src={product.image}
                   alt={product.name}
                   fill
+                  sizes="(max-width: 640px) 50vw, (max-width: 1024px) 25vw, 20vw"
                   className="object-cover group-hover:scale-105 transition-transform"
                 />
                 {product.badge && (
