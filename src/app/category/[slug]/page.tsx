@@ -3,13 +3,14 @@ import type { Metadata } from "next";
 import { getSiteUrl } from "@/lib/site";
 import { notFound } from "next/navigation";
 import ProductCard from "@/components/product-card";
-import Breadcrumbs from "@/components/breadcrumbs";
+import Breadcrumbs, { type Crumb } from "@/components/breadcrumbs";
 import type { Product } from "@/lib/types";
 import { labelFromSlug } from "@/lib/categories";
 import FiltersPanel from "@/components/pro/FiltersPanel";
 import { headers } from "next/headers";
 import { getProductsByCategory } from "@/lib/recommendations";
 import { createClient } from "@supabase/supabase-js";
+import type { Route } from "next";
 
 function slugToTitle(slug: string) {
   return slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -151,7 +152,7 @@ export default async function CategoryPage({ params, searchParams }: { params: {
   const totalPages = Math.ceil(total / perPage);
 
   // Build breadcrumbs
-  const breadcrumbItems = [{ name: "Home", href: "/" }];
+  const breadcrumbItems: Crumb[] = [{ name: "Home", href: "/" as Route }];
   
   if (category && category.parent_id && supabaseAdmin) {
     const { data: parent } = await supabaseAdmin
@@ -169,14 +170,14 @@ export default async function CategoryPage({ params, searchParams }: { params: {
           .single();
         
         if (grandparent) {
-          breadcrumbItems.push({ name: grandparent.name, href: `/category/${grandparent.slug}` });
+          breadcrumbItems.push({ name: grandparent.name, href: `/category/${grandparent.slug}` as Route });
         }
       }
-      breadcrumbItems.push({ name: parent.name, href: `/category/${parent.slug}` });
+      breadcrumbItems.push({ name: parent.name, href: `/category/${parent.slug}` as Route });
     }
   }
   
-  breadcrumbItems.push({ name: categoryTitle, href: `/category/${params.slug}` });
+  breadcrumbItems.push({ name: categoryTitle });
 
   return (
     <main className="container py-6">
