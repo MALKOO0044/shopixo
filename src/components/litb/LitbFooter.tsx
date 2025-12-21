@@ -11,7 +11,7 @@ const FOOTER_LINKS = {
     { label: "Returns & Refunds", href: "/returns" },
   ],
   "About Us": [
-    { label: "About LightInTheBox", href: "/about" },
+    { label: "About Shopixo", href: "/about" },
     { label: "Careers", href: "/careers" },
     { label: "Press", href: "/press" },
     { label: "Blog", href: "/blog" },
@@ -31,10 +31,8 @@ export default function LitbFooter() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           <div>
             <h3 className="text-lg font-bold mb-4">
-              <span className="text-white">Light</span>
-              <span className="text-[#e31e24]">in</span>
-              <span className="text-orange-400">the</span>
-              <span className="text-white">box</span>
+              <span className="text-white">Shop</span>
+              <span className="text-[#e31e24]">ixo</span>
             </h3>
             <p className="text-sm text-gray-400 mb-4">
               Your one-stop shop for quality products at amazing prices. Free shipping worldwide on orders over $50.
@@ -66,7 +64,7 @@ export default function LitbFooter() {
         <div className="border-t border-gray-700 mt-8 pt-6">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-4 text-sm text-gray-400">
-              <span className="flex items-center gap-1"><Mail className="h-4 w-4" /> support@lightinthebox.com</span>
+              <span className="flex items-center gap-1"><Mail className="h-4 w-4" /> support@shopixo.com</span>
               <span className="flex items-center gap-1"><Phone className="h-4 w-4" /> 1-800-XXX-XXXX</span>
             </div>
             <div className="flex items-center gap-2 text-sm text-gray-400">
@@ -76,7 +74,7 @@ export default function LitbFooter() {
             </div>
           </div>
           <p className="text-center text-xs text-gray-500 mt-4">
-            © 2024 LightInTheBox. All rights reserved.
+            © 2024 Shopixo. All rights reserved.
           </p>
         </div>
       </div>

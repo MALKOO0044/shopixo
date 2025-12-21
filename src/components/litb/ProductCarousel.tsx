@@ -14,6 +14,7 @@ interface Product {
   rating?: number;
   image: string;
   badge?: string;
+  slug?: string;
 }
 
 interface ProductCarouselProps {
@@ -59,7 +60,7 @@ export default function ProductCarousel({ title, products, viewAllHref }: Produc
             {products.map((product) => (
               <Link
                 key={product.id}
-                href={`/product/${product.id}` as Route}
+                href={`/product/${product.slug || product.id}` as Route}
                 className="shrink-0 w-[160px] group/card"
               >
                 <div className="relative aspect-square rounded-lg overflow-hidden bg-gray-100 mb-2">

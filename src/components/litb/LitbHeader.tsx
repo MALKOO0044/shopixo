@@ -15,10 +15,8 @@ export default function LitbHeader() {
         <div className="flex items-center justify-between h-[60px] gap-4">
           <Link href="/" className="flex items-center gap-1 shrink-0">
             <span className="text-2xl font-bold">
-              <span className="text-gray-800">Light</span>
-              <span className="text-[#e31e24]">in</span>
-              <span className="text-orange-500">the</span>
-              <span className="text-gray-800">box</span>
+              <span className="text-gray-800">Shop</span>
+              <span className="text-[#e31e24]">ixo</span>
             </span>
           </Link>
 

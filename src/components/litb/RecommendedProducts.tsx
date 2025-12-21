@@ -4,22 +4,18 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Star, ShoppingCart } from "lucide-react";
+import type { HomepageProduct } from "@/lib/homepage-products";
 
-const RECOMMENDED_PRODUCTS = [
-  { id: 1, name: "Women's Midi Dress Sheath Dress Elegant Formal", price: 55.94, originalPrice: 75.04, rating: 5.0, image: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=300&h=400&fit=crop", badge: null },
-  { id: 2, name: "Satin Floral Twist Jumpsuit", price: 8.87, originalPrice: 67.91, rating: 4.5, image: "https://images.unsplash.com/photo-1515372039744-b8f02a3ae446?w=300&h=400&fit=crop", badge: "SALE" },
-  { id: 3, name: "Women Long Sleeve Top", price: 4.43, originalPrice: null, rating: 5.0, image: "https://images.unsplash.com/photo-1434389677669-e08b4cac3105?w=300&h=400&fit=crop", badge: "SALE" },
-  { id: 4, name: "VINTATRE Women Kimono Robes", price: 8.13, originalPrice: 9.61, rating: 5.0, image: "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=300&h=400&fit=crop", badge: "SALE" },
-  { id: 5, name: "Men's Geometric Color Block Shirt", price: 8.13, originalPrice: 26.13, rating: 4.8, image: "https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=300&h=400&fit=crop", badge: "SALE" },
-  { id: 6, name: "Women's Mini Dress Sequin Dress", price: 30.64, originalPrice: 38.30, rating: 4.8, image: "https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=300&h=400&fit=crop", badge: "SALE" },
-  { id: 7, name: "Women's Wedding Guest Dress Maxi", price: 8.87, originalPrice: 176.71, rating: 5.0, image: "https://images.unsplash.com/photo-1518611012118-696072aa579a?w=300&h=400&fit=crop", badge: "SALE" },
-  { id: 8, name: "2pcs Funny Cartoon Car Headrest", price: 4.80, originalPrice: 8.97, rating: 4.9, image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=300&h=400&fit=crop", badge: null },
-  { id: 9, name: "Women's Long Dress Maxi Dress A Line", price: 8.87, originalPrice: 63.94, rating: 5.0, image: "https://images.unsplash.com/photo-1496747611176-843222e1e57c?w=300&h=400&fit=crop", badge: "SALE" },
-  { id: 10, name: "Rolling Grill Basket - SUS304", price: 8.65, originalPrice: 16.43, rating: 4.9, image: "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=300&h=400&fit=crop", badge: null },
-];
+interface RecommendedProductsProps {
+  products: HomepageProduct[];
+}
 
-export default function RecommendedProducts() {
+export default function RecommendedProducts({ products }: RecommendedProductsProps) {
   const [visibleCount, setVisibleCount] = useState(10);
+
+  if (products.length === 0) {
+    return null;
+  }
 
   return (
     <section className="py-6 bg-white border-t">
@@ -27,10 +23,10 @@ export default function RecommendedProducts() {
         <h2 className="text-lg font-bold text-gray-800 mb-4">Recommended for You</h2>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {RECOMMENDED_PRODUCTS.slice(0, visibleCount).map((product) => (
+          {products.slice(0, visibleCount).map((product) => (
             <Link
               key={product.id}
-              href={`/product/${product.id}` as any}
+              href={`/product/${product.slug || product.id}`}
               className="group bg-white rounded-lg overflow-hidden border hover:shadow-lg transition-shadow"
             >
               <div className="relative aspect-[3/4] bg-gray-100">
@@ -80,7 +76,7 @@ export default function RecommendedProducts() {
           ))}
         </div>
 
-        {visibleCount < RECOMMENDED_PRODUCTS.length && (
+        {visibleCount < products.length && (
           <div className="text-center mt-6">
             <button
               onClick={() => setVisibleCount((prev) => prev + 10)}
