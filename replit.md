@@ -4,18 +4,23 @@ Shopixo is a professional e-commerce platform for the global market. It provides
 
 # Recent Changes (December 2025)
 
-## Smart Category System Integration (December 21, 2025)
-- **Database Tables**: Created `categories` table (3-level hierarchy: main → group → leaf) and `product_categories` bridge table for many-to-many product-category relationships
+## Complete Category System Integration (December 21, 2025)
+- **Database Tables**: 
+  - `categories` table: 3-level hierarchy matching CJ Dropshipping (619 total: 14 main + 85 level-2 + 520 level-3)
+  - `product_categories` bridge table for many-to-many product-category relationships
+  - `cj_category_links` table for mapping CJ API category IDs to local database categories
 - **Data Layer**: 
-  - Seeded 14 main CJ categories with 85 level-2 subcategories (99 total)
+  - Complete CJ Dropshipping category hierarchy with all subcategories
   - Created `src/lib/recommendations.ts` for smart product recommendations using pg module
   - Created `/api/categories` endpoint using pg module to bypass Supabase PostgREST cache
+  - Created `/api/admin/categories/map` for CJ-to-local category mapping with similarity matching
 - **Components Updated**:
   - `CategoryCircles.tsx` - Fetches real categories from database with fallback images
-  - `LitbNavBar.tsx` - Hierarchical category dropdown showing all main categories with expandable subcategories
-  - Category pages now use pg-based queries for product-category relationships
-- **Import System**: Admin import automatically links products to correct category hierarchy
-- **Note**: New tables (categories, product_categories) use pg module directly instead of Supabase client due to PostgREST schema cache limitations
+  - `LitbNavBar.tsx` - CJ-style multi-column dropdown with 4-column layout, level-2 headers, level-3 items
+  - Admin Queue page - 3-level category filter dropdown for product filtering
+  - Category pages use pg-based queries for product-category relationships
+- **Import System**: Admin import can automatically link products to correct category hierarchy via mapping API
+- **Note**: New tables (categories, product_categories, cj_category_links) use pg module directly instead of Supabase client due to PostgREST schema cache limitations
 
 ## Real Product Data Integration (December 21, 2025)
 - **Change**: Integrated real product data from Supabase database for all homepage sections

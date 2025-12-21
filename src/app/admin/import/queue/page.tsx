@@ -48,6 +48,16 @@ type Stats = {
   imported: number;
 };
 
+type LocalCategory = {
+  id: number;
+  name: string;
+  slug: string;
+  level: number;
+  parentId: number | null;
+  parentName: string | null;
+  children?: LocalCategory[];
+};
+
 const statusColors: Record<string, { bg: string; text: string; icon: any }> = {
   pending: { bg: "bg-amber-100", text: "text-amber-800", icon: Clock },
   approved: { bg: "bg-green-100", text: "text-green-800", icon: CheckCircle },
@@ -61,6 +71,7 @@ export default function QueuePage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [localCategories, setLocalCategories] = useState<LocalCategory[]>([]);
   
   const [statusFilter, setStatusFilter] = useState("pending");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -104,6 +115,21 @@ export default function QueuePage() {
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
+
+  useEffect(() => {
+    async function fetchLocalCategories() {
+      try {
+        const res = await fetch("/api/admin/categories/map");
+        const data = await res.json();
+        if (data.ok && data.categories) {
+          setLocalCategories(data.categories);
+        }
+      } catch (e) {
+        console.error("Failed to fetch local categories:", e);
+      }
+    }
+    fetchLocalCategories();
+  }, []);
 
   const toggleSelect = (id: number) => {
     setSelected(prev => {
@@ -312,6 +338,51 @@ export default function QueuePage() {
             </button>
           );
         })}
+      </div>
+
+      <div className="bg-white rounded-xl border shadow-sm p-4">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-gray-500" />
+            <span className="text-sm font-medium text-gray-700">Filter by Category:</span>
+          </div>
+          <select
+            value={categoryFilter}
+            onChange={(e) => { setCategoryFilter(e.target.value); setPage(0); }}
+            className="flex-1 max-w-md px-3 py-2 border border-gray-300 rounded-lg text-sm"
+          >
+            <option value="all">All Categories</option>
+            {localCategories
+              .filter(c => c.level === 1)
+              .map(mainCat => (
+                <optgroup key={mainCat.id} label={mainCat.name}>
+                  <option value={mainCat.slug}>All {mainCat.name}</option>
+                  {localCategories
+                    .filter(c => c.level === 2 && c.parentId === mainCat.id)
+                    .flatMap(subCat => [
+                      <option key={`sub-${subCat.id}`} value={subCat.slug}>
+                        {subCat.name}
+                      </option>,
+                      ...localCategories
+                        .filter(c => c.level === 3 && c.parentId === subCat.id)
+                        .map(leaf => (
+                          <option key={`leaf-${leaf.id}`} value={leaf.slug}>
+                            &nbsp;&nbsp;↳ {leaf.name}
+                          </option>
+                        ))
+                    ])}
+                </optgroup>
+              ))}
+          </select>
+          {categoryFilter !== "all" && (
+            <button
+              onClick={() => { setCategoryFilter("all"); setPage(0); }}
+              className="text-sm text-blue-600 hover:underline"
+            >
+              Clear filter
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
