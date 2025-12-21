@@ -157,7 +157,6 @@ export default function LitbNavBar() {
   };
 
   const hoveredCategory = categories.find(c => c.id === hoveredCategoryId);
-  const hasSubcategories = hoveredCategory && hoveredCategory.children && hoveredCategory.children.length > 0;
 
   const dropdownContent = menuOpen && mounted ? (
     <div 
