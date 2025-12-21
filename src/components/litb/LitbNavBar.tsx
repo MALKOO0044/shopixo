@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Menu, ChevronDown, ChevronRight } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { Route } from "next";
 
 interface Category {
@@ -49,8 +50,15 @@ export default function LitbNavBar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [categories, setCategories] = useState<Category[]>(FALLBACK_CATEGORIES);
   const [hoveredCategory, setHoveredCategory] = useState<number | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  const [mounted, setMounted] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     async function fetchCategories() {
@@ -67,6 +75,36 @@ export default function LitbNavBar() {
     fetchCategories();
   }, []);
 
+  useEffect(() => {
+    if (menuOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + window.scrollY,
+        left: rect.left + window.scrollX
+      });
+    }
+  }, [menuOpen]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      const target = event.target as Node;
+      if (
+        buttonRef.current && 
+        !buttonRef.current.contains(target) &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(target)
+      ) {
+        setMenuOpen(false);
+        setHoveredCategory(null);
+      }
+    }
+    
+    if (menuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [menuOpen]);
+
   const handleMouseEnterButton = () => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
@@ -75,7 +113,7 @@ export default function LitbNavBar() {
     setMenuOpen(true);
   };
 
-  const handleMouseLeaveContainer = () => {
+  const handleMouseLeaveButton = () => {
     timeoutRef.current = setTimeout(() => {
       setMenuOpen(false);
       setHoveredCategory(null);
@@ -89,6 +127,13 @@ export default function LitbNavBar() {
     }
   };
 
+  const handleMouseLeaveDropdown = () => {
+    timeoutRef.current = setTimeout(() => {
+      setMenuOpen(false);
+      setHoveredCategory(null);
+    }, 150);
+  };
+
   const handleCategoryClick = () => {
     setMenuOpen(false);
     setHoveredCategory(null);
@@ -96,17 +141,108 @@ export default function LitbNavBar() {
 
   const hoveredCat = categories.find(c => c.id === hoveredCategory);
 
+  const dropdownContent = menuOpen && mounted ? (
+    <div 
+      ref={dropdownRef}
+      className="fixed flex"
+      style={{ 
+        top: dropdownPosition.top, 
+        left: dropdownPosition.left,
+        zIndex: 99999 
+      }}
+      onMouseEnter={handleMouseEnterDropdown}
+      onMouseLeave={handleMouseLeaveDropdown}
+    >
+      <div className="w-[220px] bg-white shadow-2xl border max-h-[calc(100vh-120px)] overflow-y-auto">
+        {categories.map((cat, index) => (
+          <div
+            key={cat.id}
+            className={`flex items-center justify-between px-4 py-3 text-sm cursor-pointer transition-colors ${
+              index < categories.length - 1 ? 'border-b border-gray-100' : ''
+            } ${
+              hoveredCategory === cat.id ? 'bg-gray-50 text-[#e31e24]' : 'hover:bg-gray-50 hover:text-[#e31e24]'
+            }`}
+            onMouseEnter={() => setHoveredCategory(cat.id)}
+          >
+            <Link
+              href={`/category/${cat.slug}` as Route}
+              className="flex-1"
+              onClick={handleCategoryClick}
+            >
+              {cat.name}
+            </Link>
+            {(cat.children && cat.children.length > 0) && (
+              <ChevronRight className="h-4 w-4 text-gray-400" />
+            )}
+          </div>
+        ))}
+      </div>
+
+      {hoveredCat && hoveredCat.children && hoveredCat.children.length > 0 && (
+        <div className="w-[500px] bg-white shadow-2xl border-l max-h-[calc(100vh-120px)] overflow-y-auto p-5">
+          <div className="grid grid-cols-3 gap-x-4 gap-y-4">
+            {hoveredCat.children.map((subcat) => (
+              <div key={subcat.id} className="mb-2">
+                <Link
+                  href={`/category/${subcat.slug}` as Route}
+                  className="font-semibold text-sm text-[#e31e24] hover:underline block mb-2"
+                  onClick={handleCategoryClick}
+                >
+                  {subcat.name}
+                </Link>
+                {subcat.children && subcat.children.length > 0 && (
+                  <ul className="space-y-1">
+                    {subcat.children.slice(0, 5).map((item) => (
+                      <li key={item.id}>
+                        <Link
+                          href={`/category/${item.slug}` as Route}
+                          className="text-xs text-gray-600 hover:text-[#e31e24] transition-colors block"
+                          onClick={handleCategoryClick}
+                        >
+                          {item.name}
+                        </Link>
+                      </li>
+                    ))}
+                    {subcat.children.length > 5 && (
+                      <li>
+                        <Link
+                          href={`/category/${subcat.slug}` as Route}
+                          className="text-xs text-[#e31e24] hover:underline"
+                          onClick={handleCategoryClick}
+                        >
+                          View all →
+                        </Link>
+                      </li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+          
+          <div className="mt-4 pt-4 border-t">
+            <Link
+              href={`/category/${hoveredCat.slug}` as Route}
+              className="text-sm text-[#e31e24] font-medium hover:underline"
+              onClick={handleCategoryClick}
+            >
+              View all {hoveredCat.name} →
+            </Link>
+          </div>
+        </div>
+      )}
+    </div>
+  ) : null;
+
   return (
-    <nav className="bg-white border-b relative z-[9999]">
+    <nav className="bg-white border-b relative z-50">
       <div className="max-w-[1320px] mx-auto px-2">
         <div className="flex items-center gap-6 h-[42px] overflow-x-auto hide-scrollbar">
-          <div 
-            className="relative z-[9999]"
-            ref={containerRef}
-            onMouseLeave={handleMouseLeaveContainer}
-          >
+          <div className="relative">
             <button
+              ref={buttonRef}
               onMouseEnter={handleMouseEnterButton}
+              onMouseLeave={handleMouseLeaveButton}
               onClick={() => setMenuOpen(!menuOpen)}
               className="flex items-center gap-1 text-sm font-medium hover:text-[#e31e24] shrink-0"
             >
@@ -114,92 +250,6 @@ export default function LitbNavBar() {
               <span>Categories</span>
               <ChevronDown className={`h-3 w-3 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
             </button>
-
-            {menuOpen && (
-              <div 
-                className="absolute left-0 top-full mt-0 flex z-[9999]"
-                onMouseEnter={handleMouseEnterDropdown}
-              >
-                <div className="w-[220px] bg-white shadow-2xl border max-h-[500px] overflow-y-auto">
-                  {categories.map((cat, index) => (
-                    <div
-                      key={cat.id}
-                      className={`flex items-center justify-between px-4 py-3 text-sm cursor-pointer transition-colors ${
-                        index < categories.length - 1 ? 'border-b border-gray-100' : ''
-                      } ${
-                        hoveredCategory === cat.id ? 'bg-gray-50 text-[#e31e24]' : 'hover:bg-gray-50 hover:text-[#e31e24]'
-                      }`}
-                      onMouseEnter={() => setHoveredCategory(cat.id)}
-                    >
-                      <Link
-                        href={`/category/${cat.slug}` as Route}
-                        className="flex-1"
-                        onClick={handleCategoryClick}
-                      >
-                        {cat.name}
-                      </Link>
-                      {(cat.children && cat.children.length > 0) && (
-                        <ChevronRight className="h-4 w-4 text-gray-400" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {hoveredCat && hoveredCat.children && hoveredCat.children.length > 0 && (
-                  <div className="w-[500px] bg-white shadow-2xl border-l max-h-[500px] overflow-y-auto p-5">
-                    <div className="grid grid-cols-3 gap-x-4 gap-y-4">
-                      {hoveredCat.children.map((subcat) => (
-                        <div key={subcat.id} className="mb-2">
-                          <Link
-                            href={`/category/${subcat.slug}` as Route}
-                            className="font-semibold text-sm text-[#e31e24] hover:underline block mb-2"
-                            onClick={handleCategoryClick}
-                          >
-                            {subcat.name}
-                          </Link>
-                          {subcat.children && subcat.children.length > 0 && (
-                            <ul className="space-y-1">
-                              {subcat.children.slice(0, 5).map((item) => (
-                                <li key={item.id}>
-                                  <Link
-                                    href={`/category/${item.slug}` as Route}
-                                    className="text-xs text-gray-600 hover:text-[#e31e24] transition-colors block"
-                                    onClick={handleCategoryClick}
-                                  >
-                                    {item.name}
-                                  </Link>
-                                </li>
-                              ))}
-                              {subcat.children.length > 5 && (
-                                <li>
-                                  <Link
-                                    href={`/category/${subcat.slug}` as Route}
-                                    className="text-xs text-[#e31e24] hover:underline"
-                                    onClick={handleCategoryClick}
-                                  >
-                                    View all →
-                                  </Link>
-                                </li>
-                              )}
-                            </ul>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    
-                    <div className="mt-4 pt-4 border-t">
-                      <Link
-                        href={`/category/${hoveredCat.slug}` as Route}
-                        className="text-sm text-[#e31e24] font-medium hover:underline"
-                        onClick={handleCategoryClick}
-                      >
-                        View all {hoveredCat.name} →
-                      </Link>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
           <div className="flex items-center gap-5">
@@ -217,6 +267,8 @@ export default function LitbNavBar() {
           </div>
         </div>
       </div>
+
+      {mounted && dropdownContent && createPortal(dropdownContent, document.body)}
     </nav>
   );
 }
