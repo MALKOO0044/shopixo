@@ -14,6 +14,23 @@ interface Category {
   children?: Category[];
 }
 
+const FALLBACK_CATEGORIES: Category[] = [
+  { id: 1, name: "Women's Clothing", slug: "womens-clothing", parent_id: null, level: 1 },
+  { id: 2, name: "Pet Supplies", slug: "pet-supplies", parent_id: null, level: 1 },
+  { id: 3, name: "Home & Garden", slug: "home-garden-furniture", parent_id: null, level: 1 },
+  { id: 4, name: "Health & Beauty", slug: "health-beauty-hair", parent_id: null, level: 1 },
+  { id: 5, name: "Jewelry & Watches", slug: "jewelry-watches", parent_id: null, level: 1 },
+  { id: 6, name: "Men's Clothing", slug: "mens-clothing", parent_id: null, level: 1 },
+  { id: 7, name: "Bags & Shoes", slug: "bags-shoes", parent_id: null, level: 1 },
+  { id: 8, name: "Toys & Kids", slug: "toys-kids-babies", parent_id: null, level: 1 },
+  { id: 9, name: "Sports & Outdoors", slug: "sports-outdoors", parent_id: null, level: 1 },
+  { id: 10, name: "Electronics", slug: "consumer-electronics", parent_id: null, level: 1 },
+  { id: 11, name: "Home Improvement", slug: "home-improvement", parent_id: null, level: 1 },
+  { id: 12, name: "Automobiles", slug: "automobiles-motorcycles", parent_id: null, level: 1 },
+  { id: 13, name: "Phones & Accessories", slug: "phones-accessories", parent_id: null, level: 1 },
+  { id: 14, name: "Computer & Office", slug: "computer-office", parent_id: null, level: 1 },
+];
+
 const QUICK_LINKS = [
   { label: "Flash Sale", href: "/flash-sale", highlight: true },
   { label: "Women", href: "/category/womens-clothing" },
@@ -30,7 +47,7 @@ const QUICK_LINKS = [
 
 export default function LitbNavBar() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<Category[]>(FALLBACK_CATEGORIES);
   const [hoveredCategory, setHoveredCategory] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -39,7 +56,7 @@ export default function LitbNavBar() {
       try {
         const res = await fetch("/api/categories?tree=true");
         const data = await res.json();
-        if (data.ok && data.categories) {
+        if (data.ok && data.categories && data.categories.length > 0) {
           setCategories(data.categories);
         }
       } catch (error) {
