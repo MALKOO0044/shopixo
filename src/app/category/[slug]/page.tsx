@@ -176,7 +176,7 @@ export default async function CategoryPage({ params, searchParams }: { params: {
     }
   }
   
-  breadcrumbItems.push({ name: categoryTitle });
+  breadcrumbItems.push({ name: categoryTitle, href: `/category/${params.slug}` });
 
   return (
     <main className="container py-6">
