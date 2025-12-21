@@ -22,21 +22,27 @@ export default function AnimatedSearchBar() {
   const [isAnimating, setIsAnimating] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
-    if (isFocused) return;
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (isFocused || !mounted) return;
     
     const interval = setInterval(() => {
       setIsAnimating(true);
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         setCurrentIndex((prev) => (prev + 1) % SEARCH_SUGGESTIONS.length);
         setIsAnimating(false);
       }, 300);
+      return () => clearTimeout(timer);
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [isFocused]);
+  }, [isFocused, mounted]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +65,7 @@ export default function AnimatedSearchBar() {
           />
           {!inputValue && !isFocused && (
             <span
+              suppressHydrationWarning
               className={`absolute left-4 top-1/2 -translate-y-1/2 text-sm text-gray-400 pointer-events-none transition-opacity duration-300 ${
                 isAnimating ? "opacity-0" : "opacity-100"
               }`}
