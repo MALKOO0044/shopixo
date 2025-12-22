@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
 });
 
 export interface Category {
@@ -61,6 +62,7 @@ function buildCategoryTree(categories: Category[]): Category[] {
 export async function GET(request: NextRequest) {
   try {
     if (!process.env.DATABASE_URL) {
+      console.error("[Categories API] DATABASE_URL not configured");
       return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
     }
 
