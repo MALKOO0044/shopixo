@@ -50,4 +50,8 @@ export class CjApi {
   async getOrderDetail(orderNo: string): Promise<any> {
     return this.request(`/order/detail?orderNo=${encodeURIComponent(orderNo)}`, 'GET');
   }
+
+  async getTrackingInfo(orderNo: string): Promise<any> {
+    return this.request(`/order/tracking?orderNo=${encodeURIComponent(orderNo)}`, 'GET');
+  }
 }

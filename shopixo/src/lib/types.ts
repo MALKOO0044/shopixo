@@ -16,6 +16,7 @@ export type ProductVariant = {
   length_cm?: number | null;
   width_cm?: number | null;
   height_cm?: number | null;
+  image_url?: string | null;
 };
 
 export type Product = {
@@ -79,6 +80,9 @@ export type CartItem = {
   quantity: number;
   product: Product | null;
   variant?: ProductVariant | null;
+  variantName?: string | null;
+  selectedColor?: string | null;
+  selectedSize?: string | null;
 };
 
 export type Address = {

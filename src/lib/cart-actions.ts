@@ -336,7 +336,16 @@ export async function addItem(prevState: any, formData: FormData) {
     revalidatePath("/cart");
     revalidatePath("/");
 
-    return { success: "Item added to cart." };
+    // Get updated cart count
+    const { count: newCount } = await supabaseAdmin
+      .from("cart_items")
+      .select('*', { count: 'exact', head: true })
+      .eq("session_id", cart.id);
+
+    return { 
+      success: "Item added to cart.", 
+      count: newCount || 0 
+    };
   } catch (e) {
     console.error(e);
     return { error: "An unexpected error occurred." };
@@ -442,7 +451,22 @@ export async function updateItemQuantity(prevState: any, formData: FormData) {
     }
 
     revalidatePath("/cart");
-    return { success: "Cart updated." };
+    
+    // Get updated cart count
+    const currentCartId = cookies().get("cart_id")?.value;
+    if (!currentCartId) {
+      return { error: "Cart not found." };
+    }
+    
+    const { count: newCount } = await supabaseAdmin
+      .from("cart_items")
+      .select('*', { count: 'exact', head: true })
+      .eq("session_id", currentCartId);
+    
+    return { 
+      success: "Cart updated.", 
+      count: newCount || 0 
+    };
   } catch (e) {
     console.error(e);
     return { error: "An unexpected error occurred." };
@@ -481,7 +505,102 @@ export async function removeItem(prevState: any, formData: FormData) {
     if (error) throw error;
 
     revalidatePath("/cart");
-    return { success: "Item removed." };
+    
+    // Get updated cart count
+    const { count: newCount } = await supabaseAdmin
+      .from("cart_items")
+      .select('*', { count: 'exact', head: true })
+      .eq("session_id", cartId);
+    
+    return { 
+      success: "Item removed.", 
+      count: newCount || 0 
+    };
+  } catch (e) {
+    console.error(e);
+    return { error: "An unexpected error occurred." };
+  }
+}
+
+export async function moveToFavorites(prevState: any, formData: FormData) {
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return { error: "Server misconfiguration." };
+  }
+
+  const itemId = Number(formData.get("itemId"));
+  const cartId = cookies().get("cart_id")?.value;
+
+  if (!cartId) return { error: "Cart not found." };
+
+  try {
+    // Get the cart item to move
+    const { data: cartItem, error: cartItemError } = await supabaseAdmin
+      .from("cart_items")
+      .select("product_id, variant_id, quantity")
+      .eq("id", itemId)
+      .eq("session_id", cartId)
+      .single();
+    
+    if (cartItemError || !cartItem) {
+      return { error: "Cart item not found." };
+    }
+
+    // Get the current user
+    const supabaseAuth = createServerComponentClient({ cookies });
+    const { data: { user } } = await supabaseAuth.auth.getUser();
+    
+    if (!user) {
+      return { error: "User not authenticated." };
+    }
+
+    // Check if the item already exists in wishlist
+    const { data: existingWishlistItem } = await supabaseAdmin
+      .from("wishlist_items")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("product_id", cartItem.product_id)
+      .eq("variant_id", cartItem.variant_id)
+      .maybeSingle();
+
+    if (!existingWishlistItem) {
+      // Add to wishlist
+      const { error: wishlistError } = await supabaseAdmin
+        .from("wishlist_items")
+        .insert({
+          user_id: user.id,
+          product_id: cartItem.product_id,
+          variant_id: cartItem.variant_id,
+        });
+      
+      if (wishlistError) {
+        return { error: "Failed to add to wishlist." };
+      }
+    }
+
+    // Remove from cart
+    const { error: deleteError } = await supabaseAdmin
+      .from("cart_items")
+      .delete()
+      .eq("id", itemId)
+      .eq("session_id", cartId);
+    
+    if (deleteError) {
+      return { error: "Failed to remove from cart." };
+    }
+
+    // Get updated cart count
+    const { count: newCount } = await supabaseAdmin
+      .from("cart_items")
+      .select('*', { count: 'exact', head: true })
+      .eq("session_id", cartId);
+
+    revalidatePath("/cart");
+    
+    return { 
+      success: "Item moved to favorites.", 
+      count: newCount || 0 
+    };
   } catch (e) {
     console.error(e);
     return { error: "An unexpected error occurred." };
