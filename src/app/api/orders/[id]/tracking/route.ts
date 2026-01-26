@@ -111,11 +111,18 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid order ID' }, { status: 400 });
     }
 
+    type OrderWithTracking = {
+      id: number;
+      cj_order_no: string | null;
+      cj_tracking_number: string | null;
+      shipping_status: string | null;
+    };
+    
     const { data: order, error: orderErr } = await supabase
       .from('orders')
       .select('id, cj_order_no, cj_tracking_number, shipping_status')
       .eq('id', orderId)
-      .single();
+      .single<OrderWithTracking>();
 
     if (orderErr || !order) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });

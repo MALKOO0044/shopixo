@@ -12,7 +12,7 @@ function isCjConfigured(): boolean {
   return !!(process.env.CJ_APP_KEY && process.env.CJ_APP_SECRET && (process.env.CJ_API_BASE || process.env.CJ_API_BASE_SANDBOX));
 }
 
-export async function maybeCreateCjOrderForOrderId(orderId: number): Promise<{ ok: boolean; info?: any; reason?: string }>{
+export async function maybeCreateCjOrderForOrderId(orderId: number, shippingInfo?: any): Promise<{ ok: boolean; info?: any; reason?: string }> {
   if (!isCjConfigured()) {
     return { ok: false, reason: 'CJ API not configured' };
   }
@@ -59,14 +59,20 @@ export async function maybeCreateCjOrderForOrderId(orderId: number): Promise<{ o
     }
   }
 
-  // 4) Load recipient (default address of user)
-  const { data: addr } = await supabase
-    .from('addresses')
-    .select('full_name, phone, line1, line2, city, state, postal_code, country, is_default')
-    .eq('user_id', order.user_id)
-    .order('is_default', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // 4) Load recipient (default address of user) or use provided shippingInfo
+  let addr;
+  if (shippingInfo) {
+    addr = shippingInfo;
+  } else {
+    const { data: addressData } = await supabase
+      .from('addresses')
+      .select('full_name, phone, line1, line2, city, state, postal_code, country, is_default')
+      .eq('user_id', order.user_id)
+      .order('is_default', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    addr = addressData;
+  }
 
   if (!addr) return { ok: false, reason: 'Missing recipient address; cannot create CJ order yet' };
 
@@ -74,14 +80,14 @@ export async function maybeCreateCjOrderForOrderId(orderId: number): Promise<{ o
   const payload = {
     orderNo: `SHOPIXO-${order.id}-${Date.now()}`,
     recipient: {
-      name: addr.full_name,
+      name: addr.name || addr.full_name,
       phone: addr.phone,
       country: addr.country,
       state: addr.state,
       city: addr.city,
-      address1: addr.line1,
-      address2: addr.line2,
-      postalCode: addr.postal_code,
+      address1: addr.address1 || addr.line1,
+      address2: addr.address2 || addr.line2,
+      postalCode: addr.postalCode || addr.postal_code,
     },
     // Choose service code once provided by CJ (e.g., 'KSA_DDP_ECONOMY')
     serviceCode: 'KSA_DDP_ECONOMY',

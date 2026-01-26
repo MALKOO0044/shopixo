@@ -46,4 +46,8 @@ export class CjApi {
   async createOrder(payload: any): Promise<any> {
     return this.request('/order/create', 'POST', payload);
   }
+
+  async getOrderDetail(orderNo: string): Promise<any> {
+    return this.request(`/order/detail?orderNo=${encodeURIComponent(orderNo)}`, 'GET');
+  }
 }
