@@ -54,11 +54,17 @@ export function slugFromLabel(label: string): string {
 // Rich dataset for menus with images and optional children
 export type FullCategoryChild = { slug: string; label: string; image?: string };
 
+export type CategoryGroup = {
+  groupName: string;
+  items: FullCategoryChild[];
+};
+
 export type FullCategory = {
   slug: string;
   label: string;
   image?: string; // Square or 4:3 works best
   children?: FullCategoryChild[];
+  groups?: CategoryGroup[];
 };
 
 export const FULL_CATEGORIES: FullCategory[] = [
