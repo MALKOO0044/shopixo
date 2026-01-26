@@ -7,9 +7,12 @@ export type ProductVariant = {
   cj_variant_id?: string | null;
   price: number | null; // if null, fallback to product.price
   stock: number | null; // null = unknown (CJ didn't provide), 0 = truly zero, positive = known
+<<<<<<< HEAD
   // Color-specific image URL (for color swatch display)
   image_url?: string | null;
   color?: string | null; // Color name extracted from option_value when option_name is "Color"
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   // CJ-specific variant data
   variant_key?: string | null; // Short variant name from CJ (e.g., "Black And Silver-2XL")
   cj_stock?: number | null; // Stock in CJ warehouse (verified, ready to ship)
@@ -19,6 +22,10 @@ export type ProductVariant = {
   length_cm?: number | null;
   width_cm?: number | null;
   height_cm?: number | null;
+<<<<<<< HEAD
+=======
+  image_url?: string | null;
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 };
 
 export type Product = {
@@ -27,7 +34,10 @@ export type Product = {
   slug: string;
   description: string;
   price: number;
+<<<<<<< HEAD
   compare_at_price?: number | null;
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   images: string[];
   category: string;
   rating: number;
@@ -83,9 +93,15 @@ export type CartItem = {
   quantity: number;
   product: Product | null;
   variant?: ProductVariant | null;
+<<<<<<< HEAD
   variantName?: string | null; // Customer's selected variant (e.g., "Star blue-XL") for CJ matching
   selectedColor?: string | null; // Customer's selected color for display
   selectedSize?: string | null;  // Customer's selected size for display
+=======
+  variantName?: string | null;
+  selectedColor?: string | null;
+  selectedSize?: string | null;
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 };
 
 export type Address = {

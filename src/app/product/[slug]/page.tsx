@@ -208,7 +208,11 @@ export default async function ProductPage({ params, searchParams }: { params: { 
   try {
     const { data: v } = await supabase
       .from("product_variants")
+<<<<<<< HEAD
       .select("id, product_id, option_name, option_value, cj_sku, cj_variant_id, price, stock, image_url")
+=======
+      .select("id, product_id, option_name, option_value, cj_sku, cj_variant_id, price, stock")
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       .eq("product_id", (product as any).id)
       .order("option_value", { ascending: true });
     variantRows = (v as any) || [];
@@ -241,6 +245,7 @@ export default async function ProductPage({ params, searchParams }: { params: { 
   const debug = (searchParams?.debugMedia || "").toString() === '1' || (searchParams?.debugMedia || "").toString().toLowerCase() === 'true';
 
   return (
+<<<<<<< HEAD
     <div className="w-full px-2 md:px-4 pt-1 md:pt-2">
       {/* Breadcrumb */}
       <nav className="text-xs text-muted-foreground mb-2 flex items-center gap-1 flex-wrap">
@@ -254,6 +259,9 @@ export default async function ProductPage({ params, searchParams }: { params: { 
         )}
         <span className="text-foreground truncate max-w-[200px]">{product.title}</span>
       </nav>
+=======
+    <div className="container py-10">
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       {debug && (
         <pre className="mb-4 overflow-auto rounded bg-muted p-3 text-xs" dir="ltr">
 {JSON.stringify({

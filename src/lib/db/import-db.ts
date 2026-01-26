@@ -19,6 +19,7 @@ export function isImportDbConfigured(): boolean {
   return !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
+<<<<<<< HEAD
 // Check if all required columns exist in product_queue table
 // This covers ALL columns that addProductToQueue writes to
 export async function checkProductQueueSchema(): Promise<{
@@ -89,6 +90,8 @@ export async function checkProductQueueSchema(): Promise<{
   };
 }
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 export async function testImportDbConnection(): Promise<{ ok: boolean; error?: string }> {
   try {
     const supabase = getSupabaseAdmin();
@@ -157,6 +160,7 @@ export async function addProductToQueue(batchId: number, product: {
   deliveryDaysMin?: number;
   deliveryDaysMax?: number;
   qualityScore?: number;
+<<<<<<< HEAD
   weightG?: number;
   packLength?: number;
   packWidth?: number;
@@ -182,12 +186,18 @@ export async function addProductToQueue(batchId: number, product: {
   cjProductCost?: number;
   profitMargin?: number;
   colorImageMap?: Record<string, string>;
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 }): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { success: false, error: 'Supabase not configured' };
 
+<<<<<<< HEAD
   // Core fields that always exist
   const productData: Record<string, any> = {
+=======
+  const productData = {
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     batch_id: batchId,
     cj_product_id: product.productId,
     cj_sku: product.cjSku || null,
@@ -203,6 +213,7 @@ export async function addProductToQueue(batchId: number, product: {
     shipping_cost_usd: null,
     calculated_retail_sar: null,
     margin_applied: null,
+<<<<<<< HEAD
     supplier_rating: product.supplierRating ?? null,
     total_sales: product.totalSales ?? null,
     stock_total: product.totalStock,
@@ -210,6 +221,15 @@ export async function addProductToQueue(batchId: number, product: {
     delivery_days_min: product.deliveryDaysMin ?? null,
     delivery_days_max: product.deliveryDaysMax ?? null,
     quality_score: product.qualityScore ?? null,
+=======
+    supplier_rating: product.supplierRating || 4.0,
+    total_sales: product.totalSales || 0,
+    stock_total: product.totalStock,
+    processing_days: product.processingDays || 3,
+    delivery_days_min: product.deliveryDaysMin || 7,
+    delivery_days_max: product.deliveryDaysMax || 15,
+    quality_score: product.qualityScore || 0.75,
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     status: 'pending',
     admin_notes: null,
     reviewed_by: null,
@@ -217,6 +237,7 @@ export async function addProductToQueue(batchId: number, product: {
     shopixo_product_id: null,
     imported_at: null,
     updated_at: new Date().toISOString(),
+<<<<<<< HEAD
     weight_g: product.weightG || null,
     pack_length: product.packLength || null,
     pack_width: product.packWidth || null,
@@ -261,6 +282,9 @@ export async function addProductToQueue(batchId: number, product: {
       }
     }
   }
+=======
+  };
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   // First check if product already exists
   const { data: existing } = await supabase
@@ -271,12 +295,20 @@ export async function addProductToQueue(batchId: number, product: {
 
   let error;
   if (existing) {
+<<<<<<< HEAD
+=======
+    // Update existing product
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     const result = await supabase
       .from('product_queue')
       .update(productData)
       .eq('cj_product_id', product.productId);
     error = result.error;
   } else {
+<<<<<<< HEAD
+=======
+    // Insert new product
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     const result = await supabase
       .from('product_queue')
       .insert(productData);
@@ -284,6 +316,7 @@ export async function addProductToQueue(batchId: number, product: {
   }
 
   if (error) {
+<<<<<<< HEAD
     // Provide clearer error message for schema cache issues
     let errorMsg = `${error.message} (code: ${error.code})`;
     if (error.code === 'PGRST204') {
@@ -292,6 +325,9 @@ export async function addProductToQueue(batchId: number, product: {
     if (error.details) {
       errorMsg += ` - ${error.details}`;
     }
+=======
+    const errorMsg = `${error.message} (code: ${error.code})${error.details ? ` - ${error.details}` : ''}`;
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     console.error('[Import DB] Failed to add product to queue:', {
       message: error.message,
       code: error.code,

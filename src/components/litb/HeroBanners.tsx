@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
 
+<<<<<<< HEAD
 interface CuratedProduct {
   id: number;
   name: string;
@@ -17,6 +18,12 @@ const LEFT_BANNERS = [
   { title: "Dress it Up", image: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=300&h=150&fit=crop", href: "/category/dresses", bg: "from-pink-500 to-purple-600" },
   { title: "Cheeky Chuckles", image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=150&fit=crop", href: "/category/funny", bg: "from-blue-400 to-blue-600" },
   { title: "Make it at Home", image: "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=300&h=150&fit=crop", href: "/category/home-garden-furniture", bg: "from-amber-400 to-orange-500" },
+=======
+const LEFT_BANNERS = [
+  { title: "Dress it Up", image: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=300&h=150&fit=crop", href: "/category/dresses", bg: "from-pink-500 to-purple-600" },
+  { title: "Cheeky Chuckles", image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=150&fit=crop", href: "/category/funny", bg: "from-blue-400 to-blue-600" },
+  { title: "Make it at Home", image: "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=300&h=150&fit=crop", href: "/category/home", bg: "from-amber-400 to-orange-500" },
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 ];
 
 const CENTER_BANNERS = [
@@ -43,10 +50,22 @@ const CENTER_BANNERS = [
   },
 ];
 
+<<<<<<< HEAD
 export default function HeroBanners() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [curatedProducts, setCuratedProducts] = useState<CuratedProduct[]>([]);
   const [loading, setLoading] = useState(true);
+=======
+const CURATED_PRODUCTS = [
+  { image: "https://images.unsplash.com/photo-1594938298603-c8148c4dae35?w=150&h=150&fit=crop", price: "$9.99" },
+  { image: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=150&h=150&fit=crop", price: "$9.59" },
+  { image: "https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=150&h=150&fit=crop", price: "$9.99" },
+  { image: "https://images.unsplash.com/photo-1560343090-f0409e92791a?w=150&h=150&fit=crop", price: "$9.99" },
+];
+
+export default function HeroBanners() {
+  const [currentSlide, setCurrentSlide] = useState(0);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -55,6 +74,7 @@ export default function HeroBanners() {
     return () => clearInterval(interval);
   }, []);
 
+<<<<<<< HEAD
   useEffect(() => {
     async function fetchCuratedProducts() {
       try {
@@ -72,6 +92,8 @@ export default function HeroBanners() {
     fetchCuratedProducts();
   }, []);
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   return (
     <section className="relative py-4">
       <div className="absolute inset-0 bg-gradient-to-b from-[#e31e24] via-[#e31e24] to-transparent h-[60px]" />
@@ -155,6 +177,7 @@ export default function HeroBanners() {
               </p>
               <p className="text-gray-500 text-xs mb-2">JUST A TAP AWAY</p>
               <div className="grid grid-cols-2 gap-1.5 flex-1">
+<<<<<<< HEAD
                 {loading ? (
                   Array.from({ length: 4 }).map((_, i) => (
                     <div key={i} className="bg-white rounded-lg p-1.5 shadow-sm animate-pulse">
@@ -186,6 +209,22 @@ export default function HeroBanners() {
                     No products available
                   </div>
                 )}
+=======
+                {CURATED_PRODUCTS.map((product, i) => (
+                  <Link href="/shop" key={i} className="bg-white rounded-lg p-1.5 shadow-sm hover:shadow-md transition group">
+                    <div className="aspect-square bg-gray-100 rounded mb-1 overflow-hidden relative">
+                      <Image
+                        src={product.image}
+                        alt={`Product ${i + 1}`}
+                        fill
+                        sizes="80px"
+                        className="object-cover group-hover:scale-105 transition-transform"
+                      />
+                    </div>
+                    <p className="text-xs text-[#e31e24] font-medium">From {product.price}</p>
+                  </Link>
+                ))}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
               </div>
               <div className="mt-2 flex items-center justify-center">
                 <div className="w-16 h-16 bg-white p-1 rounded shadow-sm">

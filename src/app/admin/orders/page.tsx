@@ -1,6 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { format } from "date-fns";
+<<<<<<< HEAD
 import Link from "next/link";
+=======
+import { formatCurrency } from "@/lib/utils";
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 import type { Order } from "@/lib/types";
 import {
   Table,
@@ -14,8 +18,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import OrderStatusForm from "@/app/admin/orders/status-form";
 import { AdminFulfillCjButton } from "@/components/admin-fulfill-cj-button";
+<<<<<<< HEAD
 import { ShoppingCart, Package, Truck, CheckCircle, RotateCcw, Clock, CreditCard } from "lucide-react";
 
+=======
+
+// Admin client to bypass RLS (lazy init to avoid build-time env requirements)
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 let supabaseAdmin: any = null;
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -45,6 +54,7 @@ async function getOrders(): Promise<Order[]> {
   return data as Order[];
 }
 
+<<<<<<< HEAD
 function getStatusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
   switch (status) {
     case "paid":
@@ -156,6 +166,15 @@ export default async function OrdersPage() {
       </div>
 
       <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
+=======
+export default async function OrdersPage() {
+  const orders = await getOrders();
+
+  return (
+    <div className="w-full">
+      <h1 className="text-2xl font-bold mb-6">Orders</h1>
+      <div className="rounded-md border">
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         <Table>
           <TableCaption>A list of recent orders.</TableCaption>
           <TableHeader>
@@ -171,6 +190,7 @@ export default async function OrdersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
+<<<<<<< HEAD
             {orders.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} className="text-center py-12">
@@ -214,6 +234,33 @@ export default async function OrdersPage() {
                 </TableRow>
               ))
             )}
+=======
+            {orders.map((order) => (
+              <TableRow key={order.id}>
+                <TableCell className="font-medium">#{order.id}</TableCell>
+                <TableCell>
+                  {format(new Date(order.created_at), "MMM d, yyyy")}
+                </TableCell>
+                <TableCell className="hidden md:table-cell text-xs font-mono">{order.user_id}</TableCell>
+                <TableCell className="text-right">
+                  {formatCurrency(order.total_amount)}
+                </TableCell>
+                <TableCell className="text-center">
+                  <div className="flex items-center justify-center gap-2">
+                    <Badge variant={order.status === 'paid' ? 'default' : 'secondary'}>
+                      {order.status}
+                    </Badge>
+                    <OrderStatusForm orderId={order.id} current={order.status} />
+                    {/* Manual CJ fulfillment trigger (in addition to automatic Stripe webhook) */}
+                    <AdminFulfillCjButton orderId={order.id} />
+                  </div>
+                </TableCell>
+                <TableCell className="hidden lg:table-cell text-xs font-mono">{order.cj_order_no || '—'}</TableCell>
+                <TableCell className="hidden lg:table-cell text-xs">{order.tracking_number || '—'}{order.carrier ? ` (${order.carrier})` : ''}</TableCell>
+                <TableCell className="hidden lg:table-cell text-xs">{order.shipping_status || '—'}</TableCell>
+              </TableRow>
+            ))}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           </TableBody>
         </Table>
       </div>

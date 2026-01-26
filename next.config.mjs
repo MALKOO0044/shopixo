@@ -25,6 +25,7 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+<<<<<<< HEAD
   output: 'standalone',
   experimental: {
     // Disable Turbopack for compatibility
@@ -44,6 +45,17 @@ const nextConfig = {
   // Increase SSG timeout for heavy concurrent renders in CI
   staticPageGenerationTimeout: 180,
 
+=======
+  experimental: { typedRoutes: true },
+  allowedDevOrigins: ['*.replit.dev', '*.kirk.replit.dev', '127.0.0.1', 'localhost'],
+  // Increase SSG timeout for heavy concurrent renders in CI
+  staticPageGenerationTimeout: 180,
+  eslint: {
+    // Do not fail the production build if ESLint errors are present
+    // We'll surface them in CI/local and treat them as warnings during deploys
+    ignoreDuringBuilds: true,
+  },
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '**.supabase.co', pathname: '/**' },

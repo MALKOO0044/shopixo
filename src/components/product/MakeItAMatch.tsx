@@ -38,7 +38,11 @@ export default function MakeItAMatch({ products }: MakeItAMatchProps) {
               />
             </div>
             <div className="text-center">
+<<<<<<< HEAD
               <span className="font-bold text-gray-900">${product.price.toFixed(2)}</span>
+=======
+              <span className="font-bold text-red-600">${product.price.toFixed(2)}</span>
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
               {product.originalPrice && (
                 <span className="text-xs text-gray-400 line-through ml-1">
                   ${product.originalPrice.toFixed(2)}

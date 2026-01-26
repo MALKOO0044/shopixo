@@ -2,7 +2,11 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import Link from "next/link";
+<<<<<<< HEAD
 import { RefreshCw, Clock, Package, ShoppingCart, AlertTriangle, CheckCircle, XCircle, ArrowRight, TrendingUp, Boxes, Calendar, Zap } from "lucide-react";
+=======
+import { RefreshCw, Clock, Package, ShoppingCart, AlertTriangle, CheckCircle, XCircle, ArrowRight } from "lucide-react";
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
 export const metadata = {
   title: "Admin Dashboard - Shopixo",
@@ -50,6 +54,7 @@ async function getCJStatus() {
   }
 }
 
+<<<<<<< HEAD
 function getToday() {
   return new Date().toLocaleDateString('en-US', { 
     month: 'numeric', 
@@ -58,6 +63,8 @@ function getToday() {
   });
 }
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 export default async function AdminDashboard() {
   const supabase = createServerComponentClient({ cookies });
 
@@ -69,9 +76,15 @@ export default async function AdminDashboard() {
     { data: jobs },
     cjStatus
   ] = await Promise.all([
+<<<<<<< HEAD
     supabase.from("products").select("id, active, stock, created_at").not("metadata->cj_product_id", "is", null),
     supabase.from("orders").select("id, status, total_amount, created_at").order("created_at", { ascending: false }).limit(10),
     supabase.from("product_queue").select("id, status, created_at"),
+=======
+    supabase.from("products").select("id, active, stock").not("metadata->cj_product_id", "is", null),
+    supabase.from("orders").select("id, status, total").order("created_at", { ascending: false }).limit(5),
+    supabase.from("product_queue").select("id, status"),
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     supabase.from("daily_sync_changes").select("id, change_type, status").eq("status", "pending").limit(10),
     supabase.from("import_logs").select("id, action, status, created_at").order("created_at", { ascending: false }).limit(5),
     getCJStatus(),
@@ -80,6 +93,7 @@ export default async function AdminDashboard() {
   const totalProducts = products?.length || 0;
   const activeProducts = products?.filter(p => p.active)?.length || 0;
   const pendingOrders = orders?.filter(o => o.status === "pending")?.length || 0;
+<<<<<<< HEAD
   const paidOrders = orders?.filter(o => o.status === "paid")?.length || 0;
   const processingOrders = orders?.filter(o => o.status === "processing")?.length || 0;
   const shippedOrders = orders?.filter(o => o.status === "shipped")?.length || 0;
@@ -99,6 +113,16 @@ export default async function AdminDashboard() {
   const outOfStockProducts = products?.filter(p => (p.stock || 0) === 0)?.length || 0;
   
   const totalOrderValue = orders?.reduce((sum, o) => sum + (o.total_amount || 0), 0) || 0;
+=======
+  const pendingReview = queueItems?.filter(i => i.status === "pending" || i.status === "pending_review")?.length || 0;
+  const queueCount = queueItems?.filter(i => i.status === "approved")?.length || 0;
+  const importedCount = queueItems?.filter(i => i.status === "imported")?.length || 0;
+  const pendingChanges = syncChanges?.length || 0;
+  const priceChanges = syncChanges?.filter(c => c.change_type?.includes("price"))?.length || 0;
+  const stockChanges = syncChanges?.filter(c => c.change_type?.includes("stock"))?.length || 0;
+  const lowStockProducts = products?.filter(p => (p.stock || 0) > 0 && (p.stock || 0) < 10)?.length || 0;
+  const outOfStockProducts = products?.filter(p => (p.stock || 0) === 0)?.length || 0;
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   return (
     <div className="space-y-6">
@@ -117,7 +141,11 @@ export default async function AdminDashboard() {
       </div>
 
       <div className="grid grid-cols-4 gap-4">
+<<<<<<< HEAD
         <div className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-shadow">
+=======
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-50 rounded-lg">
               <RefreshCw className="h-5 w-5 text-blue-600" />
@@ -130,20 +158,32 @@ export default async function AdminDashboard() {
           </div>
         </div>
 
+<<<<<<< HEAD
         <div className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-shadow">
+=======
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           <div className="flex items-center gap-3">
             <div className="p-2 bg-amber-50 rounded-lg">
               <Clock className="h-5 w-5 text-amber-600" />
             </div>
             <div>
               <p className="text-xs text-gray-500">Import Queue</p>
+<<<<<<< HEAD
               <p className="text-2xl font-bold text-gray-900">{queueApproved}</p>
+=======
+              <p className="text-2xl font-bold text-gray-900">{queueCount}</p>
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
               <p className="text-xs text-gray-400">ready to import</p>
             </div>
           </div>
         </div>
 
+<<<<<<< HEAD
         <div className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-shadow">
+=======
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           <div className="flex items-center gap-3">
             <div className="p-2 bg-green-50 rounded-lg">
               <ShoppingCart className="h-5 w-5 text-green-600" />
@@ -151,12 +191,20 @@ export default async function AdminDashboard() {
             <div>
               <p className="text-xs text-gray-500">Pending Orders</p>
               <p className="text-2xl font-bold text-gray-900">{pendingOrders}</p>
+<<<<<<< HEAD
               <p className="text-xs text-gray-400">SAR {totalOrderValue.toFixed(0)} total</p>
+=======
+              <p className="text-xs text-gray-400">SAR {orders?.reduce((sum, o) => sum + (o.total || 0), 0) || 0} total</p>
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
             </div>
           </div>
         </div>
 
+<<<<<<< HEAD
         <div className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-shadow">
+=======
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-50 rounded-lg">
               <Package className="h-5 w-5 text-purple-600" />
@@ -243,7 +291,11 @@ export default async function AdminDashboard() {
               <span className="text-gray-500">Pending Review</span>
             </div>
             <div className="flex justify-between">
+<<<<<<< HEAD
               <span className="text-amber-500">{queueApproved}</span>
+=======
+              <span className="text-amber-500">{queueCount}</span>
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
               <span className="text-gray-500">Ready to Import</span>
             </div>
             <div className="flex justify-between">
@@ -271,7 +323,11 @@ export default async function AdminDashboard() {
               {jobs.map((job: any) => (
                 <div key={job.id} className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">{job.action}</span>
+<<<<<<< HEAD
                   <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+=======
+                  <span className={`px-2 py-0.5 rounded text-xs ${
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                     job.status === "success" ? "bg-green-100 text-green-700" :
                     job.status === "partial" ? "bg-amber-100 text-amber-700" :
                     "bg-red-100 text-red-700"
@@ -282,11 +338,15 @@ export default async function AdminDashboard() {
               ))}
             </div>
           ) : (
+<<<<<<< HEAD
             <div className="text-center py-8">
               <Clock className="h-8 w-8 text-gray-300 mx-auto mb-2" />
               <p className="text-sm text-gray-400">No jobs yet</p>
               <p className="text-xs text-gray-400">Background jobs will appear here when tasks are running</p>
             </div>
+=======
+            <p className="text-sm text-gray-400 text-center py-4">No jobs run yet</p>
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           )}
         </div>
 
@@ -297,7 +357,11 @@ export default async function AdminDashboard() {
           </div>
           {orders && orders.length > 0 ? (
             <div className="space-y-3">
+<<<<<<< HEAD
               {orders.slice(0, 5).map((order: any) => (
+=======
+              {orders.map((order: any) => (
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                 <div key={order.id} className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Order #{order.id.slice(0, 8)}</span>
                   <span className="text-gray-900 font-medium">SAR {order.total}</span>
@@ -305,6 +369,7 @@ export default async function AdminDashboard() {
               ))}
             </div>
           ) : (
+<<<<<<< HEAD
             <div className="text-center py-8">
               <ShoppingCart className="h-8 w-8 text-gray-300 mx-auto mb-2" />
               <p className="text-sm text-gray-400">No orders yet</p>
@@ -339,6 +404,12 @@ export default async function AdminDashboard() {
           </div>
         </div>
       </div>
+=======
+            <p className="text-sm text-gray-400 text-center py-4">No orders yet</p>
+          )}
+        </div>
+      </div>
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     </div>
   );
 }

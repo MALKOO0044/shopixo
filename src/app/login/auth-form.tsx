@@ -12,6 +12,7 @@ export default function AuthForm() {
   const searchParams = useSearchParams()
   const nextParam = (searchParams?.get("redirect") || searchParams?.get("next") || "/").toString()
   const safeNext = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/"
+<<<<<<< HEAD
   
   // Helper to validate URLs - filter out development addresses
   const isValidUrl = (url: string) => {
@@ -33,6 +34,13 @@ export default function AuthForm() {
   if (typeof window !== "undefined") {
     console.log("[Auth Debug] siteUrl:", siteUrl, "windowOrigin:", windowOrigin, "redirectTo:", redirectTo)
   }
+=======
+  const base = (process.env.NEXT_PUBLIC_SITE_URL && process.env.NEXT_PUBLIC_SITE_URL.trim().length > 0)
+    ? process.env.NEXT_PUBLIC_SITE_URL
+    : (typeof window !== "undefined" ? window.location.origin : "")
+  const redirectTo = base ? `${base.replace(/\/$/, "")}/auth/callback` : "/auth/callback"
+  const redirectWithNext = safeNext && safeNext !== "/" ? `${redirectTo}?next=${encodeURIComponent(safeNext)}` : redirectTo
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   const [step, setStep] = useState<Step>("email")
   const [email, setEmail] = useState("")
@@ -249,6 +257,7 @@ export default function AuthForm() {
 
   async function handleOAuth(provider: "google" | "facebook") {
     setError(''); setInfo('')
+<<<<<<< HEAD
     // HARDCODE the redirect URL directly to ensure it's correct
     const hardcodedRedirectTo = "https://shopixo.net/auth/callback"
     
@@ -257,6 +266,9 @@ export default function AuthForm() {
     alert("Debug: redirectTo = " + hardcodedRedirectTo)
     
     const options: { redirectTo: string; scopes?: string; queryParams?: Record<string, string> } = { redirectTo: hardcodedRedirectTo }
+=======
+    const options: { redirectTo: string; scopes?: string; queryParams?: Record<string, string> } = { redirectTo: redirectWithNext }
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     if (provider === 'facebook') {
       options.scopes = 'email public_profile'
       options.queryParams = { auth_type: 'rerequest' }

@@ -12,8 +12,11 @@ import { ToastProvider } from "@/components/ui/toast-provider";
 import { getSiteUrl } from "@/lib/site";
 import Script from "next/script";
 import { headers } from "next/headers";
+<<<<<<< HEAD
 import DisableDragScroll from "@/components/disable-drag-scroll";
 import { CartCountProvider } from "@/components/cart/CartCountProvider";
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const rawSiteUrl =
@@ -33,8 +36,13 @@ const absoluteBrandLogo = `${getSiteUrl()}${brandLogo}`;
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
+<<<<<<< HEAD
     default: "Shopixo - Global Online Shopping",
     template: "%s | Shopixo",
+=======
+    default: "LightInTheBox - Global Online Shopping",
+    template: "%s | LightInTheBox",
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   },
   description: "Shop quality products at amazing prices. Free worldwide shipping on orders over $50.",
   icons: {
@@ -49,14 +57,23 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     url: siteUrl,
+<<<<<<< HEAD
     siteName: "Shopixo",
     title: "Shopixo - Global Online Shopping",
+=======
+    siteName: "LightInTheBox",
+    title: "LightInTheBox - Global Online Shopping",
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     description: "Shop quality products at amazing prices. Free worldwide shipping on orders over $50.",
     images: [brandLogo],
   },
   twitter: {
     card: "summary_large_image",
+<<<<<<< HEAD
     title: "Shopixo - Global Online Shopping",
+=======
+    title: "LightInTheBox - Global Online Shopping",
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     description: "Shop quality products at amazing prices. Free worldwide shipping on orders over $50.",
     images: [brandLogo],
   },
@@ -90,7 +107,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }
         })()}
         <ThemeProvider>
+<<<<<<< HEAD
           <DisableDragScroll />
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           <ToastProvider>
             <a href="#main-content" className="skip-link">Skip to content</a>
             <script
@@ -100,7 +120,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 __html: JSON.stringify({
                   "@context": "https://schema.org",
                   "@type": "Organization",
+<<<<<<< HEAD
                   name: "Shopixo",
+=======
+                  name: "LightInTheBox",
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                   url: getSiteUrl(),
                   logo: absoluteBrandLogo,
                 }),
@@ -113,7 +137,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 __html: JSON.stringify({
                   "@context": "https://schema.org",
                   "@type": "WebSite",
+<<<<<<< HEAD
                   name: "Shopixo",
+=======
+                  name: "LightInTheBox",
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                   url: getSiteUrl(),
                   potentialAction: {
                     "@type": "SearchAction",
@@ -123,6 +151,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 }),
               }}
             />
+<<<<<<< HEAD
             <CartCountProvider>
               <Suspense fallback={null}>
                 <LitbHeader />
@@ -141,6 +170,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </Suspense>
               <CookieConsent />
             </CartCountProvider>
+=======
+            <Suspense fallback={null}>
+              <LitbHeader />
+            </Suspense>
+            <Suspense fallback={null}>
+              <LitbNavBar />
+            </Suspense>
+            <Suspense fallback={null}>
+              <main id="main-content" className="flex-1">{children}</main>
+            </Suspense>
+            <Suspense fallback={null}>
+              <FixedSidebar />
+            </Suspense>
+            <Suspense fallback={null}>
+              <LitbFooter />
+            </Suspense>
+            <CookieConsent />
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           </ToastProvider>
         </ThemeProvider>
       </body>

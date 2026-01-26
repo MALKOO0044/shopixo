@@ -1,5 +1,6 @@
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
+<<<<<<< HEAD
 // Global token cache to avoid rate limits (CJ allows 1 auth request per 300 seconds)
 const globalTokenCache: {
   accessToken: string | null;
@@ -134,10 +135,31 @@ export class CjApi {
     globalTokenCache.tokenExpiry = Date.now() + 14 * 24 * 3600000; // 14 days
     console.log('[CJ API] New token obtained successfully');
     return token;
+=======
+export class CjApi {
+  private appKey: string;
+  private appSecret: string;
+  private baseUrl: string;
+
+  constructor(opts?: { sandbox?: boolean }) {
+    this.appKey = process.env.CJ_APP_KEY || '';
+    this.appSecret = process.env.CJ_APP_SECRET || '';
+    this.baseUrl = (opts?.sandbox ? process.env.CJ_API_BASE_SANDBOX : process.env.CJ_API_BASE) || '';
+  }
+
+  isConfigured(): boolean {
+    return !!(this.appKey && this.appSecret && this.baseUrl);
+  }
+
+  // Placeholder signing. Replace with CJ's official signature method.
+  private sign(params: Record<string, any>): Record<string, any> {
+    return { ...params, appKey: this.appKey, ts: Date.now() };
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   }
 
   async request<T>(path: string, method: HttpMethod = 'GET', body?: any): Promise<T> {
     if (!this.isConfigured()) throw new Error('CJ API not configured');
+<<<<<<< HEAD
     
     const token = await this.getAccessToken();
     
@@ -161,10 +183,22 @@ export class CjApi {
       cache: 'no-store',
     });
 
+=======
+    const url = new URL(path, this.baseUrl);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const payload = body ? this.sign(body) : this.sign({});
+    const res = await fetch(url.toString(), {
+      method,
+      headers,
+      body: method === 'GET' ? undefined : JSON.stringify(payload),
+      cache: 'no-store',
+    });
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`CJ API error ${res.status}: ${text}`);
     }
+<<<<<<< HEAD
 
     return res.json() as Promise<T>;
   }
@@ -462,5 +496,25 @@ export class CjApi {
       console.error(`[CJ API] Error searching for product:`, error?.message);
       return null;
     }
+=======
+    return res.json() as Promise<T>;
+  }
+
+  // Example endpoints (to be wired to CJ docs)
+  async listServices(): Promise<any> {
+    return this.request('/shipping/services', 'POST', {});
+  }
+
+  async createOrder(payload: any): Promise<any> {
+    return this.request('/order/create', 'POST', payload);
+  }
+
+  async getOrderDetail(orderNo: string): Promise<any> {
+    return this.request(`/order/detail?orderNo=${encodeURIComponent(orderNo)}`, 'GET');
+  }
+
+  async getTrackingInfo(orderNo: string): Promise<any> {
+    return this.request(`/order/tracking?orderNo=${encodeURIComponent(orderNo)}`, 'GET');
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   }
 }

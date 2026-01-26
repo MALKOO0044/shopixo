@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+<<<<<<< HEAD
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,16 @@ function getSupabaseAdmin() {
   if (!url || !key) return null;
   return createClient(url, key);
 }
+=======
+import { Pool } from "pg";
+
+export const dynamic = "force-dynamic";
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+});
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
 export interface Category {
   id: number;
@@ -46,6 +57,7 @@ function buildCategoryTree(categories: Category[]): Category[] {
     }
   });
 
+<<<<<<< HEAD
   roots.sort((a, b) => (a.display_order || a.id) - (b.display_order || b.id));
   roots.forEach(root => {
     if (root.children) {
@@ -53,6 +65,15 @@ function buildCategoryTree(categories: Category[]): Category[] {
       root.children.forEach(child => {
         if (child.children) {
           child.children.sort((a, b) => (a.display_order || a.id) - (b.display_order || b.id));
+=======
+  roots.sort((a, b) => a.display_order - b.display_order);
+  roots.forEach(root => {
+    if (root.children) {
+      root.children.sort((a, b) => a.display_order - b.display_order);
+      root.children.forEach(child => {
+        if (child.children) {
+          child.children.sort((a, b) => a.display_order - b.display_order);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         }
       });
     }
@@ -63,9 +84,14 @@ function buildCategoryTree(categories: Category[]): Category[] {
 
 export async function GET(request: NextRequest) {
   try {
+<<<<<<< HEAD
     const supabase = getSupabaseAdmin();
     if (!supabase) {
       console.error("[Categories API] Supabase not configured");
+=======
+    if (!process.env.DATABASE_URL) {
+      console.error("[Categories API] DATABASE_URL not configured");
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
     }
 
@@ -75,6 +101,7 @@ export async function GET(request: NextRequest) {
     const tree = searchParams.get("tree") === "true";
     const slug = searchParams.get("slug");
 
+<<<<<<< HEAD
     let query = supabase
       .from('categories')
       .select('*')
@@ -103,6 +130,38 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({ ok: true, categories: categories || [] });
+=======
+    let query = "SELECT * FROM categories WHERE is_active = true";
+    const params: any[] = [];
+
+    if (slug) {
+      query += " AND slug = $1";
+      params.push(slug);
+    } else if (level) {
+      query += " AND level = $1";
+      params.push(parseInt(level));
+    } else if (parentId) {
+      query += " AND parent_id = $1";
+      params.push(parseInt(parentId));
+    }
+
+    query += " ORDER BY display_order ASC";
+
+    const client = await pool.connect();
+    try {
+      const result = await client.query(query, params);
+      const categories = result.rows as Category[];
+
+      if (tree && !slug && !parentId) {
+        const treeData = buildCategoryTree(categories);
+        return NextResponse.json({ ok: true, categories: treeData });
+      }
+
+      return NextResponse.json({ ok: true, categories });
+    } finally {
+      client.release();
+    }
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   } catch (e: any) {
     console.error("[Categories API] Error:", e);
     return NextResponse.json({ ok: false, error: e?.message || "Unknown error" }, { status: 500 });

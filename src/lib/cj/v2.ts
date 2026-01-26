@@ -316,6 +316,7 @@ export function findCJPacketOrdinary(options: CjShippingOption[]): CjShippingOpt
   return undefined;
 }
 
+<<<<<<< HEAD
 // --- Product Variants by PID ---
 // Uses CJ's variant query API: GET /product/variant/query
 // Returns list of purchasable variants with pricing and attributes
@@ -346,6 +347,8 @@ export async function getProductVariants(pid: string): Promise<any[]> {
   }
 }
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 // --- Product Inventory by PID ---
 // Uses CJ's dedicated inventory API: GET /product/stock/getInventoryByPid
 // Returns warehouse-level stock breakdown (CJ warehouse vs Factory)
@@ -933,7 +936,10 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
 export type CjVariantLike = {
   cjSku?: string;
   variantKey?: string; // Short variant name from CJ (e.g., "Black And Silver-2XL")
+<<<<<<< HEAD
   variantName?: string; // Full variant name (e.g., "Swinging VibratingAnd Glowing Twist-and-swivel Stimulator Remote control Boxed")
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   vid?: string; // CJ variant ID
   size?: string;
   color?: string;
@@ -959,6 +965,7 @@ export type CjProductLike = {
   processingTimeHours?: number | null; // estimated processing time in hours (if provided by CJ)
   originArea?: string | null;
   originCountryCode?: string | null;
+<<<<<<< HEAD
   // Added fields for better product display
   rating?: number | null; // Product/supplier rating (0-5 scale)
   reviewCount?: number | null; // Number of reviews
@@ -971,6 +978,8 @@ export type CjProductLike = {
   packingEn?: string[] | null; // Packing names in English
   availableColors?: string[] | null; // Unique colors across variants
   availableSizes?: string[] | null; // Unique sizes across variants
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 };
 
 let baseOverride: string | null = null;
@@ -1192,6 +1201,7 @@ async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 // --- Product Rating from Comments ---
+<<<<<<< HEAD
 // CJDropshipping productComments API - fetches real customer reviews and calculates average rating
 // Endpoint: GET /product/productComments?pid=xxx&pageNum=1&pageSize=200
 // Response: { success: true, code: 0, data: { total: "285", list: [{ score: "5", ... }] } }
@@ -1295,17 +1305,59 @@ export async function getProductRating(pid: string): Promise<{ rating: number | 
     for (const comment of allReviews) {
       const score = extractScore(comment);
       if (score !== null) {
+=======
+export async function getProductRating(pid: string): Promise<{ rating: number | null; reviewCount: number }> {
+  try {
+    console.log(`[CJ Rating] Fetching comments for pid: ${pid}`);
+    const res = await cjFetch<any>(`/product/productComments?pid=${encodeURIComponent(pid)}`);
+    console.log(`[CJ Rating] Response for pid ${pid}:`, JSON.stringify(res).slice(0, 800));
+    
+    // Handle various response structures from CJ API
+    // Can be: { data: { list: [], total: X } } or { data: [] } or { list: [] }
+    const data = res?.data;
+    let list: any[] = [];
+    let total = 0;
+    
+    if (Array.isArray(data)) {
+      list = data;
+      total = data.length;
+    } else if (data?.list && Array.isArray(data.list)) {
+      list = data.list;
+      total = parseInt(data?.total || String(data.list.length), 10);
+    } else if (Array.isArray(res)) {
+      list = res;
+      total = res.length;
+    }
+    
+    console.log(`[CJ Rating] pid ${pid}: total=${total}, listLength=${list.length}`);
+    
+    if (list.length === 0) {
+      return { rating: null, reviewCount: 0 };
+    }
+    
+    let sumScore = 0;
+    let countScores = 0;
+    for (const comment of list) {
+      // Try multiple possible field names for score
+      const scoreVal = comment?.score || comment?.rating || comment?.starScore || comment?.commentScore;
+      const score = parseFloat(String(scoreVal || '0'));
+      if (score > 0 && score <= 5) {
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         sumScore += score;
         countScores++;
       }
     }
     
     if (countScores === 0) {
+<<<<<<< HEAD
       console.log(`[CJ Rating] pid ${pid}: ${total} reviews but no valid scores extracted`);
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       return { rating: null, reviewCount: total };
     }
     
     const avgRating = sumScore / countScores;
+<<<<<<< HEAD
     const roundedRating = Math.round(avgRating * 10) / 10; // Round to 1 decimal place
     
     console.log(`[CJ Rating] pid ${pid}: avgRating=${roundedRating} (from ${countScores}/${allReviews.length} scored reviews), totalReviews=${total}`);
@@ -1313,6 +1365,12 @@ export async function getProductRating(pid: string): Promise<{ rating: number | 
     
   } catch (e: any) {
     console.error(`[CJ Rating] Failed to fetch product rating for pid ${pid}:`, e?.message || e);
+=======
+    console.log(`[CJ Rating] pid ${pid}: avgRating=${avgRating}, reviewCount=${total}`);
+    return { rating: Math.round(avgRating * 10) / 10, reviewCount: total };
+  } catch (e: any) {
+    console.error('[CJ Rating] Failed to fetch product rating:', e?.message || e);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     return { rating: null, reviewCount: 0 };
   }
 }
@@ -1408,6 +1466,7 @@ function mergeListV2Fields(productData: any, match: any, source: string): void {
     productData.listedNum = Number(match.listedNum);
     console.log(`[CJ Details] Got listedNum from listV2 (${source}): ${productData.listedNum}`);
   }
+<<<<<<< HEAD
   
   // Copy rating fields from listV2 (CJ products may have ratings in listing)
   const ratingVal = match.rating ?? match.productRating ?? match.score ?? match.avgScore ?? match.averageRating;
@@ -1427,6 +1486,8 @@ function mergeListV2Fields(productData: any, match: any, source: string): void {
       console.log(`[CJ Details] Got reviewCount from listV2 (${source}): ${parsedCount}`);
     }
   }
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 }
 
 // Fetch full product details by PID - returns complete product with all images and variants
@@ -1787,6 +1848,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
 
   // --- Image collection (robust across CJ shapes) ---
   const imageList: string[] = [];
+<<<<<<< HEAD
   const pushUrl = (val: any) => { if (typeof val === 'string' && val.trim()) imageList.push(val.trim()); };
   
   // Handle productImage - may be a JSON string array or regular URL
@@ -1806,6 +1868,13 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
   
   // Arrays: strings or objects with common keys - including productImageSet!
   const arrFields = ['productImageSet', 'imageList', 'productImageList', 'detailImageList', 'pictureList', 'productImages'] as const;
+=======
+  const bigImage = (item.productImage || item.bigImage || item.image || item.mainImage || item.mainImageUrl || null) as string | null;
+  const pushUrl = (val: any) => { if (typeof val === 'string' && val.trim()) imageList.push(val.trim()); };
+  if (bigImage) pushUrl(bigImage);
+  // Arrays: strings or objects with common keys
+  const arrFields = ['imageList', 'productImageList', 'detailImageList', 'pictureList', 'productImages'] as const;
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   for (const key of arrFields) {
     const arr: any = (item as any)[key];
     if (Array.isArray(arr)) {
@@ -1967,16 +2036,28 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
       const size = baseSize || derivedSize || null;
       const color = baseColor || derivedColor || null;
       const price = pickNum(
+<<<<<<< HEAD
         v.variantSellPrice, v.sellPrice, v.price, v.discountPrice, v.sellPriceUSD, v.usdPrice, v.listedPrice, v.originalPrice,
+=======
+        v.sellPrice, v.price, v.discountPrice, v.sellPriceUSD, v.usdPrice, v.listedPrice, v.originalPrice,
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         (v.priceInfo && (v.priceInfo.sellPrice || v.priceInfo.price)),
         item.sellPrice, item.price
       );
       const stock = pickNum(
+<<<<<<< HEAD
         v.inventoryNum, v.stock, v.quantity, v.sellStock, v.availableStock, v.inventory, v.inventoryQuantity, v.stockNum
       );
       // Try to coerce weight (grams) and dimensions (cm) from common CJ fields
       const weightCandidates = [
         v.variantWeight, v.weightGram, v.weight_g, v.weightGrams, v.weight,
+=======
+        v.stock, v.quantity, v.sellStock, v.availableStock, v.inventory, v.inventoryQuantity, v.stockNum
+      );
+      // Try to coerce weight (grams) and dimensions (cm) from common CJ fields
+      const weightCandidates = [
+        v.weightGram, v.weight_g, v.weightGrams, v.weight,
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         (v.packageWeight || v.packingWeight),
       ];
       let weightGrams: number | undefined = undefined;
@@ -1992,6 +2073,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
       const widthCm = pickNum(v.width, v.widthCm, v.w) as number | undefined;
       const heightCm = pickNum(v.height, v.heightCm, v.h) as number | undefined;
 
+<<<<<<< HEAD
       // Extract variantKey (short name like "Black And Silver-2XL" or "Remote control-Boxed")
       const variantKey = v.variantKey || undefined;
       const vid = v.vid || v.variantId || undefined;
@@ -2019,10 +2101,17 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
         }
       }
       
+=======
+      // Extract variantKey (short name like "Black And Silver-2XL")
+      const variantKey = v.variantKey || undefined;
+      const vid = v.vid || v.variantId || undefined;
+      
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       // Extract CJ and Factory stock separately
       const cjStock = pickNum(v.cjStock, v.cjInventory, v.cjAvailableNum);
       const factoryStock = pickNum(v.factoryStock, v.factoryInventory, v.supplierStock, v.factoryAvailableNum);
       
+<<<<<<< HEAD
       // Get variant image (CJ uses variantImage field)
       const variantImage = v.variantImage || v.whiteImage || v.image || v.imageUrl || v.imgUrl || undefined;
       
@@ -2033,6 +2122,14 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
         vid,
         size: finalSize || undefined,
         color: finalColor || undefined,
+=======
+      variants.push({
+        cjSku: cjSku || undefined,
+        variantKey,
+        vid,
+        size: size || undefined,
+        color: color || undefined,
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         price,
         stock,
         cjStock,
@@ -2041,7 +2138,11 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
         lengthCm: typeof lengthCm === 'number' ? lengthCm : undefined,
         widthCm: typeof widthCm === 'number' ? widthCm : undefined,
         heightCm: typeof heightCm === 'number' ? heightCm : undefined,
+<<<<<<< HEAD
         imageUrl: (typeof variantImage === 'string' ? variantImage : undefined) as string | undefined,
+=======
+        imageUrl: (v.whiteImage || v.image || v.imageUrl || v.imgUrl || undefined) as string | undefined,
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       });
 
       // Opportunistically collect variant images if main set is empty or small
@@ -2090,6 +2191,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
   const originArea = (item.defaultArea || item.warehouse || item.areaName || null) as string | null;
   const originCountryCode = (item.areaCountryCode || item.countryCode || null) as string | null;
 
+<<<<<<< HEAD
   // Extract rating and review count
   // Check multiple possible field names for supplier/product rating
   const rating = pickNum(
@@ -2140,6 +2242,8 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
   const availableColors = colorSet.size > 0 ? Array.from(colorSet) : null;
   const availableSizes = sizeSet.size > 0 ? Array.from(sizeSet) : null;
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   return {
     productId,
     name,
@@ -2150,6 +2254,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     processingTimeHours,
     originArea,
     originCountryCode,
+<<<<<<< HEAD
     // New fields for better product display
     rating: finalRating,  // Uses supplier rating if available
     reviewCount,
@@ -2164,3 +2269,36 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     availableSizes,
   };
 }
+=======
+    // Attach processing time in a way that callers can read from item if needed
+    // (keeping CjProductLike strict; we will pass via casting if used)
+  };
+}
+
+// Fetch product variants by PID
+export async function getProductVariants(pid: string): Promise<any[]> {
+  if (!pid) return [];
+  
+  try {
+    const base = await resolveBase();
+    const token = await getAccessToken();
+    
+    const response = await fetchJson<any>(`${base}/product/variant/query?pid=${encodeURIComponent(pid)}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'CJ-Access-Token': token,
+      },
+      cache: 'no-store',
+      timeoutMs: 15000,
+    });
+    
+    const variantData = response?.data;
+    const variantList = Array.isArray(variantData) ? variantData : (variantData?.list || []);
+    
+    return variantList || [];
+  } catch (e: any) {
+    console.error(`[CJ Variants] Error fetching variants for pid ${pid}:`, e?.message);
+    return [];
+  }
+}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80

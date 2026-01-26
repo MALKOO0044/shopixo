@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, Star } from "lucide-react";
 import type { HomepageProduct } from "@/lib/homepage-products";
 
+<<<<<<< HEAD
 function safeImageUrl(img: string | undefined | null): string {
   if (!img) return '/placeholder-product.png';
   const s = img.trim();
@@ -23,6 +24,8 @@ function safeImageUrl(img: string | undefined | null): string {
   return '/placeholder-product.png';
 }
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 interface FlashSaleProps {
   products: HomepageProduct[];
 }
@@ -115,7 +118,11 @@ export default function FlashSale({ products }: FlashSaleProps) {
               >
                 <div className="relative aspect-[3/4] rounded-lg overflow-hidden bg-gray-100 mb-2">
                   <Image
+<<<<<<< HEAD
                     src={safeImageUrl(product.image)}
+=======
+                    src={product.image}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                     alt={product.name}
                     fill
                     sizes="220px"
@@ -133,7 +140,11 @@ export default function FlashSale({ products }: FlashSaleProps) {
                 <div className="space-y-1">
                   <p className="text-xs text-gray-700 line-clamp-2">{product.name}</p>
                   <div className="flex items-baseline gap-1">
+<<<<<<< HEAD
                     <span className="text-gray-900 font-bold">
+=======
+                    <span className="text-[#e31e24] font-bold">
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                       <span className="text-xs">⚡</span>${product.price.toFixed(2)}
                     </span>
                     {product.originalPrice && (

@@ -118,6 +118,7 @@
 
 html, body { height: 100%; overflow-x: hidden; }
 
+<<<<<<< HEAD
 /* Disable drag-scrolling sitewide - prevent click-and-drag from moving page content */
 * {
   -webkit-user-drag: none;
@@ -161,6 +162,8 @@ input, textarea, [contenteditable="true"] {
   user-select: text;
 }
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 .container { @apply mx-auto max-w-[1200px] px-4; }
 
 .skip-link {

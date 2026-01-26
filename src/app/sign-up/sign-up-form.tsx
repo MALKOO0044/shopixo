@@ -25,14 +25,21 @@ export default function SignUpForm() {
       return;
     }
 
+<<<<<<< HEAD
     // Always use hardcoded production URL to ensure correct redirect
     const callbackUrl = "https://shopixo.net/auth/callback"
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
+<<<<<<< HEAD
         emailRedirectTo: callbackUrl,
+=======
+        emailRedirectTo: `${location.origin}/auth/callback`,
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       },
     });
 

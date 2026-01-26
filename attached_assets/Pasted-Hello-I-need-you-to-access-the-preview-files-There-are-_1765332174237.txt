@@ -1,0 +1,15 @@
+Hello, I need you to access the preview files. There are six pages, each containing separate information. We designed these six files so that if any page has an error and we can't fix it, we can simply delete the page and create a new one. Do you understand? This way, we won't disrupt the system. I need you to examine all six pages. The second page is untouchable; it's ready and doesn't need anything. The remaining pages—the first, third, fourth, fifth, and sixth—are already complete, but I've made minor modifications to make them 100% perfect. I'll give you some instructions, and I need you to distribute them across the pages. For each page, you need to modify the code to ensure it's 100% identical to the cjdropshipping.com API and that we import it from cjdropshipping.com. I don't want any errors in the code. I need you to thoroughly examine the preview page and understand its content before proceeding. Do whatever you want. These are the things I want to import from cjdropshipping.com. Don't forget, don't tamper with page two. I don't want anything virtual or experimental.
+
+Size according to each product on cjdropshipping
+Inventory details according to each product on cjdropshipping
+Estimated processing time according to each product on cjdropshipping
+Expected delivery time according to each product on cjdropshipping
+Description according to each product on cjdropshipping
+Product information according to each product on cjdropshipping
+Size details according to each product on cjdropshipping
+Note according to each product on cjdropshipping
+Packing list according to each product on cjdropshipping
+Of course, I want to import all the information for each product exactly as it appears on cjdropshipping. Try not to modify anything outside of the preview files unless absolutely necessary.
+If you need a separate page, create the rest separately.
+Most of them are already on the pages and ready, but they don't import from my cjdropshipping API as they appear on [website/platform name]. cjdropshipping
+Don't forget, no edits are allowed on page 2. I need you now to provide a comprehensive and detailed review of all preview files for the pages, and then send me the complete, comprehensive, and detailed plan.

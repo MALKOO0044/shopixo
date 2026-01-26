@@ -1,0 +1,20 @@
+﻿
+> shopixo@0.1.0 build
+> next build
+
+  Γû▓ Next.js 14.2.32
+  - Experiments (use with caution):
+    ┬╖ typedRoutes
+    ┬╖ instrumentationHook
+
+   Creating an optimized production build ...
+warn  - It seems like you don't have a global error handler set up. It is recommended that you add a global-error.js file with Sentry instrumentation so that React rendering errors are reported to Sentry. Read more: https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/#react-render-errors-in-app-router (you can suppress this warning by setting SENTRY_SUPPRESS_GLOBAL_ERROR_HANDLER_FILE_WARNING=1 as environment variable)
+ Γ£ô Compiled successfully
+   Skipping linting
+   Checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/37) ...
+   Generating static pages (9/37) 
+   Generating static pages (18/37) 
+   Generating static pages (27/37) 
+ Γ£ô Generating static pages (37/37)

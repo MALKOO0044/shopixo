@@ -30,12 +30,18 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+<<<<<<< HEAD
     "isomorphic-dompurify": "^2.30.0",
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     "lucide-react": "^0.542.0",
     "next": "^14.2.4",
     "next-themes": "^0.3.0",
     "pg": "^8.16.3",
+<<<<<<< HEAD
     "puppeteer": "^24.35.0",
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "stripe": "^18.5.0",

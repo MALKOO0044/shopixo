@@ -6,8 +6,12 @@ import {
   createImportBatch, 
   addProductToQueue, 
   logImportAction,
+<<<<<<< HEAD
   getBatches,
   checkProductQueueSchema
+=======
+  getBatches 
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 } from "@/lib/db/import-db";
 
 export const runtime = 'nodejs';
@@ -34,6 +38,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: connTest.error || "Database connection failed" }, { status: 500 });
     }
     
+<<<<<<< HEAD
     console.log('[Import Batch] Database connection verified, checking schema...');
     
     // Check if schema has all required columns
@@ -56,6 +61,9 @@ export async function POST(req: NextRequest) {
     }
     
     console.log('[Import Batch] Schema verified, processing batch...');
+=======
+    console.log('[Import Batch] Database connection verified, processing batch...');
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     
     const body = await req.json();
     const { name, keywords, category, filters, products } = body;
@@ -110,11 +118,16 @@ export async function POST(req: NextRequest) {
         cjSku: p.cjSku || p.variants?.[0]?.cjSku || p.variants?.[0]?.variantSku || undefined,
         name: p.name || "Untitled",
         description: p.description || undefined,
+<<<<<<< HEAD
         category: p.categoryName || category || "General",
+=======
+        category: category || "General",
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         images,
         videoUrl: p.videoUrl || undefined,
         variants: p.variants || [],
         avgPrice,
+<<<<<<< HEAD
         supplierRating: p.rating ?? p.supplierRating ?? undefined,
         totalSales: p.reviewCount ?? p.totalSales ?? undefined,
         totalStock,
@@ -159,6 +172,15 @@ export async function POST(req: NextRequest) {
         cjShippingCost: p.cjShippingCost || undefined,
         cjProductCost: p.cjProductCost || undefined,
         profitMargin: p.profitMargin || undefined,
+=======
+        supplierRating: p.supplierRating || 4.0,
+        totalSales: p.totalSales || 0,
+        totalStock,
+        processingDays: p.processingDays || 3,
+        deliveryDaysMin: p.deliveryDaysMin || 7,
+        deliveryDaysMax: p.deliveryDaysMax || 15,
+        qualityScore: p.qualityScore || 0.75,
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       });
 
       if (result.success) {

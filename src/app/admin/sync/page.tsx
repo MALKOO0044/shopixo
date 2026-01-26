@@ -15,7 +15,10 @@ import {
   Loader2,
   Calendar,
   DollarSign,
+<<<<<<< HEAD
   Wrench,
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 } from "lucide-react";
 
 type SyncChange = {
@@ -70,8 +73,11 @@ export default function DailySyncPage() {
   });
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+<<<<<<< HEAD
   const [fixingVariants, setFixingVariants] = useState(false);
   const [variantFixResult, setVariantFixResult] = useState<{ success: boolean; message: string } | null>(null);
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   const [error, setError] = useState<string | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("pending");
@@ -161,6 +167,7 @@ export default function DailySyncPage() {
     }
   };
 
+<<<<<<< HEAD
   const fixVariantData = async () => {
     if (!confirm("This will resync variant data (colors, sizes, stock) for all products from CJ. This may take a few minutes. Continue?")) return;
     
@@ -192,6 +199,8 @@ export default function DailySyncPage() {
     }
   };
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -277,6 +286,7 @@ export default function DailySyncPage() {
         </div>
       </div>
 
+<<<<<<< HEAD
       <div className="bg-white rounded-xl border shadow-sm p-6">
         <div className="flex items-center justify-between">
           <div>
@@ -304,6 +314,8 @@ export default function DailySyncPage() {
         )}
       </div>
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       {error && (
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-800">
           {error}

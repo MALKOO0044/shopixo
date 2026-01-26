@@ -81,7 +81,10 @@ export type PricedProduct = {
   packingList?: string;
   rating?: number;
   reviewCount?: number;
+<<<<<<< HEAD
   supplierName?: string;
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   categoryName?: string;
   productWeight?: number;
   packLength?: number;
@@ -100,5 +103,8 @@ export type PricedProduct = {
   availableSizes?: string[];
   availableColors?: string[];
   availableModels?: string[];
+<<<<<<< HEAD
   colorImageMap?: Record<string, string>;
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 };

@@ -32,7 +32,10 @@ type QueueProduct = {
   shipping_cost_usd: number | null;
   calculated_retail_sar: number | null;
   supplier_rating: number;
+<<<<<<< HEAD
   total_sales: number;
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   stock_total: number;
   quality_score: number;
   status: string;
@@ -40,9 +43,12 @@ type QueueProduct = {
   delivery_days_min: number;
   delivery_days_max: number;
   created_at: string;
+<<<<<<< HEAD
   available_colors?: string[];
   available_sizes?: string[];
   variant_pricing?: any[];
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 };
 
 type Stats = {
@@ -212,6 +218,7 @@ export default function QueuePage() {
     }
   };
 
+<<<<<<< HEAD
   const handleBulkDelete = async () => {
     if (selected.size === 0) return;
     
@@ -238,6 +245,8 @@ export default function QueuePage() {
     }
   };
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   const handleSingleAction = async (id: number, action: string) => {
     setActionLoading(true);
     try {
@@ -455,6 +464,7 @@ export default function QueuePage() {
                 Import to Store
               </button>
             )}
+<<<<<<< HEAD
             <button
               onClick={handleBulkDelete}
               disabled={actionLoading}
@@ -463,6 +473,8 @@ export default function QueuePage() {
               <Trash2 className="h-4 w-4" />
               Delete Selected
             </button>
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
             <button onClick={deselectAll} className="text-sm text-gray-500 hover:underline ml-2">
               Clear Selection
             </button>
@@ -520,10 +532,18 @@ export default function QueuePage() {
                 <th className="w-10 px-4 py-3"></th>
                 <th className="w-20 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Image</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+<<<<<<< HEAD
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Variants</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating / Sales</th>
+=======
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier SKU</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating</th>
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="w-32 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
@@ -562,6 +582,7 @@ export default function QueuePage() {
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
+<<<<<<< HEAD
                             <select
                               value={editData.category || ""}
                               onChange={(e) => setEditData(d => ({ ...d, category: e.target.value }))}
@@ -589,6 +610,14 @@ export default function QueuePage() {
                                   </optgroup>
                                 ))}
                             </select>
+=======
+                            <input
+                              type="text"
+                              value={editData.category || ""}
+                              onChange={(e) => setEditData(d => ({ ...d, category: e.target.value }))}
+                              className="w-full px-3 py-2 border rounded text-sm"
+                            />
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">Admin Notes</label>
@@ -645,8 +674,18 @@ export default function QueuePage() {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900 line-clamp-2">{product.name_en}</p>
+<<<<<<< HEAD
                       <span className="font-mono text-xs text-blue-600" title={product.cj_product_id}>
                         SKU: {product.cj_product_id.length > 12 ? `...${product.cj_product_id.slice(-8)}` : product.cj_product_id}
+=======
+                      {product.name_ar && (
+                        <p className="text-sm text-gray-500 line-clamp-1" dir="rtl">{product.name_ar}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-mono text-xs text-blue-600" title={product.cj_product_id}>
+                        {product.cj_product_id.length > 12 ? `...${product.cj_product_id.slice(-8)}` : product.cj_product_id}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -654,6 +693,7 @@ export default function QueuePage() {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-green-600">${product.cj_price_usd?.toFixed(2) || "0.00"}</p>
+<<<<<<< HEAD
                       <p className="text-xs text-gray-500">Stock: {product.stock_total}</p>
                     </td>
                     <td className="px-4 py-3">
@@ -697,6 +737,20 @@ export default function QueuePage() {
                           <span className="text-xs font-medium ml-1">{product.supplier_rating?.toFixed(1) || "0.0"}</span>
                         </div>
                         <p className="text-xs text-gray-500">{product.total_sales || 0} sales</p>
+=======
+                      {product.calculated_retail_sar && (
+                        <p className="text-xs text-gray-500">Retail: ${product.calculated_retail_sar}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="text-gray-900">{product.stock_total}</p>
+                      <p className="text-xs text-gray-500">{product.variants?.length || 0} variants</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        <Star className="h-4 w-4 text-amber-400" />
+                        <span>{product.supplier_rating?.toFixed(1) || "4.0"}</span>
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                       </div>
                     </td>
                     <td className="px-4 py-3">

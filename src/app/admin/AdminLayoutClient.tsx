@@ -14,6 +14,7 @@ import {
   Boxes,
   Clock,
   FileText,
+<<<<<<< HEAD
   Settings,
   Smartphone,
   Headphones,
@@ -26,6 +27,9 @@ import {
   Zap,
   Shield,
   Brain
+=======
+  LucideIcon
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 } from "lucide-react";
 
 type NavItem = {
@@ -57,7 +61,11 @@ const navSections: NavSection[] = [
   {
     title: "CJ DROPSHIPPING",
     items: [
+<<<<<<< HEAD
       { href: "/admin/import/discover", label: "Product Discovery", icon: Search },
+=======
+      { href: "/admin/import/discover", label: "Product Discovery", icon: Download },
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       { href: "/admin/import/queue", label: "Review Queue", icon: ListChecks },
     ]
   },
@@ -68,6 +76,7 @@ const navSections: NavSection[] = [
       { href: "/admin/jobs", label: "Background Jobs", icon: Clock },
       { href: "/admin/import/pricing", label: "Pricing Rules", icon: FileText },
     ]
+<<<<<<< HEAD
   },
   {
     title: "AI COMMAND CENTER",
@@ -78,6 +87,8 @@ const navSections: NavSection[] = [
       { href: "/admin/ai/operations", label: "Operations", icon: Zap },
       { href: "/admin/ai/security", label: "Security", icon: Shield },
     ]
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   }
 ];
 
@@ -90,14 +101,22 @@ export function AdminLayoutClient({ children, email }: AdminLayoutClientProps) {
   const pathname = usePathname();
 
   return (
+<<<<<<< HEAD
     <div className="flex min-h-screen bg-gray-50">
+=======
+    <div className="flex min-h-screen bg-gray-100">
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       <main className="flex-1 overflow-auto">
         <div className="p-6">
           {children}
         </div>
       </main>
 
+<<<<<<< HEAD
       <aside className="w-60 bg-white border-l border-gray-200 flex flex-col shadow-sm">
+=======
+      <aside className="w-56 bg-white border-l border-gray-200 flex flex-col shadow-sm">
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         <div className="p-4 border-b border-gray-100">
           <Link href="/admin" className="flex items-center gap-2 justify-end">
             <span className="font-bold text-gray-800">Shopixo Admin</span>
@@ -124,7 +143,11 @@ export function AdminLayoutClient({ children, email }: AdminLayoutClientProps) {
                         href={item.href as Route}
                         className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors justify-end ${
                           isActive 
+<<<<<<< HEAD
                             ? "text-amber-600 bg-amber-50 font-medium border-r-2 border-amber-500" 
+=======
+                            ? "text-amber-600 bg-amber-50 font-medium" 
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                             : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                         }`}
                       >
@@ -139,6 +162,7 @@ export function AdminLayoutClient({ children, email }: AdminLayoutClientProps) {
           ))}
         </nav>
 
+<<<<<<< HEAD
         <div className="border-t border-gray-100">
           <Link
             href="/"
@@ -158,6 +182,16 @@ export function AdminLayoutClient({ children, email }: AdminLayoutClientProps) {
             </div>
             <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
               <span className="text-sm font-medium text-amber-600">
+=======
+        <div className="p-3 border-t border-gray-100">
+          <div className="flex items-center gap-2 justify-end">
+            <div className="text-right">
+              <p className="text-xs font-medium text-gray-700 truncate max-w-[120px]">{email}</p>
+              <p className="text-[10px] text-gray-400">Admin</p>
+            </div>
+            <div className="w-7 h-7 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+              <span className="text-xs font-medium text-amber-600">
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                 {email ? email[0].toUpperCase() : "?"}
               </span>
             </div>

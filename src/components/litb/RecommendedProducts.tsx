@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Star, ShoppingCart } from "lucide-react";
 import type { HomepageProduct } from "@/lib/homepage-products";
 
+<<<<<<< HEAD
 function safeImageUrl(img: string | undefined | null): string {
   if (!img) return '/placeholder-product.png';
   const s = img.trim();
@@ -23,6 +24,8 @@ function safeImageUrl(img: string | undefined | null): string {
   return '/placeholder-product.png';
 }
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 interface RecommendedProductsProps {
   products: HomepageProduct[];
 }
@@ -48,7 +51,11 @@ export default function RecommendedProducts({ products }: RecommendedProductsPro
             >
               <div className="relative aspect-[3/4] bg-gray-100">
                 <Image
+<<<<<<< HEAD
                   src={safeImageUrl(product.image)}
+=======
+                  src={product.image}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                   alt={product.name}
                   fill
                   sizes="(max-width: 640px) 50vw, (max-width: 1024px) 25vw, 20vw"
@@ -64,11 +71,19 @@ export default function RecommendedProducts({ products }: RecommendedProductsPro
                 </div>
               </div>
               <div className="p-3">
+<<<<<<< HEAD
                 <p className="text-sm text-gray-700 line-clamp-2 mb-2">
                   {product.name}
                 </p>
                 <div className="flex items-baseline gap-2 mb-1">
                   <span className="text-gray-900 font-bold">${product.price.toFixed(2)}</span>
+=======
+                <p className="text-sm text-gray-700 line-clamp-2 mb-2 group-hover:text-[#e31e24]">
+                  {product.name}
+                </p>
+                <div className="flex items-baseline gap-2 mb-1">
+                  <span className="text-[#e31e24] font-bold">${product.price.toFixed(2)}</span>
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                   {product.originalPrice && (
                     <span className="text-xs text-gray-400 line-through">${product.originalPrice.toFixed(2)}</span>
                   )}

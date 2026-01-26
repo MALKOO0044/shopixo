@@ -1,5 +1,6 @@
 {
   "version": 2,
+<<<<<<< HEAD
   "builds": [
     {
       "src": "package.json",
@@ -16,3 +17,10 @@
     }
   ]
 }
+=======
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "build": {},
+  "env": {}
+}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80

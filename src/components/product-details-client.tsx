@@ -11,7 +11,10 @@ import ProductTabs from "@/components/product/ProductTabs";
 import YouMayAlsoLike from "@/components/product/YouMayAlsoLike";
 import MakeItAMatch from "@/components/product/MakeItAMatch";
 import { computeBilledWeightKg, resolveDdpShippingSar } from "@/lib/pricing";
+<<<<<<< HEAD
 import { extractImagesFromHtml, parseProductDescription } from "@/components/product/SafeHtmlRenderer";
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
 function isLikelyImageUrl(s: string): boolean {
   if (!s) return false;
@@ -140,6 +143,7 @@ interface MediaGalleryProps {
   title: string;
   videoUrl?: string | null;
   selectedColor?: string;
+<<<<<<< HEAD
   colorImageMap?: Record<string, string>;
   availableColors?: string[];
   descriptionImages?: string[];
@@ -157,6 +161,15 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
   
   const media = [...baseMedia, ...extraImages];
   
+=======
+}
+
+function MediaGallery({ images, title, videoUrl }: MediaGalleryProps) {
+  const media = (Array.isArray(images) ? images : [])
+    .map((s) => (typeof s === 'string' ? normalizeImageUrl(s) : s))
+    .filter((s) => typeof s === 'string') as string[];
+  
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   const items = (() => {
     const arr = [...media];
     if (videoUrl && typeof videoUrl === 'string' && videoUrl.trim()) arr.unshift(videoUrl.trim());
@@ -164,6 +177,7 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
   })();
 
   const [selectedIndex, setSelectedIndex] = useState(0);
+<<<<<<< HEAD
   const prevColorImageRef = useRef<string | undefined>(undefined);
   const selected = items[selectedIndex] || items[0];
   const thumbnailContainerRef = useRef<HTMLDivElement>(null);
@@ -211,6 +225,10 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
     
     prevColorImageRef.current = colorImage;
   }, [selectedColor, colorImageMap, items, selectedIndex, availableColors]);
+=======
+  const selected = items[selectedIndex] || items[0];
+  const thumbnailContainerRef = useRef<HTMLDivElement>(null);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   const [zoomOpen, setZoomOpen] = useState(false);
   const [scale, setScale] = useState(1);
@@ -260,6 +278,7 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
     }
   };
 
+<<<<<<< HEAD
   const goToPrev = () => {
     setSelectedIndex((prev) => (prev > 0 ? prev - 1 : items.length - 1));
   };
@@ -275,16 +294,78 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
           ref={thumbnailContainerRef}
           className="flex flex-col gap-1 overflow-y-auto scrollbar-hide"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', maxHeight: '500px' }}
+=======
+  return (
+    <div className="flex gap-3 h-full" dir="ltr">
+      <div
+        className="relative flex-1 aspect-[3/4] md:aspect-square rounded-lg overflow-hidden bg-muted cursor-zoom-in"
+        onClick={() => !isLikelyVideoUrl(selected) && openZoom()}
+        role={!isLikelyVideoUrl(selected) ? 'button' : undefined}
+        aria-label={!isLikelyVideoUrl(selected) ? 'Zoom image' : undefined}
+      >
+        {isLikelyVideoUrl(selected) ? (
+          <video
+            className="h-full w-full object-cover"
+            controls
+            playsInline
+            preload="metadata"
+            crossOrigin="anonymous"
+            poster={getCloudinaryVideoPoster(selected) || undefined}
+          >
+            <source src={transformVideo(selected)} type={videoMimeFromUrl(selected)} />
+          </video>
+        ) : (
+          <SmartImage
+            src={transformImage(selected)}
+            alt={title}
+            fill
+            className="object-cover"
+            loading="eager"
+            onError={(e: any) => {
+              try {
+                const el = e.currentTarget as HTMLImageElement;
+                if (el && !el.src.endsWith('/placeholder.svg')) {
+                  el.src = '/placeholder.svg';
+                }
+              } catch {}
+            }}
+          />
+        )}
+      </div>
+
+      <div className="flex flex-col items-center gap-2 w-16 md:w-20 shrink-0">
+        {items.length > 4 && (
+          <button
+            onClick={() => scrollThumbnails('up')}
+            className="w-full flex items-center justify-center py-1 text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Scroll up"
+          >
+            <ChevronUp className="w-5 h-5" />
+          </button>
+        )}
+        
+        <div
+          ref={thumbnailContainerRef}
+          className="flex flex-col gap-2 overflow-y-auto scrollbar-hide max-h-[400px] md:max-h-[500px]"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         >
           {items.map((item, index) => (
             <button
               key={index}
               onClick={() => setSelectedIndex(index)}
               className={cn(
+<<<<<<< HEAD
                 "relative w-[48px] h-[48px] md:w-[52px] md:h-[52px] rounded overflow-hidden border transition-all shrink-0",
                 selectedIndex === index 
                   ? "border-primary border-2" 
                   : "border-gray-200 hover:border-gray-400"
+=======
+                "relative w-14 h-14 md:w-16 md:h-16 rounded-md overflow-hidden border-2 transition-all shrink-0",
+                selectedIndex === index 
+                  ? "border-primary ring-1 ring-primary" 
+                  : "border-transparent hover:border-muted-foreground/30"
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
               )}
             >
               {isLikelyVideoUrl(item) ? (
@@ -311,6 +392,7 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
             </button>
           ))}
         </div>
+<<<<<<< HEAD
       </div>
 
       {/* Main image with overlaid navigation arrows */}
@@ -369,6 +451,18 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
             </>
           )}
         </div>
+=======
+
+        {items.length > 4 && (
+          <button
+            onClick={() => scrollThumbnails('down')}
+            className="w-full flex items-center justify-center py-1 text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Scroll down"
+          >
+            <ChevronDown className="w-5 h-5" />
+          </button>
+        )}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       </div>
 
       {zoomOpen && !isLikelyVideoUrl(selected) && (
@@ -455,9 +549,13 @@ function DetailHeader({ title, productCode, rating, reviewCount = 0 }: DetailHea
           ))}
         </div>
         <span className="text-sm text-muted-foreground">
+<<<<<<< HEAD
           {displayRating > 0 
             ? `${displayRating.toFixed(1)} (${reviewCount > 0 ? reviewCount.toLocaleString('en-US') : '0'} Reviewed)`
             : 'No reviews yet'}
+=======
+          {reviewCount > 0 ? `${reviewCount.toLocaleString('en-US')}+ reviews` : 'No reviews yet'}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         </span>
       </div>
     </div>
@@ -468,6 +566,7 @@ interface PriceBlockProps {
   price: number;
   originalPrice?: number;
   isAvailable: boolean;
+<<<<<<< HEAD
   minPrice?: number;
   maxPrice?: number;
   showRange?: boolean;
@@ -477,10 +576,18 @@ function PriceBlock({ price, originalPrice, isAvailable, minPrice, maxPrice, sho
   const hasDiscount = originalPrice && originalPrice > price;
   const discountPercent = hasDiscount ? Math.round((1 - price / originalPrice) * 100) : 0;
   const hasPriceRange = showRange && minPrice && maxPrice && minPrice !== maxPrice;
+=======
+}
+
+function PriceBlock({ price, originalPrice, isAvailable }: PriceBlockProps) {
+  const hasDiscount = originalPrice && originalPrice > price;
+  const discountPercent = hasDiscount ? Math.round((1 - price / originalPrice) * 100) : 0;
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   return (
     <div className="space-y-1">
       <div className="flex items-baseline gap-3 flex-wrap">
+<<<<<<< HEAD
         {hasPriceRange ? (
           <span className="text-xl md:text-2xl font-bold text-foreground">
             {formatCurrency(minPrice)} - {formatCurrency(maxPrice)}
@@ -491,6 +598,12 @@ function PriceBlock({ price, originalPrice, isAvailable, minPrice, maxPrice, sho
           </span>
         )}
         {hasDiscount && !hasPriceRange && (
+=======
+        <span className="text-xl md:text-2xl font-bold text-foreground">
+          {formatCurrency(price)}
+        </span>
+        {hasDiscount && (
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           <>
             <span className="text-base text-muted-foreground line-through">
               {formatCurrency(originalPrice)}
@@ -519,6 +632,7 @@ interface ColorSelectorProps {
   hotColors?: string[];
 }
 
+<<<<<<< HEAD
 // Map color names to CSS colors for swatch display
 const COLOR_NAME_MAP: Record<string, string> = {
   // Basic colors
@@ -567,6 +681,8 @@ function getColorFromName(colorName: string): string | null {
   return null;
 }
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 function ColorSelector({ colors, selectedColor, onColorChange, colorImages = {}, hotColors = [] }: ColorSelectorProps) {
   if (colors.length === 0) return null;
 
@@ -574,21 +690,30 @@ function ColorSelector({ colors, selectedColor, onColorChange, colorImages = {},
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium text-foreground">Color:</span>
+<<<<<<< HEAD
         <span className="text-sm text-primary font-medium">{selectedColor}</span>
+=======
+        <span className="text-sm text-muted-foreground">{selectedColor}</span>
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       </div>
       <div className="flex flex-wrap gap-2">
         {colors.map((color) => {
           const isSelected = color === selectedColor;
           const isHot = hotColors.includes(color);
+<<<<<<< HEAD
           const colorImageUrl = colorImages[color];
           const cssColor = getColorFromName(color);
           const isTransparent = color.toLowerCase().includes('transparent') || color.toLowerCase().includes('clear');
+=======
+          const imageUrl = colorImages[color];
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
           return (
             <button
               key={color}
               onClick={() => onColorChange(color)}
               className={cn(
+<<<<<<< HEAD
                 "relative w-10 h-10 md:w-12 md:h-12 rounded-md overflow-hidden transition-all",
                 isSelected 
                   ? "ring-2 ring-primary ring-offset-2" 
@@ -617,6 +742,26 @@ function ColorSelector({ colors, selectedColor, onColorChange, colorImages = {},
                   <span className="text-[10px] text-gray-600 font-medium text-center leading-tight px-0.5">
                     {color.slice(0, 4).toUpperCase()}
                   </span>
+=======
+                "relative w-12 h-12 md:w-14 md:h-14 rounded-md overflow-hidden border-2 transition-all",
+                isSelected 
+                  ? "border-primary ring-2 ring-primary ring-offset-2" 
+                  : "border-muted hover:border-muted-foreground/50"
+              )}
+              title={color}
+            >
+              {imageUrl ? (
+                <SmartImage
+                  src={transformImage(imageUrl)}
+                  alt={color}
+                  fill
+                  className="object-cover"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="w-full h-full bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                  {color.slice(0, 2)}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                 </div>
               )}
               {isHot && (
@@ -651,12 +796,18 @@ function SizeSelector({ sizes, selectedSize, onSizeChange, sizeStock = {} }: Siz
       <div className="flex flex-wrap gap-2">
         {sizes.map((size) => {
           const isSelected = size === selectedSize;
+<<<<<<< HEAD
           // Treat stock=0, null, undefined as "available" (CJ often returns 0 as default)
           const stockValue = sizeStock[size];
           const hasExplicitStock = stockValue !== undefined && stockValue !== null && stockValue !== 0;
           // Only mark out of stock if stock is explicitly negative (shouldn't happen)
           const isOutOfStock = hasExplicitStock && stockValue < 0;
           const isLowStock = hasExplicitStock && stockValue > 0 && stockValue <= 3;
+=======
+          const stock = sizeStock[size] ?? 0;
+          const isOutOfStock = stock <= 0;
+          const isLowStock = stock > 0 && stock <= 3;
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
           return (
             <button
@@ -862,6 +1013,7 @@ export default function ProductDetailsClient({
   variantRows?: ProductVariant[]; 
   children?: React.ReactNode;
 }) {
+<<<<<<< HEAD
   // Known size tokens for accurate parsing
   const SIZE_TOKENS = new Set([
     'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '2XL', '3XL', '4XL', '5XL', '6XL',
@@ -931,17 +1083,30 @@ export default function ProductDetailsClient({
     
     // No separator found - treat as size only
     return { size: str };
+=======
+  function splitColorSize(v: string): { color?: string; size?: string } {
+    if (!v) return {};
+    const parts = String(v).split('/').map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 2) return { color: parts[0] || undefined, size: parts[1] || undefined };
+    const parts2 = String(v).split('-').map(s => s.trim()).filter(Boolean);
+    if (parts2.length >= 2) return { color: parts2[0] || undefined, size: parts2[1] || undefined };
+    return { size: v };
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   }
 
   const hasRows = Array.isArray(variantRows) && variantRows.length > 0;
   
+<<<<<<< HEAD
   // Primary: Check variant rows from product_variants table
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   const bothDims = useMemo(() => {
     if (!hasRows) return false;
     const withSep = (variantRows || []).filter(r => /\s\/\s|\s-\s/.test(String(r.option_value)));
     return withSep.length >= Math.max(1, Math.floor((variantRows || []).length * 0.6));
   }, [hasRows, variantRows]);
 
+<<<<<<< HEAD
   // Extract colors from variant rows (primary source) - WITH DEDUPLICATION
   const variantRowColors = useMemo(() => {
     if (!hasRows || !bothDims) return [] as string[];
@@ -1194,6 +1359,36 @@ export default function ProductDetailsClient({
     if (!hasRows && productSizes.length > 0 && productColors.length === 0) return productSizes;
     return [] as string[];
   }, [hasRows, bothDims, variantRowSizes, productSizes, productColors]);
+=======
+  const colorOptions = useMemo(() => {
+    if (!hasRows || !bothDims) return [] as string[];
+    const set = new Set<string>();
+    for (const r of variantRows!) {
+      const cs = splitColorSize(r.option_value || '');
+      if (cs.color) set.add(cs.color);
+    }
+    return Array.from(set);
+  }, [hasRows, bothDims, variantRows]);
+
+  const sizeOptionsByColor = useMemo(() => {
+    if (!hasRows || !bothDims) return {} as Record<string, string[]>;
+    const map: Record<string, Set<string>> = {};
+    for (const r of variantRows!) {
+      const cs = splitColorSize(r.option_value || '');
+      if (!cs.color || !cs.size) continue;
+      if (!map[cs.color]) map[cs.color] = new Set<string>();
+      map[cs.color].add(cs.size);
+    }
+    const out: Record<string, string[]> = {};
+    for (const k of Object.keys(map)) out[k] = Array.from(map[k]);
+    return out;
+  }, [hasRows, bothDims, variantRows]);
+
+  const singleDimOptions = useMemo(() => {
+    if (!hasRows || bothDims) return [] as string[];
+    return Array.from(new Set(variantRows!.map(v => v.option_value))).filter(Boolean);
+  }, [hasRows, bothDims, variantRows]);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   const singleDimName = useMemo(() => {
     if (!hasRows || bothDims) return 'Size';
@@ -1215,6 +1410,7 @@ export default function ProductDetailsClient({
     return { color: 'Color', size: 'Size' };
   }, [hasRows, bothDims, variantRows]);
 
+<<<<<<< HEAD
   const [selectedColor, setSelectedColor] = useState('');
   const [selectedSize, setSelectedSize] = useState('');
   
@@ -1241,13 +1437,39 @@ export default function ProductDetailsClient({
   const selectedOptions = useMemo(() => {
     const opts: Record<string, string> = {};
     if (effectiveBothDims) {
+=======
+  const [selectedColor, setSelectedColor] = useState(() => colorOptions[0] || '');
+  const [selectedSize, setSelectedSize] = useState(() => {
+    if (bothDims && colorOptions[0]) {
+      return (sizeOptionsByColor[colorOptions[0]] || [])[0] || '';
+    }
+    return singleDimOptions[0] || '';
+  });
+
+  useEffect(() => {
+    if (selectedColor && sizeOptionsByColor[selectedColor]) {
+      const sizes = sizeOptionsByColor[selectedColor];
+      if (!sizes.includes(selectedSize)) {
+        setSelectedSize(sizes[0] || '');
+      }
+    }
+  }, [selectedColor, sizeOptionsByColor, selectedSize]);
+
+  const selectedOptions = useMemo(() => {
+    const opts: Record<string, string> = {};
+    if (bothDims) {
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       if (selectedColor) opts[twoDimNames.color] = selectedColor;
       if (selectedSize) opts[twoDimNames.size] = selectedSize;
     } else if (singleDimOptions.length > 0) {
       opts[singleDimName] = selectedSize;
     }
     return opts;
+<<<<<<< HEAD
   }, [effectiveBothDims, selectedColor, selectedSize, singleDimOptions.length, singleDimName, twoDimNames]);
+=======
+  }, [bothDims, selectedColor, selectedSize, singleDimOptions.length, singleDimName, twoDimNames]);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   const selectedVariant = useMemo(() => {
     if (!variantRows || variantRows.length === 0) return null;
@@ -1262,6 +1484,7 @@ export default function ProductDetailsClient({
     return variantRows.find(v => v.option_value === selectedSize) || null;
   }, [variantRows, selectedColor, selectedSize, bothDims]);
 
+<<<<<<< HEAD
   // sizeStockMap: Maps size -> stock value
   // CRITICAL: undefined/null stock means UNKNOWN (treat as available), NOT out of stock
   // Only explicitly 0 stock means out of stock
@@ -1407,13 +1630,48 @@ export default function ProductDetailsClient({
     // Final fallback: Fill any remaining unmapped colors with first product image
     for (const color of colorOptions) {
       if (!map[color]) {
+=======
+  const sizeStockMap = useMemo(() => {
+    if (!variantRows) return {};
+    const map: Record<string, number> = {};
+    if (bothDims && selectedColor) {
+      for (const r of variantRows) {
+        const cs = splitColorSize(r.option_value || '');
+        if (cs.color === selectedColor && cs.size) {
+          map[cs.size] = r.stock ?? 0; // null stock treated as 0 for UI
+        }
+      }
+    } else {
+      for (const r of variantRows) {
+        map[r.option_value] = r.stock ?? 0; // null stock treated as 0 for UI
+      }
+    }
+    return map;
+  }, [variantRows, bothDims, selectedColor]);
+
+  const colorImageMap = useMemo(() => {
+    if (!variantRows || !bothDims) return {};
+    const map: Record<string, string> = {};
+    for (const color of colorOptions) {
+      const variant = variantRows.find(v => {
+        const cs = splitColorSize(v.option_value || '');
+        return cs.color === color;
+      });
+      if (variant) {
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         map[color] = product.images[0] || '';
       }
     }
     return map;
+<<<<<<< HEAD
   }, [colorOptions, product.images, product, hasRows, variantRows]);
 
   const currentSizes = effectiveBothDims 
+=======
+  }, [variantRows, bothDims, colorOptions, product.images]);
+
+  const currentSizes = bothDims 
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     ? (sizeOptionsByColor[selectedColor] || [])
     : singleDimOptions;
 
@@ -1451,6 +1709,7 @@ export default function ProductDetailsClient({
     return () => { cancelled = true; };
   }, [cjPid, selectedVariant?.cj_sku]);
 
+<<<<<<< HEAD
   // Check stock - null/undefined means "unknown availability" = treat as available (CJ products)
   // Only mark out of stock when stock is EXPLICITLY 0
   const productStockUnknown = product.stock === null || product.stock === undefined;
@@ -1498,10 +1757,23 @@ export default function ProductDetailsClient({
     <div className="w-full">
       <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-4 lg:gap-6 items-start">
         <div className="w-full lg:w-auto lg:max-w-[580px]">
+=======
+  const isOutOfStock = (product.stock ?? 0) <= 0;
+  const variantOutOfStock = selectedVariant ? (selectedVariant.stock ?? 0) <= 0 : false;
+  const addToCartDisabled = isOutOfStock || (hasRows && (selectedVariant ? variantOutOfStock : true));
+
+  const currentPrice = selectedVariant?.price ?? product.price;
+
+  return (
+    <div className="w-full">
+      <div className="flex flex-col lg:flex-row gap-6 lg:gap-10">
+        <div className="w-full lg:w-[55%] xl:w-[60%]">
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           <MediaGallery 
             images={product.images} 
             title={product.title}
             videoUrl={(product as any).video_url}
+<<<<<<< HEAD
             selectedColor={selectedColor}
             colorImageMap={colorImageMap}
             availableColors={colorOptions}
@@ -1515,10 +1787,22 @@ export default function ProductDetailsClient({
             productCode={product.product_code}
             rating={product.rating || (product as any).supplier_rating || 0}
             reviewCount={(product as any).review_count || 0}
+=======
+          />
+        </div>
+
+        <div className="w-full lg:w-[45%] xl:w-[40%] space-y-6">
+          <DetailHeader
+            title={product.title}
+            productCode={product.product_code}
+            rating={product.rating}
+            reviewCount={0}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           />
 
           <PriceBlock
             price={currentPrice}
+<<<<<<< HEAD
             originalPrice={(product as any).original_price}
             isAvailable={!isOutOfStock && (hasOptionsAvailable || hasProductStock)}
             minPrice={minPrice}
@@ -1527,6 +1811,12 @@ export default function ProductDetailsClient({
           />
 
           {effectiveBothDims && colorOptions.length > 0 && (
+=======
+            isAvailable={!isOutOfStock && !variantOutOfStock}
+          />
+
+          {bothDims && colorOptions.length > 0 && (
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
             <ColorSelector
               colors={colorOptions}
               selectedColor={selectedColor}
@@ -1548,12 +1838,18 @@ export default function ProductDetailsClient({
               <div className="flex flex-wrap gap-2">
                 {currentSizes.map((size) => {
                   const isSelected = size === selectedSize;
+<<<<<<< HEAD
                   // Treat stock=0, null, undefined as "available" (CJ often returns 0 as default)
                   const stockValue = sizeStockMap[size];
                   const hasExplicitStock = stockValue !== undefined && stockValue !== null && stockValue !== 0;
                   // Only mark out of stock if stock is explicitly negative (shouldn't happen)
                   const isOutOfStockSize = hasExplicitStock && stockValue < 0;
                   const isLowStock = hasExplicitStock && stockValue > 0 && stockValue <= 3;
+=======
+                  const stock = sizeStockMap[size] ?? 0;
+                  const isOutOfStockSize = stock <= 0;
+                  const isLowStock = stock > 0 && stock <= 3;
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
                   return (
                     <button
@@ -1577,7 +1873,11 @@ export default function ProductDetailsClient({
                   );
                 })}
               </div>
+<<<<<<< HEAD
               {sizeStockMap[selectedSize] !== undefined && sizeStockMap[selectedSize] !== null && (sizeStockMap[selectedSize] as number) > 0 && (sizeStockMap[selectedSize] as number) <= 3 && (
+=======
+              {sizeStockMap[selectedSize] !== undefined && sizeStockMap[selectedSize] > 0 && sizeStockMap[selectedSize] <= 3 && (
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                 <p className="text-sm text-amber-600">
                   Only {sizeStockMap[selectedSize]} left!
                 </p>
@@ -1602,12 +1902,25 @@ export default function ProductDetailsClient({
             product={product}
           />
 
+<<<<<<< HEAD
+=======
+          {product.description && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-foreground">Product Description</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {product.description}
+              </p>
+            </div>
+          )}
+
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           {children}
         </div>
       </div>
 
       <ProductTabs
         description={product.description}
+<<<<<<< HEAD
         productTitle={product.title}
         highlights={(() => {
           // Extract highlights from product specifications or description
@@ -1657,6 +1970,26 @@ export default function ProductDetailsClient({
             "Season": (product as any).season || "All Seasons",
           };
         })()}
+=======
+        highlights={[
+          "Perfect for Spring and Summer seasons",
+          "Made with chiffon and polyester for a luxurious feel",
+          "Features short sleeves for added comfort",
+          "Designed for women, with an elegant style",
+        ]}
+        sellingPoints={[
+          `${product.category || "Fashion"} Type: ${product.title?.split(' ').slice(0, 3).join(' ')}`,
+          "Gender: Women's",
+          `Style: ${(product as any).style || "Elegant"}`,
+        ]}
+        specifications={{
+          "Category": product.category || "Fashion",
+          "Gender": "Women's",
+          "Style": (product as any).style || "Elegant",
+          "Fit Type": "Regular Fit",
+          "Season": "Summer, Spring",
+        }}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       />
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 p-3 safe-area-inset-bottom">

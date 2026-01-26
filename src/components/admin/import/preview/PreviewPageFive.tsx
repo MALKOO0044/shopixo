@@ -5,9 +5,16 @@ import type { PricedProduct } from "./types";
 
 type PreviewPageFiveProps = {
   product: PricedProduct;
+<<<<<<< HEAD
 };
 
 export default function PreviewPageFive({ product }: PreviewPageFiveProps) {
+=======
+  profitMargin: number;
+};
+
+export default function PreviewPageFive({ product, profitMargin }: PreviewPageFiveProps) {
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   const availableVariants = product.variants.filter((v) => v.shippingAvailable);
   const unavailableVariants = product.variants.filter((v) => !v.shippingAvailable);
 
@@ -37,8 +44,13 @@ export default function PreviewPageFive({ product }: PreviewPageFiveProps) {
   const productCostUSD = firstVariant?.variantPriceUSD || 0;
   const shippingCostUSD = firstVariant?.shippingPriceUSD || 0;
   const totalCostUSD = productCostUSD + shippingCostUSD;
+<<<<<<< HEAD
   const profitMargin = 0.08;
   const sellPriceUSD = totalCostUSD / (1 - profitMargin);
+=======
+  const margin = profitMargin / 100;
+  const sellPriceUSD = totalCostUSD / (1 - margin);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   const profitUSD = sellPriceUSD - totalCostUSD;
 
   return (
@@ -73,7 +85,11 @@ export default function PreviewPageFive({ product }: PreviewPageFiveProps) {
             <div className="bg-green-100 rounded-lg p-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-green-600" />
+<<<<<<< HEAD
                 <span className="text-green-800 font-medium">Your Profit (8% margin)</span>
+=======
+                <span className="text-green-800 font-medium">Your Profit ({profitMargin}% margin)</span>
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
               </div>
               <span className="text-3xl font-bold text-green-700">${profitUSD.toFixed(2)}</span>
             </div>

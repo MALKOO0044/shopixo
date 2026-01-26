@@ -75,6 +75,7 @@ export default function YouMayAlsoLike({ products, title = "You May Also Like" }
                 className="object-cover group-hover:scale-105 transition-transform"
               />
               {product.badge && (
+<<<<<<< HEAD
                 <span className="absolute top-2 left-2 bg-[#e31e24] text-white text-xs px-2 py-0.5 rounded">
                   {product.badge}
                 </span>
@@ -88,6 +89,18 @@ export default function YouMayAlsoLike({ products, title = "You May Also Like" }
             </h4>
             <div className="flex items-center gap-2 mt-1">
               <span className="font-bold text-gray-900">${product.price.toFixed(2)}</span>
+=======
+                <span className="absolute top-2 left-2 bg-red-500 text-white text-xs px-2 py-0.5 rounded">
+                  {product.badge}
+                </span>
+              )}
+            </div>
+            <h4 className="text-sm text-gray-700 line-clamp-2 group-hover:text-red-600">
+              {product.title}
+            </h4>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="font-bold text-red-600">${product.price.toFixed(2)}</span>
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
               {product.originalPrice && (
                 <span className="text-xs text-gray-400 line-through">
                   ${product.originalPrice.toFixed(2)}

@@ -17,12 +17,22 @@ export default function ForgotPasswordForm() {
     if (e) setEmail(e)
   }, [params])
 
+<<<<<<< HEAD
   // Always use hardcoded production URL to ensure correct redirect
   const base = "https://shopixo.net"
   const nextParam = (params?.get("redirect") || params?.get("next") || "/").toString()
   const safeNext = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/"
   const targetAfterCallback = safeNext && safeNext !== "/" ? `/reset-password?next=${encodeURIComponent(safeNext)}` : "/reset-password"
   const redirectTo = `${base}/auth/callback?next=${encodeURIComponent(targetAfterCallback)}`
+=======
+  const base = (process.env.NEXT_PUBLIC_SITE_URL && process.env.NEXT_PUBLIC_SITE_URL.trim().length > 0)
+    ? process.env.NEXT_PUBLIC_SITE_URL
+    : (typeof window !== "undefined" ? window.location.origin : "")
+  const nextParam = (params?.get("redirect") || params?.get("next") || "/").toString()
+  const safeNext = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/"
+  const targetAfterCallback = safeNext && safeNext !== "/" ? `/reset-password?next=${encodeURIComponent(safeNext)}` : "/reset-password"
+  const redirectTo = base ? `${base.replace(/\/$/, "")}/auth/callback?next=${encodeURIComponent(targetAfterCallback)}` : `/auth/callback?next=${encodeURIComponent(targetAfterCallback)}`
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()

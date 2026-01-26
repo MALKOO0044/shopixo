@@ -6,11 +6,15 @@ function getServerSupabase() {
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   
   if (!supabaseUrl || !supabaseKey) {
+<<<<<<< HEAD
     console.error("[homepage-products] Missing Supabase env vars:", {
       hasUrl: !!supabaseUrl,
       hasKey: !!supabaseKey
     });
     return null;
+=======
+    throw new Error("Missing Supabase environment variables");
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   }
   
   return createClient(supabaseUrl, supabaseKey);
@@ -46,7 +50,10 @@ function mapProductToHomepage(product: Product, badge?: string): HomepageProduct
 
 export async function getFlashSaleProducts(limit = 8): Promise<HomepageProduct[]> {
   const supabase = getServerSupabase();
+<<<<<<< HEAD
   if (!supabase) return [];
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   
   try {
     const { data, error } = await supabase
@@ -69,7 +76,10 @@ export async function getFlashSaleProducts(limit = 8): Promise<HomepageProduct[]
 
 export async function getNewArrivals(limit = 6): Promise<HomepageProduct[]> {
   const supabase = getServerSupabase();
+<<<<<<< HEAD
   if (!supabase) return [];
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   
   try {
     let { data, error } = await supabase
@@ -102,7 +112,10 @@ export async function getNewArrivals(limit = 6): Promise<HomepageProduct[]> {
 
 export async function getBestSellers(limit = 6): Promise<HomepageProduct[]> {
   const supabase = getServerSupabase();
+<<<<<<< HEAD
   if (!supabase) return [];
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   
   try {
     let { data, error } = await supabase
@@ -125,7 +138,10 @@ export async function getBestSellers(limit = 6): Promise<HomepageProduct[]> {
 
 export async function getProductsByCategory(category: string, limit = 6): Promise<HomepageProduct[]> {
   const supabase = getServerSupabase();
+<<<<<<< HEAD
   if (!supabase) return [];
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   
   try {
     const { data, error } = await supabase
@@ -148,7 +164,10 @@ export async function getProductsByCategory(category: string, limit = 6): Promis
 
 export async function getRecommendedProducts(limit = 10): Promise<HomepageProduct[]> {
   const supabase = getServerSupabase();
+<<<<<<< HEAD
   if (!supabase) return [];
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   
   try {
     const { data, error } = await supabase
@@ -173,7 +192,10 @@ export async function getRecommendedProducts(limit = 10): Promise<HomepageProduc
 
 export async function getAllProducts(limit = 20): Promise<HomepageProduct[]> {
   const supabase = getServerSupabase();
+<<<<<<< HEAD
   if (!supabase) return [];
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   
   try {
     const { data, error } = await supabase

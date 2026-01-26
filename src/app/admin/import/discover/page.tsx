@@ -24,6 +24,7 @@ type FeatureOption = {
   level: number;
 };
 
+<<<<<<< HEAD
 type SupabaseCategory = {
   id: number;
   name: string;
@@ -45,6 +46,11 @@ export default function ProductDiscoveryPage() {
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
   const [selectedFeaturesWithIds, setSelectedFeaturesWithIds] = useState<SelectedFeature[]>([]);
   const [supabaseCategories, setSupabaseCategories] = useState<SupabaseCategory[]>([]);
+=======
+export default function ProductDiscoveryPage() {
+  const [category, setCategory] = useState("all");
+  const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   const [quantity, setQuantity] = useState(50);
   const [minStock, setMinStock] = useState(0);
   const [maxPrice, setMaxPrice] = useState(100);
@@ -133,6 +139,7 @@ export default function ProductDiscoveryPage() {
     }
   };
 
+<<<<<<< HEAD
   const loadSupabaseCategories = async () => {
     try {
       const res = await fetch("/api/admin/categories/tree");
@@ -149,6 +156,10 @@ export default function ProductDiscoveryPage() {
   useEffect(() => {
     testConnection();
     loadSupabaseCategories();
+=======
+  useEffect(() => {
+    testConnection();
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   }, []);
 
   const loadFeatures = async (categoryId: string) => {
@@ -420,6 +431,7 @@ export default function ProductDiscoveryPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: batchName || `Discovery ${new Date().toLocaleDateString()}`,
+<<<<<<< HEAD
           category: category !== 'all' ? categories.find(c => c.categoryId === category)?.categoryName : undefined,
           products: selectedProducts.map(p => {
             const availableVariants = p.variants.filter(v => v.shippingAvailable);
@@ -497,6 +509,19 @@ export default function ProductDiscoveryPage() {
               profitMargin: p.avgPriceSAR > 0 ? ((p.avgPriceSAR - totalCost * 3.75) / p.avgPriceSAR * 100) : 8,
             };
           }),
+=======
+          products: selectedProducts.map(p => ({
+            cjProductId: p.pid,
+            cjSku: p.cjSku,
+            name: p.name,
+            images: p.images,
+            minPriceSAR: p.minPriceSAR,
+            maxPriceSAR: p.maxPriceSAR,
+            avgPriceSAR: p.avgPriceSAR,
+            stock: p.stock,
+            variants: p.variants,
+          })),
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         }),
       });
       
@@ -513,6 +538,7 @@ export default function ProductDiscoveryPage() {
     }
   };
 
+<<<<<<< HEAD
   const findMatchingSupabaseCategory = (cjCategoryName: string): SupabaseCategory | null => {
     const normalizedName = cjCategoryName.toLowerCase().trim();
     
@@ -545,6 +571,9 @@ export default function ProductDiscoveryPage() {
   const toggleFeature = (featureId: string) => {
     const isRemoving = selectedFeatures.includes(featureId);
     
+=======
+  const toggleFeature = (featureId: string) => {
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     setSelectedFeatures(prev => {
       if (prev.includes(featureId)) {
         return prev.filter(f => f !== featureId);
@@ -552,6 +581,7 @@ export default function ProductDiscoveryPage() {
         return [...prev, featureId];
       }
     });
+<<<<<<< HEAD
     
     // Always sync selectedFeaturesWithIds - remove if already selected
     if (isRemoving) {
@@ -576,6 +606,8 @@ export default function ProductDiscoveryPage() {
         console.warn(`[Discovery] No Supabase match found for CJ category "${feature.name}"`);
       }
     }
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   };
 
   const getFeatureName = (id: string) => {
@@ -588,6 +620,7 @@ export default function ProductDiscoveryPage() {
   };
 
   const selectedCategory = categories.find(c => c.categoryId === category);
+<<<<<<< HEAD
   
   // Find matching Supabase main category based on CJ category name
   const getMatchingSupabaseMainCategory = (): SupabaseCategory | null => {
@@ -605,6 +638,8 @@ export default function ProductDiscoveryPage() {
   };
   
   const matchingSupabaseCategory = getMatchingSupabaseMainCategory();
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -640,7 +675,10 @@ export default function ProductDiscoveryPage() {
               onChange={(e) => {
                 setCategory(e.target.value);
                 setSelectedFeatures([]);
+<<<<<<< HEAD
                 setSelectedFeaturesWithIds([]); // Clear Supabase category tracking when category changes
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                 loadFeatures(e.target.value);
               }}
               className="w-full px-3 py-2 border border-gray-300 rounded"
@@ -659,6 +697,7 @@ export default function ProductDiscoveryPage() {
             <div className="relative">
               <select
                 onChange={(e) => {
+<<<<<<< HEAD
                   if (e.target.value) {
                     // Parse the value: "cjId:supabaseId:name"
                     const [cjId, supabaseId, ...nameParts] = e.target.value.split(':');
@@ -681,11 +720,15 @@ export default function ProductDiscoveryPage() {
                       }
                     }
                   }
+=======
+                  if (e.target.value) toggleFeature(e.target.value);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                   e.target.value = "";
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded appearance-none"
               >
                 <option value="">Select features...</option>
+<<<<<<< HEAD
                 {/* Use Supabase categories if available for better organization */}
                 {matchingSupabaseCategory?.children?.map(group => (
                   <optgroup key={group.id} label={group.name}>
@@ -710,11 +753,18 @@ export default function ProductDiscoveryPage() {
                 ))}
                 {/* Fallback to CJ categories if no Supabase match */}
                 {!matchingSupabaseCategory && selectedCategory?.children?.map(child => (
+=======
+                {selectedCategory?.children?.map(child => (
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                   <optgroup key={child.categoryId} label={child.categoryName}>
                     {child.children?.map(subChild => (
                       <option 
                         key={subChild.categoryId} 
+<<<<<<< HEAD
                         value={`${subChild.categoryId}:0:${subChild.categoryName}`}
+=======
+                        value={subChild.categoryId}
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                         disabled={selectedFeatures.includes(subChild.categoryId)}
                       >
                         {subChild.categoryName}
@@ -1036,7 +1086,12 @@ export default function ProductDiscoveryPage() {
                               const productCostUSD = firstVariant.variantPriceUSD || 0;
                               const shippingCostUSD = firstVariant.shippingPriceUSD || 0;
                               const totalCostUSD = productCostUSD + shippingCostUSD;
+<<<<<<< HEAD
                               const sellPriceUSD = totalCostUSD / (1 - 0.08);
+=======
+                              const margin = profitMargin / 100;
+                              const sellPriceUSD = totalCostUSD / (1 - margin);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
                               return `$${sellPriceUSD.toFixed(2)}`;
                             }
                             return "N/A";
@@ -1233,12 +1288,20 @@ export default function ProductDiscoveryPage() {
 
               {/* Page 5: Shipping & Delivery */}
               {previewPage === 5 && (
+<<<<<<< HEAD
                 <PreviewPageFive product={previewProduct} />
+=======
+                <PreviewPageFive product={previewProduct} profitMargin={profitMargin} />
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
               )}
               
               {/* Page 6: Variant Pricing */}
               {previewPage === 6 && (
+<<<<<<< HEAD
                 <PreviewPageSix product={previewProduct} />
+=======
+                <PreviewPageSix product={previewProduct} profitMargin={profitMargin} />
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
               )}
             </div>
             

@@ -4,7 +4,10 @@ import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 import { usdToSar, computeRetailFromLanded } from '@/lib/pricing';
+<<<<<<< HEAD
 import { scrapeSupplierRating, SupplierRating } from '@/lib/cj/scrape-supplier-rating';
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -96,10 +99,13 @@ type PricedProduct = {
   packingList?: string;
   rating?: number;
   reviewCount?: number;
+<<<<<<< HEAD
   supplierName?: string;
   itemAsDescribed?: number;
   serviceRating?: number;
   shippingSpeedRating?: number;
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   categoryName?: string;
   productWeight?: number;
   packLength?: number;
@@ -118,7 +124,10 @@ type PricedProduct = {
   availableSizes?: string[];
   availableColors?: string[];
   availableModels?: string[];
+<<<<<<< HEAD
   colorImageMap?: Record<string, string>;
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 };
 
 async function fetchCjProductPage(
@@ -478,6 +487,20 @@ async function handleSearch(req: Request, isPost: boolean) {
       return r;
     }
     
+<<<<<<< HEAD
+=======
+    // Rating estimation function (same algorithm as preview)
+    function calculateEstimatedRating(listedNum: number): number {
+      if (listedNum >= 2000) return 4.8;
+      if (listedNum >= 1000) return 4.7;
+      if (listedNum >= 500) return 4.5;
+      if (listedNum >= 200) return 4.3;
+      if (listedNum >= 100) return 4.2;
+      if (listedNum >= 50) return 4.0;
+      if (listedNum >= 20) return 3.9;
+      return 3.8;
+    }
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     const requestedSizes = sizesParam ? sizesParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : [];
 
     console.log(`[Search&Price] ========================================`);
@@ -684,6 +707,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         console.log(`[Search&Price] Product ${pid} - Failed to fetch details: ${e?.message}`);
       }
       
+<<<<<<< HEAD
       // Extract supplier info directly from CJ API response (item or fullDetails)
       const rawSource = fullDetails || item;
       const apiSupplierName = rawSource.supplierName || rawSource.supplier?.name || null;
@@ -725,6 +749,15 @@ async function handleSearch(req: Request, isPost: boolean) {
         } catch (e: any) {
           console.log(`[Search&Price] Product ${pid} - Failed to fetch rating: ${e?.message}`);
         }
+=======
+      // Fetch rating for this product
+      let productRating: { rating: number | null; reviewCount: number } | undefined;
+      try {
+        const ratingsMap = await getProductRatings([pid]);
+        productRating = ratingsMap.get(pid);
+      } catch (e: any) {
+        console.log(`[Search&Price] Product ${pid} - Failed to fetch rating: ${e?.message}`);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       }
       
       // CRITICAL: Fetch REAL inventory data from CJ's dedicated inventory API
@@ -960,6 +993,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       const source = fullDetails || item;
       const rawDescriptionHtml = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
       
+<<<<<<< HEAD
       // Get rating - try multiple sources in priority order:
       // 1. SCRAPED supplier rating (from CJ website - "Offer by Supplier" section)
       // 2. productComments API (calculated from user reviews)
@@ -1029,6 +1063,23 @@ async function handleSearch(req: Request, isPost: boolean) {
         console.log(`[Search&Price] Product ${pid}: Rating ${rating} from ${ratingSource}${supplierName ? ` (Supplier: ${supplierName})` : ''}`);
       } else {
         console.log(`[Search&Price] Product ${pid}: No rating available from any source`);
+=======
+      // Get rating from productComments API (reliable source)
+      let rating: number | undefined = undefined;
+      let reviewCount = 0;
+      if (productRating && productRating.rating !== null && productRating.rating !== undefined) {
+        // Ensure rating is a number (CJ API may return strings)
+        const parsedRating = Number(productRating.rating);
+        if (Number.isFinite(parsedRating) && parsedRating > 0) {
+          rating = parsedRating;
+          reviewCount = Number(productRating.reviewCount) || 0;
+          console.log(`[Search&Price] Product ${pid}: Rating ${rating} from comments API (${reviewCount} reviews)`);
+        } else {
+          console.log(`[Search&Price] Product ${pid}: Invalid rating value: ${productRating.rating}`);
+        }
+      } else {
+        console.log(`[Search&Price] Product ${pid}: No rating available from comments API`);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       }
       
       const categoryName = String(source.categoryName || source.categoryNameEn || source.category || '').trim() || undefined;
@@ -1526,6 +1577,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       const variantImages: string[] = [];
       const seenUrls = new Set<string>();
       
+<<<<<<< HEAD
       // Build COLOR-TO-IMAGE mapping from productPropertyList (CJ's structured color data)
       // This maps color names like "Gold", "Silver" to their specific product images
       const colorImageMap: Record<string, string> = {};
@@ -1567,6 +1619,13 @@ async function handleSearch(req: Request, isPost: boolean) {
       if (typeof mainImage === 'string' && mainImage.startsWith('http') && !seenUrls.has(mainImage)) {
         seenUrls.add(mainImage);
         variantImages.unshift(mainImage); // Main image goes first
+=======
+      // First, add the main product image (this is always the hero image)
+      const mainImage = item.productImage || item.image || item.bigImage;
+      if (typeof mainImage === 'string' && mainImage.startsWith('http')) {
+        seenUrls.add(mainImage);
+        variantImages.push(mainImage);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       }
       
       // Extract images from ALL variants (CJ only returns purchasable ones)
@@ -1595,7 +1654,11 @@ async function handleSearch(req: Request, isPost: boolean) {
         }
       }
       
+<<<<<<< HEAD
       console.log(`[Search&Price] Product ${pid}: ${variantImages.length} images from variants + colorImageMap`);
+=======
+      console.log(`[Search&Price] Product ${pid}: ${variantImages.length} images from ${variants.length} variants`);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       
       // Build combined product info: start with productInfo, then add variant colors/sizes
       // This ensures we show BOTH material/packing specs AND variant options
@@ -1605,6 +1668,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       let extractedSizes: string[] = [];
       let extractedColors: string[] = [];
       
+<<<<<<< HEAD
       // PRIMARY SOURCE: Extract colors directly from CJ's productPropertyList (structured data)
       // This provides the REAL color options as shown on CJ website
       const productPropertyList = source.productPropertyList || source.propertyList || source.productOptions || [];
@@ -1631,6 +1695,8 @@ async function handleSearch(req: Request, isPost: boolean) {
         }
       }
       
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       // First, add base product specs (material, packing, weight, etc.)
       let baseSpecs = productInfo;
       if (!baseSpecs && source.synthesizedInfo) {
@@ -1826,13 +1892,23 @@ async function handleSearch(req: Request, isPost: boolean) {
           }
           
           // 3. Parse variantKey (may contain combined color-model like "Violet-iPhone 11Pro")
+<<<<<<< HEAD
           // Always parse for sizes/models extraction
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           if (v.variantKey) {
             parseVariantValue(String(v.variantKey));
           }
           
+<<<<<<< HEAD
           // NOTE: variantNameEn parsing REMOVED - it causes garbage data like "Retro-style shoes gold 35"
           // Colors should come from productPropertyList (structured data) or explicit variant fields only
+=======
+          // 4. Parse variantNameEn as fallback
+          if (v.variantNameEn) {
+            parseVariantValue(String(v.variantNameEn));
+          }
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         }
         
         // Sanitize values - strip any HTML/script tags
@@ -1842,11 +1918,17 @@ async function handleSearch(req: Request, isPost: boolean) {
         const safeModels = [...models].map(stripHtml).filter(m => m.length > 0 && m.length < 50);
         
         // Only add to specs if not already present (avoid duplicates)
+<<<<<<< HEAD
         // Use extractedColors (from productPropertyList) if available, otherwise use variant-extracted colors
         const baseSpecsLower = (baseSpecs || '').toLowerCase();
         const displayColors = extractedColors.length > 0 ? extractedColors : safeColors;
         if (displayColors.length > 0 && !baseSpecsLower.includes('colors:')) {
           allSpecs.push(`Colors: ${displayColors.slice(0, 15).join(', ')}`);
+=======
+        const baseSpecsLower = (baseSpecs || '').toLowerCase();
+        if (safeColors.length > 0 && !baseSpecsLower.includes('colors:')) {
+          allSpecs.push(`Colors: ${safeColors.slice(0, 15).join(', ')}`);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         }
         if (safeModels.length > 0) {
           allSpecs.push(`Compatible Devices: ${safeModels.slice(0, 25).join(', ')}`);
@@ -1857,12 +1939,18 @@ async function handleSearch(req: Request, isPost: boolean) {
         
         console.log(`[Search&Price] Product ${pid}: ${safeColors.length} colors, ${safeSizes.length} sizes, ${safeModels.length} models from ${variants.length} variants`);
         
+<<<<<<< HEAD
         // Store for later use - preserve productPropertyList colors if they exist (they are the primary source)
         extractedSizes = safeSizes;
         if (extractedColors.length === 0) {
           // Only use variant-extracted colors if productPropertyList didn't provide any
           extractedColors = safeColors;
         }
+=======
+        // Store for later use
+        extractedSizes = safeSizes;
+        extractedColors = safeColors;
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         extractedModels = safeModels;
       }
       
@@ -1874,6 +1962,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       // Don't add duplicate fallback here - Overview already shows Category, Material, Weight etc.
       // productInfo is specifically for variant/specification details not shown in Overview
       
+<<<<<<< HEAD
       // MERGE ALL IMAGES: combine extractAllImages results + variantImages (no replacement)
       // This ensures we get the full gallery (productImageList, detailImageList) + color-specific images
       const allImages: string[] = [];
@@ -1918,6 +2007,23 @@ async function handleSearch(req: Request, isPost: boolean) {
       if (Object.keys(colorImageMap).length > 0) {
         console.log(`[Search&Price] Product ${pid}: colorImageMap = ${JSON.stringify(colorImageMap)}`);
       }
+=======
+      // Use variant images if we have them, otherwise keep original images
+      if (variantImages.length > 1) {
+        images = variantImages.slice(0, 50);
+      } else if (variantImages.length === 1) {
+        // Only main image found from variants - combine with original images but limit
+        const combinedImages = [...variantImages];
+        for (const img of images) {
+          if (!seenUrls.has(img)) {
+            seenUrls.add(img);
+            combinedImages.push(img);
+          }
+        }
+        images = combinedImages.slice(0, 50);
+      }
+      // else keep original images as fallback
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       
       const pricedVariants: PricedVariant[] = [];
       
@@ -2340,10 +2446,13 @@ async function handleSearch(req: Request, isPost: boolean) {
         packingList,
         rating,
         reviewCount,
+<<<<<<< HEAD
         supplierName,
         itemAsDescribed,
         serviceRating,
         shippingSpeedRating,
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         categoryName,
         productWeight,
         packLength,
@@ -2362,8 +2471,11 @@ async function handleSearch(req: Request, isPost: boolean) {
         availableSizes: extractedSizes,
         availableColors: extractedColors,
         availableModels: extractedModels,
+<<<<<<< HEAD
         // Color-to-image mapping for color swatches
         colorImageMap: Object.keys(colorImageMap).length > 0 ? colorImageMap : undefined,
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       });
       
       // Track batch progress

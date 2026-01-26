@@ -7,7 +7,37 @@ type PreviewPageOneProps = {
   product: PricedProduct;
 };
 
+<<<<<<< HEAD
 // Component to display actual CJ rating with stars
+=======
+function calculateEstimatedRating(listedNum: number): { rating: number; reviewCount: number } {
+  let rating: number;
+  if (listedNum >= 2000) {
+    rating = 4.8;
+  } else if (listedNum >= 1000) {
+    rating = 4.7;
+  } else if (listedNum >= 500) {
+    rating = 4.5;
+  } else if (listedNum >= 200) {
+    rating = 4.3;
+  } else if (listedNum >= 100) {
+    rating = 4.2;
+  } else if (listedNum >= 50) {
+    rating = 4.0;
+  } else if (listedNum >= 20) {
+    rating = 3.9;
+  } else {
+    rating = 3.8;
+  }
+  
+  const reviewCount = listedNum >= 10 
+    ? Math.round(listedNum * 0.15) 
+    : Math.max(5, Math.round(listedNum * 0.5 + 3));
+  
+  return { rating, reviewCount };
+}
+
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 function StarRating({ rating, reviewCount }: { rating: number; reviewCount: number }) {
   const fullStars = Math.floor(rating);
   const hasHalfStar = rating - fullStars >= 0.3;
@@ -39,7 +69,11 @@ function StarRating({ rating, reviewCount }: { rating: number; reviewCount: numb
         <div className="group relative">
           <Info className="h-4 w-4 text-gray-400 cursor-help" />
           <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-3 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10">
+<<<<<<< HEAD
             Actual rating from CJ Dropshipping customer reviews
+=======
+            Shopixo estimated rating based on supplier data and product popularity
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           </div>
         </div>
       </div>
@@ -99,6 +133,7 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
     : [];
 
   const imageCount = product.images?.length || 0;
+<<<<<<< HEAD
   
   // Check for REAL CJ rating data only - no fake/estimated ratings
   const hasRealRating = product.rating !== undefined && product.rating !== null && Number.isFinite(product.rating) && product.rating > 0 && product.rating <= 5;
@@ -108,6 +143,11 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
   const realReviewCount = hasRealRating && !isSupplierRating ? (product.reviewCount || 0) : 0;
   
   console.log(`[PreviewPageOne] Product ${product.cjSku}: listedNum=${product.listedNum}, cjRating=${product.rating}, hasRealRating=${hasRealRating}, isSupplierRating=${isSupplierRating}, supplierName=${product.supplierName}, colors=${uniqueColors.length}, sizes=${uniqueSizes.length}, models=${uniqueModels.length}`);
+=======
+  const { rating, reviewCount } = calculateEstimatedRating(product.listedNum);
+  
+  console.log(`[PreviewPageOne] Product ${product.cjSku}: listedNum=${product.listedNum}, colors=${uniqueColors.length}, sizes=${uniqueSizes.length}, models=${uniqueModels.length}`);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   return (
     <div className="flex flex-col lg:flex-row gap-8 p-4">
@@ -140,6 +180,7 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
       {/* Product Details Section */}
       <div className="lg:w-1/2 space-y-8">
         
+<<<<<<< HEAD
         {/* Rating - Show supplier rating from CJ website */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-4">
@@ -223,6 +264,15 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
             </div>
           </div>
           <PopularityDisplay listedNum={product.listedNum || 0} />
+=======
+        {/* Rating */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-4">
+            <Star className="h-5 w-5 text-amber-500" />
+            <span className="text-gray-500 font-medium">Rating</span>
+          </div>
+          <StarRating rating={rating} reviewCount={reviewCount} />
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         </div>
 
         {/* SKU */}
@@ -321,6 +371,18 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
           </p>
         </div>
 
+<<<<<<< HEAD
+=======
+        {/* Popularity */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-4">
+            <TrendingUp className="h-5 w-5 text-amber-500" />
+            <span className="text-gray-500 font-medium">Popularity</span>
+          </div>
+          <PopularityDisplay listedNum={product.listedNum} />
+        </div>
+
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         {/* Price - Single Final Sell Price */}
         <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-200 p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-4">

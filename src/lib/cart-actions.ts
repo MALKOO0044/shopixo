@@ -14,6 +14,7 @@ function getSupabaseAdmin() {
   return createClient(url, key);
 }
 
+<<<<<<< HEAD
 // Cache for cart_items column existence (checked once per server lifecycle)
 let cartItemsColumnsCache: {
   hasVariantId: boolean;
@@ -110,6 +111,8 @@ async function detectCartItemsColumns(admin: any): Promise<typeof cartItemsColum
   return cartItemsColumnsCache;
 }
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 // Fetch product with graceful fallback if `is_active` column is missing (pre-migration)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getProductById(admin: any, id: number) {
@@ -151,6 +154,7 @@ function parseSelectedOption(formData: FormData): { name: string; value: string 
   return null;
 }
 
+<<<<<<< HEAD
 /**
  * Parse ALL selected options from form data (Color, Size, etc.)
  * Returns array of {name, value} pairs
@@ -189,6 +193,8 @@ function buildVariantName(options: { name: string; value: string }[]): string | 
   return sorted.map(o => o.value).join('-');
 }
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 async function getOrCreateCart() {
   const supabaseAuth = createServerComponentClient({ cookies });
   const { data: { user } } = await supabaseAuth.auth.getUser();
@@ -255,6 +261,7 @@ async function getOrCreateCart() {
   return newCart;
 }
 
+<<<<<<< HEAD
 export async function getCartItemCount(): Promise<number> {
   const cartId = cookies().get("cart_id")?.value;
   if (!cartId) return 0;
@@ -289,6 +296,8 @@ export async function getCartItemCount(): Promise<number> {
     .reduce((sum: number, item: { quantity: number }) => sum + item.quantity, 0);
 }
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 export async function getCart() {
   const cartId = cookies().get("cart_id")?.value;
 
@@ -301,6 +310,7 @@ export async function getCart() {
     return [];
   }
 
+<<<<<<< HEAD
   // Try with variant_id and variant_name first, fall back if columns don't exist
   let items: any[] | null = null;
   let hasVariantIdColumn = true;
@@ -371,6 +381,35 @@ export async function getCart() {
       variant: hasVariantIdColumn && item.variant_id ? variantsMap[item.variant_id] ?? null : null,
       variantName: item.variant_name || null, // Pass variant_name through to checkout
     }));
+=======
+  const { data: items, error } = await supabaseAdmin
+    .from("cart_items")
+    .select(`
+      id,
+      quantity,
+      variant_id,
+      variant:product_variants (*),
+      products (*)
+    `)
+    .eq("session_id", cartId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching cart:", error);
+    return [];
+  }
+
+  if (!items) {
+    return [];
+  }
+
+  const cartItems = items.map((item: any) => ({
+    id: item.id,
+    quantity: item.quantity,
+    product: item.products, // Supabase returns 'products', so we map it to 'product'
+    variant: item.variant ?? null,
+  }));
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   return cartItems as CartItem[];
 }
@@ -382,6 +421,7 @@ export async function getCartItemsBySessionId(cartSessionId: string) {
     return { items: [], error: null };
   }
 
+<<<<<<< HEAD
   // Detect which columns exist
   const cols = await detectCartItemsColumns(supabaseAdmin);
   
@@ -395,12 +435,24 @@ export async function getCartItemsBySessionId(cartSessionId: string) {
   const { data: items, error } = await supabaseAdmin
     .from("cart_items")
     .select(selectFields.join(", "))
+=======
+  const { data: items, error } = await supabaseAdmin
+    .from("cart_items")
+    .select(`
+      id,
+      quantity,
+      variant_id,
+      variant:product_variants (*),
+      products (*)
+    `)
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     .eq("session_id", cartSessionId);
 
   if (error) {
     console.error("Error fetching cart items by session ID:", error);
     return { items: null, error };
   }
+<<<<<<< HEAD
   
   const hasVariantIdColumn = cols.hasVariantId;
 
@@ -506,6 +558,19 @@ export async function getCartItemsBySessionId(cartSessionId: string) {
         selectedSize: item.selected_size || null,
       };
     });
+=======
+
+  if (!items) {
+    return { items: [], error: null };
+  }
+
+  const cartItems: CartItem[] = items.map((item: any) => ({
+    id: item.id,
+    quantity: item.quantity,
+    product: item.products as Product,
+    variant: (item.variant as any) ?? null,
+  }));
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   return { items: cartItems, error: null };
 }
@@ -549,12 +614,15 @@ export async function addItem(prevState: any, formData: FormData) {
 
   let { productId, quantity, productSlug } = validatedFields.data;
   const selected = parseSelectedOption(formData); // e.g., { name: "Size", value: "L" }
+<<<<<<< HEAD
   const allOptions = parseAllSelectedOptions(formData); // All options: Color, Size, etc.
   const variantName = buildVariantName(allOptions); // e.g., "Star blue-XL"
   
   // Extract color and size separately for robust display
   const selectedColor = allOptions.find(o => o.name.toLowerCase() === 'color')?.value || null;
   const selectedSize = allOptions.find(o => o.name.toLowerCase() === 'size')?.value || null;
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   try {
     // 1. Fetch product and optional variant
@@ -574,8 +642,11 @@ export async function addItem(prevState: any, formData: FormData) {
       return { error: `This product is no longer available.` };
     }
 
+<<<<<<< HEAD
     console.log(`[addItem] Product ${productId}, options: ${JSON.stringify(allOptions)}, variantName: "${variantName}"`);
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     // Try resolve variant_id if option provided
     let variantRow: any = null;
     if (selected) {
@@ -592,6 +663,7 @@ export async function addItem(prevState: any, formData: FormData) {
     const cart = await getOrCreateCart();
 
     // Check if item already exists in cart
+<<<<<<< HEAD
     // Find existing item by product_id AND variant_name (so different variants are separate cart items)
     let existingItem: any = null;
     
@@ -698,13 +770,84 @@ export async function addItem(prevState: any, formData: FormData) {
       }
       
       console.log(`[addItem] Created cart item, variant_name: "${variantName}", color: "${selectedColor}", size: "${selectedSize}", qty: ${quantity}`);
+=======
+    let existingItem: any = null;
+    if (variantRow && variantRow.id) {
+      const { data } = await supabaseAdmin
+        .from("cart_items")
+        .select("id, quantity")
+        .eq("session_id", cart.id)
+        .eq("product_id", productId)
+        .eq("variant_id", variantRow.id)
+        .maybeSingle();
+      existingItem = data ?? null;
+    } else {
+      const { data } = await supabaseAdmin
+        .from("cart_items")
+        .select("id, quantity")
+        .eq("session_id", cart.id)
+        .eq("product_id", productId)
+        .is("variant_id", null)
+        .maybeSingle();
+      existingItem = data ?? null;
+    }
+
+    if (existingItem) {
+      // Update quantity
+      const newQuantity = existingItem.quantity + quantity;
+
+      // 2a. Check stock before updating
+      if (variantRow && typeof variantRow.stock === 'number') {
+        if (newQuantity > variantRow.stock) {
+          return { error: `الكمية المطلوبة غير متوفرة للمقاس ${variantRow.option_value}. المتبقي ${variantRow.stock}.` };
+        }
+      } else if (newQuantity > product.stock) {
+        return { error: `Not enough stock for ${product.title}. Only ${product.stock} left.` };
+      }
+
+      const { error } = await supabaseAdmin
+        .from("cart_items")
+        .update({ quantity: newQuantity })
+        .eq("id", existingItem.id);
+      if (error) throw error;
+    } else {
+      // 2b. Check stock before inserting
+      if (variantRow && typeof variantRow.stock === 'number') {
+        if (quantity > variantRow.stock) {
+          return { error: `الكمية المطلوبة غير متوفرة للمقاس ${variantRow.option_value}. المتبقي ${variantRow.stock}.` };
+        }
+      } else if (quantity > product.stock) {
+        return { error: `Not enough stock for ${product.title}. Only ${product.stock} left.` };
+      }
+
+      // Insert new item
+      const insertPayload: any = { session_id: cart.id, product_id: productId, quantity };
+      if (variantRow && variantRow.id) insertPayload.variant_id = variantRow.id;
+      const { error } = await supabaseAdmin
+        .from("cart_items")
+        .insert(insertPayload);
+      if (error) throw error;
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     }
 
     revalidatePath("/cart");
     revalidatePath("/");
 
+<<<<<<< HEAD
     const count = await getCartItemCount();
     return { success: "Item added to cart.", count };
+=======
+    // Get updated cart count
+    const { count: newCount } = await supabaseAdmin
+      .from("cart_items")
+      .select('*', { count: 'exact', head: true })
+      .eq("session_id", cart.id);
+
+    return { 
+      success: "Item added to cart.", 
+      count: newCount || 0 
+    };
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   } catch (e) {
     console.error(e);
     return { error: "An unexpected error occurred." };
@@ -786,14 +929,18 @@ export async function updateItemQuantity(prevState: any, formData: FormData) {
       if (Object.prototype.hasOwnProperty.call(product, "is_active") && (product as any).is_active === false) {
         return { error: `This product is no longer available.` };
       }
+<<<<<<< HEAD
       // Stock check: only block if stock is EXPLICITLY > 0 and quantity exceeds it
       // stock = 0, null, undefined all mean "unknown availability" - allow purchase
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
       if (typeof itemRow.variant_id === 'number') {
         const { data: vrow } = await supabaseAdmin
           .from("product_variants")
           .select("stock, option_value")
           .eq("id", itemRow.variant_id)
           .single();
+<<<<<<< HEAD
         const vstock = (vrow as any)?.stock;
         // Only check if stock is explicitly > 0
         if (typeof vstock === 'number' && vstock > 0 && quantity > vstock) {
@@ -803,6 +950,15 @@ export async function updateItemQuantity(prevState: any, formData: FormData) {
         return { error: `Not enough stock for ${product.title}. Only ${product.stock} left.` };
       }
       // If stock is 0, null, or undefined, allow - CJ will validate at fulfillment
+=======
+        const vstock = (vrow as any)?.stock ?? 0;
+        if (quantity > vstock) {
+          return { error: `الكمية المطلوبة غير متوفرة للمقاس ${(vrow as any)?.option_value ?? ''}. المتبقي ${vstock}.` };
+        }
+      } else if (quantity > product.stock) {
+        return { error: `Not enough stock for ${product.title}. Only ${product.stock} left.` };
+      }
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
       // Update quantity
       const { error } = await supabaseAdmin
@@ -814,8 +970,27 @@ export async function updateItemQuantity(prevState: any, formData: FormData) {
     }
 
     revalidatePath("/cart");
+<<<<<<< HEAD
     const count = await getCartItemCount();
     return { success: "Cart updated.", count };
+=======
+    
+    // Get updated cart count
+    const currentCartId = cookies().get("cart_id")?.value;
+    if (!currentCartId) {
+      return { error: "Cart not found." };
+    }
+    
+    const { count: newCount } = await supabaseAdmin
+      .from("cart_items")
+      .select('*', { count: 'exact', head: true })
+      .eq("session_id", currentCartId);
+    
+    return { 
+      success: "Cart updated.", 
+      count: newCount || 0 
+    };
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   } catch (e) {
     console.error(e);
     return { error: "An unexpected error occurred." };
@@ -826,6 +1001,7 @@ const removeItemSchema = z.object({
   itemId: z.number(),
 });
 
+<<<<<<< HEAD
 const moveToFavoritesSchema = z.object({
   itemId: z.number(),
 });
@@ -923,6 +1099,8 @@ export async function moveToFavorites(prevState: any, formData: FormData) {
   }
 }
 
+=======
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 export async function removeItem(prevState: any, formData: FormData) {
   const supabaseAdmin = getSupabaseAdmin();
   if (!supabaseAdmin) {
@@ -951,8 +1129,107 @@ export async function removeItem(prevState: any, formData: FormData) {
     if (error) throw error;
 
     revalidatePath("/cart");
+<<<<<<< HEAD
     const count = await getCartItemCount();
     return { success: "Item removed.", count };
+=======
+    
+    // Get updated cart count
+    const { count: newCount } = await supabaseAdmin
+      .from("cart_items")
+      .select('*', { count: 'exact', head: true })
+      .eq("session_id", cartId);
+    
+    return { 
+      success: "Item removed.", 
+      count: newCount || 0 
+    };
+  } catch (e) {
+    console.error(e);
+    return { error: "An unexpected error occurred." };
+  }
+}
+
+export async function moveToFavorites(prevState: any, formData: FormData) {
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return { error: "Server misconfiguration." };
+  }
+
+  const itemId = Number(formData.get("itemId"));
+  const cartId = cookies().get("cart_id")?.value;
+
+  if (!cartId) return { error: "Cart not found." };
+
+  try {
+    // Get the cart item to move
+    const { data: cartItem, error: cartItemError } = await supabaseAdmin
+      .from("cart_items")
+      .select("product_id, variant_id, quantity")
+      .eq("id", itemId)
+      .eq("session_id", cartId)
+      .single();
+    
+    if (cartItemError || !cartItem) {
+      return { error: "Cart item not found." };
+    }
+
+    // Get the current user
+    const supabaseAuth = createServerComponentClient({ cookies });
+    const { data: { user } } = await supabaseAuth.auth.getUser();
+    
+    if (!user) {
+      return { error: "User not authenticated." };
+    }
+
+    // Check if the item already exists in wishlist
+    const { data: existingWishlistItem } = await supabaseAdmin
+      .from("wishlist_items")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("product_id", cartItem.product_id)
+      .eq("variant_id", cartItem.variant_id)
+      .maybeSingle();
+
+    if (!existingWishlistItem) {
+      // Add to wishlist
+      const { error: wishlistError } = await supabaseAdmin
+        .from("wishlist_items")
+        .insert({
+          user_id: user.id,
+          product_id: cartItem.product_id,
+          variant_id: cartItem.variant_id,
+        });
+      
+      if (wishlistError) {
+        return { error: "Failed to add to wishlist." };
+      }
+    }
+
+    // Remove from cart
+    const { error: deleteError } = await supabaseAdmin
+      .from("cart_items")
+      .delete()
+      .eq("id", itemId)
+      .eq("session_id", cartId);
+    
+    if (deleteError) {
+      return { error: "Failed to remove from cart." };
+    }
+
+    // Get updated cart count
+    const { count: newCount } = await supabaseAdmin
+      .from("cart_items")
+      .select('*', { count: 'exact', head: true })
+      .eq("session_id", cartId);
+
+    revalidatePath("/cart");
+    
+    return { 
+      success: "Item moved to favorites.", 
+      count: newCount || 0 
+    };
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
   } catch (e) {
     console.error(e);
     return { error: "An unexpected error occurred." };

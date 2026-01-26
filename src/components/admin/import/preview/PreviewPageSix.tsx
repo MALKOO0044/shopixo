@@ -5,6 +5,7 @@ import type { PricedProduct } from "./types";
 
 type PreviewPageSixProps = {
   product: PricedProduct;
+<<<<<<< HEAD
 };
 
 export default function PreviewPageSix({ product }: PreviewPageSixProps) {
@@ -12,12 +13,26 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
   const unavailableVariants = product.variants.filter((v) => !v.shippingAvailable);
 
   const profitMargin = 0.08;
+=======
+  profitMargin: number;
+};
+
+export default function PreviewPageSix({ product, profitMargin }: PreviewPageSixProps) {
+  const availableVariants = product.variants.filter((v) => v.shippingAvailable);
+  const unavailableVariants = product.variants.filter((v) => !v.shippingAvailable);
+
+  const margin = profitMargin / 100;
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
   const computedVariants = availableVariants.map(v => {
     const productCost = v.variantPriceUSD;
     const shippingCost = v.shippingPriceUSD;
     const totalCost = productCost + shippingCost;
+<<<<<<< HEAD
     const sellPrice = totalCost / (1 - profitMargin);
+=======
+    const sellPrice = totalCost / (1 - margin);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     const profit = sellPrice - totalCost;
     const marginPercent = sellPrice > 0 ? (profit / sellPrice) * 100 : 0;
     return { ...v, productCost, shippingCost, totalCost, sellPrice, profit, marginPercent };

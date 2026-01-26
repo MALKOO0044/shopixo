@@ -20,6 +20,10 @@ async function getCompetitorPrices(productId: number) {
     .order("price", { ascending: true });
 
   if (error) {
+<<<<<<< HEAD
+=======
+    console.error("Error fetching competitor prices:", error);
+>>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     return [];
   }
   return data;
