@@ -29,7 +29,10 @@ const nextConfig = {
   output: 'standalone',
   experimental: {
     // Disable Turbopack for compatibility
-    optimizePackageImports: ["@radix-ui/react-dropdown-menu", "@radix-ui/react-label", "@radix-ui/react-radio-group", "@radix-ui/react-select", "@radix-ui/react-slot"]
+    optimizePackageImports: ["@radix-ui/react-dropdown-menu", "@radix-ui/react-label", "@radix-ui/react-radio-group", "@radix-ui/react-select", "@radix-ui/react-slot"],
+    turbo: {
+      enabled: false  // Explicitly disable Turbopack
+    }
   },
   env: {
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lwqddoivcbqnadamczhl.supabase.co',
