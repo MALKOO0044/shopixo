@@ -1930,3 +1930,30 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     // (keeping CjProductLike strict; we will pass via casting if used)
   };
 }
+
+// Fetch product variants by PID
+export async function getProductVariants(pid: string): Promise<any[]> {
+  if (!pid) return [];
+  
+  try {
+    const base = await resolveBase();
+    const token = await getAccessToken();
+    
+    const response = await fetchJson<any>(`${base}/product/variant/query?pid=${encodeURIComponent(pid)}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'CJ-Access-Token': token,
+      },
+      cache: 'no-store',
+      timeoutMs: 15000,
+    });
+    
+    const variantData = response?.data;
+    const variantList = Array.isArray(variantData) ? variantData : (variantData?.list || []);
+    
+    return variantList || [];
+  } catch (e: any) {
+    console.error(`[CJ Variants] Error fetching variants for pid ${pid}:`, e?.message);
+    return [];
+  }
+}
