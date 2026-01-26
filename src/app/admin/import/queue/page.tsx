@@ -1,0 +1,671 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
+import {
+  CheckCircle,
+  XCircle,
+  Clock,
+  Package,
+  Download,
+  Edit,
+  Trash2,
+  Star,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Filter,
+  MoreHorizontal,
+  Eye,
+} from "lucide-react";
+
+type QueueProduct = {
+  id: number;
+  batch_id: number | null;
+  cj_product_id: string;
+  name_en: string;
+  name_ar: string | null;
+  category: string;
+  images: string[];
+  variants: any[];
+  cj_price_usd: number;
+  shipping_cost_usd: number | null;
+  calculated_retail_sar: number | null;
+  supplier_rating: number;
+  stock_total: number;
+  quality_score: number;
+  status: string;
+  admin_notes: string | null;
+  delivery_days_min: number;
+  delivery_days_max: number;
+  created_at: string;
+};
+
+type Stats = {
+  pending: number;
+  approved: number;
+  rejected: number;
+  imported: number;
+};
+
+type LocalCategory = {
+  id: number;
+  name: string;
+  slug: string;
+  level: number;
+  parentId: number | null;
+  parentName: string | null;
+  children?: LocalCategory[];
+};
+
+const statusColors: Record<string, { bg: string; text: string; icon: any }> = {
+  pending: { bg: "bg-amber-100", text: "text-amber-800", icon: Clock },
+  approved: { bg: "bg-green-100", text: "text-green-800", icon: CheckCircle },
+  rejected: { bg: "bg-red-100", text: "text-red-800", icon: XCircle },
+  imported: { bg: "bg-blue-100", text: "text-blue-800", icon: Package },
+};
+
+export default function QueuePage() {
+  const [products, setProducts] = useState<QueueProduct[]>([]);
+  const [stats, setStats] = useState<Stats>({ pending: 0, approved: 0, rejected: 0, imported: 0 });
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [localCategories, setLocalCategories] = useState<LocalCategory[]>([]);
+  
+  const [statusFilter, setStatusFilter] = useState("pending");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [page, setPage] = useState(0);
+  const limit = 20;
+
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [actionLoading, setActionLoading] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editData, setEditData] = useState<Partial<QueueProduct>>({});
+
+  const fetchProducts = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const params = new URLSearchParams({
+        status: statusFilter,
+        category: categoryFilter,
+        limit: limit.toString(),
+        offset: (page * limit).toString(),
+      });
+      
+      const res = await fetch(`/api/admin/import/queue?${params}`);
+      const data = await res.json();
+      
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to fetch queue");
+      }
+      
+      setProducts(data.products || []);
+      setTotal(data.total || 0);
+      setStats(data.stats || { pending: 0, approved: 0, rejected: 0, imported: 0 });
+    } catch (e: any) {
+      setError(e?.message || "Failed to load queue");
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter, categoryFilter, page]);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
+  useEffect(() => {
+    async function fetchLocalCategories() {
+      try {
+        const res = await fetch("/api/admin/categories/map");
+        const data = await res.json();
+        if (data.ok && data.categories) {
+          setLocalCategories(data.categories);
+        }
+      } catch (e) {
+        console.error("Failed to fetch local categories:", e);
+      }
+    }
+    fetchLocalCategories();
+  }, []);
+
+  const toggleSelect = (id: number) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelected(new Set(products.map(p => p.id)));
+  };
+
+  const deselectAll = () => {
+    setSelected(new Set());
+  };
+
+  const handleBulkAction = async (action: string) => {
+    if (selected.size === 0) return;
+    
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/admin/import/queue", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selected), action }),
+      });
+      
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Action failed");
+      }
+      
+      setSelected(new Set());
+      fetchProducts();
+    } catch (e: any) {
+      setError(e?.message || "Action failed");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleImport = async () => {
+    const approvedIds = products.filter(p => p.status === "approved" && selected.has(p.id)).map(p => p.id);
+    if (approvedIds.length === 0) {
+      setError("Select approved products to import");
+      return;
+    }
+    
+    if (!confirm(`Import ${approvedIds.length} products to your store?`)) return;
+    
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/admin/import/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productIds: approvedIds }),
+      });
+      
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Import failed");
+      }
+      
+      setSelected(new Set());
+      fetchProducts();
+      alert(`Successfully imported ${data.imported} products!`);
+    } catch (e: any) {
+      setError(e?.message || "Import failed");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSingleAction = async (id: number, action: string) => {
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/admin/import/queue", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [id], action }),
+      });
+      
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Action failed");
+      }
+      
+      fetchProducts();
+    } catch (e: any) {
+      setError(e?.message || "Action failed");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const startEdit = (product: QueueProduct) => {
+    setEditingId(product.id);
+    setEditData({
+      name_en: product.name_en,
+      name_ar: product.name_ar || "",
+      category: product.category,
+      admin_notes: product.admin_notes || "",
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editingId) return;
+    
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/admin/import/queue", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [editingId], action: "update", data: editData }),
+      });
+      
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Update failed");
+      }
+      
+      setEditingId(null);
+      setEditData({});
+      fetchProducts();
+    } catch (e: any) {
+      setError(e?.message || "Update failed");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const exportCsv = () => {
+    const headers = ["ID", "CJ Product ID", "Name", "Category", "Price USD", "Stock", "Rating", "Status", "Created"];
+    const rows = products.map(p => [
+      p.id,
+      p.cj_product_id,
+      `"${p.name_en.replace(/"/g, '""')}"`,
+      p.category,
+      p.cj_price_usd,
+      p.stock_total,
+      p.supplier_rating,
+      p.status,
+      new Date(p.created_at).toLocaleDateString(),
+    ]);
+    
+    const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `queue-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const totalPages = Math.ceil(total / limit);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Import Queue</h1>
+          <p className="text-sm text-gray-500 mt-1">قائمة انتظار الاستيراد - Review and approve products</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={exportCsv}
+            className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm hover:bg-gray-50"
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </button>
+          <Link
+            href="/admin/import/discover"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+          >
+            Discover Products
+          </Link>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-4 gap-4">
+        {Object.entries(stats).map(([status, count]) => {
+          const colors = statusColors[status] || statusColors.pending;
+          const Icon = colors.icon;
+          return (
+            <button
+              key={status}
+              onClick={() => { setStatusFilter(status); setPage(0); }}
+              className={`p-4 rounded-xl border-2 transition-all ${
+                statusFilter === status ? "border-gray-900 bg-gray-50" : "border-gray-100 hover:border-gray-200"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className={`w-10 h-10 rounded-lg ${colors.bg} flex items-center justify-center`}>
+                  <Icon className={`h-5 w-5 ${colors.text}`} />
+                </div>
+                <span className="text-2xl font-bold text-gray-900">{count}</span>
+              </div>
+              <p className="mt-2 text-sm text-gray-600 capitalize">{status}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="bg-white rounded-xl border shadow-sm p-4">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-gray-500" />
+            <span className="text-sm font-medium text-gray-700">Filter by Category:</span>
+          </div>
+          <select
+            value={categoryFilter}
+            onChange={(e) => { setCategoryFilter(e.target.value); setPage(0); }}
+            className="flex-1 max-w-md px-3 py-2 border border-gray-300 rounded-lg text-sm"
+          >
+            <option value="all">All Categories</option>
+            {localCategories
+              .filter(c => c.level === 1)
+              .map(mainCat => (
+                <optgroup key={mainCat.id} label={mainCat.name}>
+                  <option value={mainCat.slug}>All {mainCat.name}</option>
+                  {localCategories
+                    .filter(c => c.level === 2 && c.parentId === mainCat.id)
+                    .flatMap(subCat => [
+                      <option key={`sub-${subCat.id}`} value={subCat.slug}>
+                        {subCat.name}
+                      </option>,
+                      ...localCategories
+                        .filter(c => c.level === 3 && c.parentId === subCat.id)
+                        .map(leaf => (
+                          <option key={`leaf-${leaf.id}`} value={leaf.slug}>
+                            &nbsp;&nbsp;↳ {leaf.name}
+                          </option>
+                        ))
+                    ])}
+                </optgroup>
+              ))}
+          </select>
+          {categoryFilter !== "all" && (
+            <button
+              onClick={() => { setCategoryFilter("all"); setPage(0); }}
+              className="text-sm text-blue-600 hover:underline"
+            >
+              Clear filter
+            </button>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-800">
+          {error}
+        </div>
+      )}
+
+      {selected.size > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center justify-between">
+          <span className="text-blue-800 font-medium">{selected.size} products selected</span>
+          <div className="flex items-center gap-2">
+            {statusFilter === "pending" && (
+              <>
+                <button
+                  onClick={() => handleBulkAction("approve")}
+                  disabled={actionLoading}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50"
+                >
+                  <CheckCircle className="h-4 w-4" />
+                  Approve All
+                </button>
+                <button
+                  onClick={() => handleBulkAction("reject")}
+                  disabled={actionLoading}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 disabled:opacity-50"
+                >
+                  <XCircle className="h-4 w-4" />
+                  Reject All
+                </button>
+              </>
+            )}
+            {statusFilter === "approved" && (
+              <button
+                onClick={handleImport}
+                disabled={actionLoading}
+                className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                <Package className="h-4 w-4" />
+                Import to Store
+              </button>
+            )}
+            <button onClick={deselectAll} className="text-sm text-gray-500 hover:underline ml-2">
+              Clear Selection
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+        <div className="p-4 border-b flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button onClick={selectAll} className="text-sm text-blue-600 hover:underline">Select All</button>
+            <span className="text-gray-300">|</span>
+            <span className="text-sm text-gray-500">
+              Showing {products.length} of {total} products
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(Math.max(0, page - 1))}
+              disabled={page === 0}
+              className="p-1.5 border rounded hover:bg-gray-50 disabled:opacity-30"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="text-sm text-gray-600">
+              Page {page + 1} of {totalPages || 1}
+            </span>
+            <button
+              onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
+              disabled={page >= totalPages - 1}
+              className="p-1.5 border rounded hover:bg-gray-50 disabled:opacity-30"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="p-12 text-center text-gray-500">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3" />
+            Loading...
+          </div>
+        ) : products.length === 0 ? (
+          <div className="p-12 text-center text-gray-500">
+            <Package className="h-12 w-12 mx-auto mb-3 opacity-50" />
+            <p>No products in queue</p>
+            <Link href="/admin/import/discover" className="text-blue-600 hover:underline text-sm mt-2 inline-block">
+              Discover products to import
+            </Link>
+          </div>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="bg-gray-50 border-b">
+                <th className="w-10 px-4 py-3"></th>
+                <th className="w-20 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Image</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier SKU</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="w-32 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {products.map((product) => {
+                const isSelected = selected.has(product.id);
+                const colors = statusColors[product.status] || statusColors.pending;
+                const StatusIcon = colors.icon;
+                
+                return editingId === product.id ? (
+                  <tr key={product.id} className="bg-blue-50">
+                    <td colSpan={10} className="px-4 py-4">
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">English Name</label>
+                            <input
+                              type="text"
+                              value={editData.name_en || ""}
+                              onChange={(e) => setEditData(d => ({ ...d, name_en: e.target.value }))}
+                              className="w-full px-3 py-2 border rounded text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Arabic Name</label>
+                            <input
+                              type="text"
+                              value={editData.name_ar || ""}
+                              onChange={(e) => setEditData(d => ({ ...d, name_ar: e.target.value }))}
+                              className="w-full px-3 py-2 border rounded text-sm"
+                              dir="rtl"
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
+                            <input
+                              type="text"
+                              value={editData.category || ""}
+                              onChange={(e) => setEditData(d => ({ ...d, category: e.target.value }))}
+                              className="w-full px-3 py-2 border rounded text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Admin Notes</label>
+                            <input
+                              type="text"
+                              value={editData.admin_notes || ""}
+                              onChange={(e) => setEditData(d => ({ ...d, admin_notes: e.target.value }))}
+                              className="w-full px-3 py-2 border rounded text-sm"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={saveEdit}
+                            disabled={actionLoading}
+                            className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                          >
+                            Save Changes
+                          </button>
+                          <button
+                            onClick={() => { setEditingId(null); setEditData({}); }}
+                            className="px-4 py-2 border rounded text-sm hover:bg-gray-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={product.id} className={isSelected ? "bg-blue-50" : "hover:bg-gray-50"}>
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelect(product.id)}
+                        className="rounded border-gray-300"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
+                        {product.images[0] ? (
+                          <img
+                            src={product.images[0]}
+                            alt={product.name_en}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-400">
+                            <Package className="h-6 w-6" />
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-gray-900 line-clamp-2">{product.name_en}</p>
+                      {product.name_ar && (
+                        <p className="text-sm text-gray-500 line-clamp-1" dir="rtl">{product.name_ar}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-mono text-xs text-blue-600" title={product.cj_product_id}>
+                        {product.cj_product_id.length > 12 ? `...${product.cj_product_id.slice(-8)}` : product.cj_product_id}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="px-2 py-1 bg-gray-100 rounded text-xs text-gray-700">{product.category}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-green-600">${product.cj_price_usd?.toFixed(2) || "0.00"}</p>
+                      {product.calculated_retail_sar && (
+                        <p className="text-xs text-gray-500">Retail: ${product.calculated_retail_sar}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="text-gray-900">{product.stock_total}</p>
+                      <p className="text-xs text-gray-500">{product.variants?.length || 0} variants</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        <Star className="h-4 w-4 text-amber-400" />
+                        <span>{product.supplier_rating?.toFixed(1) || "4.0"}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${colors.bg} ${colors.text}`}>
+                        <StatusIcon className="h-3 w-3" />
+                        {product.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        {product.status === "pending" && (
+                          <>
+                            <button
+                              onClick={() => handleSingleAction(product.id, "approve")}
+                              disabled={actionLoading}
+                              className="p-1.5 text-green-600 hover:bg-green-50 rounded"
+                              title="Approve"
+                            >
+                              <CheckCircle className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleSingleAction(product.id, "reject")}
+                              disabled={actionLoading}
+                              className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                              title="Reject"
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => startEdit(product)}
+                          className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
+                          title="Edit"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        <Link
+                          href={`/admin/cj/product/${product.cj_product_id}`}
+                          className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
+                          title="View Details"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
