@@ -59,6 +59,7 @@ export type FullCategory = {
   label: string;
   image?: string; // Square or 4:3 works best
   children?: FullCategoryChild[];
+  groups?: Array<{ groupName: string; items: FullCategoryChild[] }>;
 };
 
 export const FULL_CATEGORIES: FullCategory[] = [

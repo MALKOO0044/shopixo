@@ -1148,6 +1148,16 @@ async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
+export async function getProductVariants(pid: string): Promise<any[]> {
+  if (!pid) return [];
+  const res = await cjFetch<any>(`/product/variant/query?pid=${encodeURIComponent(pid)}`);
+  const data = res?.data;
+  if (Array.isArray(data)) return data;
+  const list = data?.list;
+  if (Array.isArray(list)) return list;
+  return [];
+}
+
 // --- Product Rating from Comments ---
 export async function getProductRating(pid: string): Promise<{ rating: number | null; reviewCount: number }> {
   try {
