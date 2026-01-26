@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { slugify } from "@/lib/utils/slug";
 import { hasColumn, hasTable } from "@/lib/db-features";
-<<<<<<< HEAD
 import { linkProductToMultipleCategories } from "@/lib/category-intelligence";
 
 // Helper to find category by name/slug/CJ-link and link product to category hierarchy
@@ -169,8 +168,6 @@ async function linkProductToCategory(admin: any, productId: number, categoryName
     return false;
   }
 }
-=======
->>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -179,19 +176,10 @@ function getSupabaseAdmin() {
   return createClient(url, key);
 }
 
-<<<<<<< HEAD
 const DEFAULT_SHIPPING_USD = 5;
 const DEFAULT_PAYMENT_FEE_PERCENT = 2.9;
 const DEFAULT_MARGIN_PERCENT = 40;
 const DEFAULT_MIN_PROFIT_USD = 10;
-=======
-const USD_TO_SAR = 3.75;
-const DEFAULT_SHIPPING_USD = 5;
-const DEFAULT_VAT_PERCENT = 15;
-const DEFAULT_PAYMENT_FEE_PERCENT = 2.9;
-const DEFAULT_MARGIN_PERCENT = 40;
-const DEFAULT_MIN_PROFIT_SAR = 35;
->>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
 async function calculateRetailPrice(costUsd: number, shippingUsd: number | null, category: string, admin: any): Promise<{
   retailSar: number;
@@ -212,7 +200,6 @@ async function calculateRetailPrice(costUsd: number, shippingUsd: number | null,
 
   const pricingRule = categoryRule || defaultRule || {
     margin_percent: DEFAULT_MARGIN_PERCENT,
-<<<<<<< HEAD
     min_profit_usd: DEFAULT_MIN_PROFIT_USD,
     payment_fee_percent: DEFAULT_PAYMENT_FEE_PERCENT,
     smart_rounding_enabled: true,
@@ -246,53 +233,10 @@ async function calculateRetailPrice(costUsd: number, shippingUsd: number | null,
       const targets = (pricingRule.rounding_targets as number[]).sort((a, b) => a - b);
       const closest = targets.find(t => t >= retailUsd) || targets[targets.length - 1];
       retailUsd = closest;
-=======
-    min_profit_sar: DEFAULT_MIN_PROFIT_SAR,
-    vat_percent: DEFAULT_VAT_PERCENT,
-    payment_fee_percent: DEFAULT_PAYMENT_FEE_PERCENT,
-    smart_rounding_enabled: true,
-    rounding_targets: [49, 79, 99, 149, 199, 249, 299],
-  };
-
-  const vatPercent = pricingRule.vat_percent ?? DEFAULT_VAT_PERCENT;
-  const paymentFeePercent = pricingRule.payment_fee_percent ?? DEFAULT_PAYMENT_FEE_PERCENT;
-  const marginPercent = pricingRule.margin_percent ?? DEFAULT_MARGIN_PERCENT;
-  const minProfitSar = pricingRule.min_profit_sar ?? DEFAULT_MIN_PROFIT_SAR;
-
-  const effectiveShippingUsd = shippingUsd ?? DEFAULT_SHIPPING_USD;
-
-  const baseSar = costUsd * USD_TO_SAR;
-  const shippingSar = effectiveShippingUsd * USD_TO_SAR;
-  const subtotal = baseSar + shippingSar;
-  
-  const vat = subtotal * (vatPercent / 100);
-  const afterVat = subtotal + vat;
-  const paymentFee = afterVat * (paymentFeePercent / 100);
-  const landed = afterVat + paymentFee;
-  const margin = landed * (marginPercent / 100);
-  let retailSar = landed + margin;
-
-  if (pricingRule.smart_rounding_enabled && pricingRule.rounding_targets?.length > 0) {
-    const targets = (pricingRule.rounding_targets as number[]).sort((a, b) => a - b);
-    const closest = targets.find(t => t >= retailSar) || targets[targets.length - 1];
-    retailSar = closest;
-  } else {
-    retailSar = Math.ceil(retailSar);
-  }
-
-  const profit = retailSar - landed;
-  if (profit < minProfitSar) {
-    retailSar = landed + minProfitSar;
-    if (pricingRule.smart_rounding_enabled && pricingRule.rounding_targets?.length > 0) {
-      const targets = (pricingRule.rounding_targets as number[]).sort((a, b) => a - b);
-      const closest = targets.find(t => t >= retailSar) || targets[targets.length - 1];
-      retailSar = closest;
->>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
     }
   }
 
   return {
-<<<<<<< HEAD
     retailSar: Math.round(retailUsd * 100) / 100,
     marginApplied: marginPercent,
     breakdown: {
@@ -301,19 +245,6 @@ async function calculateRetailPrice(costUsd: number, shippingUsd: number | null,
       paymentFee,
       margin,
       landed,
-=======
-    retailSar: Math.round(retailSar),
-    marginApplied: marginPercent,
-    breakdown: {
-      baseSar,
-      shippingSar,
-      vat,
-      paymentFee,
-      margin,
-      landed,
-      vatPercent,
->>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
-      paymentFeePercent,
     },
   };
 }
@@ -323,7 +254,6 @@ function generateSku(prefix: string, productId: string, variantIndex: number): s
   return `${prefix}-${productId.slice(-4).toUpperCase()}-${variantIndex + 1}-${random}`;
 }
 
-<<<<<<< HEAD
 // Clean HTML entities and STRIP ALL HTML TAGS from description
 function cleanDescription(html: string | null | undefined): string {
   if (!html) return '';
@@ -419,8 +349,6 @@ function cleanSpecifications(specs: any): Record<string, any> {
   return cleaned;
 }
 
-=======
->>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
   const s = slugify(base);
   let candidate = s;
@@ -508,7 +436,6 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-<<<<<<< HEAD
         const rawVariantPricing = typeof qp.variant_pricing === 'string' ? JSON.parse(qp.variant_pricing) : (qp.variant_pricing || []);
         const rawVariants = typeof qp.variants === 'string' ? JSON.parse(qp.variants) : (qp.variants || []);
         
@@ -516,7 +443,7 @@ export async function POST(req: NextRequest) {
         const colorImageMap: Record<string, string> = typeof qp.color_image_map === 'string' 
           ? JSON.parse(qp.color_image_map) 
           : (qp.color_image_map || {});
-        
+
         const hasValidVariantPricing = rawVariantPricing.length > 0 && rawVariantPricing.some((vp: any) => vp.price > 0 && vp.costPrice > 0);
         
         const avgProductCostUsd = qp.cj_product_cost || qp.cj_price_usd || 0;
@@ -591,38 +518,10 @@ export async function POST(req: NextRequest) {
           title: qp.name_en,
           slug: baseSlug,
           price: minVariantPrice,
-=======
-        const avgPrice = qp.cj_price_usd ?? 0;
-        const shippingCost = qp.shipping_cost_usd ?? DEFAULT_SHIPPING_USD;
-        const pricing = await calculateRetailPrice(avgPrice, shippingCost, qp.category || "General", admin);
-
-        const rawVariants = typeof qp.variants === 'string' ? JSON.parse(qp.variants) : (qp.variants || []);
-        const variants = rawVariants.map((v: any, i: number) => ({
-          sku: generateSku("CJ", qp.cj_product_id, i),
-          cj_sku: v.cjSku || v.vid || null,
-          size: v.size || null,
-          color: v.color || null,
-          price_sar: pricing.retailSar,
-          cost_usd: v.price || avgPrice,
-          stock: Math.max(0, (v.stock || 0) - 5),
-          weight_g: v.weight || v.weightGrams || null,
-          image_url: v.imageUrl || v.image || v.whiteImage || null,
-        }));
-
-        const totalStock = variants.reduce((sum: number, v: any) => sum + (v.stock || 0), 0);
-        const rawImages = typeof qp.images === 'string' ? JSON.parse(qp.images) : (qp.images || []);
-        const baseSlug = await ensureUniqueSlug(admin, qp.name_en);
-
-        const productPayload: Record<string, any> = {
-          title: qp.name_en,
-          slug: baseSlug,
-          price: pricing.retailSar,
->>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           category: qp.category || "General",
           stock: totalStock,
         };
 
-<<<<<<< HEAD
         const rawSpecifications = typeof qp.specifications === 'string' ? JSON.parse(qp.specifications) : (qp.specifications || {});
         const rawSellingPoints = typeof qp.selling_points === 'string' ? JSON.parse(qp.selling_points) : (qp.selling_points || []);
         
@@ -669,20 +568,12 @@ export async function POST(req: NextRequest) {
           images: rawImages,
           video_url: qp.video_url || null,
           is_active: totalStock === null || totalStock > 0,
-=======
-        const optionalFields: Record<string, any> = {
-          description: qp.description_en || '',
-          images: rawImages,
-          video_url: qp.video_url || null,
-          is_active: totalStock > 0,
->>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           cj_product_id: qp.cj_product_id,
           supplier_sku: qp.cj_sku || `CJ-${qp.cj_product_id}`,
           free_shipping: true,
           processing_time_hours: qp.processing_days ? qp.processing_days * 24 : null,
           delivery_time_hours: qp.delivery_days_max ? qp.delivery_days_max * 24 : null,
           variants: variants.length > 0 ? variants : null,
-<<<<<<< HEAD
           weight_g: qp.weight_g || null,
           weight_grams: qp.weight_g || null,
           pack_length: qp.pack_length || null,
@@ -703,22 +594,16 @@ export async function POST(req: NextRequest) {
           cj_category_id: qp.cj_category_id || null,
           rating: qp.supplier_rating ?? null,
           review_count: qp.total_sales ?? null,
-=======
->>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         };
 
         await omitMissingColumns(optionalFields, [
           'description', 'images', 'video_url', 'is_active', 'cj_product_id',
           'free_shipping', 'processing_time_hours', 'delivery_time_hours',
-<<<<<<< HEAD
           'supplier_sku', 'variants', 'weight_g', 'weight_grams', 'pack_length', 'pack_width', 
           'pack_height', 'material', 'origin_country', 'origin_country_code', 'hs_code',
           'size_chart_images', 'available_sizes', 'available_colors', 'has_variants',
           'min_price', 'max_price', 'specifications', 'selling_points',
           'cj_category_id', 'rating', 'review_count'
-=======
-          'supplier_sku', 'variants'
->>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
         ]);
 
         const fullPayload = { ...productPayload, ...optionalFields };
@@ -752,7 +637,6 @@ export async function POST(req: NextRequest) {
         }
 
         if (hasVariantsTable && variants.length > 0) {
-<<<<<<< HEAD
           // Create proper variant rows with Color/Size format
           const variantRows = variants.map((v: any) => {
             const hasColor = v.color && v.color.trim();
@@ -784,21 +668,10 @@ export async function POST(req: NextRequest) {
               image_url: v.image_url || null,
             };
           });
-=======
-          const variantRows = variants.map((v: any) => ({
-            product_id: productId,
-            option_name: v.size ? 'Size' : (v.color ? 'Color' : 'Default'),
-            option_value: v.size || v.color || 'Default',
-            cj_sku: v.cj_sku || null,
-            price: v.price_sar,
-            stock: v.stock,
-          }));
->>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
 
           await admin.from('product_variants').insert(variantRows);
         }
 
-<<<<<<< HEAD
         // Link product to category - prefer direct Supabase category ID if available
         const categoryToLink = qp.category_name || qp.category || "General";
         const productTitle = qp.name_en || "";
@@ -828,21 +701,15 @@ export async function POST(req: NextRequest) {
           console.log(`[Import] Product ${productId} linked to ${categoryResult.categoriesLinked} categories`);
         }
 
-=======
->>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
+
         await admin
           .from('product_queue')
           .update({
             status: 'imported',
             shopixo_product_id: productId,
             imported_at: new Date().toISOString(),
-<<<<<<< HEAD
             calculated_retail_sar: minVariantPrice,
             margin_applied: pricing?.marginApplied || 8
-=======
-            calculated_retail_sar: pricing.retailSar,
-            margin_applied: pricing.marginApplied
->>>>>>> fc62bdeaefdbf0622b0b0c952aa693da1368ee80
           })
           .eq('id', qp.id);
 
