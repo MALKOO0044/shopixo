@@ -1,0 +1,236 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+ 
+@layer base {
+  :root {
+    --bg: 0 0% 100%;
+    --surface: 0 0% 100%;
+    --text-primary: 0 0% 7%;
+    --text-secondary: 0 0% 32%;
+    --muted-foreground: 0 0% 45%;
+
+    --brand-red: 0 85% 45%;
+    --brand-red-dark: 0 85% 38%;
+    --brand-orange: 25 95% 53%;
+    --brand-error: 0 65% 50%;
+    --brand-success: 123 43% 39%;
+    --bg-secondary: 0 0% 97%;
+
+    --accent-start-hex: #e31e24;
+    --accent-end-hex: #ff4444;
+
+    --radius-lg: 8px;
+    --radius-btn: 4px;
+    --radius-sm: 4px;
+    --radius-image: 8px;
+    --radius: var(--radius-lg);
+
+    --shadow-soft: 0 2px 8px rgba(0,0,0,0.08);
+    --shadow-hover: 0 4px 16px rgba(0,0,0,0.12);
+
+    --background: var(--bg);
+    --foreground: var(--text-primary);
+    --card: var(--surface);
+    --card-foreground: var(--text-primary);
+    --popover: var(--surface);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--brand-red);
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 20%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: var(--bg-secondary);
+    --accent: var(--brand-red);
+    --accent-foreground: 0 0% 100%;
+    --destructive: var(--brand-error);
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: var(--brand-red);
+  }
+
+  .dark {
+    --bg: 0 0% 7%;
+    --surface: 0 0% 10%;
+    --text-primary: 0 0% 98%;
+    --text-secondary: 0 0% 75%;
+    --muted-foreground: 0 0% 60%;
+
+    --brand-red: 0 85% 50%;
+    --brand-red-dark: 0 85% 42%;
+    --brand-orange: 25 95% 55%;
+    --brand-error: 0 70% 58%;
+    --brand-success: 123 45% 48%;
+    --bg-secondary: 0 0% 12%;
+
+    --accent-start-hex: #ff3333;
+    --accent-end-hex: #ff5555;
+
+    --shadow-soft: 0 2px 8px rgba(255,255,255,0.06);
+    --shadow-hover: 0 4px 16px rgba(255,255,255,0.08);
+
+    --background: var(--bg);
+    --foreground: var(--text-primary);
+    --card: var(--surface);
+    --card-foreground: var(--text-primary);
+    --popover: var(--surface);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--brand-red);
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 30%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: var(--bg-secondary);
+    --accent: var(--brand-red);
+    --accent-foreground: 0 0% 100%;
+    --destructive: var(--brand-error);
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: var(--brand-red);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  h1, h2, h3 {
+    font-family: Inter, ui-sans-serif, system-ui;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  h1 { font-size: 28px; }
+  h2 { font-size: 20px; }
+  h3 { font-size: 16px; }
+  @media (max-width: 768px) {
+    body { font-size: 13px; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 18px; }
+    h3 { font-size: 15px; }
+  }
+}
+
+html, body { height: 100%; overflow-x: hidden; }
+
+/* Disable drag-scrolling sitewide - prevent click-and-drag from moving page content */
+* {
+  -webkit-user-drag: none;
+  -khtml-user-drag: none;
+  -moz-user-drag: none;
+  -o-user-drag: none;
+  user-drag: none;
+}
+
+html {
+  -webkit-overflow-scrolling: auto;
+  overscroll-behavior: none;
+}
+
+body {
+  overscroll-behavior: none;
+  touch-action: pan-y pinch-zoom;
+}
+
+/* Prevent images from being dragged */
+img {
+  -webkit-user-drag: none;
+  -khtml-user-drag: none;
+  -moz-user-drag: none;
+  -o-user-drag: none;
+  user-drag: none;
+  pointer-events: auto;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Prevent link/anchor drag */
+a {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+/* Allow text selection in form inputs and textareas */
+input, textarea, [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.container { @apply mx-auto max-w-[1200px] px-4; }
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -3rem;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-soft);
+  transition: top 0.15s ease;
+  z-index: 50;
+}
+.skip-link:focus {
+  top: 0.5rem;
+}
+
+.shadow-soft { box-shadow: var(--shadow-soft); }
+.hover\:shadow-soft:hover { box-shadow: var(--shadow-hover); }
+.rounded-image { border-radius: var(--radius-image); }
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: var(--radius-btn);
+  background: hsl(var(--primary));
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+  transition: background 0.15s ease;
+}
+.btn-primary:hover { background: hsl(var(--brand-red-dark)); }
+
+.btn-red {
+  background: #e31e24;
+  color: white;
+  font-weight: 600;
+  border-radius: 2px;
+  transition: background 0.15s;
+}
+.btn-red:hover { background: #c91a1f; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-fade-in { animation: fadeIn 0.3s ease-out; }
+.animate-slide-in { animation: slideIn 0.3s ease-out; }
+.animate-pulse-slow { animation: pulse 2s infinite; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #f1f1f1; }
+::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #aaa; }
+
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
