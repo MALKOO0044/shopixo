@@ -7,33 +7,7 @@ type PreviewPageOneProps = {
   product: PricedProduct;
 };
 
-function calculateEstimatedRating(listedNum: number): { rating: number; reviewCount: number } {
-  let rating: number;
-  if (listedNum >= 2000) {
-    rating = 4.8;
-  } else if (listedNum >= 1000) {
-    rating = 4.7;
-  } else if (listedNum >= 500) {
-    rating = 4.5;
-  } else if (listedNum >= 200) {
-    rating = 4.3;
-  } else if (listedNum >= 100) {
-    rating = 4.2;
-  } else if (listedNum >= 50) {
-    rating = 4.0;
-  } else if (listedNum >= 20) {
-    rating = 3.9;
-  } else {
-    rating = 3.8;
-  }
-  
-  const reviewCount = listedNum >= 10 
-    ? Math.round(listedNum * 0.15) 
-    : Math.max(5, Math.round(listedNum * 0.5 + 3));
-  
-  return { rating, reviewCount };
-}
-
+// Component to display actual CJ rating with stars
 function StarRating({ rating, reviewCount }: { rating: number; reviewCount: number }) {
   const fullStars = Math.floor(rating);
   const hasHalfStar = rating - fullStars >= 0.3;
@@ -65,7 +39,7 @@ function StarRating({ rating, reviewCount }: { rating: number; reviewCount: numb
         <div className="group relative">
           <Info className="h-4 w-4 text-gray-400 cursor-help" />
           <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-3 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10">
-            Shopixo estimated rating based on supplier data and product popularity
+            Actual rating from CJ Dropshipping customer reviews
           </div>
         </div>
       </div>
@@ -125,9 +99,15 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
     : [];
 
   const imageCount = product.images?.length || 0;
-  const { rating, reviewCount } = calculateEstimatedRating(product.listedNum);
   
-  console.log(`[PreviewPageOne] Product ${product.cjSku}: listedNum=${product.listedNum}, colors=${uniqueColors.length}, sizes=${uniqueSizes.length}, models=${uniqueModels.length}`);
+  // Check for REAL CJ rating data only - no fake/estimated ratings
+  const hasRealRating = product.rating !== undefined && product.rating !== null && Number.isFinite(product.rating) && product.rating > 0 && product.rating <= 5;
+  const realRating = hasRealRating ? product.rating! : null;
+  // reviewCount of -1 indicates this is a supplier rating (not customer reviews)
+  const isSupplierRating = product.reviewCount === -1;
+  const realReviewCount = hasRealRating && !isSupplierRating ? (product.reviewCount || 0) : 0;
+  
+  console.log(`[PreviewPageOne] Product ${product.cjSku}: listedNum=${product.listedNum}, cjRating=${product.rating}, hasRealRating=${hasRealRating}, isSupplierRating=${isSupplierRating}, supplierName=${product.supplierName}, colors=${uniqueColors.length}, sizes=${uniqueSizes.length}, models=${uniqueModels.length}`);
 
   return (
     <div className="flex flex-col lg:flex-row gap-8 p-4">
@@ -160,13 +140,89 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
       {/* Product Details Section */}
       <div className="lg:w-1/2 space-y-8">
         
-        {/* Rating */}
+        {/* Rating - Show supplier rating from CJ website */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-4">
             <Star className="h-5 w-5 text-amber-500" />
-            <span className="text-gray-500 font-medium">Rating</span>
+            <span className="text-gray-500 font-medium">
+              {isSupplierRating ? 'Supplier Rating' : 'Rating'}
+            </span>
           </div>
-          <StarRating rating={rating} reviewCount={reviewCount} />
+          {hasRealRating && realRating !== null ? (
+            <div className="flex flex-col gap-4">
+              {/* Overall Rating Stars */}
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1">
+                  {[...Array(5)].map((_, i) => {
+                    const filled = i < Math.floor(realRating);
+                    const half = !filled && i < realRating;
+                    return (
+                      <Star
+                        key={`star-${i}`}
+                        className={`h-6 w-6 ${filled || half ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`}
+                      />
+                    );
+                  })}
+                </div>
+                <span className="text-2xl font-bold text-gray-800">{realRating.toFixed(1)}</span>
+              </div>
+              
+              {/* Supplier Name */}
+              {isSupplierRating && product.supplierName && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <span className="font-medium">Supplier: {product.supplierName}</span>
+                </div>
+              )}
+              
+              {/* Customer Reviews Count (if not supplier rating) */}
+              {!isSupplierRating && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <span className="font-medium">{realReviewCount.toLocaleString()} reviews</span>
+                  <div className="group relative">
+                    <Info className="h-4 w-4 text-gray-400 cursor-help" />
+                    <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-3 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10">
+                      Actual rating from CJ Dropshipping customer reviews
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={`empty-${i}`} className="h-6 w-6 text-gray-300" />
+                  ))}
+                </div>
+                <span className="text-xl font-medium text-gray-400">—</span>
+              </div>
+              <div className="flex items-center gap-2 text-gray-500">
+                <span className="font-medium">No rating available</span>
+                <div className="group relative">
+                  <Info className="h-4 w-4 text-gray-400 cursor-help" />
+                  <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-3 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10">
+                    Could not fetch supplier rating for this product
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Popularity */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-4">
+            <TrendingUp className="h-5 w-5 text-green-600" />
+            <span className="text-gray-500 font-medium">Popularity</span>
+            <div className="group relative">
+              <Info className="h-4 w-4 text-gray-400 cursor-help" />
+              <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-3 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10">
+                Based on how many stores list this product on CJ Dropshipping
+              </div>
+            </div>
+          </div>
+          <PopularityDisplay listedNum={product.listedNum || 0} />
         </div>
 
         {/* SKU */}
@@ -263,15 +319,6 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
           <p className="text-lg text-gray-800 font-medium">
             {product.categoryName || "Not specified"}
           </p>
-        </div>
-
-        {/* Popularity */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <div className="flex items-center gap-3 mb-4">
-            <TrendingUp className="h-5 w-5 text-amber-500" />
-            <span className="text-gray-500 font-medium">Popularity</span>
-          </div>
-          <PopularityDisplay listedNum={product.listedNum} />
         </div>
 
         {/* Price - Single Final Sell Price */}

@@ -208,7 +208,7 @@ export default async function ProductPage({ params, searchParams }: { params: { 
   try {
     const { data: v } = await supabase
       .from("product_variants")
-      .select("id, product_id, option_name, option_value, cj_sku, cj_variant_id, price, stock")
+      .select("id, product_id, option_name, option_value, cj_sku, cj_variant_id, price, stock, image_url")
       .eq("product_id", (product as any).id)
       .order("option_value", { ascending: true });
     variantRows = (v as any) || [];
@@ -241,7 +241,19 @@ export default async function ProductPage({ params, searchParams }: { params: { 
   const debug = (searchParams?.debugMedia || "").toString() === '1' || (searchParams?.debugMedia || "").toString().toLowerCase() === 'true';
 
   return (
-    <div className="container py-10">
+    <div className="w-full px-2 md:px-4 pt-1 md:pt-2">
+      {/* Breadcrumb */}
+      <nav className="text-xs text-muted-foreground mb-2 flex items-center gap-1 flex-wrap">
+        <a href="/" className="hover:text-primary">Home</a>
+        <span>/</span>
+        {product.category && (
+          <>
+            <a href={`/category/${(product.category || "").toLowerCase().replace(/\s+/g, '-')}`} className="hover:text-primary">{product.category}</a>
+            <span>/</span>
+          </>
+        )}
+        <span className="text-foreground truncate max-w-[200px]">{product.title}</span>
+      </nav>
       {debug && (
         <pre className="mb-4 overflow-auto rounded bg-muted p-3 text-xs" dir="ltr">
 {JSON.stringify({

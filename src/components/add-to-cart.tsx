@@ -4,6 +4,8 @@ import { addItem } from "@/lib/cart-actions";
 import { useFormState, useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useCartCount } from "@/components/cart/CartCountProvider";
+import { useEffect, useRef } from "react";
 
 function SubmitButton({ disabled }: { disabled: boolean }) {
   const { pending } = useFormStatus();
@@ -39,6 +41,15 @@ export default function AddToCart({
   onQuantityChange?: (q: number) => void,
 }) {
   const [state, formAction] = useFormState(addItem, null);
+  const { setCount } = useCartCount();
+  const prevStateRef = useRef(state);
+
+  useEffect(() => {
+    if (state?.success && state !== prevStateRef.current && typeof state.count === 'number') {
+      setCount(state.count);
+    }
+    prevStateRef.current = state;
+  }, [state, setCount]);
 
   return (
     <form action={formAction} className="mt-6 flex items-stretch gap-4">

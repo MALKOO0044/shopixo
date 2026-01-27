@@ -81,6 +81,7 @@ export type PricedProduct = {
   packingList?: string;
   rating?: number;
   reviewCount?: number;
+  supplierName?: string;
   categoryName?: string;
   productWeight?: number;
   packLength?: number;
@@ -99,4 +100,5 @@ export type PricedProduct = {
   availableSizes?: string[];
   availableColors?: string[];
   availableModels?: string[];
+  colorImageMap?: Record<string, string>;
 };

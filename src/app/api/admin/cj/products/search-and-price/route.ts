@@ -4,6 +4,7 @@ import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 import { usdToSar, computeRetailFromLanded } from '@/lib/pricing';
+import { scrapeSupplierRating, SupplierRating } from '@/lib/cj/scrape-supplier-rating';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -95,6 +96,10 @@ type PricedProduct = {
   packingList?: string;
   rating?: number;
   reviewCount?: number;
+  supplierName?: string;
+  itemAsDescribed?: number;
+  serviceRating?: number;
+  shippingSpeedRating?: number;
   categoryName?: string;
   productWeight?: number;
   packLength?: number;
@@ -113,6 +118,7 @@ type PricedProduct = {
   availableSizes?: string[];
   availableColors?: string[];
   availableModels?: string[];
+  colorImageMap?: Record<string, string>;
 };
 
 async function fetchCjProductPage(
@@ -472,17 +478,6 @@ async function handleSearch(req: Request, isPost: boolean) {
       return r;
     }
     
-    // Rating estimation function (same algorithm as preview)
-    function calculateEstimatedRating(listedNum: number): number {
-      if (listedNum >= 2000) return 4.8;
-      if (listedNum >= 1000) return 4.7;
-      if (listedNum >= 500) return 4.5;
-      if (listedNum >= 200) return 4.3;
-      if (listedNum >= 100) return 4.2;
-      if (listedNum >= 50) return 4.0;
-      if (listedNum >= 20) return 3.9;
-      return 3.8;
-    }
     const requestedSizes = sizesParam ? sizesParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : [];
 
     console.log(`[Search&Price] ========================================`);
@@ -689,13 +684,47 @@ async function handleSearch(req: Request, isPost: boolean) {
         console.log(`[Search&Price] Product ${pid} - Failed to fetch details: ${e?.message}`);
       }
       
-      // Fetch rating for this product
+      // Extract supplier info directly from CJ API response (item or fullDetails)
+      const rawSource = fullDetails || item;
+      const apiSupplierName = rawSource.supplierName || rawSource.supplier?.name || null;
+      const apiSupplierRating = Number(rawSource.supplierRating || rawSource.supplierScore || rawSource.starCount || rawSource.star_count || rawSource.supplier?.rating || rawSource.supplier?.starCount || 0);
+      
+      // Log all rating-related fields from CJ API for debugging
+      const ratingFields = Object.entries(rawSource).filter(([k]) => 
+        /rating|score|star|review|comment|supplier/i.test(k)
+      );
+      if (ratingFields.length > 0) {
+        console.log(`[Search&Price] Product ${pid} - Rating/Supplier fields in CJ response:`, JSON.stringify(Object.fromEntries(ratingFields)));
+      }
+      
+      if (apiSupplierRating > 0) {
+        console.log(`[Search&Price] Product ${pid} - Found supplier rating from API: ${apiSupplierRating} stars (${apiSupplierName})`);
+      }
+      
+      // SCRAPE SUPPLIER RATING from CJ website if API doesn't provide it
+      let scrapedSupplierRating: SupplierRating | null = null;
+      if (apiSupplierRating === 0) {
+        try {
+          const productSku = item.sku || item.productSku || rawSource.sku || null;
+          const productName = item.nameEn || item.name || item.productName || null;
+          scrapedSupplierRating = await scrapeSupplierRating(pid, productSku, productName);
+          if (scrapedSupplierRating && scrapedSupplierRating.overallRating > 0) {
+            console.log(`[Search&Price] Product ${pid} - Scraped supplier rating: ${scrapedSupplierRating.overallRating} stars (${scrapedSupplierRating.supplierName})`);
+          }
+        } catch (e: any) {
+          console.log(`[Search&Price] Product ${pid} - Failed to scrape supplier rating: ${e?.message}`);
+        }
+      }
+      
+      // Fetch customer reviews from productComments API (fallback only)
       let productRating: { rating: number | null; reviewCount: number } | undefined;
-      try {
-        const ratingsMap = await getProductRatings([pid]);
-        productRating = ratingsMap.get(pid);
-      } catch (e: any) {
-        console.log(`[Search&Price] Product ${pid} - Failed to fetch rating: ${e?.message}`);
+      if (apiSupplierRating === 0 && (!scrapedSupplierRating || scrapedSupplierRating.overallRating === 0)) {
+        try {
+          const ratingsMap = await getProductRatings([pid]);
+          productRating = ratingsMap.get(pid);
+        } catch (e: any) {
+          console.log(`[Search&Price] Product ${pid} - Failed to fetch rating: ${e?.message}`);
+        }
       }
       
       // CRITICAL: Fetch REAL inventory data from CJ's dedicated inventory API
@@ -931,21 +960,75 @@ async function handleSearch(req: Request, isPost: boolean) {
       const source = fullDetails || item;
       const rawDescriptionHtml = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
       
-      // Get rating from productComments API (reliable source)
+      // Get rating - try multiple sources in priority order:
+      // 1. SCRAPED supplier rating (from CJ website - "Offer by Supplier" section)
+      // 2. productComments API (calculated from user reviews)
+      // 3. fullDetails.rating (from listV2 API - may contain product rating field)
+      // 4. source.rating (from product listing or details)
       let rating: number | undefined = undefined;
       let reviewCount = 0;
-      if (productRating && productRating.rating !== null && productRating.rating !== undefined) {
-        // Ensure rating is a number (CJ API may return strings)
+      let ratingSource = 'none';
+      let supplierName: string | undefined = undefined;
+      let itemAsDescribed: number | undefined = undefined;
+      let serviceRating: number | undefined = undefined;
+      let shippingSpeedRating: number | undefined = undefined;
+      
+      // Source 1: Supplier rating from CJ API (highest priority)
+      if (apiSupplierRating > 0 && apiSupplierRating <= 5) {
+        rating = apiSupplierRating;
+        ratingSource = 'supplier (API)';
+        supplierName = apiSupplierName || undefined;
+        reviewCount = -1; // Special marker for "supplier rating" vs "customer reviews"
+      }
+      
+      // Source 2: SCRAPED supplier rating from CJ website (second priority)
+      if (rating === undefined && scrapedSupplierRating && scrapedSupplierRating.overallRating > 0) {
+        rating = scrapedSupplierRating.overallRating;
+        ratingSource = 'supplier (scraped)';
+        supplierName = scrapedSupplierRating.supplierName || undefined;
+        reviewCount = -1; // Special marker for "supplier rating" vs "customer reviews"
+      }
+      
+      // Source 3: productComments API (fallback - customer reviews)
+      if (rating === undefined && productRating && productRating.rating !== null && productRating.rating !== undefined) {
         const parsedRating = Number(productRating.rating);
-        if (Number.isFinite(parsedRating) && parsedRating > 0) {
+        if (Number.isFinite(parsedRating) && parsedRating > 0 && parsedRating <= 5) {
           rating = parsedRating;
           reviewCount = Number(productRating.reviewCount) || 0;
-          console.log(`[Search&Price] Product ${pid}: Rating ${rating} from comments API (${reviewCount} reviews)`);
-        } else {
-          console.log(`[Search&Price] Product ${pid}: Invalid rating value: ${productRating.rating}`);
+          ratingSource = 'comments API';
         }
+      }
+      
+      // Source 3: fullDetails (from listV2 merge)
+      if (rating === undefined && fullDetails) {
+        const detailsRating = fullDetails.rating ?? fullDetails.productRating ?? fullDetails.score ?? fullDetails.avgScore;
+        if (detailsRating !== undefined && detailsRating !== null) {
+          const parsedRating = Number(detailsRating);
+          if (Number.isFinite(parsedRating) && parsedRating > 0 && parsedRating <= 5) {
+            rating = parsedRating;
+            reviewCount = Number(fullDetails.reviewCount ?? fullDetails.ratingCount ?? fullDetails.evaluateCount ?? 0);
+            ratingSource = 'product details';
+          }
+        }
+      }
+      
+      // Source 4: item from product listing
+      if (rating === undefined && item) {
+        const itemRating = item.rating ?? item.productRating ?? item.score ?? item.avgScore;
+        if (itemRating !== undefined && itemRating !== null) {
+          const parsedRating = Number(itemRating);
+          if (Number.isFinite(parsedRating) && parsedRating > 0 && parsedRating <= 5) {
+            rating = parsedRating;
+            reviewCount = Number(item.reviewCount ?? item.ratingCount ?? item.evaluateCount ?? 0);
+            ratingSource = 'product listing';
+          }
+        }
+      }
+      
+      if (rating !== undefined) {
+        console.log(`[Search&Price] Product ${pid}: Rating ${rating} from ${ratingSource}${supplierName ? ` (Supplier: ${supplierName})` : ''}`);
       } else {
-        console.log(`[Search&Price] Product ${pid}: No rating available from comments API`);
+        console.log(`[Search&Price] Product ${pid}: No rating available from any source`);
       }
       
       const categoryName = String(source.categoryName || source.categoryNameEn || source.category || '').trim() || undefined;
@@ -1443,11 +1526,47 @@ async function handleSearch(req: Request, isPost: boolean) {
       const variantImages: string[] = [];
       const seenUrls = new Set<string>();
       
+      // Build COLOR-TO-IMAGE mapping from productPropertyList (CJ's structured color data)
+      // This maps color names like "Gold", "Silver" to their specific product images
+      const colorImageMap: Record<string, string> = {};
+      const colorPropertyList = source.productPropertyList || source.propertyList || source.productOptions || [];
+      if (Array.isArray(colorPropertyList)) {
+        for (const prop of colorPropertyList) {
+          const propName = String(prop.propertyNameEn || prop.propertyName || prop.name || '').toLowerCase();
+          // Check if this property is for colors
+          if (propName.includes('color') || propName.includes('colour')) {
+            const valueList = prop.propertyValueList || prop.values || prop.options || [];
+            if (Array.isArray(valueList)) {
+              for (const pv of valueList) {
+                const colorValue = String(pv.propertyValueNameEn || pv.propertyValueName || pv.value || pv.name || '').trim();
+                // Clean: remove Chinese characters, keep only clean color names
+                const cleanColor = colorValue.replace(/[\u4e00-\u9fff]/g, '').trim();
+                // Get the image for this color option
+                const colorImg = pv.image || pv.imageUrl || pv.propImage || pv.bigImage || pv.pic || '';
+                if (cleanColor && cleanColor.length > 0 && cleanColor.length < 50 && /[a-zA-Z]/.test(cleanColor)) {
+                  if (typeof colorImg === 'string' && colorImg.startsWith('http')) {
+                    colorImageMap[cleanColor] = colorImg;
+                    // Also add to variantImages list
+                    if (!seenUrls.has(colorImg)) {
+                      seenUrls.add(colorImg);
+                      variantImages.push(colorImg);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        if (Object.keys(colorImageMap).length > 0) {
+          console.log(`[Search&Price] Product ${pid}: Built colorImageMap with ${Object.keys(colorImageMap).length} colors: ${Object.keys(colorImageMap).join(', ')}`);
+        }
+      }
+      
       // First, add the main product image (this is always the hero image)
       const mainImage = item.productImage || item.image || item.bigImage;
-      if (typeof mainImage === 'string' && mainImage.startsWith('http')) {
+      if (typeof mainImage === 'string' && mainImage.startsWith('http') && !seenUrls.has(mainImage)) {
         seenUrls.add(mainImage);
-        variantImages.push(mainImage);
+        variantImages.unshift(mainImage); // Main image goes first
       }
       
       // Extract images from ALL variants (CJ only returns purchasable ones)
@@ -1476,7 +1595,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         }
       }
       
-      console.log(`[Search&Price] Product ${pid}: ${variantImages.length} images from ${variants.length} variants`);
+      console.log(`[Search&Price] Product ${pid}: ${variantImages.length} images from variants + colorImageMap`);
       
       // Build combined product info: start with productInfo, then add variant colors/sizes
       // This ensures we show BOTH material/packing specs AND variant options
@@ -1485,6 +1604,32 @@ async function handleSearch(req: Request, isPost: boolean) {
       // Initialize extracted sizes/colors for filtering
       let extractedSizes: string[] = [];
       let extractedColors: string[] = [];
+      
+      // PRIMARY SOURCE: Extract colors directly from CJ's productPropertyList (structured data)
+      // This provides the REAL color options as shown on CJ website
+      const productPropertyList = source.productPropertyList || source.propertyList || source.productOptions || [];
+      if (Array.isArray(productPropertyList)) {
+        for (const prop of productPropertyList) {
+          const propName = String(prop.propertyNameEn || prop.propertyName || prop.name || '').toLowerCase();
+          // Check if this property is for colors
+          if (propName.includes('color') || propName.includes('colour')) {
+            const valueList = prop.propertyValueList || prop.values || prop.options || [];
+            if (Array.isArray(valueList)) {
+              for (const pv of valueList) {
+                const colorValue = String(pv.propertyValueNameEn || pv.propertyValueName || pv.value || pv.name || '').trim();
+                // Clean: remove Chinese characters, keep only clean color names
+                const cleanColor = colorValue.replace(/[\u4e00-\u9fff]/g, '').trim();
+                if (cleanColor && cleanColor.length > 0 && cleanColor.length < 50 && /[a-zA-Z]/.test(cleanColor)) {
+                  extractedColors.push(cleanColor);
+                }
+              }
+            }
+          }
+        }
+        if (extractedColors.length > 0) {
+          console.log(`[Search&Price] Product ${pid}: Found ${extractedColors.length} colors from productPropertyList: ${extractedColors.join(', ')}`);
+        }
+      }
       
       // First, add base product specs (material, packing, weight, etc.)
       let baseSpecs = productInfo;
@@ -1681,14 +1826,13 @@ async function handleSearch(req: Request, isPost: boolean) {
           }
           
           // 3. Parse variantKey (may contain combined color-model like "Violet-iPhone 11Pro")
+          // Always parse for sizes/models extraction
           if (v.variantKey) {
             parseVariantValue(String(v.variantKey));
           }
           
-          // 4. Parse variantNameEn as fallback
-          if (v.variantNameEn) {
-            parseVariantValue(String(v.variantNameEn));
-          }
+          // NOTE: variantNameEn parsing REMOVED - it causes garbage data like "Retro-style shoes gold 35"
+          // Colors should come from productPropertyList (structured data) or explicit variant fields only
         }
         
         // Sanitize values - strip any HTML/script tags
@@ -1698,9 +1842,11 @@ async function handleSearch(req: Request, isPost: boolean) {
         const safeModels = [...models].map(stripHtml).filter(m => m.length > 0 && m.length < 50);
         
         // Only add to specs if not already present (avoid duplicates)
+        // Use extractedColors (from productPropertyList) if available, otherwise use variant-extracted colors
         const baseSpecsLower = (baseSpecs || '').toLowerCase();
-        if (safeColors.length > 0 && !baseSpecsLower.includes('colors:')) {
-          allSpecs.push(`Colors: ${safeColors.slice(0, 15).join(', ')}`);
+        const displayColors = extractedColors.length > 0 ? extractedColors : safeColors;
+        if (displayColors.length > 0 && !baseSpecsLower.includes('colors:')) {
+          allSpecs.push(`Colors: ${displayColors.slice(0, 15).join(', ')}`);
         }
         if (safeModels.length > 0) {
           allSpecs.push(`Compatible Devices: ${safeModels.slice(0, 25).join(', ')}`);
@@ -1711,9 +1857,12 @@ async function handleSearch(req: Request, isPost: boolean) {
         
         console.log(`[Search&Price] Product ${pid}: ${safeColors.length} colors, ${safeSizes.length} sizes, ${safeModels.length} models from ${variants.length} variants`);
         
-        // Store for later use
+        // Store for later use - preserve productPropertyList colors if they exist (they are the primary source)
         extractedSizes = safeSizes;
-        extractedColors = safeColors;
+        if (extractedColors.length === 0) {
+          // Only use variant-extracted colors if productPropertyList didn't provide any
+          extractedColors = safeColors;
+        }
         extractedModels = safeModels;
       }
       
@@ -1725,21 +1874,50 @@ async function handleSearch(req: Request, isPost: boolean) {
       // Don't add duplicate fallback here - Overview already shows Category, Material, Weight etc.
       // productInfo is specifically for variant/specification details not shown in Overview
       
-      // Use variant images if we have them, otherwise keep original images
-      if (variantImages.length > 1) {
-        images = variantImages.slice(0, 50);
-      } else if (variantImages.length === 1) {
-        // Only main image found from variants - combine with original images but limit
-        const combinedImages = [...variantImages];
-        for (const img of images) {
-          if (!seenUrls.has(img)) {
-            seenUrls.add(img);
-            combinedImages.push(img);
-          }
-        }
-        images = combinedImages.slice(0, 50);
+      // MERGE ALL IMAGES: combine extractAllImages results + variantImages (no replacement)
+      // This ensures we get the full gallery (productImageList, detailImageList) + color-specific images
+      const allImages: string[] = [];
+      const finalSeenUrls = new Set<string>();
+      
+      // 1. First add main product image (hero)
+      const heroImage = item.productImage || item.image || item.bigImage;
+      if (typeof heroImage === 'string' && heroImage.startsWith('http') && !finalSeenUrls.has(heroImage)) {
+        finalSeenUrls.add(heroImage);
+        allImages.push(heroImage);
       }
-      // else keep original images as fallback
+      
+      // 2. Add all color-specific images (from colorImageMap) - these are important for color swatches
+      for (const colorImg of Object.values(colorImageMap)) {
+        if (!finalSeenUrls.has(colorImg)) {
+          finalSeenUrls.add(colorImg);
+          allImages.push(colorImg);
+        }
+      }
+      
+      // 3. Add variant images 
+      for (const img of variantImages) {
+        if (!finalSeenUrls.has(img)) {
+          finalSeenUrls.add(img);
+          allImages.push(img);
+        }
+      }
+      
+      // 4. Add original extractAllImages results (gallery, detail images, etc.)
+      for (const img of images) {
+        if (!finalSeenUrls.has(img)) {
+          finalSeenUrls.add(img);
+          allImages.push(img);
+        }
+      }
+      
+      // Update images to merged result
+      images = allImages.slice(0, 50);
+      console.log(`[Search&Price] Product ${pid}: Final ${images.length} images (merged from all sources)`);
+      
+      // Log colorImageMap if populated (for debugging)
+      if (Object.keys(colorImageMap).length > 0) {
+        console.log(`[Search&Price] Product ${pid}: colorImageMap = ${JSON.stringify(colorImageMap)}`);
+      }
       
       const pricedVariants: PricedVariant[] = [];
       
@@ -2162,6 +2340,10 @@ async function handleSearch(req: Request, isPost: boolean) {
         packingList,
         rating,
         reviewCount,
+        supplierName,
+        itemAsDescribed,
+        serviceRating,
+        shippingSpeedRating,
         categoryName,
         productWeight,
         packLength,
@@ -2180,6 +2362,8 @@ async function handleSearch(req: Request, isPost: boolean) {
         availableSizes: extractedSizes,
         availableColors: extractedColors,
         availableModels: extractedModels,
+        // Color-to-image mapping for color swatches
+        colorImageMap: Object.keys(colorImageMap).length > 0 ? colorImageMap : undefined,
       });
       
       // Track batch progress

@@ -12,11 +12,27 @@ export default function AuthForm() {
   const searchParams = useSearchParams()
   const nextParam = (searchParams?.get("redirect") || searchParams?.get("next") || "/").toString()
   const safeNext = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/"
-  const base = (process.env.NEXT_PUBLIC_SITE_URL && process.env.NEXT_PUBLIC_SITE_URL.trim().length > 0)
-    ? process.env.NEXT_PUBLIC_SITE_URL
-    : (typeof window !== "undefined" ? window.location.origin : "")
-  const redirectTo = base ? `${base.replace(/\/$/, "")}/auth/callback` : "/auth/callback"
+  
+  // Helper to validate URLs - filter out development addresses
+  const isValidUrl = (url: string) => {
+    if (!url) return false
+    if (url.includes("0.0.0.0")) return false
+    if (url.includes("127.0.0.1")) return false
+    if (url.includes("localhost") && !url.includes("localhost.")) return false
+    return url.startsWith("https://") || url.startsWith("http://")
+  }
+  
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim() || ""
+  const windowOrigin = typeof window !== "undefined" ? window.location.origin : ""
+  // Always use the hardcoded production URL to avoid any runtime issues
+  const base = "https://shopixo.net"
+  const redirectTo = `${base}/auth/callback`
   const redirectWithNext = safeNext && safeNext !== "/" ? `${redirectTo}?next=${encodeURIComponent(safeNext)}` : redirectTo
+  
+  // Debug: log to console what URL will be used (remove after testing)
+  if (typeof window !== "undefined") {
+    console.log("[Auth Debug] siteUrl:", siteUrl, "windowOrigin:", windowOrigin, "redirectTo:", redirectTo)
+  }
 
   const [step, setStep] = useState<Step>("email")
   const [email, setEmail] = useState("")
@@ -233,7 +249,14 @@ export default function AuthForm() {
 
   async function handleOAuth(provider: "google" | "facebook") {
     setError(''); setInfo('')
-    const options: { redirectTo: string; scopes?: string; queryParams?: Record<string, string> } = { redirectTo: redirectWithNext }
+    // HARDCODE the redirect URL directly to ensure it's correct
+    const hardcodedRedirectTo = "https://shopixo.net/auth/callback"
+    
+    // Debug log BEFORE the OAuth call
+    console.log("[OAuth Debug] About to call signInWithOAuth with redirectTo:", hardcodedRedirectTo)
+    alert("Debug: redirectTo = " + hardcodedRedirectTo)
+    
+    const options: { redirectTo: string; scopes?: string; queryParams?: Record<string, string> } = { redirectTo: hardcodedRedirectTo }
     if (provider === 'facebook') {
       options.scopes = 'email public_profile'
       options.queryParams = { auth_type: 'rerequest' }

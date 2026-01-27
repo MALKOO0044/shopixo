@@ -17,13 +17,12 @@ export default function ForgotPasswordForm() {
     if (e) setEmail(e)
   }, [params])
 
-  const base = (process.env.NEXT_PUBLIC_SITE_URL && process.env.NEXT_PUBLIC_SITE_URL.trim().length > 0)
-    ? process.env.NEXT_PUBLIC_SITE_URL
-    : (typeof window !== "undefined" ? window.location.origin : "")
+  // Always use hardcoded production URL to ensure correct redirect
+  const base = "https://shopixo.net"
   const nextParam = (params?.get("redirect") || params?.get("next") || "/").toString()
   const safeNext = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/"
   const targetAfterCallback = safeNext && safeNext !== "/" ? `/reset-password?next=${encodeURIComponent(safeNext)}` : "/reset-password"
-  const redirectTo = base ? `${base.replace(/\/$/, "")}/auth/callback?next=${encodeURIComponent(targetAfterCallback)}` : `/auth/callback?next=${encodeURIComponent(targetAfterCallback)}`
+  const redirectTo = `${base}/auth/callback?next=${encodeURIComponent(targetAfterCallback)}`
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()

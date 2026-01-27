@@ -32,6 +32,7 @@ type QueueProduct = {
   shipping_cost_usd: number | null;
   calculated_retail_sar: number | null;
   supplier_rating: number;
+  total_sales: number;
   stock_total: number;
   quality_score: number;
   status: string;
@@ -39,6 +40,9 @@ type QueueProduct = {
   delivery_days_min: number;
   delivery_days_max: number;
   created_at: string;
+  available_colors?: string[];
+  available_sizes?: string[];
+  variant_pricing?: any[];
 };
 
 type Stats = {
@@ -203,6 +207,32 @@ export default function QueuePage() {
       alert(`Successfully imported ${data.imported} products!`);
     } catch (e: any) {
       setError(e?.message || "Import failed");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selected.size === 0) return;
+    
+    if (!confirm(`Delete ${selected.size} products from the queue? This cannot be undone.`)) return;
+    
+    setActionLoading(true);
+    try {
+      const ids = Array.from(selected).join(",");
+      const res = await fetch(`/api/admin/import/queue?ids=${ids}`, {
+        method: "DELETE",
+      });
+      
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Delete failed");
+      }
+      
+      setSelected(new Set());
+      fetchProducts();
+    } catch (e: any) {
+      setError(e?.message || "Delete failed");
     } finally {
       setActionLoading(false);
     }
@@ -425,6 +455,14 @@ export default function QueuePage() {
                 Import to Store
               </button>
             )}
+            <button
+              onClick={handleBulkDelete}
+              disabled={actionLoading}
+              className="flex items-center gap-1 px-3 py-1.5 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete Selected
+            </button>
             <button onClick={deselectAll} className="text-sm text-gray-500 hover:underline ml-2">
               Clear Selection
             </button>
@@ -482,11 +520,10 @@ export default function QueuePage() {
                 <th className="w-10 px-4 py-3"></th>
                 <th className="w-20 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Image</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier SKU</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Variants</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating / Sales</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="w-32 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
@@ -525,12 +562,33 @@ export default function QueuePage() {
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
-                            <input
-                              type="text"
+                            <select
                               value={editData.category || ""}
                               onChange={(e) => setEditData(d => ({ ...d, category: e.target.value }))}
                               className="w-full px-3 py-2 border rounded text-sm"
-                            />
+                            >
+                              <option value="">Select Category</option>
+                              {localCategories
+                                .filter(c => c.level === 1)
+                                .map(mainCat => (
+                                  <optgroup key={mainCat.id} label={mainCat.name}>
+                                    {localCategories
+                                      .filter(c => c.level === 2 && c.parentId === mainCat.id)
+                                      .flatMap(subCat => [
+                                        <option key={`sub-${subCat.id}`} value={subCat.name}>
+                                          {subCat.name}
+                                        </option>,
+                                        ...localCategories
+                                          .filter(c => c.level === 3 && c.parentId === subCat.id)
+                                          .map(leaf => (
+                                            <option key={`leaf-${leaf.id}`} value={leaf.name}>
+                                              ↳ {leaf.name}
+                                            </option>
+                                          ))
+                                      ])}
+                                  </optgroup>
+                                ))}
+                            </select>
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">Admin Notes</label>
@@ -587,13 +645,8 @@ export default function QueuePage() {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900 line-clamp-2">{product.name_en}</p>
-                      {product.name_ar && (
-                        <p className="text-sm text-gray-500 line-clamp-1" dir="rtl">{product.name_ar}</p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
                       <span className="font-mono text-xs text-blue-600" title={product.cj_product_id}>
-                        {product.cj_product_id.length > 12 ? `...${product.cj_product_id.slice(-8)}` : product.cj_product_id}
+                        SKU: {product.cj_product_id.length > 12 ? `...${product.cj_product_id.slice(-8)}` : product.cj_product_id}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -601,18 +654,49 @@ export default function QueuePage() {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-green-600">${product.cj_price_usd?.toFixed(2) || "0.00"}</p>
-                      {product.calculated_retail_sar && (
-                        <p className="text-xs text-gray-500">Retail: ${product.calculated_retail_sar}</p>
-                      )}
+                      <p className="text-xs text-gray-500">Stock: {product.stock_total}</p>
                     </td>
                     <td className="px-4 py-3">
-                      <p className="text-gray-900">{product.stock_total}</p>
-                      <p className="text-xs text-gray-500">{product.variants?.length || 0} variants</p>
+                      <div className="space-y-1">
+                        {product.available_colors && product.available_colors.length > 0 && (
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span className="text-xs text-gray-500">Colors:</span>
+                            <span className="text-xs font-medium text-gray-700">{product.available_colors.length}</span>
+                            <span className="text-xs text-gray-400 truncate max-w-[120px]" title={product.available_colors.join(', ')}>
+                              ({product.available_colors.slice(0, 3).join(', ')}{product.available_colors.length > 3 ? '...' : ''})
+                            </span>
+                          </div>
+                        )}
+                        {product.available_sizes && product.available_sizes.length > 0 && (
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span className="text-xs text-gray-500">Sizes:</span>
+                            <span className="text-xs font-medium text-gray-700">{product.available_sizes.length}</span>
+                            <span className="text-xs text-gray-400 truncate max-w-[120px]" title={product.available_sizes.join(', ')}>
+                              ({product.available_sizes.slice(0, 4).join(', ')}{product.available_sizes.length > 4 ? '...' : ''})
+                            </span>
+                          </div>
+                        )}
+                        {(!product.available_colors || product.available_colors.length === 0) && (!product.available_sizes || product.available_sizes.length === 0) && (
+                          <span className="text-xs text-gray-400">{product.variants?.length || 0} variants</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        <Star className="h-4 w-4 text-amber-400" />
-                        <span>{product.supplier_rating?.toFixed(1) || "4.0"}</span>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Star
+                              key={star}
+                              className={`h-3 w-3 ${
+                                star <= Math.round(product.supplier_rating || 0)
+                                  ? "fill-amber-400 text-amber-400"
+                                  : "text-gray-300"
+                              }`}
+                            />
+                          ))}
+                          <span className="text-xs font-medium ml-1">{product.supplier_rating?.toFixed(1) || "0.0"}</span>
+                        </div>
+                        <p className="text-xs text-gray-500">{product.total_sales || 0} sales</p>
                       </div>
                     </td>
                     <td className="px-4 py-3">

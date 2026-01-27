@@ -25,7 +25,18 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  output: 'standalone',
   experimental: { typedRoutes: true },
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lwqddoivcbqnadamczhl.supabase.co',
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx3cWRkb2l2Y2JxbmFkYW1jemhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY2ODEyMjYsImV4cCI6MjA3MjI1NzIyNn0.T5Z5iv4F8P0pfWDesjnpC6WXIKMDCX3lbVv2Ff4dFFE',
+    NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || 'https://shopixo.net',
+    NEXT_PUBLIC_STORE_NAME: process.env.NEXT_PUBLIC_STORE_NAME || 'Shopixo',
+    NEXT_PUBLIC_BRAND_LOGO_URL: process.env.NEXT_PUBLIC_BRAND_LOGO_URL || 'https://res.cloudinary.com/diznlpbew/image/upload/v1757598221/ChatGPT_Image_Sep_11_2025_04_40_35_PM_tm7frr.png',
+    NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'diznlpbew',
+    NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET: process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'shopixo_signed',
+    NEXT_PUBLIC_SOCIAL_INSTAGRAM: process.env.NEXT_PUBLIC_SOCIAL_INSTAGRAM || 'https://www.instagram.com/shoplxo?igsh=bzZ1MTkyaDJmZjBi',
+  },
   allowedDevOrigins: ['*.replit.dev', '*.kirk.replit.dev', '127.0.0.1', 'localhost'],
   // Increase SSG timeout for heavy concurrent renders in CI
   staticPageGenerationTimeout: 180,

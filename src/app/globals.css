@@ -118,6 +118,49 @@
 
 html, body { height: 100%; overflow-x: hidden; }
 
+/* Disable drag-scrolling sitewide - prevent click-and-drag from moving page content */
+* {
+  -webkit-user-drag: none;
+  -khtml-user-drag: none;
+  -moz-user-drag: none;
+  -o-user-drag: none;
+  user-drag: none;
+}
+
+html {
+  -webkit-overflow-scrolling: auto;
+  overscroll-behavior: none;
+}
+
+body {
+  overscroll-behavior: none;
+  touch-action: pan-y pinch-zoom;
+}
+
+/* Prevent images from being dragged */
+img {
+  -webkit-user-drag: none;
+  -khtml-user-drag: none;
+  -moz-user-drag: none;
+  -o-user-drag: none;
+  user-drag: none;
+  pointer-events: auto;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Prevent link/anchor drag */
+a {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+/* Allow text selection in form inputs and textareas */
+input, textarea, [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .container { @apply mx-auto max-w-[1200px] px-4; }
 
 .skip-link {

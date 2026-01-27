@@ -15,6 +15,7 @@ import {
   Loader2,
   Calendar,
   DollarSign,
+  Wrench,
 } from "lucide-react";
 
 type SyncChange = {
@@ -69,6 +70,8 @@ export default function DailySyncPage() {
   });
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [fixingVariants, setFixingVariants] = useState(false);
+  const [variantFixResult, setVariantFixResult] = useState<{ success: boolean; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("pending");
@@ -158,6 +161,37 @@ export default function DailySyncPage() {
     }
   };
 
+  const fixVariantData = async () => {
+    if (!confirm("This will resync variant data (colors, sizes, stock) for all products from CJ. This may take a few minutes. Continue?")) return;
+    
+    setFixingVariants(true);
+    setVariantFixResult(null);
+    setError(null);
+    
+    try {
+      const res = await fetch("/api/admin/cj/resync/bulk", {
+        method: "POST",
+      });
+      
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Variant resync failed");
+      }
+      
+      setVariantFixResult({
+        success: true,
+        message: `Successfully updated ${data.updated} of ${data.total} products. ${data.failed} failed.`,
+      });
+    } catch (e: any) {
+      setVariantFixResult({
+        success: false,
+        message: e?.message || "Variant resync failed",
+      });
+    } finally {
+      setFixingVariants(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -241,6 +275,33 @@ export default function DailySyncPage() {
           </div>
           <p className="text-xs text-gray-600 mt-1">Today</p>
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl border shadow-sm p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-medium text-gray-900 flex items-center gap-2">
+              <Wrench className="h-5 w-5 text-gray-600" />
+              Fix Variant Data
+            </h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Resync all product colors, sizes, and stock from CJ to fix locked size buttons
+            </p>
+          </div>
+          <button
+            onClick={fixVariantData}
+            disabled={fixingVariants}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50"
+          >
+            {fixingVariants ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />}
+            {fixingVariants ? "Fixing..." : "Fix All Products"}
+          </button>
+        </div>
+        {variantFixResult && (
+          <div className={`mt-4 rounded-lg p-3 text-sm ${variantFixResult.success ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"}`}>
+            {variantFixResult.message}
+          </div>
+        )}
       </div>
 
       {error && (

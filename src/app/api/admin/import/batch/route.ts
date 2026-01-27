@@ -6,7 +6,8 @@ import {
   createImportBatch, 
   addProductToQueue, 
   logImportAction,
-  getBatches 
+  getBatches,
+  checkProductQueueSchema
 } from "@/lib/db/import-db";
 
 export const runtime = 'nodejs';
@@ -33,7 +34,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: connTest.error || "Database connection failed" }, { status: 500 });
     }
     
-    console.log('[Import Batch] Database connection verified, processing batch...');
+    console.log('[Import Batch] Database connection verified, checking schema...');
+    
+    // Check if schema has all required columns
+    const schemaCheck = await checkProductQueueSchema();
+    if (!schemaCheck.ready) {
+      console.error('[Import Batch] Schema check failed. Missing columns:', schemaCheck.missingColumns);
+      return NextResponse.json({ 
+        ok: false, 
+        error: `Database schema is missing required columns: ${schemaCheck.missingColumns.join(', ')}. Please run the migration SQL in Supabase SQL Editor, then reload the schema in Settings → API.`,
+        missingColumns: schemaCheck.missingColumns,
+        migrationSQL: schemaCheck.migrationSQL,
+        instructions: [
+          '1. Go to Supabase Dashboard → SQL Editor',
+          '2. Paste and run this SQL:',
+          schemaCheck.migrationSQL,
+          '3. Go to Settings → API → Click "Reload schema"',
+          '4. Try importing products again'
+        ]
+      }, { status: 400 });
+    }
+    
+    console.log('[Import Batch] Schema verified, processing batch...');
     
     const body = await req.json();
     const { name, keywords, category, filters, products } = body;
@@ -88,18 +110,55 @@ export async function POST(req: NextRequest) {
         cjSku: p.cjSku || p.variants?.[0]?.cjSku || p.variants?.[0]?.variantSku || undefined,
         name: p.name || "Untitled",
         description: p.description || undefined,
-        category: category || "General",
+        category: p.categoryName || category || "General",
         images,
         videoUrl: p.videoUrl || undefined,
         variants: p.variants || [],
         avgPrice,
-        supplierRating: p.supplierRating || 4.0,
-        totalSales: p.totalSales || 0,
+        supplierRating: p.rating ?? p.supplierRating ?? undefined,
+        totalSales: p.reviewCount ?? p.totalSales ?? undefined,
         totalStock,
-        processingDays: p.processingDays || 3,
-        deliveryDaysMin: p.deliveryDaysMin || 7,
-        deliveryDaysMax: p.deliveryDaysMax || 15,
-        qualityScore: p.qualityScore || 0.75,
+        processingDays: p.processingDays ?? undefined,
+        deliveryDaysMin: p.deliveryDaysMin ?? undefined,
+        deliveryDaysMax: p.deliveryDaysMax ?? undefined,
+        qualityScore: p.qualityScore ?? undefined,
+        weightG: p.productWeight || undefined,
+        packLength: p.packLength || undefined,
+        packWidth: p.packWidth || undefined,
+        packHeight: p.packHeight || undefined,
+        material: p.material || undefined,
+        originCountry: p.originCountry || undefined,
+        hsCode: p.hsCode || undefined,
+        sizeChartImages: p.sizeChartImages || undefined,
+        availableSizes: p.availableSizes || undefined,
+        availableColors: p.availableColors || undefined,
+        categoryName: p.categoryName || undefined,
+        cjCategoryId: p.cjCategoryId || undefined,
+        supabaseCategoryId: p.supabaseCategoryId || undefined,
+        supabaseCategorySlug: p.supabaseCategorySlug || undefined,
+        variantPricing: p.variantPricing || p.variants?.map((v: any) => ({
+          variantId: v.vid || v.variantId,
+          sku: v.variantSku || v.sku,
+          color: v.color || v.variantKey?.split('-')?.[0],
+          size: v.size || v.variantKey?.split('-')?.[1],
+          price: v.variantSellPrice || v.price || avgPrice,
+          costPrice: v.variantPrice || v.costPrice,
+          shippingCost: v.shippingPrice || v.shippingCost,
+          stock: v.variantQuantity || v.stock || 0,
+          cjStock: v.cjStock || 0,
+          factoryStock: v.factoryStock || 0,
+          colorImage: v.variantImage,
+        })) || [],
+        sizeChartData: p.sizeChartData || undefined,
+        specifications: p.specifications || undefined,
+        sellingPoints: p.sellingPoints || undefined,
+        inventoryByWarehouse: p.inventoryByWarehouse || p.inventory || undefined,
+        priceBreakdown: p.priceBreakdown || undefined,
+        colorImageMap: p.colorImageMap || undefined,
+        cjTotalCost: p.cjTotalCost || undefined,
+        cjShippingCost: p.cjShippingCost || undefined,
+        cjProductCost: p.cjProductCost || undefined,
+        profitMargin: p.profitMargin || undefined,
       });
 
       if (result.success) {

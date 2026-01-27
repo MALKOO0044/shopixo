@@ -75,16 +75,19 @@ export default function YouMayAlsoLike({ products, title = "You May Also Like" }
                 className="object-cover group-hover:scale-105 transition-transform"
               />
               {product.badge && (
-                <span className="absolute top-2 left-2 bg-red-500 text-white text-xs px-2 py-0.5 rounded">
+                <span className="absolute top-2 left-2 bg-[#e31e24] text-white text-xs px-2 py-0.5 rounded">
                   {product.badge}
                 </span>
               )}
+              <div className="absolute inset-x-0 bottom-0 bg-black/70 text-white text-center py-2 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                QUICK SHOP
+              </div>
             </div>
-            <h4 className="text-sm text-gray-700 line-clamp-2 group-hover:text-red-600">
+            <h4 className="text-sm text-gray-700 line-clamp-2">
               {product.title}
             </h4>
             <div className="flex items-center gap-2 mt-1">
-              <span className="font-bold text-red-600">${product.price.toFixed(2)}</span>
+              <span className="font-bold text-gray-900">${product.price.toFixed(2)}</span>
               {product.originalPrice && (
                 <span className="text-xs text-gray-400 line-through">
                   ${product.originalPrice.toFixed(2)}

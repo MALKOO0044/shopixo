@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Heart, ShoppingCart, User, ChevronDown, Tag } from "lucide-react";
+import { Heart, ShoppingCart, ChevronDown, Tag } from "lucide-react";
 import AnimatedSearchBar from "./AnimatedSearchBar";
-import { useState } from "react";
+import AccountDropdown from "./AccountDropdown";
 import type { Route } from "next";
+import { useCartCount } from "@/components/cart/CartCountProvider";
 
 function USAFlag() {
   return (
@@ -71,7 +72,7 @@ function USAFlag() {
 }
 
 export default function LitbHeader() {
-  const [cartCount] = useState(3);
+  const { count: cartCount } = useCartCount();
 
   return (
     <header className="bg-white border-b sticky top-0 z-50">
@@ -100,10 +101,9 @@ export default function LitbHeader() {
               <ChevronDown className="h-4 w-4 text-gray-400" />
             </div>
 
-            <Link href={"/account" as Route} className="hidden md:flex items-center gap-1 text-sm hover:text-[#e31e24]">
-              <User className="h-5 w-5" />
-              <span>Account</span>
-            </Link>
+            <div className="hidden md:block">
+              <AccountDropdown />
+            </div>
 
             <Link href={"/wishlist" as Route} className="relative hover:text-[#e31e24]">
               <Heart className="h-5 w-5" />

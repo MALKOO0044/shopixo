@@ -2,35 +2,24 @@
 
 import Link from "next/link";
 import { Menu, ChevronDown, ChevronRight } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { Route } from "next";
+import { FULL_CATEGORIES, type FullCategory, type SubcategoryGroup } from "@/lib/categories";
 
-interface Category {
+interface MenuCategory {
   id: number;
   name: string;
   slug: string;
-  parent_id: number | null;
-  level: number;
-  children?: Category[];
+  groups?: SubcategoryGroup[];
 }
 
-const FALLBACK_CATEGORIES: Category[] = [
-  { id: 1, name: "Women's Clothing", slug: "womens-clothing", parent_id: null, level: 1 },
-  { id: 2, name: "Pet Supplies", slug: "pet-supplies", parent_id: null, level: 1 },
-  { id: 3, name: "Home & Garden", slug: "home-garden-furniture", parent_id: null, level: 1 },
-  { id: 4, name: "Health & Beauty", slug: "health-beauty-hair", parent_id: null, level: 1 },
-  { id: 5, name: "Jewelry & Watches", slug: "jewelry-watches", parent_id: null, level: 1 },
-  { id: 6, name: "Men's Clothing", slug: "mens-clothing", parent_id: null, level: 1 },
-  { id: 7, name: "Bags & Shoes", slug: "bags-shoes", parent_id: null, level: 1 },
-  { id: 8, name: "Toys & Kids", slug: "toys-kids-babies", parent_id: null, level: 1 },
-  { id: 9, name: "Sports & Outdoors", slug: "sports-outdoors", parent_id: null, level: 1 },
-  { id: 10, name: "Electronics", slug: "consumer-electronics", parent_id: null, level: 1 },
-  { id: 11, name: "Home Improvement", slug: "home-improvement", parent_id: null, level: 1 },
-  { id: 12, name: "Automobiles", slug: "automobiles-motorcycles", parent_id: null, level: 1 },
-  { id: 13, name: "Phones & Accessories", slug: "phones-accessories", parent_id: null, level: 1 },
-  { id: 14, name: "Computer & Office", slug: "computer-office", parent_id: null, level: 1 },
-];
+const MENU_CATEGORIES: MenuCategory[] = FULL_CATEGORIES.map((cat, index) => ({
+  id: index + 1,
+  name: cat.label,
+  slug: cat.slug,
+  groups: cat.groups
+}));
 
 const QUICK_LINKS = [
   { label: "Flash Sale", href: "/flash-sale", highlight: true },
@@ -46,7 +35,6 @@ const QUICK_LINKS = [
 
 export default function LitbNavBar() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [categories, setCategories] = useState<Category[]>(FALLBACK_CATEGORIES);
   const [hoveredCategoryId, setHoveredCategoryId] = useState<number | null>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const [mounted, setMounted] = useState(false);
@@ -57,21 +45,6 @@ export default function LitbNavBar() {
 
   useEffect(() => {
     setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    async function fetchCategories() {
-      try {
-        const res = await fetch("/api/categories?tree=true");
-        const data = await res.json();
-        if (data.ok && data.categories && data.categories.length > 0) {
-          setCategories(data.categories);
-        }
-      } catch (error) {
-        console.error("Failed to fetch categories:", error);
-      }
-    }
-    fetchCategories();
   }, []);
 
   useEffect(() => {
@@ -154,7 +127,7 @@ export default function LitbNavBar() {
     setIsInsideDropdown(false);
   };
 
-  const hoveredCategory = categories.find(c => c.id === hoveredCategoryId);
+  const hoveredCategory = MENU_CATEGORIES.find(c => c.id === hoveredCategoryId);
 
   const dropdownContent = menuOpen && mounted ? (
     <div 
@@ -170,8 +143,8 @@ export default function LitbNavBar() {
     >
       <div className="flex shadow-xl border border-gray-200 rounded-sm">
         <div className="w-[240px] bg-[#f8f8f8] max-h-[500px] overflow-y-auto">
-          {categories.map((cat) => {
-            const hasChildren = cat.children && cat.children.length > 0;
+          {MENU_CATEGORIES.map((cat) => {
+            const hasGroups = cat.groups && cat.groups.length > 0;
             const isHovered = hoveredCategoryId === cat.id;
             return (
               <div
@@ -190,7 +163,7 @@ export default function LitbNavBar() {
                 >
                   {cat.name}
                 </Link>
-                {hasChildren && (
+                {hasGroups && (
                   <ChevronRight className={`h-3.5 w-3.5 flex-shrink-0 ml-2 ${isHovered ? 'text-[#e31e24]' : 'text-gray-400'}`} />
                 )}
               </div>
@@ -198,58 +171,29 @@ export default function LitbNavBar() {
           })}
         </div>
 
-        {hoveredCategoryId !== null && hoveredCategory && hoveredCategory.children && hoveredCategory.children.length > 0 && (
-          <div className="w-[680px] bg-white max-h-[500px] overflow-y-auto p-6">
-            <div className="grid grid-cols-4 gap-x-6 gap-y-5">
-              {hoveredCategory.children.map((subcat) => (
-                <div key={subcat.id} className="min-w-0">
-                  <Link
-                    href={`/category/${subcat.slug}` as Route}
-                    className="font-semibold text-[13px] text-gray-900 hover:text-[#e31e24] block mb-2 truncate"
-                    onClick={handleCategoryClick}
-                    title={subcat.name}
-                  >
-                    {subcat.name}
-                  </Link>
-                  {subcat.children && subcat.children.length > 0 && (
-                    <ul className="space-y-1.5">
-                      {subcat.children.slice(0, 6).map((item) => (
-                        <li key={item.id}>
-                          <Link
-                            href={`/category/${item.slug}` as Route}
-                            className="text-[12px] text-gray-500 hover:text-[#e31e24] transition-colors block truncate"
-                            onClick={handleCategoryClick}
-                            title={item.name}
-                          >
-                            {item.name}
-                          </Link>
-                        </li>
-                      ))}
-                      {subcat.children.length > 6 && (
-                        <li>
-                          <Link
-                            href={`/category/${subcat.slug}` as Route}
-                            className="text-[12px] text-[#e31e24] hover:underline font-medium"
-                            onClick={handleCategoryClick}
-                          >
-                            More...
-                          </Link>
-                        </li>
-                      )}
-                    </ul>
-                  )}
+        {hoveredCategoryId !== null && hoveredCategory && hoveredCategory.groups && hoveredCategory.groups.length > 0 && (
+          <div className="w-[750px] bg-white max-h-[500px] overflow-y-auto p-5">
+            <div className="grid grid-cols-4 gap-x-5 gap-y-4">
+              {hoveredCategory.groups.map((group, groupIdx) => (
+                <div key={groupIdx} className="min-w-0">
+                  <h4 className="text-[13px] font-semibold text-gray-900 mb-2 truncate" title={group.groupName}>
+                    {group.groupName}
+                  </h4>
+                  <div className="flex flex-col gap-1.5">
+                    {group.items.map((item, itemIdx) => (
+                      <Link
+                        key={itemIdx}
+                        href={`/category/${item.slug}` as Route}
+                        className="text-[12px] text-gray-600 hover:text-[#e31e24] transition-colors truncate"
+                        onClick={handleCategoryClick}
+                        title={item.label}
+                      >
+                        {item.label}
+                      </Link>
+                    ))}
+                  </div>
                 </div>
               ))}
-            </div>
-            <div className="mt-5 pt-4 border-t border-gray-100">
-              <Link
-                href={`/category/${hoveredCategory.slug}` as Route}
-                className="text-[13px] text-[#e31e24] font-medium hover:underline inline-flex items-center gap-1"
-                onClick={handleCategoryClick}
-              >
-                View All {hoveredCategory.name}
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Link>
             </div>
           </div>
         )}

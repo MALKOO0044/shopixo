@@ -1,30 +1,21 @@
 "use client";
 
-import { createCheckoutSession } from "@/lib/checkout-actions";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { useFormStatus } from "react-dom";
 
-function SubmitButton() {
-  const { pending } = useFormStatus();
+export default function CheckoutButton() {
+  const router = useRouter();
 
   return (
     <Button
-      type="submit"
+      type="button"
       className="w-full"
-      disabled={pending}
       variant="cta"
       size="default"
-      aria-label={pending ? "Processing" : "Proceed to Checkout"}
+      onClick={() => router.push("/checkout")}
+      aria-label="Proceed to Checkout"
     >
-      {pending ? "Processing..." : "Proceed to Checkout"}
+      Proceed to Checkout
     </Button>
-  );
-}
-
-export default function CheckoutButton() {
-  return (
-    <form action={createCheckoutSession}>
-      <SubmitButton />
-    </form>
   );
 }

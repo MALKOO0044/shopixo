@@ -25,7 +25,9 @@ export function clearDbFeatureCache() {
 
 export async function hasTable(table: string): Promise<boolean> {
   const cached = tableCache.get(table);
-  if (typeof cached === 'boolean') return cached;
+  // Only use cache if it's true - don't cache false results so we can detect when tables are created
+  if (cached === true) return true;
+  
   const supabase = getSupabaseAdmin();
   if (!supabase) {
     // If service role is not configured, assume table exists (non-breaking default)
@@ -37,7 +39,7 @@ export async function hasTable(table: string): Promise<boolean> {
     if (error) {
       const msg = String((error as any)?.message || error);
       if (/does not exist|relation .* does not exist/i.test(msg)) {
-        tableCache.set(table, false);
+        // Don't cache false - table might be created later
         return false;
       }
       // Other errors (e.g., network): assume exists to avoid hard failures
@@ -57,7 +59,8 @@ export async function hasColumn(table: string, column: string): Promise<boolean>
     columnCache.set(table, tCache);
   }
   const cached = tCache.get(column);
-  if (typeof cached === 'boolean') return cached;
+  // Only use cache if it's true - don't cache false results
+  if (cached === true) return true;
 
   const supabase = getSupabaseAdmin();
   if (!supabase) {
@@ -69,7 +72,7 @@ export async function hasColumn(table: string, column: string): Promise<boolean>
     if (error) {
       const msg = String((error as any)?.message || error);
       if (/column .* does not exist|does not exist/i.test(msg)) {
-        tCache.set(column, false);
+        // Don't cache false - column might be added later
         return false;
       }
       // Other errors -> optimistic true

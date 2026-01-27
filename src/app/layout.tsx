@@ -12,6 +12,8 @@ import { ToastProvider } from "@/components/ui/toast-provider";
 import { getSiteUrl } from "@/lib/site";
 import Script from "next/script";
 import { headers } from "next/headers";
+import DisableDragScroll from "@/components/disable-drag-scroll";
+import { CartCountProvider } from "@/components/cart/CartCountProvider";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const rawSiteUrl =
@@ -31,8 +33,8 @@ const absoluteBrandLogo = `${getSiteUrl()}${brandLogo}`;
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "LightInTheBox - Global Online Shopping",
-    template: "%s | LightInTheBox",
+    default: "Shopixo - Global Online Shopping",
+    template: "%s | Shopixo",
   },
   description: "Shop quality products at amazing prices. Free worldwide shipping on orders over $50.",
   icons: {
@@ -47,14 +49,14 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     url: siteUrl,
-    siteName: "LightInTheBox",
-    title: "LightInTheBox - Global Online Shopping",
+    siteName: "Shopixo",
+    title: "Shopixo - Global Online Shopping",
     description: "Shop quality products at amazing prices. Free worldwide shipping on orders over $50.",
     images: [brandLogo],
   },
   twitter: {
     card: "summary_large_image",
-    title: "LightInTheBox - Global Online Shopping",
+    title: "Shopixo - Global Online Shopping",
     description: "Shop quality products at amazing prices. Free worldwide shipping on orders over $50.",
     images: [brandLogo],
   },
@@ -88,6 +90,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }
         })()}
         <ThemeProvider>
+          <DisableDragScroll />
           <ToastProvider>
             <a href="#main-content" className="skip-link">Skip to content</a>
             <script
@@ -97,7 +100,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 __html: JSON.stringify({
                   "@context": "https://schema.org",
                   "@type": "Organization",
-                  name: "LightInTheBox",
+                  name: "Shopixo",
                   url: getSiteUrl(),
                   logo: absoluteBrandLogo,
                 }),
@@ -110,7 +113,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 __html: JSON.stringify({
                   "@context": "https://schema.org",
                   "@type": "WebSite",
-                  name: "LightInTheBox",
+                  name: "Shopixo",
                   url: getSiteUrl(),
                   potentialAction: {
                     "@type": "SearchAction",
@@ -120,22 +123,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 }),
               }}
             />
-            <Suspense fallback={null}>
-              <LitbHeader />
-            </Suspense>
-            <Suspense fallback={null}>
-              <LitbNavBar />
-            </Suspense>
-            <Suspense fallback={null}>
-              <main id="main-content" className="flex-1">{children}</main>
-            </Suspense>
-            <Suspense fallback={null}>
-              <FixedSidebar />
-            </Suspense>
-            <Suspense fallback={null}>
-              <LitbFooter />
-            </Suspense>
-            <CookieConsent />
+            <CartCountProvider>
+              <Suspense fallback={null}>
+                <LitbHeader />
+              </Suspense>
+              <Suspense fallback={null}>
+                <LitbNavBar />
+              </Suspense>
+              <Suspense fallback={null}>
+                <main id="main-content" className="flex-1">{children}</main>
+              </Suspense>
+              <Suspense fallback={null}>
+                <FixedSidebar />
+              </Suspense>
+              <Suspense fallback={null}>
+                <LitbFooter />
+              </Suspense>
+              <CookieConsent />
+            </CartCountProvider>
           </ToastProvider>
         </ThemeProvider>
       </body>

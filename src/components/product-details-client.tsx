@@ -11,6 +11,7 @@ import ProductTabs from "@/components/product/ProductTabs";
 import YouMayAlsoLike from "@/components/product/YouMayAlsoLike";
 import MakeItAMatch from "@/components/product/MakeItAMatch";
 import { computeBilledWeightKg, resolveDdpShippingSar } from "@/lib/pricing";
+import { extractImagesFromHtml, parseProductDescription } from "@/components/product/SafeHtmlRenderer";
 
 function isLikelyImageUrl(s: string): boolean {
   if (!s) return false;
@@ -139,12 +140,22 @@ interface MediaGalleryProps {
   title: string;
   videoUrl?: string | null;
   selectedColor?: string;
+  colorImageMap?: Record<string, string>;
+  availableColors?: string[];
+  descriptionImages?: string[];
 }
 
-function MediaGallery({ images, title, videoUrl }: MediaGalleryProps) {
-  const media = (Array.isArray(images) ? images : [])
+function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = {}, availableColors = [], descriptionImages = [] }: MediaGalleryProps) {
+  const baseMedia = (Array.isArray(images) ? images : [])
     .map((s) => (typeof s === 'string' ? normalizeImageUrl(s) : s))
     .filter((s) => typeof s === 'string') as string[];
+  
+  const extraImages = (Array.isArray(descriptionImages) ? descriptionImages : [])
+    .map((s) => (typeof s === 'string' ? normalizeImageUrl(s) : s))
+    .filter((s) => typeof s === 'string' && !baseMedia.includes(s))
+    .slice(0, 12) as string[];
+  
+  const media = [...baseMedia, ...extraImages];
   
   const items = (() => {
     const arr = [...media];
@@ -153,8 +164,53 @@ function MediaGallery({ images, title, videoUrl }: MediaGalleryProps) {
   })();
 
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const prevColorImageRef = useRef<string | undefined>(undefined);
   const selected = items[selectedIndex] || items[0];
   const thumbnailContainerRef = useRef<HTMLDivElement>(null);
+  
+  // When selectedColor changes, update the main gallery image
+  // Strategy: Find the color's image in the gallery by URL matching or positional fallback
+  useEffect(() => {
+    if (!selectedColor) return;
+    
+    const colorImage = colorImageMap[selectedColor];
+    
+    // Only update if the color's image has actually changed
+    if (colorImage === prevColorImageRef.current) return;
+    
+    let targetIndex = -1;
+    
+    // Strategy 1: Try to find the exact image URL in items
+    if (colorImage) {
+      const normalizedColorImage = normalizeImageUrl(colorImage);
+      targetIndex = items.findIndex(item => {
+        const normalizedItem = normalizeImageUrl(item);
+        // Exact match or partial match (URL might have query params)
+        return normalizedItem === normalizedColorImage || 
+               item === colorImage ||
+               normalizedItem.includes(normalizedColorImage) ||
+               normalizedColorImage.includes(normalizedItem);
+      });
+    }
+    
+    // Strategy 2: Positional fallback - use color's index in available_colors
+    // The gallery images are typically ordered to match color order
+    if (targetIndex < 0 && selectedColor && availableColors.length > 0) {
+      const colorIndex = availableColors.indexOf(selectedColor);
+      if (colorIndex >= 0 && colorIndex < items.length) {
+        // Skip video if present (video is always first when it exists)
+        const hasVideo = items.length > 0 && 
+          (items[0]?.includes('youtube') || items[0]?.includes('video') || items[0]?.includes('.mp4'));
+        targetIndex = hasVideo ? colorIndex + 1 : colorIndex;
+      }
+    }
+    
+    if (targetIndex >= 0 && targetIndex < items.length && targetIndex !== selectedIndex) {
+      setSelectedIndex(targetIndex);
+    }
+    
+    prevColorImageRef.current = colorImage;
+  }, [selectedColor, colorImageMap, items, selectedIndex, availableColors]);
 
   const [zoomOpen, setZoomOpen] = useState(false);
   const [scale, setScale] = useState(1);
@@ -204,69 +260,31 @@ function MediaGallery({ images, title, videoUrl }: MediaGalleryProps) {
     }
   };
 
-  return (
-    <div className="flex gap-3 h-full" dir="ltr">
-      <div
-        className="relative flex-1 aspect-[3/4] md:aspect-square rounded-lg overflow-hidden bg-muted cursor-zoom-in"
-        onClick={() => !isLikelyVideoUrl(selected) && openZoom()}
-        role={!isLikelyVideoUrl(selected) ? 'button' : undefined}
-        aria-label={!isLikelyVideoUrl(selected) ? 'Zoom image' : undefined}
-      >
-        {isLikelyVideoUrl(selected) ? (
-          <video
-            className="h-full w-full object-cover"
-            controls
-            playsInline
-            preload="metadata"
-            crossOrigin="anonymous"
-            poster={getCloudinaryVideoPoster(selected) || undefined}
-          >
-            <source src={transformVideo(selected)} type={videoMimeFromUrl(selected)} />
-          </video>
-        ) : (
-          <SmartImage
-            src={transformImage(selected)}
-            alt={title}
-            fill
-            className="object-cover"
-            loading="eager"
-            onError={(e: any) => {
-              try {
-                const el = e.currentTarget as HTMLImageElement;
-                if (el && !el.src.endsWith('/placeholder.svg')) {
-                  el.src = '/placeholder.svg';
-                }
-              } catch {}
-            }}
-          />
-        )}
-      </div>
+  const goToPrev = () => {
+    setSelectedIndex((prev) => (prev > 0 ? prev - 1 : items.length - 1));
+  };
+  const goToNext = () => {
+    setSelectedIndex((prev) => (prev < items.length - 1 ? prev + 1 : 0));
+  };
 
-      <div className="flex flex-col items-center gap-2 w-16 md:w-20 shrink-0">
-        {items.length > 4 && (
-          <button
-            onClick={() => scrollThumbnails('up')}
-            className="w-full flex items-center justify-center py-1 text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="Scroll up"
-          >
-            <ChevronUp className="w-5 h-5" />
-          </button>
-        )}
-        
+  return (
+    <div className="flex gap-2" dir="ltr">
+      {/* Thumbnails on LEFT - small and tight */}
+      <div className="flex flex-col w-[52px] md:w-[56px] shrink-0">
         <div
           ref={thumbnailContainerRef}
-          className="flex flex-col gap-2 overflow-y-auto scrollbar-hide max-h-[400px] md:max-h-[500px]"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          className="flex flex-col gap-1 overflow-y-auto scrollbar-hide"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', maxHeight: '500px' }}
         >
           {items.map((item, index) => (
             <button
               key={index}
               onClick={() => setSelectedIndex(index)}
               className={cn(
-                "relative w-14 h-14 md:w-16 md:h-16 rounded-md overflow-hidden border-2 transition-all shrink-0",
+                "relative w-[48px] h-[48px] md:w-[52px] md:h-[52px] rounded overflow-hidden border transition-all shrink-0",
                 selectedIndex === index 
-                  ? "border-primary ring-1 ring-primary" 
-                  : "border-transparent hover:border-muted-foreground/30"
+                  ? "border-primary border-2" 
+                  : "border-gray-200 hover:border-gray-400"
               )}
             >
               {isLikelyVideoUrl(item) ? (
@@ -293,16 +311,64 @@ function MediaGallery({ images, title, videoUrl }: MediaGalleryProps) {
             </button>
           ))}
         </div>
+      </div>
 
-        {items.length > 4 && (
-          <button
-            onClick={() => scrollThumbnails('down')}
-            className="w-full flex items-center justify-center py-1 text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="Scroll down"
-          >
-            <ChevronDown className="w-5 h-5" />
-          </button>
-        )}
+      {/* Main image with overlaid navigation arrows */}
+      <div className="relative w-[400px] md:w-[480px] lg:w-[500px]">
+        <div
+          className="relative w-full aspect-[3/4] rounded overflow-hidden bg-gray-50 cursor-zoom-in"
+          onClick={() => !isLikelyVideoUrl(selected) && openZoom()}
+          role={!isLikelyVideoUrl(selected) ? 'button' : undefined}
+          aria-label={!isLikelyVideoUrl(selected) ? 'Zoom image' : undefined}
+        >
+          {isLikelyVideoUrl(selected) ? (
+            <video
+              className="h-full w-full object-cover"
+              controls
+              playsInline
+              preload="metadata"
+              crossOrigin="anonymous"
+              poster={getCloudinaryVideoPoster(selected) || undefined}
+            >
+              <source src={transformVideo(selected)} type={videoMimeFromUrl(selected)} />
+            </video>
+          ) : (
+            <SmartImage
+              src={transformImage(selected)}
+              alt={title}
+              fill
+              className="object-cover"
+              loading="eager"
+              onError={(e: any) => {
+                try {
+                  const el = e.currentTarget as HTMLImageElement;
+                  if (el && !el.src.endsWith('/placeholder.svg')) {
+                    el.src = '/placeholder.svg';
+                  }
+                } catch {}
+              }}
+            />
+          )}
+          {/* Navigation arrows overlaid on image */}
+          {items.length > 1 && (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); goToPrev(); }}
+                className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 md:w-10 md:h-10 rounded-full bg-white/80 hover:bg-white shadow flex items-center justify-center transition-colors"
+                aria-label="Previous image"
+              >
+                <ChevronUp className="w-5 h-5 -rotate-90" />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); goToNext(); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 md:w-10 md:h-10 rounded-full bg-white/80 hover:bg-white shadow flex items-center justify-center transition-colors"
+                aria-label="Next image"
+              >
+                <ChevronDown className="w-5 h-5 -rotate-90" />
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {zoomOpen && !isLikelyVideoUrl(selected) && (
@@ -389,7 +455,9 @@ function DetailHeader({ title, productCode, rating, reviewCount = 0 }: DetailHea
           ))}
         </div>
         <span className="text-sm text-muted-foreground">
-          {reviewCount > 0 ? `${reviewCount.toLocaleString('en-US')}+ reviews` : 'No reviews yet'}
+          {displayRating > 0 
+            ? `${displayRating.toFixed(1)} (${reviewCount > 0 ? reviewCount.toLocaleString('en-US') : '0'} Reviewed)`
+            : 'No reviews yet'}
         </span>
       </div>
     </div>
@@ -400,19 +468,29 @@ interface PriceBlockProps {
   price: number;
   originalPrice?: number;
   isAvailable: boolean;
+  minPrice?: number;
+  maxPrice?: number;
+  showRange?: boolean;
 }
 
-function PriceBlock({ price, originalPrice, isAvailable }: PriceBlockProps) {
+function PriceBlock({ price, originalPrice, isAvailable, minPrice, maxPrice, showRange }: PriceBlockProps) {
   const hasDiscount = originalPrice && originalPrice > price;
   const discountPercent = hasDiscount ? Math.round((1 - price / originalPrice) * 100) : 0;
+  const hasPriceRange = showRange && minPrice && maxPrice && minPrice !== maxPrice;
 
   return (
     <div className="space-y-1">
       <div className="flex items-baseline gap-3 flex-wrap">
-        <span className="text-xl md:text-2xl font-bold text-foreground">
-          {formatCurrency(price)}
-        </span>
-        {hasDiscount && (
+        {hasPriceRange ? (
+          <span className="text-xl md:text-2xl font-bold text-foreground">
+            {formatCurrency(minPrice)} - {formatCurrency(maxPrice)}
+          </span>
+        ) : (
+          <span className="text-xl md:text-2xl font-bold text-foreground">
+            {formatCurrency(price)}
+          </span>
+        )}
+        {hasDiscount && !hasPriceRange && (
           <>
             <span className="text-base text-muted-foreground line-through">
               {formatCurrency(originalPrice)}
@@ -441,6 +519,54 @@ interface ColorSelectorProps {
   hotColors?: string[];
 }
 
+// Map color names to CSS colors for swatch display
+const COLOR_NAME_MAP: Record<string, string> = {
+  // Basic colors
+  'white': '#FFFFFF', 'black': '#000000', 'red': '#E53935', 'blue': '#1E88E5',
+  'green': '#43A047', 'yellow': '#FDD835', 'orange': '#FB8C00', 'purple': '#8E24AA',
+  'pink': '#EC407A', 'brown': '#6D4C41', 'gray': '#757575', 'grey': '#757575',
+  'gold': '#FFD700', 'silver': '#C0C0C0', 'beige': '#F5F5DC', 'ivory': '#FFFFF0',
+  'cream': '#FFFDD0', 'tan': '#D2B48C', 'khaki': '#C3B091', 'navy': '#000080',
+  'teal': '#008080', 'cyan': '#00BCD4', 'maroon': '#800000', 'olive': '#808000',
+  'coral': '#FF7F50', 'salmon': '#FA8072', 'turquoise': '#40E0D0', 'indigo': '#3F51B5',
+  'violet': '#EE82EE', 'magenta': '#FF00FF', 'lavender': '#E6E6FA', 'burgundy': '#800020',
+  'rose': '#FF007F', 'peach': '#FFCBA4', 'mint': '#98FF98', 'aqua': '#00FFFF',
+  'nude': '#E3BC9A', 'champagne': '#F7E7CE', 'camel': '#C19A6B', 'coffee': '#6F4E37',
+  'wine': '#722F37', 'charcoal': '#36454F', 'slate': '#708090', 'taupe': '#483C32',
+  // Light/Dark variants
+  'light blue': '#87CEEB', 'light brown': '#C4A484', 'light green': '#90EE90',
+  'light grey': '#D3D3D3', 'light gray': '#D3D3D3', 'light pink': '#FFB6C1',
+  'dark blue': '#00008B', 'dark brown': '#654321', 'dark green': '#006400',
+  'dark grey': '#A9A9A9', 'dark gray': '#A9A9A9', 'dark red': '#8B0000',
+  'sky blue': '#87CEEB', 'royal blue': '#4169E1', 'baby blue': '#89CFF0',
+  'hot pink': '#FF69B4', 'deep pink': '#FF1493', 'pale pink': '#FADADD',
+  // Common product colors
+  'apricot': '#FBCEB1', 'leopard': '#A17249', 'camouflage': '#78866B', 'camo': '#78866B',
+  'multicolor': 'linear-gradient(135deg, #FF6B6B, #4ECDC4, #45B7D1, #96E6A1, #DDA0DD)',
+  'multi': 'linear-gradient(135deg, #FF6B6B, #4ECDC4, #45B7D1, #96E6A1, #DDA0DD)',
+  'rainbow': 'linear-gradient(135deg, red, orange, yellow, green, blue, violet)',
+  'transparent': 'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc)',
+  'clear': 'linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%, #eee), linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%, #eee)',
+};
+
+function getColorFromName(colorName: string): string | null {
+  const lowerName = colorName.toLowerCase().trim();
+  
+  // Direct match
+  if (COLOR_NAME_MAP[lowerName]) return COLOR_NAME_MAP[lowerName];
+  
+  // Check if any key is contained in the color name
+  for (const [key, value] of Object.entries(COLOR_NAME_MAP)) {
+    if (lowerName.includes(key)) return value;
+  }
+  
+  // Try to parse hex colors if provided directly
+  if (/^#[0-9A-Fa-f]{6}$/.test(colorName)) return colorName;
+  if (/^#[0-9A-Fa-f]{3}$/.test(colorName)) return colorName;
+  
+  return null;
+}
+
 function ColorSelector({ colors, selectedColor, onColorChange, colorImages = {}, hotColors = [] }: ColorSelectorProps) {
   if (colors.length === 0) return null;
 
@@ -448,37 +574,49 @@ function ColorSelector({ colors, selectedColor, onColorChange, colorImages = {},
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium text-foreground">Color:</span>
-        <span className="text-sm text-muted-foreground">{selectedColor}</span>
+        <span className="text-sm text-primary font-medium">{selectedColor}</span>
       </div>
       <div className="flex flex-wrap gap-2">
         {colors.map((color) => {
           const isSelected = color === selectedColor;
           const isHot = hotColors.includes(color);
-          const imageUrl = colorImages[color];
+          const colorImageUrl = colorImages[color];
+          const cssColor = getColorFromName(color);
+          const isTransparent = color.toLowerCase().includes('transparent') || color.toLowerCase().includes('clear');
 
           return (
             <button
               key={color}
               onClick={() => onColorChange(color)}
               className={cn(
-                "relative w-12 h-12 md:w-14 md:h-14 rounded-md overflow-hidden border-2 transition-all",
+                "relative w-10 h-10 md:w-12 md:h-12 rounded-md overflow-hidden transition-all",
                 isSelected 
-                  ? "border-primary ring-2 ring-primary ring-offset-2" 
-                  : "border-muted hover:border-muted-foreground/50"
+                  ? "ring-2 ring-primary ring-offset-2" 
+                  : "border border-gray-300 hover:border-gray-500"
               )}
               title={color}
             >
-              {imageUrl ? (
-                <SmartImage
-                  src={transformImage(imageUrl)}
+              {colorImageUrl ? (
+                <img 
+                  src={normalizeImageUrl(colorImageUrl)} 
                   alt={color}
-                  fill
-                  className="object-cover"
+                  className="w-full h-full object-cover"
                   loading="lazy"
                 />
+              ) : cssColor ? (
+                <div 
+                  className="w-full h-full"
+                  style={{ 
+                    background: cssColor,
+                    backgroundSize: isTransparent ? '8px 8px' : undefined,
+                    backgroundPosition: isTransparent ? '0 0, 4px 4px' : undefined,
+                  }}
+                />
               ) : (
-                <div className="w-full h-full bg-muted flex items-center justify-center text-xs text-muted-foreground">
-                  {color.slice(0, 2)}
+                <div className="w-full h-full bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center">
+                  <span className="text-[10px] text-gray-600 font-medium text-center leading-tight px-0.5">
+                    {color.slice(0, 4).toUpperCase()}
+                  </span>
                 </div>
               )}
               {isHot && (
@@ -513,9 +651,12 @@ function SizeSelector({ sizes, selectedSize, onSizeChange, sizeStock = {} }: Siz
       <div className="flex flex-wrap gap-2">
         {sizes.map((size) => {
           const isSelected = size === selectedSize;
-          const stock = sizeStock[size] ?? 0;
-          const isOutOfStock = stock <= 0;
-          const isLowStock = stock > 0 && stock <= 3;
+          // Treat stock=0, null, undefined as "available" (CJ often returns 0 as default)
+          const stockValue = sizeStock[size];
+          const hasExplicitStock = stockValue !== undefined && stockValue !== null && stockValue !== 0;
+          // Only mark out of stock if stock is explicitly negative (shouldn't happen)
+          const isOutOfStock = hasExplicitStock && stockValue < 0;
+          const isLowStock = hasExplicitStock && stockValue > 0 && stockValue <= 3;
 
           return (
             <button
@@ -721,51 +862,338 @@ export default function ProductDetailsClient({
   variantRows?: ProductVariant[]; 
   children?: React.ReactNode;
 }) {
+  // Known size tokens for accurate parsing
+  const SIZE_TOKENS = new Set([
+    'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '2XL', '3XL', '4XL', '5XL', '6XL',
+    'ONE SIZE', 'FREE SIZE', 'OS', 'FS', 'F', 'SMALL', 'MEDIUM', 'LARGE',
+    'BOXED', 'OPP', 'A', 'B', 'C', 'D', 'E',
+    '30', '32', '34', '36', '38', '40', '42', '44', '46', '48', '50',
+    '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16'
+  ]);
+  
+  function isSkuCode(str: string): boolean {
+    if (!str) return false;
+    const upper = str.toUpperCase().trim();
+    
+    if (/^CJ[A-Z]{2,}\d{5,}/.test(upper)) return true;
+    
+    if (/^[A-Z]{2}\d{4,}[A-Z]+\d+/.test(upper)) return true;
+    
+    if (/^\d{7,}/.test(str)) return true;
+    
+    if (/^[A-Z]{2,3}\d{6,}/.test(upper)) return true;
+    
+    return false;
+  }
+
   function splitColorSize(v: string): { color?: string; size?: string } {
     if (!v) return {};
-    const parts = String(v).split('/').map(s => s.trim()).filter(Boolean);
-    if (parts.length >= 2) return { color: parts[0] || undefined, size: parts[1] || undefined };
-    const parts2 = String(v).split('-').map(s => s.trim()).filter(Boolean);
-    if (parts2.length >= 2) return { color: parts2[0] || undefined, size: parts2[1] || undefined };
-    return { size: v };
+    const str = String(v).trim();
+    
+    // Strategy 1: Try "/" separator first (most reliable)
+    if (str.includes(' / ') || str.includes('/')) {
+      const parts = str.split(/\s*\/\s*/).map(s => s.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        const potentialColor = parts[0];
+        const potentialSize = parts[1];
+        const color = (potentialColor && !isSkuCode(potentialColor)) ? potentialColor : undefined;
+        return { color, size: potentialSize || undefined };
+      }
+    }
+    
+    // Strategy 2: For hyphen separator, be smarter - find last hyphen where right side is a known size
+    // This handles "Dark Blue-L" correctly (color="Dark Blue", size="L")
+    // Also handles "Moon And Night-S" correctly
+    const lastHyphenIdx = str.lastIndexOf('-');
+    if (lastHyphenIdx > 0 && lastHyphenIdx < str.length - 1) {
+      const potentialColor = str.slice(0, lastHyphenIdx).trim();
+      const potentialSize = str.slice(lastHyphenIdx + 1).trim();
+      
+      // Check if the right side looks like a size
+      if (SIZE_TOKENS.has(potentialSize.toUpperCase()) || /^\d{1,2}$/.test(potentialSize)) {
+        const color = isSkuCode(potentialColor) ? undefined : potentialColor;
+        return { color, size: potentialSize };
+      }
+      
+      // If right side doesn't look like a size, still try splitting (legacy behavior)
+      // but only if color part doesn't look like it has a compound name
+      const parts = str.split('-').map(s => s.trim()).filter(Boolean);
+      if (parts.length === 2) {
+        const color = isSkuCode(parts[0]) ? undefined : parts[0];
+        return { color, size: parts[1] || undefined };
+      }
+    }
+    
+    // Check if the entire string is a SKU code
+    if (isSkuCode(str)) {
+      return {};
+    }
+    
+    // No separator found - treat as size only
+    return { size: str };
   }
 
   const hasRows = Array.isArray(variantRows) && variantRows.length > 0;
   
+  // Primary: Check variant rows from product_variants table
   const bothDims = useMemo(() => {
     if (!hasRows) return false;
     const withSep = (variantRows || []).filter(r => /\s\/\s|\s-\s/.test(String(r.option_value)));
     return withSep.length >= Math.max(1, Math.floor((variantRows || []).length * 0.6));
   }, [hasRows, variantRows]);
 
-  const colorOptions = useMemo(() => {
+  // Extract colors from variant rows (primary source) - WITH DEDUPLICATION
+  const variantRowColors = useMemo(() => {
     if (!hasRows || !bothDims) return [] as string[];
-    const set = new Set<string>();
+    
+    // Use a map to deduplicate by normalized key while preserving first seen display name
+    const colorMap = new Map<string, string>(); // normalized -> display
+    
     for (const r of variantRows!) {
       const cs = splitColorSize(r.option_value || '');
-      if (cs.color) set.add(cs.color);
+      if (cs.color) {
+        const normalizedKey = cs.color.toLowerCase().trim().replace(/\s+/g, ' ');
+        if (!colorMap.has(normalizedKey)) {
+          colorMap.set(normalizedKey, cs.color.trim());
+        }
+      }
     }
-    return Array.from(set);
+    
+    return Array.from(colorMap.values());
   }, [hasRows, bothDims, variantRows]);
 
-  const sizeOptionsByColor = useMemo(() => {
-    if (!hasRows || !bothDims) return {} as Record<string, string[]>;
-    const map: Record<string, Set<string>> = {};
-    for (const r of variantRows!) {
-      const cs = splitColorSize(r.option_value || '');
-      if (!cs.color || !cs.size) continue;
-      if (!map[cs.color]) map[cs.color] = new Set<string>();
-      map[cs.color].add(cs.size);
+  // Extract sizes from variant rows (primary source)  
+  const variantRowSizes = useMemo(() => {
+    if (!hasRows) return [] as string[];
+    if (bothDims) {
+      const set = new Set<string>();
+      for (const r of variantRows!) {
+        const cs = splitColorSize(r.option_value || '');
+        if (cs.size) set.add(cs.size);
+      }
+      return Array.from(set);
     }
-    const out: Record<string, string[]> = {};
-    for (const k of Object.keys(map)) out[k] = Array.from(map[k]);
-    return out;
-  }, [hasRows, bothDims, variantRows]);
-
-  const singleDimOptions = useMemo(() => {
-    if (!hasRows || bothDims) return [] as string[];
     return Array.from(new Set(variantRows!.map(v => v.option_value))).filter(Boolean);
   }, [hasRows, bothDims, variantRows]);
+
+  // PRIMARY: Get available colors/sizes from product fields (available_colors, available_sizes arrays)
+  // These are stored during import and contain ALL colors/sizes from CJ - WITH DEDUPLICATION AND SKU FILTERING
+  const productColors = useMemo(() => {
+    // Helper to deduplicate colors by normalized key AND filter out SKU codes
+    const deduplicateAndFilterColors = (colors: string[]): string[] => {
+      const colorMap = new Map<string, string>();
+      for (const c of colors) {
+        if (typeof c !== 'string' || !c.trim()) continue;
+        const trimmed = c.trim();
+        // Skip if it looks like a SKU code
+        if (isSkuCode(trimmed)) continue;
+        const normalizedKey = trimmed.toLowerCase().replace(/\s+/g, ' ');
+        if (!colorMap.has(normalizedKey)) {
+          colorMap.set(normalizedKey, trimmed);
+        }
+      }
+      return Array.from(colorMap.values());
+    };
+    
+    // First try available_colors array (most complete source from CJ import)
+    const ac = (product as any).available_colors;
+    if (Array.isArray(ac) && ac.length > 0) {
+      return deduplicateAndFilterColors(ac);
+    }
+    // Fallback to variants JSONB field
+    const variants = (product as any).variants;
+    if (Array.isArray(variants)) {
+      const colors: string[] = [];
+      variants.forEach((v: any) => { if (v.color && typeof v.color === 'string') colors.push(v.color); });
+      if (colors.length > 0) return deduplicateAndFilterColors(colors);
+    }
+    // Last resort: extract from variantRows if available (already deduplicated)
+    if (hasRows && bothDims) {
+      return variantRowColors;
+    }
+    return [];
+  }, [product, hasRows, bothDims, variantRowColors]);
+
+  const productSizes = useMemo(() => {
+    // Helper to extract clean size from potentially SKU-prefixed strings like "XK0016TCFS4663-2XL" -> "2XL"
+    const extractCleanSize = (s: string): string | null => {
+      if (!s || typeof s !== 'string') return null;
+      const trimmed = s.trim();
+      if (!trimmed) return null;
+      
+      // If it contains a hyphen and the left part looks like a SKU, extract the right part
+      const lastHyphen = trimmed.lastIndexOf('-');
+      if (lastHyphen > 0 && lastHyphen < trimmed.length - 1) {
+        const leftPart = trimmed.slice(0, lastHyphen).trim();
+        const rightPart = trimmed.slice(lastHyphen + 1).trim();
+        // If left part is a SKU code, return only the right part (the actual size)
+        if (isSkuCode(leftPart)) {
+          return rightPart;
+        }
+      }
+      
+      // If the whole string is a SKU code, skip it
+      if (isSkuCode(trimmed)) return null;
+      
+      return trimmed;
+    };
+    
+    const deduplicateSizes = (sizes: string[]): string[] => {
+      const sizeMap = new Map<string, string>();
+      for (const s of sizes) {
+        const clean = extractCleanSize(s);
+        if (!clean) continue;
+        const normalizedKey = clean.toLowerCase().trim();
+        if (!sizeMap.has(normalizedKey)) {
+          sizeMap.set(normalizedKey, clean);
+        }
+      }
+      return Array.from(sizeMap.values());
+    };
+    
+    // First try available_sizes array (most complete source from CJ import)
+    const as = (product as any).available_sizes;
+    if (Array.isArray(as) && as.length > 0) {
+      return deduplicateSizes(as);
+    }
+    // Fallback to variants JSONB field
+    const variants = (product as any).variants;
+    if (Array.isArray(variants)) {
+      const sizes: string[] = [];
+      variants.forEach((v: any) => { if (v.size && typeof v.size === 'string') sizes.push(v.size); });
+      if (sizes.length > 0) return deduplicateSizes(sizes);
+    }
+    // Last resort: extract from variantRows if available
+    if (hasRows) {
+      return variantRowSizes;
+    }
+    return [];
+  }, [product, hasRows, bothDims, variantRowSizes]);
+
+  // Use variant rows as primary, fallback to product-level arrays
+  const hasFallbackDims = productColors.length > 0 && productSizes.length > 0;
+  const effectiveBothDims = bothDims || hasFallbackDims;
+
+  const colorOptions = useMemo(() => {
+    // Use productColors as primary (from available_colors array)
+    if (productColors.length > 0) return productColors;
+    // Fallback to variantRows extraction
+    if (variantRowColors.length > 0) return variantRowColors;
+    // If no colors found (all were SKU codes), return empty array
+    // The UI will handle this by showing only sizes (no color selector)
+    return [];
+  }, [productColors, variantRowColors]);
+
+  // Track whether we have meaningful color options or product is "size-only"
+  const isSizeOnlyProduct = colorOptions.length === 0 && productSizes.length > 0;
+
+  // CJ PRODUCTS: ALL sizes are available for ALL colors
+  // We use the UNION of all sizes across the entire product for every color
+  const sizeOptionsByColor = useMemo(() => {
+    // Helper to deduplicate by normalized key
+    const deduplicateStrings = (items: string[]): string[] => {
+      const seen = new Map<string, string>();
+      for (const item of items) {
+        if (!item || typeof item !== 'string') continue;
+        const display = item.trim();
+        if (!display) continue;
+        const key = display.toLowerCase().replace(/\s+/g, ' ');
+        if (!seen.has(key)) {
+          seen.set(key, display);
+        }
+      }
+      return Array.from(seen.values());
+    };
+    
+    // Step 1: Collect ALL unique sizes from all sources
+    const rawSizes: string[] = [];
+    
+    // From productSizes array (primary source from import)
+    if (productSizes.length > 0) {
+      rawSizes.push(...productSizes);
+    }
+    
+    // Also extract from variantRows to ensure completeness
+    if (hasRows && variantRows) {
+      for (const r of variantRows) {
+        const cs = splitColorSize(r.option_value || '');
+        if (cs.size) rawSizes.push(cs.size);
+      }
+    }
+    
+    // Also check variants JSONB field
+    const variantsJson = (product as any).variants;
+    if (Array.isArray(variantsJson)) {
+      for (const v of variantsJson) {
+        if (v.size && typeof v.size === 'string') rawSizes.push(v.size.trim());
+      }
+    }
+    
+    const allSizes = deduplicateStrings(rawSizes);
+    
+    // Step 2: Collect ALL colors from all sources (with deduplication)
+    const rawColors: string[] = [];
+    
+    // From productColors (primary - from available_colors array)
+    if (productColors.length > 0) {
+      rawColors.push(...productColors);
+    }
+    
+    // From variantRowColors (extracted from product_variants)
+    if (variantRowColors.length > 0) {
+      rawColors.push(...variantRowColors);
+    }
+    
+    // From variantRows (parse option_value) - use robust fallback for legacy data
+    if (hasRows && variantRows) {
+      for (const r of variantRows) {
+        const optVal = r.option_value || '';
+        const cs = splitColorSize(optVal);
+        if (cs.color) {
+          rawColors.push(cs.color);
+        } else if (optVal.includes('-') || optVal.includes('/')) {
+          // Fallback: For legacy format "Color-Size" or "Color / Size", extract left part as color
+          const sep = optVal.includes('/') ? '/' : '-';
+          const parts = optVal.split(sep).map(p => p.trim()).filter(Boolean);
+          if (parts.length >= 2) {
+            // Last part is likely size, everything before is color
+            const potentialColor = parts.slice(0, -1).join(' ').trim();
+            if (potentialColor && potentialColor.length > 0) {
+              rawColors.push(potentialColor);
+            }
+          }
+        }
+      }
+    }
+    
+    // From variants JSONB field
+    if (Array.isArray(variantsJson)) {
+      for (const v of variantsJson) {
+        if (v.color && typeof v.color === 'string') rawColors.push(v.color.trim());
+      }
+    }
+    
+    // Step 3: Assign ALL sizes to EVERY color - this is the CJ model
+    // Colors and sizes are independent dimensions
+    // CRITICAL: Use colorOptions as keys to ensure exact match with selectedColor
+    if (colorOptions.length > 0 && allSizes.length > 0) {
+      const map: Record<string, string[]> = {};
+      for (const color of colorOptions) {
+        map[color] = allSizes;
+      }
+      return map;
+    }
+    
+    return {} as Record<string, string[]>;
+  }, [hasRows, variantRows, productColors, productSizes, variantRowColors, product, colorOptions]);
+
+  const singleDimOptions = useMemo(() => {
+    // Primary: Use variant row sizes
+    if (hasRows && !bothDims && variantRowSizes.length > 0) return variantRowSizes;
+    // Fallback: Use product-level sizes when no colors
+    if (!hasRows && productSizes.length > 0 && productColors.length === 0) return productSizes;
+    return [] as string[];
+  }, [hasRows, bothDims, variantRowSizes, productSizes, productColors]);
 
   const singleDimName = useMemo(() => {
     if (!hasRows || bothDims) return 'Size';
@@ -787,33 +1215,39 @@ export default function ProductDetailsClient({
     return { color: 'Color', size: 'Size' };
   }, [hasRows, bothDims, variantRows]);
 
-  const [selectedColor, setSelectedColor] = useState(() => colorOptions[0] || '');
-  const [selectedSize, setSelectedSize] = useState(() => {
-    if (bothDims && colorOptions[0]) {
-      return (sizeOptionsByColor[colorOptions[0]] || [])[0] || '';
-    }
-    return singleDimOptions[0] || '';
-  });
-
+  const [selectedColor, setSelectedColor] = useState('');
+  const [selectedSize, setSelectedSize] = useState('');
+  
+  // Initialize color and size once data is available
   useEffect(() => {
-    if (selectedColor && sizeOptionsByColor[selectedColor]) {
-      const sizes = sizeOptionsByColor[selectedColor];
-      if (!sizes.includes(selectedSize)) {
+    if (!selectedColor && colorOptions.length > 0) {
+      setSelectedColor(colorOptions[0]);
+    }
+  }, [colorOptions, selectedColor]);
+  
+  useEffect(() => {
+    if (effectiveBothDims && selectedColor) {
+      const sizes = sizeOptionsByColor[selectedColor] || [];
+      if (!selectedSize || !sizes.includes(selectedSize)) {
         setSelectedSize(sizes[0] || '');
       }
+    } else if (!effectiveBothDims && singleDimOptions.length > 0) {
+      if (!selectedSize || !singleDimOptions.includes(selectedSize)) {
+        setSelectedSize(singleDimOptions[0] || '');
+      }
     }
-  }, [selectedColor, sizeOptionsByColor, selectedSize]);
+  }, [effectiveBothDims, selectedColor, sizeOptionsByColor, singleDimOptions, selectedSize]);
 
   const selectedOptions = useMemo(() => {
     const opts: Record<string, string> = {};
-    if (bothDims) {
+    if (effectiveBothDims) {
       if (selectedColor) opts[twoDimNames.color] = selectedColor;
       if (selectedSize) opts[twoDimNames.size] = selectedSize;
     } else if (singleDimOptions.length > 0) {
       opts[singleDimName] = selectedSize;
     }
     return opts;
-  }, [bothDims, selectedColor, selectedSize, singleDimOptions.length, singleDimName, twoDimNames]);
+  }, [effectiveBothDims, selectedColor, selectedSize, singleDimOptions.length, singleDimName, twoDimNames]);
 
   const selectedVariant = useMemo(() => {
     if (!variantRows || variantRows.length === 0) return null;
@@ -828,40 +1262,158 @@ export default function ProductDetailsClient({
     return variantRows.find(v => v.option_value === selectedSize) || null;
   }, [variantRows, selectedColor, selectedSize, bothDims]);
 
+  // sizeStockMap: Maps size -> stock value
+  // CRITICAL: undefined/null stock means UNKNOWN (treat as available), NOT out of stock
+  // Only explicitly 0 stock means out of stock
   const sizeStockMap = useMemo(() => {
-    if (!variantRows) return {};
-    const map: Record<string, number> = {};
-    if (bothDims && selectedColor) {
-      for (const r of variantRows) {
-        const cs = splitColorSize(r.option_value || '');
-        if (cs.color === selectedColor && cs.size) {
-          map[cs.size] = r.stock ?? 0; // null stock treated as 0 for UI
+    const map: Record<string, number | undefined> = {};
+    
+    // Primary: Use variantRows from product_variants table
+    if (hasRows) {
+      if (bothDims && selectedColor) {
+        for (const r of variantRows!) {
+          const cs = splitColorSize(r.option_value || '');
+          // Normalize color comparison for matching
+          const normalizedRowColor = (cs.color || '').toLowerCase().trim();
+          const normalizedSelectedColor = selectedColor.toLowerCase().trim();
+          if (normalizedRowColor === normalizedSelectedColor && cs.size) {
+            // Keep stock as-is: undefined means unknown, not 0
+            map[cs.size] = r.stock ?? undefined;
+          }
+        }
+      } else {
+        for (const r of variantRows!) {
+          map[r.option_value] = r.stock ?? undefined;
         }
       }
-    } else {
-      for (const r of variantRows) {
-        map[r.option_value] = r.stock ?? 0; // null stock treated as 0 for UI
-      }
+      return map;
     }
+    
+    // Fallback: Use product.variants JSONB when no variant rows
+    const variants = (product as any).variants;
+    if (Array.isArray(variants) && variants.length > 0) {
+      if (effectiveBothDims && selectedColor) {
+        for (const v of variants) {
+          const normalizedVColor = (v.color || '').toLowerCase().trim();
+          const normalizedSelectedColor = selectedColor.toLowerCase().trim();
+          if (normalizedVColor === normalizedSelectedColor && v.size) {
+            map[v.size] = v.stock ?? undefined;
+          }
+        }
+      } else {
+        for (const v of variants) {
+          if (v.size) {
+            map[v.size] = v.stock ?? undefined;
+          }
+        }
+      }
+      if (Object.keys(map).length > 0) return map;
+    }
+    
+    // Last fallback: Empty map - sizes will be treated as available (unknown stock)
     return map;
-  }, [variantRows, bothDims, selectedColor]);
+  }, [hasRows, variantRows, bothDims, effectiveBothDims, selectedColor, product]);
 
   const colorImageMap = useMemo(() => {
-    if (!variantRows || !bothDims) return {};
     const map: Record<string, string> = {};
+    
+    // Priority 0: Use product.color_image_map if available (authoritative from CJ import)
+    const productColorImageMap = (product as any).color_image_map;
+    if (productColorImageMap && typeof productColorImageMap === 'object') {
+      for (const [color, imageUrl] of Object.entries(productColorImageMap)) {
+        if (typeof imageUrl === 'string' && imageUrl && !map[color]) {
+          map[color] = imageUrl;
+        }
+      }
+    }
+    
+    // Priority 1: Try to get color images from product_variants table (variantRows)
+    if (hasRows && variantRows) {
+      for (const v of variantRows) {
+        const vAny = v as any;
+        if (vAny.color && vAny.image_url && !map[vAny.color]) {
+          map[vAny.color] = vAny.image_url;
+        }
+      }
+    }
+    
+    // Priority 2: Try to get color images from product.variants JSONB
+    const variants = (product as any).variants;
+    if (Array.isArray(variants)) {
+      for (const v of variants) {
+        if (v.color && v.image_url && !map[v.color]) {
+          map[v.color] = v.image_url;
+        }
+      }
+    }
+    
+    // Priority 3: CLIENT-SIDE FALLBACK - Smart color-to-image matching
+    // This enables immediate color swapping for existing products without database migration
+    const availableColors = (product as any).available_colors;
+    if (Array.isArray(availableColors) && availableColors.length > 0 && Object.keys(map).length < availableColors.length) {
+      const images = product.images || [];
+      
+      // Helper: Normalize color name for matching (lowercase, remove spaces/special chars)
+      const normalizeForMatch = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+      
+      // Strategy 1: Try URL-based matching (CJ often includes color names in image URLs)
+      // e.g., "...product/Black/..." or "...Black-xxxxx.jpg"
+      for (const color of availableColors) {
+        if (map[color]) continue;
+        const colorNorm = normalizeForMatch(color);
+        if (colorNorm.length < 3) continue; // Skip very short color names to avoid false matches
+        
+        for (const imgUrl of images) {
+          if (typeof imgUrl !== 'string') continue;
+          const urlLower = imgUrl.toLowerCase();
+          // Check if color name appears in URL path or filename
+          if (urlLower.includes(colorNorm) || urlLower.includes(color.toLowerCase().replace(/ /g, '-'))) {
+            map[color] = imgUrl;
+            break;
+          }
+        }
+      }
+      
+      // Strategy 2: Positional matching ONLY if exact length match (high confidence)
+      // This avoids misalignment when there are extra hero/lifestyle images
+      const unmappedColors = availableColors.filter((c: string) => !map[c]);
+      if (unmappedColors.length > 0) {
+        // Count how many images we have that aren't already mapped
+        const mappedUrls = new Set(Object.values(map));
+        const unmappedImages = images.filter(img => !mappedUrls.has(img));
+        
+        // Only use positional matching if counts match exactly (high confidence)
+        if (unmappedImages.length === unmappedColors.length && unmappedColors.length > 0) {
+          for (let i = 0; i < unmappedColors.length; i++) {
+            const color = unmappedColors[i];
+            if (!map[color] && unmappedImages[i]) {
+              map[color] = unmappedImages[i];
+            }
+          }
+        } else if (unmappedImages.length >= unmappedColors.length) {
+          // Strategy 3: Use the LAST N images for N unmapped colors
+          // CJ often puts color-specific images at the end, after hero shots
+          const colorSpecificImages = unmappedImages.slice(-unmappedColors.length);
+          for (let i = 0; i < unmappedColors.length; i++) {
+            const color = unmappedColors[i];
+            if (!map[color] && colorSpecificImages[i]) {
+              map[color] = colorSpecificImages[i];
+            }
+          }
+        }
+      }
+    }
+    
+    // Final fallback: Fill any remaining unmapped colors with first product image
     for (const color of colorOptions) {
-      const variant = variantRows.find(v => {
-        const cs = splitColorSize(v.option_value || '');
-        return cs.color === color;
-      });
-      if (variant) {
+      if (!map[color]) {
         map[color] = product.images[0] || '';
       }
     }
     return map;
-  }, [variantRows, bothDims, colorOptions, product.images]);
+  }, [colorOptions, product.images, product, hasRows, variantRows]);
 
-  const currentSizes = bothDims 
+  const currentSizes = effectiveBothDims 
     ? (sizeOptionsByColor[selectedColor] || [])
     : singleDimOptions;
 
@@ -899,37 +1451,82 @@ export default function ProductDetailsClient({
     return () => { cancelled = true; };
   }, [cjPid, selectedVariant?.cj_sku]);
 
-  const isOutOfStock = (product.stock ?? 0) <= 0;
-  const variantOutOfStock = selectedVariant ? (selectedVariant.stock ?? 0) <= 0 : false;
-  const addToCartDisabled = isOutOfStock || (hasRows && (selectedVariant ? variantOutOfStock : true));
+  // Check stock - null/undefined means "unknown availability" = treat as available (CJ products)
+  // Only mark out of stock when stock is EXPLICITLY 0
+  const productStockUnknown = product.stock === null || product.stock === undefined;
+  const hasProductStock = productStockUnknown || (product.stock ?? 0) > 0;
+  
+  const hasVariantStock = hasRows && variantRows!.some(v => {
+    // null/undefined stock = unknown = available
+    if (v.stock === null || v.stock === undefined) return true;
+    return v.stock > 0;
+  });
+  const hasFallbackVariantStock = !hasRows && Array.isArray((product as any).variants) && 
+    (product as any).variants.some((v: any) => {
+      if (v.stock === null || v.stock === undefined) return true;
+      return v.stock > 0;
+    });
+  
+  const hasOptionsAvailable = colorOptions.length > 0 || currentSizes.length > 0;
+  
+  // Out of stock only if no stock from any source
+  const isOutOfStock = !hasProductStock && !hasVariantStock && !hasFallbackVariantStock && !hasOptionsAvailable;
+  
+  // Variant out of stock only when stock is EXPLICITLY 0 (not null/undefined)
+  const variantOutOfStock = selectedVariant && 
+    selectedVariant.stock !== null && 
+    selectedVariant.stock !== undefined && 
+    selectedVariant.stock <= 0;
+  
+  // Disable add to cart if: out of stock, OR has size options but none selected
+  const addToCartDisabled = isOutOfStock || (currentSizes.length > 0 && !selectedSize);
 
-  const currentPrice = selectedVariant?.price ?? product.price;
+  // Use min_price as default when no variant selected, fallback to product.price
+  const minPrice = (product as any).min_price ?? product.price;
+  const maxPrice = (product as any).max_price ?? product.price;
+  const hasVariantPricing = minPrice !== maxPrice && maxPrice > minPrice;
+  
+  // When variant is selected, use variant price; otherwise use min_price
+  const currentPrice = selectedVariant?.price ?? minPrice;
+
+  const descriptionImages = useMemo(() => {
+    if (!product.description) return [];
+    return extractImagesFromHtml(product.description);
+  }, [product.description]);
 
   return (
     <div className="w-full">
-      <div className="flex flex-col lg:flex-row gap-6 lg:gap-10">
-        <div className="w-full lg:w-[55%] xl:w-[60%]">
+      <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-4 lg:gap-6 items-start">
+        <div className="w-full lg:w-auto lg:max-w-[580px]">
           <MediaGallery 
             images={product.images} 
             title={product.title}
             videoUrl={(product as any).video_url}
+            selectedColor={selectedColor}
+            colorImageMap={colorImageMap}
+            availableColors={colorOptions}
+            descriptionImages={descriptionImages}
           />
         </div>
 
-        <div className="w-full lg:w-[45%] xl:w-[40%] space-y-6">
+        <div className="w-full space-y-4">
           <DetailHeader
             title={product.title}
             productCode={product.product_code}
-            rating={product.rating}
-            reviewCount={0}
+            rating={product.rating || (product as any).supplier_rating || 0}
+            reviewCount={(product as any).review_count || 0}
           />
 
           <PriceBlock
             price={currentPrice}
-            isAvailable={!isOutOfStock && !variantOutOfStock}
+            originalPrice={(product as any).original_price}
+            isAvailable={!isOutOfStock && (hasOptionsAvailable || hasProductStock)}
+            minPrice={minPrice}
+            maxPrice={maxPrice}
+            showRange={hasVariantPricing && !selectedVariant}
           />
 
-          {bothDims && colorOptions.length > 0 && (
+          {effectiveBothDims && colorOptions.length > 0 && (
             <ColorSelector
               colors={colorOptions}
               selectedColor={selectedColor}
@@ -951,9 +1548,12 @@ export default function ProductDetailsClient({
               <div className="flex flex-wrap gap-2">
                 {currentSizes.map((size) => {
                   const isSelected = size === selectedSize;
-                  const stock = sizeStockMap[size] ?? 0;
-                  const isOutOfStockSize = stock <= 0;
-                  const isLowStock = stock > 0 && stock <= 3;
+                  // Treat stock=0, null, undefined as "available" (CJ often returns 0 as default)
+                  const stockValue = sizeStockMap[size];
+                  const hasExplicitStock = stockValue !== undefined && stockValue !== null && stockValue !== 0;
+                  // Only mark out of stock if stock is explicitly negative (shouldn't happen)
+                  const isOutOfStockSize = hasExplicitStock && stockValue < 0;
+                  const isLowStock = hasExplicitStock && stockValue > 0 && stockValue <= 3;
 
                   return (
                     <button
@@ -977,7 +1577,7 @@ export default function ProductDetailsClient({
                   );
                 })}
               </div>
-              {sizeStockMap[selectedSize] !== undefined && sizeStockMap[selectedSize] > 0 && sizeStockMap[selectedSize] <= 3 && (
+              {sizeStockMap[selectedSize] !== undefined && sizeStockMap[selectedSize] !== null && (sizeStockMap[selectedSize] as number) > 0 && (sizeStockMap[selectedSize] as number) <= 3 && (
                 <p className="text-sm text-amber-600">
                   Only {sizeStockMap[selectedSize]} left!
                 </p>
@@ -1002,39 +1602,61 @@ export default function ProductDetailsClient({
             product={product}
           />
 
-          {product.description && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium text-foreground">Product Description</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                {product.description}
-              </p>
-            </div>
-          )}
-
           {children}
         </div>
       </div>
 
       <ProductTabs
         description={product.description}
-        highlights={[
-          "Perfect for Spring and Summer seasons",
-          "Made with chiffon and polyester for a luxurious feel",
-          "Features short sleeves for added comfort",
-          "Designed for women, with an elegant style",
-        ]}
-        sellingPoints={[
-          `${product.category || "Fashion"} Type: ${product.title?.split(' ').slice(0, 3).join(' ')}`,
-          "Gender: Women's",
-          `Style: ${(product as any).style || "Elegant"}`,
-        ]}
-        specifications={{
-          "Category": product.category || "Fashion",
-          "Gender": "Women's",
-          "Style": (product as any).style || "Elegant",
-          "Fit Type": "Regular Fit",
-          "Season": "Summer, Spring",
-        }}
+        productTitle={product.title}
+        highlights={(() => {
+          // Extract highlights from product specifications or description
+          const highlights: string[] = [];
+          const specs = (product as any).specifications;
+          if (specs && typeof specs === 'object') {
+            for (const [key, value] of Object.entries(specs)) {
+              if (value && typeof value === 'string' && value.trim()) {
+                highlights.push(`${key}: ${value}`);
+              }
+            }
+          }
+          return highlights.slice(0, 6);
+        })()}
+        sellingPoints={(() => {
+          // Use real selling points from product if available
+          const sp = (product as any).selling_points;
+          if (Array.isArray(sp) && sp.length > 0) {
+            return sp.filter((p: any) => typeof p === 'string' && p.trim()).slice(0, 5);
+          }
+          // Fallback to generated selling points
+          return [
+            `${product.category || "Fashion"} > ${(product as any).category_name || product.title?.split(' ').slice(0, 3).join(' ')}`,
+            `Gender: ${(product as any).gender || "Unisex"}`,
+            `Style: ${(product as any).style || "Casual"}`,
+          ];
+        })()}
+        specifications={(() => {
+          // Use real specifications from product if available
+          const specs = (product as any).specifications;
+          if (specs && typeof specs === 'object' && Object.keys(specs).length > 0) {
+            const cleanSpecs: Record<string, string> = {};
+            for (const [key, value] of Object.entries(specs)) {
+              if (value && typeof value === 'string' && value.trim()) {
+                // Clean HTML entities
+                cleanSpecs[key] = value.replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
+              }
+            }
+            return cleanSpecs;
+          }
+          // Fallback
+          return {
+            "Category": `${product.category || "Fashion"} > ${(product as any).category_name || "General"}`,
+            "Gender": (product as any).gender || "Unisex",
+            "Style": (product as any).style || "Casual",
+            "Fit Type": (product as any).fit_type || "Regular Fit",
+            "Season": (product as any).season || "All Seasons",
+          };
+        })()}
       />
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 p-3 safe-area-inset-bottom">

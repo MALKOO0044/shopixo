@@ -253,21 +253,21 @@ export async function GET(req: Request) {
           await supabase.from('products').update(optional).eq('id', productId);
         }
 
-        // Variants: only if table exists
-        if (await productVariantsTableExists(supabase)) {
-          const variantsRows = (cj.variants || [])
-            .filter((v) => v && (v.size || v.cjSku))
-            .map((v) => ({
-              product_id: productId,
-              option_name: 'Size',
-              option_value: v.size || '-',
-              cj_sku: v.cjSku || null,
-              price: typeof v.price === 'number' ? v.price : null,
-              stock: typeof v.stock === 'number' ? v.stock : 0,
-            }));
-          if (variantsRows.length > 0) {
-            const { error: vErr } = await supabase.from('product_variants').insert(variantsRows);
-            if (vErr) throw vErr;
+        const variantsRows = (cj.variants || [])
+          .filter((v) => v && (v.size || v.cjSku || (v as any).vid))
+          .map((v) => ({
+            product_id: productId,
+            option_name: 'Size',
+            option_value: v.size || '-',
+            cj_sku: v.cjSku || null,
+            cj_variant_id: (v as any).vid || (v as any).variantId || null,
+            price: typeof v.price === 'number' ? v.price : null,
+            stock: typeof v.stock === 'number' ? v.stock : 0,
+          }));
+        if (variantsRows.length > 0) {
+          const { error: vErr } = await supabase.from('product_variants').insert(variantsRows);
+          if (vErr) {
+            console.warn('[Quick Import] Variant insert failed:', vErr.message);
           }
         }
 

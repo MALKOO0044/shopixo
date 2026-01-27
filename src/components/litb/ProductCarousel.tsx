@@ -6,6 +6,23 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, Star } from "lucide-react";
 import type { Route } from "next";
 
+function safeImageUrl(img: string | undefined | null): string {
+  if (!img) return '/placeholder-product.png';
+  const s = img.trim();
+  if (s.startsWith('[') && s.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
+        return parsed[0];
+      }
+    } catch {}
+  }
+  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) {
+    return s;
+  }
+  return '/placeholder-product.png';
+}
+
 interface Product {
   id: number;
   name: string;
@@ -65,7 +82,7 @@ export default function ProductCarousel({ title, products, viewAllHref }: Produc
               >
                 <div className="relative aspect-[3/4] rounded-lg overflow-hidden bg-gray-100 mb-2">
                   <Image
-                    src={product.image}
+                    src={safeImageUrl(product.image)}
                     alt={product.name}
                     fill
                     sizes="220px"
@@ -81,11 +98,11 @@ export default function ProductCarousel({ title, products, viewAllHref }: Produc
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-sm text-gray-700 line-clamp-2 group-hover/card:text-[#e31e24]">
+                  <p className="text-sm text-gray-700 line-clamp-2">
                     {product.name}
                   </p>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-[#e31e24] font-bold">${product.price.toFixed(2)}</span>
+                    <span className="text-gray-900 font-bold">${product.price.toFixed(2)}</span>
                     {product.originalPrice && (
                       <span className="text-xs text-gray-400 line-through">${product.originalPrice.toFixed(2)}</span>
                     )}

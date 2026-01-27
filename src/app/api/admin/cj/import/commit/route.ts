@@ -108,6 +108,7 @@ export async function POST(req: Request) {
             option_name: 'Variant',
             option_value: optionValue,
             cj_sku: v.cjSku || null,
+            cj_variant_id: (v as any).variantId || (v as any).vid || null,
             price: typeof retailSar === 'number' ? retailSar : null,
             stock,
             weight_grams: typeof weightG === 'number' ? Math.round(weightG) : null,
@@ -163,11 +164,23 @@ export async function POST(req: Request) {
           productId = ins.id as number
         }
 
-        const hasVariants = await hasTable('product_variants').catch(() => true)
-        if (hasVariants && rows.length > 0) {
+        if (rows.length > 0) {
           const finalRows = rows.map(r => ({ ...r, product_id: productId }))
           const { error } = await db.from('product_variants').insert(finalRows)
-          if (error) throw error
+          if (error) {
+            console.warn('[CJ Import] Variant insert failed, trying minimal:', error.message)
+            const minimalRows = rows.map(r => ({
+              product_id: productId,
+              option_name: r.option_name,
+              option_value: r.option_value,
+              cj_sku: r.cj_sku,
+              cj_variant_id: r.cj_variant_id,
+              price: r.price,
+              stock: r.stock,
+            }))
+            const { error: retryErr } = await db.from('product_variants').insert(minimalRows)
+            if (retryErr) console.error('[CJ Import] Minimal variant insert also failed:', retryErr.message)
+          }
         }
         try { await db.rpc('recompute_product_stock', { product_id_in: productId }) } catch {}
 

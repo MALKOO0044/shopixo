@@ -24,9 +24,27 @@ type FeatureOption = {
   level: number;
 };
 
+type SupabaseCategory = {
+  id: number;
+  name: string;
+  slug: string;
+  level: number;
+  parentId: number | null;
+  children?: SupabaseCategory[];
+};
+
+type SelectedFeature = {
+  cjCategoryId: string;
+  cjCategoryName: string;
+  supabaseCategoryId: number;
+  supabaseCategorySlug: string;
+};
+
 export default function ProductDiscoveryPage() {
   const [category, setCategory] = useState("all");
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
+  const [selectedFeaturesWithIds, setSelectedFeaturesWithIds] = useState<SelectedFeature[]>([]);
+  const [supabaseCategories, setSupabaseCategories] = useState<SupabaseCategory[]>([]);
   const [quantity, setQuantity] = useState(50);
   const [minStock, setMinStock] = useState(0);
   const [maxPrice, setMaxPrice] = useState(100);
@@ -115,8 +133,22 @@ export default function ProductDiscoveryPage() {
     }
   };
 
+  const loadSupabaseCategories = async () => {
+    try {
+      const res = await fetch("/api/admin/categories/tree");
+      const data = await res.json();
+      if (data.ok && data.categories) {
+        setSupabaseCategories(data.categories);
+        console.log("[Discovery] Loaded", data.total, "Supabase categories");
+      }
+    } catch (e) {
+      console.error("Failed to load Supabase categories:", e);
+    }
+  };
+
   useEffect(() => {
     testConnection();
+    loadSupabaseCategories();
   }, []);
 
   const loadFeatures = async (categoryId: string) => {
@@ -388,17 +420,83 @@ export default function ProductDiscoveryPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: batchName || `Discovery ${new Date().toLocaleDateString()}`,
-          products: selectedProducts.map(p => ({
-            cjProductId: p.pid,
-            cjSku: p.cjSku,
-            name: p.name,
-            images: p.images,
-            minPriceSAR: p.minPriceSAR,
-            maxPriceSAR: p.maxPriceSAR,
-            avgPriceSAR: p.avgPriceSAR,
-            stock: p.stock,
-            variants: p.variants,
-          })),
+          category: category !== 'all' ? categories.find(c => c.categoryId === category)?.categoryName : undefined,
+          products: selectedProducts.map(p => {
+            const availableVariants = p.variants.filter(v => v.shippingAvailable);
+            const avgProductCost = availableVariants.length > 0
+              ? availableVariants.reduce((sum, v) => sum + v.variantPriceUSD, 0) / availableVariants.length
+              : p.avgPriceSAR / 3.75;
+            const avgShippingCost = availableVariants.length > 0
+              ? availableVariants.reduce((sum, v) => sum + v.shippingPriceUSD, 0) / availableVariants.length
+              : 5;
+            const totalCost = avgProductCost + avgShippingCost;
+            
+            return {
+              cjProductId: p.pid,
+              cjSku: p.cjSku,
+              name: p.name,
+              description: p.description || p.overview || '',
+              images: p.images,
+              videoUrl: p.videoUrl,
+              minPriceSAR: p.minPriceSAR,
+              maxPriceSAR: p.maxPriceSAR,
+              avgPriceSAR: p.avgPriceSAR,
+              stock: p.stock,
+              variants: p.variants,
+              categoryName: p.categoryName,
+              cjCategoryId: category !== 'all' ? category : undefined,
+              supabaseCategoryId: selectedFeaturesWithIds.length > 0 ? selectedFeaturesWithIds[0].supabaseCategoryId : undefined,
+              supabaseCategorySlug: selectedFeaturesWithIds.length > 0 ? selectedFeaturesWithIds[0].supabaseCategorySlug : undefined,
+              rating: p.rating,
+              reviewCount: p.reviewCount,
+              productWeight: p.productWeight,
+              packLength: p.packLength,
+              packWidth: p.packWidth,
+              packHeight: p.packHeight,
+              material: p.material,
+              originCountry: p.originCountry,
+              hsCode: p.hsCode,
+              sizeChartImages: p.sizeChartImages,
+              availableSizes: p.availableSizes,
+              availableColors: p.availableColors,
+              processingDays: p.processingTimeHours ? Math.ceil(p.processingTimeHours / 24) : 3,
+              deliveryDaysMin: 7,
+              deliveryDaysMax: p.deliveryTimeHours ? Math.ceil(p.deliveryTimeHours / 24) : 15,
+              variantPricing: availableVariants.map(v => ({
+                variantId: v.variantId,
+                sku: v.variantSku,
+                color: v.color,
+                size: v.size,
+                price: v.sellPriceSAR,
+                costPrice: v.variantPriceUSD,
+                shippingCost: v.shippingPriceUSD,
+                stock: v.stock || 0,
+                cjStock: v.cjStock || 0,
+                factoryStock: v.factoryStock || 0,
+                colorImage: v.variantImage,
+              })),
+              specifications: {
+                productInfo: p.productInfo,
+                sizeInfo: p.sizeInfo,
+                material: p.material,
+                productType: p.productType,
+              },
+              sellingPoints: p.overview ? p.overview.split('\n').filter((l: string) => l.trim()) : [],
+              inventoryByWarehouse: p.inventory,
+              colorImageMap: p.colorImageMap,
+              priceBreakdown: {
+                avgProductCost,
+                avgShippingCost,
+                totalCost,
+                avgSellPrice: p.avgPriceSAR,
+                profitMargin: p.avgPriceSAR > 0 ? ((p.avgPriceSAR - totalCost * 3.75) / p.avgPriceSAR * 100) : 0,
+              },
+              cjProductCost: avgProductCost,
+              cjShippingCost: avgShippingCost,
+              cjTotalCost: totalCost,
+              profitMargin: p.avgPriceSAR > 0 ? ((p.avgPriceSAR - totalCost * 3.75) / p.avgPriceSAR * 100) : 8,
+            };
+          }),
         }),
       });
       
@@ -415,7 +513,38 @@ export default function ProductDiscoveryPage() {
     }
   };
 
+  const findMatchingSupabaseCategory = (cjCategoryName: string): SupabaseCategory | null => {
+    const normalizedName = cjCategoryName.toLowerCase().trim();
+    
+    for (const main of supabaseCategories) {
+      if (main.children) {
+        for (const group of main.children) {
+          if (group.children) {
+            for (const item of group.children) {
+              const itemName = item.name.toLowerCase().trim();
+              if (itemName === normalizedName || 
+                  item.slug === normalizedName.replace(/[^a-z0-9]+/g, '-')) {
+                return item;
+              }
+            }
+          }
+          const groupName = group.name.toLowerCase().trim();
+          if (groupName === normalizedName) {
+            return group;
+          }
+        }
+      }
+      const mainName = main.name.toLowerCase().trim();
+      if (mainName === normalizedName) {
+        return main;
+      }
+    }
+    return null;
+  };
+
   const toggleFeature = (featureId: string) => {
+    const isRemoving = selectedFeatures.includes(featureId);
+    
     setSelectedFeatures(prev => {
       if (prev.includes(featureId)) {
         return prev.filter(f => f !== featureId);
@@ -423,6 +552,30 @@ export default function ProductDiscoveryPage() {
         return [...prev, featureId];
       }
     });
+    
+    // Always sync selectedFeaturesWithIds - remove if already selected
+    if (isRemoving) {
+      setSelectedFeaturesWithIds(prev => prev.filter(sf => sf.cjCategoryId !== featureId));
+      return; // Exit early on removal
+    }
+    
+    // Adding new feature - try to find matching Supabase category
+    const feature = features.find(f => f.id === featureId);
+    if (feature) {
+      const matchingSupabase = findMatchingSupabaseCategory(feature.name);
+      const newFeature: SelectedFeature = {
+        cjCategoryId: featureId,
+        cjCategoryName: feature.name,
+        supabaseCategoryId: matchingSupabase?.id || 0,
+        supabaseCategorySlug: matchingSupabase?.slug || '',
+      };
+      setSelectedFeaturesWithIds(prev => [...prev, newFeature]);
+      if (matchingSupabase) {
+        console.log(`[Discovery] Matched CJ "${feature.name}" to Supabase category ${matchingSupabase.id} (${matchingSupabase.slug})`);
+      } else {
+        console.warn(`[Discovery] No Supabase match found for CJ category "${feature.name}"`);
+      }
+    }
   };
 
   const getFeatureName = (id: string) => {
@@ -435,6 +588,23 @@ export default function ProductDiscoveryPage() {
   };
 
   const selectedCategory = categories.find(c => c.categoryId === category);
+  
+  // Find matching Supabase main category based on CJ category name
+  const getMatchingSupabaseMainCategory = (): SupabaseCategory | null => {
+    if (!selectedCategory || category === 'all') return null;
+    
+    const cjName = selectedCategory.categoryName.toLowerCase();
+    return supabaseCategories.find(sc => {
+      const scName = sc.name.toLowerCase();
+      const scSlug = sc.slug.toLowerCase();
+      return scName === cjName || 
+             scSlug === cjName.replace(/[^a-z0-9]+/g, '-') ||
+             scName.includes(cjName) ||
+             cjName.includes(scName);
+    }) || null;
+  };
+  
+  const matchingSupabaseCategory = getMatchingSupabaseMainCategory();
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -470,6 +640,7 @@ export default function ProductDiscoveryPage() {
               onChange={(e) => {
                 setCategory(e.target.value);
                 setSelectedFeatures([]);
+                setSelectedFeaturesWithIds([]); // Clear Supabase category tracking when category changes
                 loadFeatures(e.target.value);
               }}
               className="w-full px-3 py-2 border border-gray-300 rounded"
@@ -488,18 +659,62 @@ export default function ProductDiscoveryPage() {
             <div className="relative">
               <select
                 onChange={(e) => {
-                  if (e.target.value) toggleFeature(e.target.value);
+                  if (e.target.value) {
+                    // Parse the value: "cjId:supabaseId:name"
+                    const [cjId, supabaseId, ...nameParts] = e.target.value.split(':');
+                    const name = nameParts.join(':');
+                    
+                    // Toggle the CJ feature ID
+                    toggleFeature(cjId);
+                    
+                    // Track the Supabase category ID if available
+                    if (supabaseId && parseInt(supabaseId) > 0) {
+                      const existing = selectedFeaturesWithIds.find(sf => sf.cjCategoryId === cjId);
+                      if (!existing) {
+                        setSelectedFeaturesWithIds(prev => [...prev, {
+                          cjCategoryId: cjId,
+                          cjCategoryName: name,
+                          supabaseCategoryId: parseInt(supabaseId),
+                          supabaseCategorySlug: '',
+                        }]);
+                        console.log(`[Discovery] Selected Feature: ${name} (CJ: ${cjId}, Supabase: ${supabaseId})`);
+                      }
+                    }
+                  }
                   e.target.value = "";
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded appearance-none"
               >
                 <option value="">Select features...</option>
-                {selectedCategory?.children?.map(child => (
+                {/* Use Supabase categories if available for better organization */}
+                {matchingSupabaseCategory?.children?.map(group => (
+                  <optgroup key={group.id} label={group.name}>
+                    {group.children?.map(item => {
+                      // Find matching CJ category by name for the CJ search
+                      const matchingCjCat = selectedCategory?.children
+                        ?.flatMap(c => c.children || [])
+                        ?.find(cj => cj?.categoryName?.toLowerCase() === item.name.toLowerCase());
+                      const cjId = matchingCjCat?.categoryId || `supabase-${item.id}`;
+                      
+                      return (
+                        <option 
+                          key={item.id} 
+                          value={`${cjId}:${item.id}:${item.name}`}
+                          disabled={selectedFeatures.includes(cjId)}
+                        >
+                          {item.name}
+                        </option>
+                      );
+                    })}
+                  </optgroup>
+                ))}
+                {/* Fallback to CJ categories if no Supabase match */}
+                {!matchingSupabaseCategory && selectedCategory?.children?.map(child => (
                   <optgroup key={child.categoryId} label={child.categoryName}>
                     {child.children?.map(subChild => (
                       <option 
                         key={subChild.categoryId} 
-                        value={subChild.categoryId}
+                        value={`${subChild.categoryId}:0:${subChild.categoryName}`}
                         disabled={selectedFeatures.includes(subChild.categoryId)}
                       >
                         {subChild.categoryName}

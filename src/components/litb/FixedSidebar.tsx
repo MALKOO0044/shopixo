@@ -3,10 +3,11 @@
 import { ShoppingCart, Smartphone, Headphones, ArrowUp, Settings } from "lucide-react";
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useCartCount } from "@/components/cart/CartCountProvider";
 
 export default function FixedSidebar() {
   const [showBackToTop, setShowBackToTop] = useState(false);
-  const [cartCount] = useState(3);
+  const { count: cartCount } = useCartCount();
 
   useEffect(() => {
     const handleScroll = () => {
