@@ -23,25 +23,6 @@ function safeImageUrl(img: string | undefined | null): string {
   return '/placeholder.svg';
 }
 
-
-function safeImageUrl(img: string | undefined | null): string {
-  if (!img) return '/placeholder.svg';
-  const s = img.trim();
-  if (s.startsWith('[') && s.endsWith(']')) {
-    try {
-      const parsed = JSON.parse(s);
-      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
-        return parsed[0];
-      }
-    } catch {}
-  }
-  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) {
-    return s;
-  }
-  return '/placeholder.svg';
-}
-
-
 interface FlashSaleProps {
   products: HomepageProduct[];
 }
@@ -107,7 +88,7 @@ export default function FlashSale({ products }: FlashSaleProps) {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <span className="text-xl font-bold text-[#e31e24] flex items-center gap-1">
-              âš¡ FLASH SALE
+              ⚡ FLASH SALE
               <ChevronRight className="h-5 w-5" />
             </span>
           </div>
@@ -129,7 +110,7 @@ export default function FlashSale({ products }: FlashSaleProps) {
             {products.map((product) => (
               <Link
                 key={product.id}
-                href={`/product/${product.slug || product.id}`}
+                href={/product/}
                 className="shrink-0 w-[220px] group/card"
               >
                 <div className="relative aspect-[3/4] rounded-lg overflow-hidden bg-gray-100 mb-2">
@@ -153,17 +134,17 @@ export default function FlashSale({ products }: FlashSaleProps) {
                   <p className="text-xs text-gray-700 line-clamp-2">{product.name}</p>
                   <div className="flex items-baseline gap-1">
                     <span className="text-[#e31e24] font-bold">
-                      <span className="text-xs">âš¡</span>${product.price.toFixed(2)}
+                      <span className="text-xs">⚡</span>
                     </span>
                     {product.originalPrice && (
-                      <span className="text-xs text-gray-400 line-through">${product.originalPrice.toFixed(2)}</span>
+                      <span className="text-xs text-gray-400 line-through"></span>
                     )}
                   </div>
                   <div className="flex items-center gap-1">
                     {[...Array(5)].map((_, i) => (
                       <Star
                         key={i}
-                        className={`h-3 w-3 ${i < Math.floor(product.rating) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`}
+                        className={h-3 w-3 \}
                       />
                     ))}
                     <span className="text-xs text-gray-500">{product.rating}</span>
