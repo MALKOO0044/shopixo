@@ -1,4 +1,4 @@
-"use client";
+Ôªø"use client";
 
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
@@ -88,7 +88,7 @@ export default function FlashSale({ products }: FlashSaleProps) {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <span className="text-xl font-bold text-[#e31e24] flex items-center gap-1">
-              G‹Ì FLASH SALE
+              ! FLASH SALE
               <ChevronRight className="h-5 w-5" />
             </span>
           </div>
@@ -134,7 +134,7 @@ export default function FlashSale({ products }: FlashSaleProps) {
                   <p className="text-xs text-gray-700 line-clamp-2">{product.name}</p>
                   <div className="flex items-baseline gap-1">
                     <span className="text-gray-900 font-bold">
-                      <span className="text-xs">G‹Ì</span>${product.price.toFixed(2)}
+                      <span className="text-xs">!</span>${product.price.toFixed(2)}
                     </span>
                     {product.originalPrice && (
                       <span className="text-xs text-gray-400 line-through">${product.originalPrice.toFixed(2)}</span>
