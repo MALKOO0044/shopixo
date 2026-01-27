@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight, Star } from "lucide-react";
 import type { Route } from "next";
 
 function safeImageUrl(img: string | undefined | null): string {
-  if (!img) return '/placeholder-product.png';
+  if (!img) return '/placeholder.svg';
   const s = img.trim();
   if (s.startsWith('[') && s.endsWith(']')) {
     try {
@@ -20,7 +20,7 @@ function safeImageUrl(img: string | undefined | null): string {
   if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) {
     return s;
   }
-  return '/placeholder-product.png';
+  return '/placeholder.svg';
 }
 
 interface Product {
