@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { Facebook, Instagram, Twitter, Youtube, Mail, Phone } from "lucide-react";
 import type { Route } from "next";
 
