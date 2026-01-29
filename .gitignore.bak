@@ -1,0 +1,47 @@
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# Next.js
+/.next
+/out
+/coverage
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Misc
+.DS_Store
+Thumbs.db
+
+# Build cache
+/.turbo
+/.eslintcache
+
+# Local build logs
+build.log
+build-latest.log
+build-full.log
+build-after-admin-orders-dynamic.log
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+.vercel
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+
+.vercel

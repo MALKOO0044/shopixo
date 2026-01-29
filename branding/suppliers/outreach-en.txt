@@ -1,0 +1,19 @@
+Subject: Supplier partnership (KSA dropshipping, blind shipping) — Shopixo
+
+Hello [Name],
+
+We are Shopixo, a modern online store targeting Saudi Arabia. We are looking for suppliers who can:
+- Support full Blind Shipping (Shipper Name on label: Shopixo)
+- Include our packing slip + thank-you insert in every parcel
+- Provide KSA shipping matrix (DDP preferred), fast transit, and tracking within 24h
+- Share catalog via CSV/XML/API and update stock/prices regularly
+
+Please reply with:
+1) Filled RFI (attached)
+2) Latest KSA shipping matrix (Economy/Express, weight tiers, DDP, transit)
+3) Sample price list (SKU, name, variants, cost, weight/dims)
+
+We plan to place small test orders immediately after review. Thank you!
+
+— Shopixo
+support@shopixo.com | WhatsApp: +962 7 8163 7033
