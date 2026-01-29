@@ -50,3 +50,6 @@ src_backup_*/
 # IDE
 .idea/
 .vscode/
+
+# Supabase CLI temp
+supabase/.temp/
