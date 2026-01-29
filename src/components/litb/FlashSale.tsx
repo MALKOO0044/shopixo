@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
@@ -88,7 +88,7 @@ export default function FlashSale({ products }: FlashSaleProps) {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <span className="text-xl font-bold text-[#e31e24] flex items-center gap-1">
-              ⚡ FLASH SALE
+              ? FLASH SALE
               <ChevronRight className="h-5 w-5" />
             </span>
           </div>
@@ -110,7 +110,7 @@ export default function FlashSale({ products }: FlashSaleProps) {
             {products.map((product) => (
               <Link
                 key={product.id}
-                href={/product/}
+                href={`/product/${product.slug || product.id}`}
                 className="shrink-0 w-[220px] group/card"
               >
                 <div className="relative aspect-[3/4] rounded-lg overflow-hidden bg-gray-100 mb-2">
@@ -134,7 +134,7 @@ export default function FlashSale({ products }: FlashSaleProps) {
                   <p className="text-xs text-gray-700 line-clamp-2">{product.name}</p>
                   <div className="flex items-baseline gap-1">
                     <span className="text-[#e31e24] font-bold">
-                      <span className="text-xs">⚡</span>
+                      <span className="text-xs">?</span>
                     </span>
                     {product.originalPrice && (
                       <span className="text-xs text-gray-400 line-through"></span>
@@ -144,7 +144,7 @@ export default function FlashSale({ products }: FlashSaleProps) {
                     {[...Array(5)].map((_, i) => (
                       <Star
                         key={i}
-                        className={h-3 w-3 \}
+                        className={`h-3 w-3 ${i < Math.floor(product.rating) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`}
                       />
                     ))}
                     <span className="text-xs text-gray-500">{product.rating}</span>
