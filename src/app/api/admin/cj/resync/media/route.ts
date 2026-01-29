@@ -7,10 +7,14 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const runtime = 'nodejs';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error('Server configuration error: missing Supabase env vars');
+  }
+  return createClient(url, key);
+}
 
 type ColorImageMap = Record<string, string>;
 
@@ -71,6 +75,8 @@ export async function POST(request: NextRequest) {
   if (!adminResult.ok) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const supabaseAdmin = getSupabaseAdmin();
 
   try {
     const body = await request.json();
@@ -223,6 +229,8 @@ export async function GET(request: NextRequest) {
   if (!adminResult.ok) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const supabaseAdmin = getSupabaseAdmin();
 
   const { data: stats, error } = await supabaseAdmin
     .from('products')
