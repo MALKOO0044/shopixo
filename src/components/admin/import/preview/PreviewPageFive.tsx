@@ -5,9 +5,10 @@ import type { PricedProduct } from "./types";
 
 type PreviewPageFiveProps = {
   product: PricedProduct;
+  profitMarginPercent?: number;
 };
 
-export default function PreviewPageFive({ product }: PreviewPageFiveProps) {
+export default function PreviewPageFive({ product, profitMarginPercent = 8 }: PreviewPageFiveProps) {
   const availableVariants = product.variants.filter((v) => v.shippingAvailable);
   const unavailableVariants = product.variants.filter((v) => !v.shippingAvailable);
 
@@ -37,7 +38,7 @@ export default function PreviewPageFive({ product }: PreviewPageFiveProps) {
   const productCostUSD = firstVariant?.variantPriceUSD || 0;
   const shippingCostUSD = firstVariant?.shippingPriceUSD || 0;
   const totalCostUSD = productCostUSD + shippingCostUSD;
-  const profitMargin = 0.08;
+  const profitMargin = profitMarginPercent / 100;
   const sellPriceUSD = totalCostUSD / (1 - profitMargin);
   const profitUSD = sellPriceUSD - totalCostUSD;
 
@@ -73,7 +74,7 @@ export default function PreviewPageFive({ product }: PreviewPageFiveProps) {
             <div className="bg-green-100 rounded-lg p-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-green-600" />
-                <span className="text-green-800 font-medium">Your Profit (8% margin)</span>
+                <span className="text-green-800 font-medium">Your Profit ({profitMarginPercent}% margin)</span>
               </div>
               <span className="text-3xl font-bold text-green-700">${profitUSD.toFixed(2)}</span>
             </div>

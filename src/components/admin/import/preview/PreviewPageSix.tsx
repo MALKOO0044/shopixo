@@ -5,13 +5,14 @@ import type { PricedProduct } from "./types";
 
 type PreviewPageSixProps = {
   product: PricedProduct;
+  profitMarginPercent?: number;
 };
 
-export default function PreviewPageSix({ product }: PreviewPageSixProps) {
+export default function PreviewPageSix({ product, profitMarginPercent = 8 }: PreviewPageSixProps) {
   const availableVariants = product.variants.filter((v) => v.shippingAvailable);
   const unavailableVariants = product.variants.filter((v) => !v.shippingAvailable);
 
-  const profitMargin = 0.08;
+  const profitMargin = profitMarginPercent / 100;
 
   const computedVariants = availableVariants.map(v => {
     const productCost = v.variantPriceUSD;

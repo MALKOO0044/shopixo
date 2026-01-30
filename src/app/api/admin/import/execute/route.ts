@@ -593,8 +593,8 @@ export async function POST(req: NextRequest) {
           specifications: cleanedSpecs,
           selling_points: cleanedSellingPoints,
           cj_category_id: qp.cj_category_id || null,
-          rating: qp.supplier_rating ?? null,
-          review_count: qp.total_sales ?? null,
+          rating: qp.rating ?? null,
+          review_count: qp.review_count ?? null,
         };
 
         await omitMissingColumns(optionalFields, [
