@@ -1036,7 +1036,7 @@ export default function ProductDiscoveryPage() {
                               const productCostUSD = firstVariant.variantPriceUSD || 0;
                               const shippingCostUSD = firstVariant.shippingPriceUSD || 0;
                               const totalCostUSD = productCostUSD + shippingCostUSD;
-                              const sellPriceUSD = totalCostUSD / (1 - 0.08);
+                              const sellPriceUSD = totalCostUSD / (1 - (profitMargin / 100));
                               return `$${sellPriceUSD.toFixed(2)}`;
                             }
                             return "N/A";
