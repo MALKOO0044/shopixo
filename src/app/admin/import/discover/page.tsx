@@ -467,7 +467,7 @@ export default function ProductDiscoveryPage() {
                 sku: v.variantSku,
                 color: v.color,
                 size: v.size,
-                price: v.sellPriceSAR,
+                price: Number(((v.variantPriceUSD + v.shippingPriceUSD) / (1 - (profitMargin / 100))).toFixed(2)),
                 costPrice: v.variantPriceUSD,
                 shippingCost: v.shippingPriceUSD,
                 stock: v.stock || 0,

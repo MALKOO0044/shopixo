@@ -653,7 +653,20 @@ export default function QueuePage() {
                       <span className="px-2 py-1 bg-gray-100 rounded text-xs text-gray-700">{product.category}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <p className="font-medium text-green-600">${product.cj_price_usd?.toFixed(2) || "0.00"}</p>
+                      <p className="font-medium text-green-600">
+                        {(() => {
+                          const vp = Array.isArray(product.variant_pricing) ? product.variant_pricing : [];
+                          const prices = vp
+                            .map((x: any) => Number(x?.price))
+                            .filter((n: number) => Number.isFinite(n) && n > 0);
+                          const minVariantPrice = prices.length > 0 ? Math.min(...prices) : null;
+                          const fallback = (typeof product.calculated_retail_sar === 'number' && product.calculated_retail_sar > 0)
+                            ? product.calculated_retail_sar
+                            : (typeof product.cj_price_usd === 'number' ? product.cj_price_usd : 0);
+                          const displayPrice = (minVariantPrice ?? fallback) as number;
+                          return `$${displayPrice.toFixed(2)}`;
+                        })()}
+                      </p>
                       <p className="text-xs text-gray-500">Stock: {product.stock_total}</p>
                     </td>
                     <td className="px-4 py-3">

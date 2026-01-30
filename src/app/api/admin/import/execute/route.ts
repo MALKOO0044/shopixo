@@ -457,9 +457,23 @@ export async function POST(req: NextRequest) {
         const defaultRetailPrice = pricing?.retailSar || 50;
         
         const variants = rawVariants.map((v: any, i: number) => {
-          const matchingPricing = rawVariantPricing.find((vp: any) => 
-            vp.variantId === v.variantId || vp.sku === v.variantSku
+          let matchingPricing = rawVariantPricing.find((vp: any) => 
+            vp?.variantId === v?.variantId || vp?.sku === v?.variantSku
           );
+          if (!matchingPricing && rawVariantPricing.length > 0) {
+            const vColor = (v?.color || '').toString().trim().toLowerCase();
+            const vSize = (v?.size || '').toString().trim().toLowerCase();
+            if (vColor || vSize) {
+              matchingPricing = rawVariantPricing.find((vp: any) => {
+                const pColor = (vp?.color || '').toString().trim().toLowerCase();
+                const pSize = (vp?.size || '').toString().trim().toLowerCase();
+                return (!!vColor ? pColor === vColor : true) && (!!vSize ? pSize === vSize : true);
+              });
+            }
+          }
+          if (!matchingPricing && rawVariantPricing.length === 1) {
+            matchingPricing = rawVariantPricing[0];
+          }
           
           const variantCostUsd = matchingPricing?.costPrice || v.variantPriceUSD || v.price || avgProductCostUsd;
           const variantShippingUsd = matchingPricing?.shippingCost || v.shippingPriceUSD || avgShippingCostUsd;
