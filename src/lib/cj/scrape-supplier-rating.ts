@@ -196,14 +196,33 @@ async function tryExtractRatingFromHtml(url: string): Promise<SupplierRating | n
     if (!res.ok) return null;
     const html = await res.text();
 
-    // 1) Count stars from rc-rate component
-    const full = (html.match(/rc-rate-star-full/g) || []).length;
-    const half = (html.match(/rc-rate-star-half/g) || []).length;
+    // Focus on the supplier section only to avoid matching shipping times like "1-3 days"
+    const supplierAnchorIdx = html.search(/Offer(?:ed)?\s+by\s+Supplier|Visit\s+Store|Contact\s+Now|supplier/i);
+    if (supplierAnchorIdx < 0) return null;
+    const start = Math.max(0, supplierAnchorIdx - 2000);
+    const end = Math.min(html.length, supplierAnchorIdx + 4000);
+    const section = html.slice(start, end);
+
+    // 1) Count stars from rc-rate component within the supplier section
+    const full = (section.match(/rc-rate-star-full/gi) || []).length;
+    const half = (section.match(/rc-rate-star-half/gi) || []).length;
     let rating = full + (half * 0.5);
 
-    // 2) Numeric fallback like "4.0/5" near the supplier section
+    // 2) Numeric fallback, but only if there is rating/star context nearby and not a range like "1-3"
     if (rating <= 0) {
-      const num = html.match(/(\b[0-5](?:\.\d)?\b)\s*(?:\/\s*5)?/);
+      // Look for "4.0/5" first
+      let num = section.match(/(\b[0-5](?:\.\d)?\b)\s*\/\s*5/);
+      if (!num) {
+        // Otherwise require 'rating' or 'star' context within ±300 chars and disallow ranges like 1-3
+        const candidate = section.match(/\b([0-5](?:\.\d)?)\b(?!\s*-\s*\d)/);
+        if (candidate) {
+          const idx = candidate.index ?? section.indexOf(candidate[0]);
+          const window = section.slice(Math.max(0, idx - 300), Math.min(section.length, idx + 300)).toLowerCase();
+          if (/(star|rate|rating|评分|评价)/.test(window)) {
+            num = candidate as any;
+          }
+        }
+      }
       if (num) {
         const n = parseFloat(num[1]);
         if (!isNaN(n) && n > 0 && n <= 5) rating = n;
@@ -212,13 +231,20 @@ async function tryExtractRatingFromHtml(url: string): Promise<SupplierRating | n
 
     if (rating <= 0) return null;
 
-    // Extract supplier name heuristically
+    // Extract supplier name heuristically from the supplier section
     let supplierName = '';
-    const nameFromOffer = html.match(/Offer(?:ed)?\s+by\s+Supplier[:\s]*([^<\n]+)/i);
-    if (nameFromOffer) supplierName = nameFromOffer[1].trim();
+    // Pattern when name is plain text after the label
+    let m = section.match(/Offer(?:ed)?\s+by\s+Supplier[^<]*[:\s]*([^<\n]+)/i);
+    if (m) supplierName = (m[1] || '').trim();
+    // Pattern when name is inside a link next to the label
     if (!supplierName) {
-      const linkMatch = html.match(/<a[^>]+href=["']?[^"'>]*supplier[^>]*>([^<]+)<\/a>/i);
-      if (linkMatch) supplierName = linkMatch[1].trim();
+      m = section.match(/Offer(?:ed)?\s+by\s+Supplier[^<]*<a[^>]*>([^<]+)<\/a>/i);
+      if (m) supplierName = (m[1] || '').trim();
+    }
+    // Fallback: any supplier-ish link nearby
+    if (!supplierName) {
+      const linkMatch = section.match(/<a[^>]+href=["']?[^"'>]*supplier[^>]*>([^<]+)<\/a>/i);
+      if (linkMatch) supplierName = (linkMatch[1] || '').trim();
     }
 
     return { supplierName: supplierName || 'Unknown', overallRating: Math.min(rating, 5) };
