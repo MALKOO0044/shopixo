@@ -10,12 +10,30 @@ const PAGE_TIMEOUT = 30000;
 const ratingCache = new Map<string, { rating: SupplierRating | null; timestamp: number }>();
 const CACHE_TTL = 1000 * 60 * 60 * 24;
 
-function findChromiumPath(): string {
+function findChromiumPath(): string | undefined {
   try {
-    const path = execSync('which chromium 2>/dev/null || which chromium-browser 2>/dev/null', { encoding: 'utf-8' }).trim();
-    if (path) return path;
+    // Honor environment hints first (common on serverless platforms)
+    const fromEnv = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROMIUM_PATH;
+    if (fromEnv && fromEnv.trim()) return fromEnv.trim();
   } catch {}
-  return '/nix/store/qa9cnw4v5xkxyip6mb9kxqfq1z4x2dx1-chromium-138.0.7204.100/bin/chromium';
+  try {
+    // Try common chromium binaries
+    const candidates = [
+      'which chromium',
+      'which chromium-browser',
+      'which google-chrome-stable',
+      'which google-chrome',
+      'which chrome'
+    ];
+    for (const cmd of candidates) {
+      try {
+        const out = execSync(`${cmd} 2>/dev/null`, { encoding: 'utf-8' }).trim();
+        if (out) return out;
+      } catch {}
+    }
+  } catch {}
+  // Return undefined to let Puppeteer use its bundled Chromium
+  return undefined;
 }
 
 function slugify(text: string): string {
@@ -28,10 +46,10 @@ function slugify(text: string): string {
 
 async function launchBrowser(): Promise<Browser> {
   const executablePath = findChromiumPath();
-  
   return puppeteer.launch({
     headless: true,
-    executablePath,
+    // If executablePath is undefined, Puppeteer uses its bundled Chromium
+    executablePath: executablePath || undefined,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
