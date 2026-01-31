@@ -523,7 +523,7 @@ export default function QueuePage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Variants</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating / Sales</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating / Reviews</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="w-32 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
@@ -660,10 +660,10 @@ export default function QueuePage() {
                             .map((x: any) => Number(x?.price))
                             .filter((n: number) => Number.isFinite(n) && n > 0);
                           const minVariantPrice = prices.length > 0 ? Math.min(...prices) : null;
-                          const fallback = (typeof product.calculated_retail_sar === 'number' && product.calculated_retail_sar > 0)
-                            ? product.calculated_retail_sar
+                          const fallbackUsd = (typeof product.calculated_retail_sar === 'number' && product.calculated_retail_sar > 0)
+                            ? (product.calculated_retail_sar / 3.75)
                             : (typeof product.cj_price_usd === 'number' ? product.cj_price_usd : 0);
-                          const displayPrice = (minVariantPrice ?? fallback) as number;
+                          const displayPrice = (minVariantPrice ?? fallbackUsd) as number;
                           return `$${displayPrice.toFixed(2)}`;
                         })()}
                       </p>
@@ -709,7 +709,7 @@ export default function QueuePage() {
                           ))}
                           <span className="text-xs font-medium ml-1">{product.supplier_rating?.toFixed(1) || "0.0"}</span>
                         </div>
-                        <p className="text-xs text-gray-500">{product.total_sales || 0} sales</p>
+                        <p className="text-xs text-gray-500">{product.total_sales || 0} reviews</p>
                       </div>
                     </td>
                     <td className="px-4 py-3">

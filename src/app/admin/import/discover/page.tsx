@@ -1059,6 +1059,34 @@ export default function ProductDiscoveryPage() {
                         </span>
                       </div>
                     </div>
+
+                    {/* Rating */}
+                    <div className="flex items-center gap-2">
+                      {(() => {
+                        const ratingVal = typeof product.rating === 'number' ? product.rating : 0;
+                        const display = ratingVal > 0 && ratingVal <= 5;
+                        const isSupplier = product.reviewCount === -1;
+                        return (
+                          <>
+                            <div className="flex items-center gap-0.5">
+                              {[1,2,3,4,5].map((i) => (
+                                <Star
+                                  key={i}
+                                  className={`w-3.5 h-3.5 ${i <= Math.round(ratingVal) ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`}
+                                />
+                              ))}
+                            </div>
+                            <span className="text-xs text-gray-600">
+                              {display ? (
+                                isSupplier ? `${ratingVal.toFixed(1)} (Supplier)` : `${ratingVal.toFixed(1)} (${(product.reviewCount||0).toLocaleString('en-US')})`
+                              ) : (
+                                'No rating'
+                              )}
+                            </span>
+                          </>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
               );

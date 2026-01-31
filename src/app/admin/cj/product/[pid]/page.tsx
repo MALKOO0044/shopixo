@@ -148,6 +148,7 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
             variantPricing,
             stock: product.stock,
             rating: product.rating || 0,
+            reviewCount: (product as any).reviewCount ?? undefined,
             availableColors: product.availableColors || [],
             availableSizes: product.availableSizes || [],
             specifications: {

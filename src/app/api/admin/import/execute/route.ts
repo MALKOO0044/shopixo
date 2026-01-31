@@ -607,8 +607,8 @@ export async function POST(req: NextRequest) {
           specifications: cleanedSpecs,
           selling_points: cleanedSellingPoints,
           cj_category_id: qp.cj_category_id || null,
-          rating: qp.rating ?? null,
-          review_count: qp.review_count ?? null,
+          rating: (qp as any).rating ?? (qp as any).supplier_rating ?? null,
+          review_count: ((qp as any).review_count ?? (typeof (qp as any).total_sales === 'number' && (qp as any).total_sales >= 0 ? (qp as any).total_sales : null)) ?? null,
         };
 
         await omitMissingColumns(optionalFields, [
