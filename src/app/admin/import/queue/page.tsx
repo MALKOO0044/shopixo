@@ -523,7 +523,7 @@ export default function QueuePage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Variants</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating / Reviews</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="w-32 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
@@ -709,7 +709,7 @@ export default function QueuePage() {
                           ))}
                           <span className="text-xs font-medium ml-1">{product.supplier_rating?.toFixed(1) || "0.0"}</span>
                         </div>
-                        <p className="text-xs text-gray-500">{product.total_sales || 0} reviews</p>
+                        {/* CJ does not provide product review counts; show rating only */}
                       </div>
                     </td>
                     <td className="px-4 py-3">

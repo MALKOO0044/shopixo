@@ -100,14 +100,11 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
 
   const imageCount = product.images?.length || 0;
   
-  // Check for REAL CJ rating data only - no fake/estimated ratings
+  // Supplier rating from CJ: use as the sole rating source
   const hasRealRating = product.rating !== undefined && product.rating !== null && Number.isFinite(product.rating) && product.rating > 0 && product.rating <= 5;
   const realRating = hasRealRating ? product.rating! : null;
-  // reviewCount of -1 indicates this is a supplier rating (not customer reviews)
-  const isSupplierRating = product.reviewCount === -1;
-  const realReviewCount = hasRealRating && !isSupplierRating ? (product.reviewCount || 0) : 0;
   
-  console.log(`[PreviewPageOne] Product ${product.cjSku}: listedNum=${product.listedNum}, cjRating=${product.rating}, hasRealRating=${hasRealRating}, isSupplierRating=${isSupplierRating}, supplierName=${product.supplierName}, colors=${uniqueColors.length}, sizes=${uniqueSizes.length}, models=${uniqueModels.length}`);
+  console.log(`[PreviewPageOne] Product ${product.cjSku}: listedNum=${product.listedNum}, cjRating=${product.rating}, hasRealRating=${hasRealRating}, supplierName=${product.supplierName}, colors=${uniqueColors.length}, sizes=${uniqueSizes.length}, models=${uniqueModels.length}`);
 
   return (
     <div className="flex flex-col lg:flex-row gap-8 p-4">
@@ -140,13 +137,11 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
       {/* Product Details Section */}
       <div className="lg:w-1/2 space-y-8">
         
-        {/* Rating - Show supplier rating from CJ website */}
+        {/* Rating - Supplier rating from CJ website */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-4">
             <Star className="h-5 w-5 text-amber-500" />
-            <span className="text-gray-500 font-medium">
-              {isSupplierRating ? 'Supplier Rating' : 'Rating'}
-            </span>
+            <span className="text-gray-500 font-medium">Supplier Rating</span>
           </div>
           {hasRealRating && realRating !== null ? (
             <div className="flex flex-col gap-4">
@@ -166,24 +161,10 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
                 </div>
                 <span className="text-2xl font-bold text-gray-800">{realRating.toFixed(1)}</span>
               </div>
-              
-              {/* Supplier Name */}
-              {isSupplierRating && product.supplierName && (
+              {/* Supplier Name (optional) */}
+              {product.supplierName && (
                 <div className="flex items-center gap-2 text-gray-600">
                   <span className="font-medium">Supplier: {product.supplierName}</span>
-                </div>
-              )}
-              
-              {/* Customer Reviews Count (if not supplier rating) */}
-              {!isSupplierRating && (
-                <div className="flex items-center gap-2 text-gray-600">
-                  <span className="font-medium">{realReviewCount.toLocaleString()} reviews</span>
-                  <div className="group relative">
-                    <Info className="h-4 w-4 text-gray-400 cursor-help" />
-                    <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-3 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10">
-                      Actual rating from CJ Dropshipping customer reviews
-                    </div>
-                  </div>
                 </div>
               )}
             </div>
@@ -201,9 +182,7 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
                 <span className="font-medium">No rating available</span>
                 <div className="group relative">
                   <Info className="h-4 w-4 text-gray-400 cursor-help" />
-                  <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-3 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10">
-                    Could not fetch supplier rating for this product
-                  </div>
+                  <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-3 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10">Could not fetch supplier rating for this product</div>
                 </div>
               </div>
             </div>

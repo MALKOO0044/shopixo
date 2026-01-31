@@ -607,8 +607,10 @@ export async function POST(req: NextRequest) {
           specifications: cleanedSpecs,
           selling_points: cleanedSellingPoints,
           cj_category_id: qp.cj_category_id || null,
-          rating: (qp as any).rating ?? (qp as any).supplier_rating ?? null,
-          review_count: ((qp as any).review_count ?? (typeof (qp as any).total_sales === 'number' && (qp as any).total_sales >= 0 ? (qp as any).total_sales : null)) ?? null,
+          // Use supplier rating as the actual product rating
+          rating: (qp as any).supplier_rating ?? (qp as any).rating ?? null,
+          // Do not store review_count; CJ does not provide product reviews
+          review_count: null,
         };
 
         await omitMissingColumns(optionalFields, [

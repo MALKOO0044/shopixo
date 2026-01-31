@@ -448,7 +448,6 @@ export default function ProductDiscoveryPage() {
               supabaseCategoryId: selectedFeaturesWithIds.length > 0 ? selectedFeaturesWithIds[0].supabaseCategoryId : undefined,
               supabaseCategorySlug: selectedFeaturesWithIds.length > 0 ? selectedFeaturesWithIds[0].supabaseCategorySlug : undefined,
               rating: p.rating,
-              reviewCount: p.reviewCount,
               productWeight: p.productWeight,
               packLength: p.packLength,
               packWidth: p.packWidth,
@@ -1065,7 +1064,6 @@ export default function ProductDiscoveryPage() {
                       {(() => {
                         const ratingVal = typeof product.rating === 'number' ? product.rating : 0;
                         const display = ratingVal > 0 && ratingVal <= 5;
-                        const isSupplier = product.reviewCount === -1;
                         return (
                           <>
                             <div className="flex items-center gap-0.5">
@@ -1077,11 +1075,7 @@ export default function ProductDiscoveryPage() {
                               ))}
                             </div>
                             <span className="text-xs text-gray-600">
-                              {display ? (
-                                isSupplier ? `${ratingVal.toFixed(1)} (Supplier)` : `${ratingVal.toFixed(1)} (${(product.reviewCount||0).toLocaleString('en-US')})`
-                              ) : (
-                                'No rating'
-                              )}
+                              {display ? ratingVal.toFixed(1) : 'No rating'}
                             </span>
                           </>
                         );
