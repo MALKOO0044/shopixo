@@ -517,6 +517,18 @@ async function handleSearch(req: Request, isPost: boolean) {
     
     const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
     
+    // Image proxy/upscale configuration for 8K URLs (shared with import-db)
+    const UPSCALE_MODE = (process.env.IMAGE_UPSCALE_MODE || 'none').toLowerCase();
+    const PROXY_TPL = process.env.IMAGE_PROXY_TEMPLATE || '';
+    const TARGET_W = Math.max(512, Math.min(8192, parseInt(process.env.IMAGE_TARGET_WIDTH || '7680', 10) || 7680));
+    const transformImageUrl = (url: string): string => {
+      if (!url || typeof url !== 'string') return url;
+      if (!/^https?:\/\//i.test(url)) return url;
+      if (UPSCALE_MODE !== 'proxy' || !PROXY_TPL) return url;
+      const encoded = encodeURIComponent(url);
+      return PROXY_TPL.replace('{url}', encoded).replace('{w}', String(TARGET_W));
+    };
+    
     const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
@@ -2022,6 +2034,24 @@ async function handleSearch(req: Request, isPost: boolean) {
       images = allImages.slice(0, 50);
       console.log(`[Search&Price] Product ${pid}: Final ${images.length} images (merged from all sources)`);
       
+      // Apply 8K proxy transform (if enabled) to main images, color images, and size chart images
+      if (UPSCALE_MODE === 'proxy' && PROXY_TPL) {
+        images = images.map(u => transformImageUrl(u));
+        // Transform colorImageMap URLs
+        if (Object.keys(colorImageMap).length > 0) {
+          for (const k of Object.keys(colorImageMap)) {
+            const val = colorImageMap[k];
+            if (typeof val === 'string') colorImageMap[k] = transformImageUrl(val);
+          }
+        }
+        // Transform size chart images
+        if (Array.isArray(sizeChartImages) && sizeChartImages.length > 0) {
+          for (let i = 0; i < sizeChartImages.length; i++) {
+            sizeChartImages[i] = transformImageUrl(sizeChartImages[i]);
+          }
+        }
+      }
+      
       // Log colorImageMap if populated (for debugging)
       if (Object.keys(colorImageMap).length > 0) {
         console.log(`[Search&Price] Product ${pid}: colorImageMap = ${JSON.stringify(colorImageMap)}`);
@@ -2412,6 +2442,13 @@ async function handleSearch(req: Request, isPost: boolean) {
       // Extract video URL if available
       const videoUrl = String(source.videoUrl || source.video || source.productVideo || '').trim() || undefined;
       
+      // Transform variant images via proxy (if enabled)
+      if (UPSCALE_MODE === 'proxy' && PROXY_TPL && Array.isArray(pricedVariants)) {
+        for (const pv of pricedVariants) {
+          if (pv.variantImage) pv.variantImage = transformImageUrl(pv.variantImage);
+        }
+      }
+
       pricedProducts.push({
         pid,
         cjSku,
