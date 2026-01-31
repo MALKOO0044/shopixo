@@ -710,6 +710,43 @@ async function handleSearch(req: Request, isPost: boolean) {
         const n = parseCjRating(c);
         if (n > 0 && n <= 5) { apiSupplierRating = n; break; }
       }
+
+      // Deep scan: some CJ responses nest supplier rating under unknown keys
+      if (!(apiSupplierRating > 0 && apiSupplierRating <= 5) && rawSource && typeof rawSource === 'object') {
+        try {
+          let best: { val: number; path: string; score: number } | null = null;
+          const reKey = /(supplier.*(rating|score|star))|^(supplierRating|supplierScore|starCount|rating|score|avgScore)$/i;
+          const walk = (node: any, path: string, depth: number) => {
+            if (!node || depth > 4) return;
+            if (Array.isArray(node)) {
+              for (let i = 0; i < node.length; i++) walk(node[i], `${path}[${i}]`, depth + 1);
+              return;
+            }
+            if (typeof node === 'object') {
+              for (const [k, v] of Object.entries(node)) {
+                const kp = `${path}.${k}`;
+                if (v && typeof v === 'object') { walk(v as any, kp, depth + 1); continue; }
+                if (typeof v === 'number' || typeof v === 'string') {
+                  if (reKey.test(k)) {
+                    const n = parseCjRating(v);
+                    if (n > 0 && n <= 5) {
+                      // Prefer keys that explicitly include 'supplier'
+                      const pref = /supplier/i.test(k) ? 2 : 1;
+                      const cand = { val: n, path: kp, score: pref };
+                      if (!best || cand.score > best.score) best = cand;
+                    }
+                  }
+                }
+              }
+            }
+          };
+          walk(rawSource, 'raw', 0);
+          if (best) {
+            apiSupplierRating = best.val;
+            console.log(`[Search&Price] Product ${pid} - Deep-scan supplier rating: ${best.val} at ${best.path}`);
+          }
+        } catch {}
+      }
       
       // Log all rating-related fields from CJ API for debugging
       const ratingFields = Object.entries(rawSource).filter(([k]) => 

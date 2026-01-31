@@ -138,6 +138,18 @@ async function extractRatingFromPage(page: Page): Promise<{ supplierName: string
       if (nameEl) {
         data.supplierName = (nameEl.textContent || '').replace(/Offer by Supplier[:\s]*/i, '').trim();
       }
+      
+      // Final fallback: parse numeric rating text if stars were not detected
+      if (data.overallRating === 0) {
+        const sectionText = supplierSection.textContent || '';
+        const numMatch = sectionText.match(/(\d+(?:\.\d+)?)\s*(?:\/\s*5)?/);
+        if (numMatch) {
+          const n = parseFloat(numMatch[1]);
+          if (!isNaN(n) && n > 0 && n <= 5) {
+            data.overallRating = n;
+          }
+        }
+      }
     }
     
     // Fallback: extract from page text
@@ -168,6 +180,53 @@ async function extractRatingFromPage(page: Page): Promise<{ supplierName: string
   });
 }
 
+// Lightweight HTML probe that attempts to extract supplier rating WITHOUT a browser.
+// This is safer for serverless environments (e.g., Vercel Edge/Serverless) where Puppeteer may be restricted.
+async function tryExtractRatingFromHtml(url: string): Promise<SupplierRating | null> {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      // Avoid following potential redirects excessively
+      redirect: 'follow',
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    // 1) Count stars from rc-rate component
+    const full = (html.match(/rc-rate-star-full/g) || []).length;
+    const half = (html.match(/rc-rate-star-half/g) || []).length;
+    let rating = full + (half * 0.5);
+
+    // 2) Numeric fallback like "4.0/5" near the supplier section
+    if (rating <= 0) {
+      const num = html.match(/(\b[0-5](?:\.\d)?\b)\s*(?:\/\s*5)?/);
+      if (num) {
+        const n = parseFloat(num[1]);
+        if (!isNaN(n) && n > 0 && n <= 5) rating = n;
+      }
+    }
+
+    if (rating <= 0) return null;
+
+    // Extract supplier name heuristically
+    let supplierName = '';
+    const nameFromOffer = html.match(/Offer(?:ed)?\s+by\s+Supplier[:\s]*([^<\n]+)/i);
+    if (nameFromOffer) supplierName = nameFromOffer[1].trim();
+    if (!supplierName) {
+      const linkMatch = html.match(/<a[^>]+href=["']?[^"'>]*supplier[^>]*>([^<]+)<\/a>/i);
+      if (linkMatch) supplierName = linkMatch[1].trim();
+    }
+
+    return { supplierName: supplierName || 'Unknown', overallRating: Math.min(rating, 5) };
+  } catch {
+    return null;
+  }
+}
+
 export async function scrapeSupplierRating(
   productId: string, 
   productSku?: string,
@@ -194,46 +253,41 @@ export async function scrapeSupplierRating(
   urlsToTry.push(`https://cjdropshipping.com/product/p-${productId}.html`);
   urlsToTry.push(`https://cjdropshipping.com/product/${productId}`);
   
+  // First try lightweight HTML probe before launching a browser
+  for (const productUrl of urlsToTry) {
+    console.log(`[Scraper] HTML probe: ${productUrl}`);
+    const quick = await tryExtractRatingFromHtml(productUrl);
+    if (quick && quick.overallRating > 0) {
+      console.log(`[Scraper] HTML probe success: ${quick.overallRating} (${quick.supplierName})`);
+      ratingCache.set(cacheKey, { rating: quick, timestamp: Date.now() });
+      return quick;
+    }
+  }
+
+  // Fallback to Puppeteer if HTML probe didn't find rating
   let browser: Browser | null = null;
   try {
     browser = await launchBrowser();
     const page = await browser.newPage();
-    
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-    
     for (const productUrl of urlsToTry) {
       console.log(`[Scraper] Trying: ${productUrl}`);
-      
       try {
-        await page.goto(productUrl, { 
-          waitUntil: 'networkidle2',
-          timeout: PAGE_TIMEOUT 
-        });
-        
-        // Wait longer for dynamic content
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        
-        // Scroll down to trigger lazy-loaded content
-        await page.evaluate(() => {
-          window.scrollBy(0, 500);
-        });
+        await page.goto(productUrl, { waitUntil: 'networkidle2', timeout: PAGE_TIMEOUT });
+        await new Promise(resolve => setTimeout(resolve, 7000));
+        await page.evaluate(() => { window.scrollBy(0, 500); });
         await new Promise(resolve => setTimeout(resolve, 2000));
-        
         const result = await extractRatingFromPage(page);
-        
         console.log(`[Scraper] Page result: valid=${result.isValidProduct}, rating=${result.overallRating}, supplier=${result.supplierName}`);
-        
         if (result.isValidProduct && result.overallRating > 0) {
           const rating: SupplierRating = {
             supplierName: result.supplierName || 'Unknown',
             overallRating: Math.min(result.overallRating, 5),
           };
-          
           console.log(`[Scraper] Found: ${rating.overallRating} stars (${rating.supplierName})`);
           ratingCache.set(cacheKey, { rating, timestamp: Date.now() });
           return rating;
         }
-        
       } catch (navError: any) {
         console.log(`[Scraper] Failed: ${navError.message}`);
         continue;
