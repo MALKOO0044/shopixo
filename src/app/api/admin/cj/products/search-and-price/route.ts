@@ -687,7 +687,29 @@ async function handleSearch(req: Request, isPost: boolean) {
       // Extract supplier info directly from CJ API response (item or fullDetails)
       const rawSource = fullDetails || item;
       const apiSupplierName = rawSource.supplierName || rawSource.supplier?.name || null;
-      const apiSupplierRating = Number(rawSource.supplierRating || rawSource.supplierScore || rawSource.starCount || rawSource.star_count || rawSource.supplier?.rating || rawSource.supplier?.starCount || 0);
+      const parseCjRating = (val: any): number => {
+        if (val == null) return 0;
+        if (typeof val === 'number' && Number.isFinite(val)) return val;
+        if (typeof val === 'string') {
+          const m = val.match(/\d+(?:\.\d+)?/);
+          if (m) {
+            const n = parseFloat(m[0]);
+            return Number.isFinite(n) ? n : 0;
+          }
+        }
+        return 0;
+      };
+      const ratingCandidates: any[] = [
+        rawSource.supplierRating, rawSource.supplier_score, rawSource.supplierScore,
+        rawSource.starCount, rawSource.star_count,
+        rawSource.supplier?.rating, rawSource.supplier?.score, rawSource.supplier?.starCount, rawSource.supplier?.star_count,
+        rawSource.rating, rawSource.avgScore, rawSource.productRating, rawSource.score,
+      ];
+      let apiSupplierRating = 0;
+      for (const c of ratingCandidates) {
+        const n = parseCjRating(c);
+        if (n > 0 && n <= 5) { apiSupplierRating = n; break; }
+      }
       
       // Log all rating-related fields from CJ API for debugging
       const ratingFields = Object.entries(rawSource).filter(([k]) => 
@@ -703,7 +725,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       
       // SCRAPE SUPPLIER RATING from CJ website if API doesn't provide it
       let scrapedSupplierRating: SupplierRating | null = null;
-      if (apiSupplierRating === 0) {
+      if (!(apiSupplierRating > 0 && apiSupplierRating <= 5)) {
         try {
           const productSku = item.sku || item.productSku || rawSource.sku || null;
           const productName = item.nameEn || item.name || item.productName || null;
@@ -718,7 +740,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       
       // Fetch customer reviews from productComments API (fallback only)
       let productRating: { rating: number | null; reviewCount: number } | undefined;
-      if (apiSupplierRating === 0 && (!scrapedSupplierRating || scrapedSupplierRating.overallRating === 0)) {
+      if (!(apiSupplierRating > 0 && apiSupplierRating <= 5) && (!scrapedSupplierRating || scrapedSupplierRating.overallRating === 0)) {
         try {
           const ratingsMap = await getProductRatings([pid]);
           productRating = ratingsMap.get(pid);
@@ -1026,6 +1048,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       }
       
       if (rating !== undefined) {
+        rating = Math.max(0, Math.min(5, rating));
         console.log(`[Search&Price] Product ${pid}: Rating ${rating} from ${ratingSource}${supplierName ? ` (Supplier: ${supplierName})` : ''}`);
       } else {
         console.log(`[Search&Price] Product ${pid}: No rating available from any source`);
