@@ -119,6 +119,7 @@ type PricedProduct = {
   availableColors?: string[];
   availableModels?: string[];
   colorImageMap?: Record<string, string>;
+  ratingSource?: string;
 };
 
 async function fetchCjProductPage(
@@ -2402,6 +2403,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         rating,
         reviewCount,
         supplierName,
+        ratingSource,
         itemAsDescribed,
         serviceRating,
         shippingSpeedRating,
