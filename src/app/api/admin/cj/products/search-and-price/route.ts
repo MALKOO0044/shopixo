@@ -692,11 +692,8 @@ async function handleSearch(req: Request, isPost: boolean) {
         if (val == null) return 0;
         if (typeof val === 'number' && Number.isFinite(val)) return val;
         if (typeof val === 'string') {
-          const m = val.match(/\d+(?:\.\d+)?/);
-          if (m) {
-            const n = parseFloat(m[0]);
-            return Number.isFinite(n) ? n : 0;
-          }
+          const m = val.match(/(\d+(?:.\d+)?)/);
+          if (m) return parseFloat(m[1]);
         }
         return 0;
       };
@@ -764,7 +761,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       
       // SCRAPE SUPPLIER RATING from CJ website if API doesn't provide it
       let scrapedSupplierRating: SupplierRating | null = null;
-      if (!(apiSupplierRating > 0 && apiSupplierRating <= 5)) {
+      if (!Number.isFinite(apiSupplierRating) || apiSupplierRating <= 0) {
         try {
           const productSku = item.sku || item.productSku || rawSource.sku || null;
           const productName = item.nameEn || item.name || item.productName || null;
@@ -779,7 +776,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       
       // Fetch customer reviews from productComments API (fallback only)
       let productRating: { rating: number | null; reviewCount: number } | undefined;
-      if (!(apiSupplierRating > 0 && apiSupplierRating <= 5) && (!scrapedSupplierRating || scrapedSupplierRating.overallRating === 0)) {
+      if ((!Number.isFinite(apiSupplierRating) || apiSupplierRating <= 0) && (!scrapedSupplierRating || scrapedSupplierRating.overallRating === 0)) {
         try {
           const ratingsMap = await getProductRatings([pid]);
           productRating = ratingsMap.get(pid);
