@@ -742,8 +742,9 @@ async function handleSearch(req: Request, isPost: boolean) {
           };
           walk(rawSource, 'raw', 0);
           if (best) {
-            apiSupplierRating = best.val;
-            console.log(`[Search&Price] Product ${pid} - Deep-scan supplier rating: ${best.val} at ${best.path}`);
+            const b = best as { val: number; path: string; score: number };
+            apiSupplierRating = b.val;
+            console.log(`[Search&Price] Product ${pid} - Deep-scan supplier rating: ${b.val} at ${b.path}`);
           }
         } catch {}
       }
