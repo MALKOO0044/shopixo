@@ -186,6 +186,28 @@ export async function addProductToQueue(batchId: number, product: {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { success: false, error: 'Supabase not configured' };
 
+  // Optional image proxy/upscale config
+  // IMAGE_UPSCALE_MODE: 'none' | 'proxy'
+  // IMAGE_PROXY_TEMPLATE: e.g., 'https://imgproxy.example.com/width:{w}/plain/{url}' or Cloudinary fetch template
+  // IMAGE_TARGET_WIDTH: e.g., '3840' for 4K, '7680' for 8K
+  const UPSCALE_MODE = (process.env.IMAGE_UPSCALE_MODE || 'none').toLowerCase();
+  const PROXY_TPL = process.env.IMAGE_PROXY_TEMPLATE || '';
+  const TARGET_W = Math.max(512, Math.min(8192, parseInt(process.env.IMAGE_TARGET_WIDTH || '3840', 10) || 3840));
+
+  const transformImageUrl = (url: string): string => {
+    if (!url || typeof url !== 'string') return url;
+    if (!/^https?:\/\//i.test(url)) return url;
+    if (UPSCALE_MODE !== 'proxy' || !PROXY_TPL) return url;
+    const encoded = encodeURIComponent(url);
+    return PROXY_TPL
+      .replace('{url}', encoded)
+      .replace('{w}', String(TARGET_W));
+  };
+
+  const transformedImages = Array.isArray(product.images)
+    ? product.images.map((u) => transformImageUrl(String(u)))
+    : [];
+
   // Core fields that always exist
   const productData: Record<string, any> = {
     batch_id: batchId,
@@ -196,7 +218,7 @@ export async function addProductToQueue(batchId: number, product: {
     description_en: product.description || null,
     description_ar: null,
     category: product.category,
-    images: product.images,
+    images: transformedImages.length > 0 ? transformedImages : product.images,
     video_url: product.videoUrl || null,
     variants: product.variants,
     cj_price_usd: product.avgPrice,

@@ -5,6 +5,7 @@ import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 import { usdToSar, computeRetailFromLanded } from '@/lib/pricing';
 import { scrapeSupplierRating, SupplierRating } from '@/lib/cj/scrape-supplier-rating';
+import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -253,6 +254,13 @@ function calculateSellPriceWithMargin(landedCostSAR: number, profitMarginPercent
   return computeRetailFromLanded(landedCostSAR, { margin });
 }
 
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+
 function extractAllImages(item: any): string[] {
   if (!item) return [];
   
@@ -430,6 +438,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     const freeShippingOnly = searchParams.get('freeShippingOnly') === '1';
     const shippingMethod = searchParams.get('shippingMethod') || 'any';
     const sizesParam = searchParams.get('sizes') || '';
+    const excludeQueued = searchParams.get('excludeQueued') !== '0';
     
     // Batching parameters for Vercel timeout handling
     // batchSize: max products to fully process per request (default 3 for safe margin)
@@ -599,6 +608,44 @@ async function handleSearch(req: Request, isPost: boolean) {
       }
     }
     
+    // Exclude already queued products (Review Queue) before expensive pricing/shipping
+    let filteredAlreadyQueued = 0;
+    if (excludeQueued) {
+      try {
+        const admin = getSupabaseAdmin();
+        if (admin) {
+          const pidList = Array.from(new Set(candidateProducts.map((it: any) => String(it.pid || it.productId || '')).filter(Boolean)));
+          const chunkSize = 900; // stay under PostgREST IN limits
+          const queued = new Set<string>();
+          for (let i = 0; i < pidList.length; i += chunkSize) {
+            const chunk = pidList.slice(i, i + chunkSize);
+            const { data, error } = await admin
+              .from('product_queue')
+              .select('cj_product_id')
+              .in('cj_product_id', chunk);
+            if (!error && Array.isArray(data)) {
+              for (const row of data) {
+                if (row && row.cj_product_id) queued.add(String(row.cj_product_id));
+              }
+            }
+          }
+          if (queued.size > 0) {
+            const before = candidateProducts.length;
+            const filtered = candidateProducts.filter((it: any) => !queued.has(String(it.pid || it.productId || '')));
+            filteredAlreadyQueued = before - filtered.length;
+            if (filteredAlreadyQueued > 0) {
+              candidateProducts.length = 0;
+              candidateProducts.push(...filtered);
+            }
+          }
+        } else {
+          console.log('[Search&Price] Supabase not configured - skip excludeQueued');
+        }
+      } catch (e: any) {
+        console.log('[Search&Price] excludeQueued check failed:', e?.message || e);
+      }
+    }
+
     console.log(`[Search&Price] ----------------------------------------`);
     console.log(`[Search&Price] Search complete:`);
     console.log(`[Search&Price]   Total candidates: ${candidateProducts.length}`);
@@ -606,6 +653,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   Filtered by stock: ${totalFiltered.stock}`);
     console.log(`[Search&Price]   Filtered by popularity: ${totalFiltered.popularity}`);
     console.log(`[Search&Price]   Filtered by rating: ${totalFiltered.rating}`);
+    if (excludeQueued) console.log(`[Search&Price]   Filtered already queued: ${filteredAlreadyQueued}`);
     console.log(`[Search&Price] ----------------------------------------`);
     
     if (candidateProducts.length === 0) {
@@ -2517,6 +2565,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         pricedSuccessfully: pricedProducts.length,
         skippedNoShipping,
         filteredBySizes,
+        filteredAlreadyQueued,
         shippingErrors,
         hitTimeLimit,
         hitRateLimit,

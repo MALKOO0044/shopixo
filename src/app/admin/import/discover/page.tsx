@@ -1233,12 +1233,12 @@ export default function ProductDiscoveryPage() {
 
               {/* Page 5: Shipping & Delivery */}
               {previewPage === 5 && (
-                <PreviewPageFive product={previewProduct} />
+                <PreviewPageFive product={previewProduct} profitMarginPercent={profitMargin} />
               )}
               
               {/* Page 6: Variant Pricing */}
               {previewPage === 6 && (
-                <PreviewPageSix product={previewProduct} />
+                <PreviewPageSix product={previewProduct} profitMarginPercent={profitMargin} />
               )}
             </div>
             
