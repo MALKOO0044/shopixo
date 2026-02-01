@@ -66,32 +66,97 @@ async function extractRatingFromPage(page: Page): Promise<{ supplierName: string
     
     const pageText = document.body?.innerText || '';
     
+    // Check for invalid pages
     if (pageText.includes('Product removed') || pageText.includes('404') || 
         (pageText.includes('Sign in') && pageText.length < 1000)) {
+      console.log('[Scraper-Browser] Invalid page detected');
       return data;
     }
     
-    // Strategy 1: Look for SupplierInfo class
-    let supplierSection = document.querySelector('[class*="SupplierInfo"]');
+    console.log('[Scraper-Browser] Page loaded, searching for supplier section...');
     
-    // Strategy 2: Look for "Offer by Supplier" text and find parent container
+    // ENHANCED STRATEGY: Multiple approaches to find supplier section
+    let supplierSection: Element | null = null;
+    
+    // Strategy 1: Look for SupplierInfo or Supplier-related class names
+    const supplierClassSelectors = [
+      '[class*="SupplierInfo"]',
+      '[class*="supplier-info"]',
+      '[class*="supplierInfo"]',
+      '[class*="Supplier"]',
+      '[class*="seller-info"]',
+      '[class*="SellerInfo"]',
+    ];
+    
+    for (const selector of supplierClassSelectors) {
+      supplierSection = document.querySelector(selector);
+      if (supplierSection) {
+        console.log(`[Scraper-Browser] Found supplier section via selector: ${selector}`);
+        break;
+      }
+    }
+    
+    // Strategy 2: Look for "Offer by Supplier" or similar text patterns
     if (!supplierSection) {
-      const allElements = document.querySelectorAll('*');
+      const textPatterns = [
+        'Offer by Supplier',
+        'Offered by Supplier',
+        'Supplier:',
+        'Visit Store',
+        'Contact Now',
+      ];
+      
+      const allElements = Array.from(document.querySelectorAll('*'));
       for (const el of allElements) {
-        if (el.textContent?.includes('Offer by Supplier') && el.children.length < 20) {
-          supplierSection = el;
-          break;
+        const text = el.textContent || '';
+        for (const pattern of textPatterns) {
+          if (text.includes(pattern) && el.children.length < 30) {
+            // Found potential supplier section
+            supplierSection = el;
+            console.log(`[Scraper-Browser] Found supplier section via text: "${pattern}"`);
+            break;
+          }
         }
+        if (supplierSection) break;
       }
     }
     
     // Strategy 3: Look for supplier link with rating stars nearby
     if (!supplierSection) {
-      const supplierLinks = document.querySelectorAll('a[href*="supplier"]');
+      const supplierLinks = document.querySelectorAll('a[href*="supplier"], a[href*="store"]');
       for (const link of supplierLinks) {
-        const parent = link.closest('div');
-        if (parent && parent.querySelector('.rc-rate-star')) {
-          supplierSection = parent;
+        // Check parent containers up to 5 levels
+        let current: Element | null = link;
+        for (let i = 0; i < 5; i++) {
+          if (!current) break;
+          const parentEl: Element | null = current.parentElement;
+          if (!parentEl) break;
+          
+          // Check if this parent has star ratings
+          if (parentEl.querySelector('.rc-rate-star') || 
+              parentEl.querySelector('[class*="star"]') ||
+              parentEl.querySelector('[class*="rate"]')) {
+            supplierSection = parentEl;
+            console.log('[Scraper-Browser] Found supplier section via supplier link + stars');
+            break;
+          }
+          current = parentEl;
+        }
+        if (supplierSection) break;
+      }
+    }
+    
+    // Strategy 4: Look for any section with both company name pattern AND stars
+    if (!supplierSection) {
+      const allDivs = document.querySelectorAll('div');
+      for (const div of allDivs) {
+        const text = div.textContent || '';
+        const hasCompanyPattern = /Co\.,?\s*Ltd|Company|Trading|Corporation|Enterprise|Store/i.test(text);
+        const hasStars = div.querySelector('.rc-rate-star') || div.querySelector('[class*="star"]');
+        
+        if (hasCompanyPattern && hasStars && text.length < 500) {
+          supplierSection = div;
+          console.log('[Scraper-Browser] Found supplier section via company pattern + stars');
           break;
         }
       }
@@ -99,79 +164,195 @@ async function extractRatingFromPage(page: Page): Promise<{ supplierName: string
     
     if (supplierSection) {
       data.isValidProduct = true;
+      console.log('[Scraper-Browser] Supplier section found, extracting rating...');
       
-      // Count stars - try multiple selectors
+      // ENHANCED RATING EXTRACTION: Try multiple methods
+      let ratingFound = false;
+      
+      // Method 1: Count rc-rate-star elements (most reliable)
       let fullStars = supplierSection.querySelectorAll('.rc-rate-star-full');
       let halfStars = supplierSection.querySelectorAll('.rc-rate-star-half');
       
-      // If no stars found in section, look for rate component
-      if (fullStars.length === 0) {
+      if (fullStars.length > 0 || halfStars.length > 0) {
+        data.overallRating = fullStars.length + (halfStars.length * 0.5);
+        ratingFound = true;
+        console.log(`[Scraper-Browser] Rating from rc-rate-star: ${data.overallRating} (${fullStars.length} full, ${halfStars.length} half)`);
+      }
+      
+      // Method 2: Look for rc-rate component
+      if (!ratingFound) {
         const rateComponent = supplierSection.querySelector('.rc-rate');
         if (rateComponent) {
           fullStars = rateComponent.querySelectorAll('.rc-rate-star-full');
           halfStars = rateComponent.querySelectorAll('.rc-rate-star-half');
+          if (fullStars.length > 0 || halfStars.length > 0) {
+            data.overallRating = fullStars.length + (halfStars.length * 0.5);
+            ratingFound = true;
+            console.log(`[Scraper-Browser] Rating from rc-rate component: ${data.overallRating}`);
+          }
         }
       }
       
-      // Alternative: count filled star icons by checking style/class
-      if (fullStars.length === 0) {
+      // Method 3: Count any star elements with "full", "active", "filled" classes
+      if (!ratingFound) {
         const starElements = supplierSection.querySelectorAll('[class*="star"]');
         let count = 0;
         for (const star of starElements) {
           const classList = star.className || '';
           const style = (star as HTMLElement).style?.cssText || '';
+          
           if (classList.includes('full') || classList.includes('active') || 
-              classList.includes('filled') || style.includes('100%')) {
+              classList.includes('filled') || classList.includes('checked') ||
+              style.includes('100%') || style.includes('fill')) {
             count++;
           }
         }
         if (count > 0 && count <= 5) {
           data.overallRating = count;
+          ratingFound = true;
+          console.log(`[Scraper-Browser] Rating from star classes: ${data.overallRating}`);
         }
-      } else {
-        data.overallRating = fullStars.length + (halfStars.length * 0.5);
       }
       
-      // Extract supplier name
-      const nameEl = supplierSection.querySelector('[class*="name"]') || 
-                     supplierSection.querySelector('a[href*="supplier"]');
-      if (nameEl) {
-        data.supplierName = (nameEl.textContent || '').replace(/Offer by Supplier[:\s]*/i, '').trim();
+      // Method 4: Look for SVG stars (some sites use SVG instead of CSS)
+      if (!ratingFound) {
+        const svgStars = supplierSection.querySelectorAll('svg[class*="star"]');
+        let filledCount = 0;
+        for (const svg of svgStars) {
+          const fill = svg.getAttribute('fill') || '';
+          const svgElement = svg as SVGElement;
+          const classList = (svgElement.className && typeof svgElement.className === 'object' && 'baseVal' in svgElement.className) 
+            ? (svgElement.className as any).baseVal 
+            : '';
+          if (fill.includes('#') || classList.includes('fill') || classList.includes('active')) {
+            filledCount++;
+          }
+        }
+        if (filledCount > 0 && filledCount <= 5) {
+          data.overallRating = filledCount;
+          ratingFound = true;
+          console.log(`[Scraper-Browser] Rating from SVG stars: ${data.overallRating}`);
+        }
       }
       
-      // Final fallback: parse numeric rating text if stars were not detected
-      if (data.overallRating === 0) {
+      // Method 5: Parse numeric rating from text (e.g., "4.0", "4.5/5")
+      if (!ratingFound) {
         const sectionText = supplierSection.textContent || '';
-        const numMatch = sectionText.match(/(\d+(?:\.\d+)?)\s*(?:\/\s*5)?/);
-        if (numMatch) {
-          const n = parseFloat(numMatch[1]);
-          if (!isNaN(n) && n > 0 && n <= 5) {
-            data.overallRating = n;
+        // Look for patterns like "4.0", "4.5/5", "Rating: 4.0"
+        const patterns = [
+          /(\d+\.\d+)\s*\/\s*5/,           // "4.0/5"
+          /Rating[:\s]+(\d+\.\d+)/i,       // "Rating: 4.0"
+          /(\d+\.\d+)\s*stars?/i,          // "4.0 stars"
+          /\b([0-5]\.\d+)\b/,              // Any decimal 0.0-5.0
+        ];
+        
+        for (const pattern of patterns) {
+          const match = sectionText.match(pattern);
+          if (match) {
+            const n = parseFloat(match[1]);
+            if (!isNaN(n) && n > 0 && n <= 5) {
+              data.overallRating = n;
+              ratingFound = true;
+              console.log(`[Scraper-Browser] Rating from text pattern: ${data.overallRating}`);
+              break;
+            }
           }
         }
       }
+      
+      // ENHANCED SUPPLIER NAME EXTRACTION
+      let nameFound = false;
+      
+      // Method 1: Look for specific name-related classes
+      const nameSelectors = [
+        '[class*="name"]',
+        '[class*="Name"]',
+        '[class*="supplier-name"]',
+        '[class*="supplierName"]',
+        '[class*="store-name"]',
+        '[class*="storeName"]',
+        '[class*="seller-name"]',
+      ];
+      
+      for (const selector of nameSelectors) {
+        const nameEl = supplierSection.querySelector(selector);
+        if (nameEl) {
+          const text = (nameEl.textContent || '').replace(/Offer(?:ed)?\s+by\s+Supplier[:\s]*/i, '').trim();
+          if (text && text.length > 2 && text.length < 100) {
+            data.supplierName = text;
+            nameFound = true;
+            console.log(`[Scraper-Browser] Supplier name from selector ${selector}: ${data.supplierName}`);
+            break;
+          }
+        }
+      }
+      
+      // Method 2: Look for supplier link
+      if (!nameFound) {
+        const supplierLink = supplierSection.querySelector('a[href*="supplier"], a[href*="store"]');
+        if (supplierLink) {
+          const text = (supplierLink.textContent || '').replace(/Offer(?:ed)?\s+by\s+Supplier[:\s]*/i, '').trim();
+          if (text && text.length > 2 && text.length < 100) {
+            data.supplierName = text;
+            nameFound = true;
+            console.log(`[Scraper-Browser] Supplier name from link: ${data.supplierName}`);
+          }
+        }
+      }
+      
+      // Method 3: Parse from section text (look for company patterns)
+      if (!nameFound) {
+        const sectionText = supplierSection.textContent || '';
+        const companyPatterns = [
+          /Offer(?:ed)?\s+by\s+Supplier[:\s]*([^\n]+)/i,
+          /Supplier[:\s]+([^\n]+Co\.,?\s*Ltd[^\n]*)/i,
+          /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+Co\.,?\s*Ltd\.?)/,
+          /Store[:\s]+([^\n]+)/i,
+        ];
+        
+        for (const pattern of companyPatterns) {
+          const match = sectionText.match(pattern);
+          if (match && match[1]) {
+            const name = match[1].trim().split('\n')[0].trim();
+            if (name.length > 2 && name.length < 100) {
+              data.supplierName = name;
+              nameFound = true;
+              console.log(`[Scraper-Browser] Supplier name from text pattern: ${data.supplierName}`);
+              break;
+            }
+          }
+        }
+      }
+      
+      console.log(`[Scraper-Browser] Extraction complete: rating=${data.overallRating}, name="${data.supplierName}"`);
+    } else {
+      console.log('[Scraper-Browser] No supplier section found on page');
     }
     
-    // Fallback: extract from page text
-    if (!data.supplierName) {
+    // FALLBACK: Search entire page if supplier section not found
+    if (!data.isValidProduct) {
+      console.log('[Scraper-Browser] Attempting page-wide fallback search...');
+      
+      // Look for supplier name in page text
       const supplierMatch = pageText.match(/Offer(?:ed)?\s+by\s+Supplier[:\s]*([^\n]+)/i);
       if (supplierMatch) {
         data.supplierName = supplierMatch[1].trim().split('\n')[0].trim();
         data.isValidProduct = true;
+        console.log(`[Scraper-Browser] Found supplier name via fallback: ${data.supplierName}`);
       }
-    }
-    
-    // If we found supplier name but no rating, try to find rating in the whole page near supplier text
-    if (data.isValidProduct && data.overallRating === 0) {
-      // Look for rc-rate component anywhere on page
-      const rateComponents = document.querySelectorAll('.rc-rate');
-      for (const rate of rateComponents) {
-        const fullStars = rate.querySelectorAll('.rc-rate-star-full');
-        const halfStars = rate.querySelectorAll('.rc-rate-star-half');
-        const totalStars = fullStars.length + (halfStars.length * 0.5);
-        if (totalStars > 0 && totalStars <= 5) {
-          data.overallRating = totalStars;
-          break;
+      
+      // Look for any rc-rate component on the page
+      if (data.isValidProduct && data.overallRating === 0) {
+        const rateComponents = document.querySelectorAll('.rc-rate');
+        for (const rate of rateComponents) {
+          const fullStars = rate.querySelectorAll('.rc-rate-star-full');
+          const halfStars = rate.querySelectorAll('.rc-rate-star-half');
+          const totalStars = fullStars.length + (halfStars.length * 0.5);
+          if (totalStars > 0 && totalStars <= 5) {
+            data.overallRating = totalStars;
+            console.log(`[Scraper-Browser] Found rating via fallback: ${data.overallRating}`);
+            break;
+          }
         }
       }
     }
