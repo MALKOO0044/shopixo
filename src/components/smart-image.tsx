@@ -31,20 +31,66 @@ function isAllowedNextImage(src: string): boolean {
   return false;
 }
 
+function normalizeUrl(src: string): string {
+  try {
+    if (!src) return src;
+    if (src.startsWith('http://')) return 'https://' + src.slice('http://'.length);
+    return src;
+  } catch {
+    return src;
+  }
+}
+
+export function transformForCdn(src: string): string {
+  try {
+    let url = normalizeUrl(src);
+    const UPSCALE_MODE = (process.env.NEXT_PUBLIC_IMAGE_UPSCALE_MODE || 'none').toLowerCase();
+    const PROXY_TPL = process.env.NEXT_PUBLIC_IMAGE_PROXY_TEMPLATE || '';
+    const TARGET_W = Math.max(512, Math.min(8192, parseInt(process.env.NEXT_PUBLIC_IMAGE_TARGET_WIDTH || '7680', 10) || 7680));
+
+    if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/')) {
+      const isUpload = url.includes('/image/upload/');
+      const isFetch = url.includes('/image/fetch/');
+      const marker = isUpload ? '/image/upload/' : (isFetch ? '/image/fetch/' : null);
+      if (!marker) return url;
+      const idx = url.indexOf(marker);
+      const after = url.slice(idx + marker.length);
+      const hasTransforms = after && !after.startsWith('v');
+      if (hasTransforms) return url; // respect existing transforms
+      const inject = `w_${TARGET_W},c_fit,dpr_2,e_sharpen,f_auto,q_auto/`;
+      return url.replace(marker, marker + inject);
+    }
+
+    if (UPSCALE_MODE === 'proxy' && PROXY_TPL && /^https?:\/\//i.test(url)) {
+      const encoded = encodeURIComponent(url);
+      return PROXY_TPL.replace('{url}', encoded).replace('{w}', String(TARGET_W));
+    }
+
+    return url;
+  } catch {
+    return src;
+  }
+}
+
 export default function SmartImage({ src, alt, fill, className, loading, ...rest }: SmartImageProps) {
-  const canUseNext = isAllowedNextImage(src);
+  const transformed = transformForCdn(src);
+  const canUseNext = isAllowedNextImage(transformed);
+  const isCloudinary = (() => {
+    try { return new URL(transformed).hostname.toLowerCase() === 'res.cloudinary.com'; } catch { return false; }
+  })();
   if (canUseNext) {
     if (fill) {
       return (
         <Image
-          src={src}
+          src={transformed}
           alt={alt}
           fill
           className={className}
           loading={loading as any}
-          sizes={(rest as any).sizes || "(max-width: 768px) 100vw, 33vw"}
+          sizes={(rest as any).sizes || "(max-width: 768px) 100vw, (max-width: 1280px) 60vw, 800px"}
           priority={(rest as any).priority}
           quality={(rest as any).quality}
+          unoptimized={isCloudinary}
         />
       );
     }
@@ -52,7 +98,7 @@ export default function SmartImage({ src, alt, fill, className, loading, ...rest
     const height = (rest as any).height ?? 600;
     return (
       <Image
-        src={src}
+        src={transformed}
         alt={alt}
         width={width}
         height={height}
@@ -60,8 +106,9 @@ export default function SmartImage({ src, alt, fill, className, loading, ...rest
         loading={loading as any}
         priority={(rest as any).priority}
         quality={(rest as any).quality}
+        unoptimized={isCloudinary}
       />
     );
   }
-  return <img src={src} alt={alt} className={className} loading={loading as any} {...(rest as any)} />;
+  return <img src={transformed} alt={alt} className={className} loading={loading as any} {...(rest as any)} />;
 }

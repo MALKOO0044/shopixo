@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import SmartImage from "@/components/smart-image";
+import SmartImage, { transformForCdn } from "@/components/smart-image";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -97,7 +97,7 @@ export default function DescriptionGallery({ images, title, className = "" }: De
           <div className="relative max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={images[lightboxIndex]}
+              src={transformForCdn(images[lightboxIndex])}
               alt={`${title} - Image ${lightboxIndex + 1}`}
               className="max-w-full max-h-[90vh] object-contain"
             />

@@ -119,6 +119,9 @@ function getCloudinaryVideoPoster(url: string): string | null {
 function transformImage(url: string): string {
   try {
     url = normalizeImageUrl(url);
+    const UPSCALE_MODE = (process.env.NEXT_PUBLIC_IMAGE_UPSCALE_MODE || 'none').toLowerCase();
+    const PROXY_TPL = process.env.NEXT_PUBLIC_IMAGE_PROXY_TEMPLATE || '';
+    const TARGET_W = Math.max(512, Math.min(8192, parseInt(process.env.NEXT_PUBLIC_IMAGE_TARGET_WIDTH || '7680', 10) || 7680));
     if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/')) {
       const isUpload = url.includes('/image/upload/');
       const isFetch = url.includes('/image/fetch/');
@@ -128,8 +131,12 @@ function transformImage(url: string): string {
       const after = url.slice(idx + marker.length);
       const hasTransforms = after && !after.startsWith('v');
       if (hasTransforms) return url;
-      const inject = 'f_auto,q_auto,c_fill,g_auto,w_800,h_800/';
+      const inject = `w_${TARGET_W},c_fit,dpr_2,e_sharpen,f_auto,q_auto/`;
       return url.replace(marker, marker + inject);
+    }
+    if (UPSCALE_MODE === 'proxy' && PROXY_TPL && /^https?:\/\//i.test(url)) {
+      const encoded = encodeURIComponent(url);
+      return PROXY_TPL.replace('{url}', encoded).replace('{w}', String(TARGET_W));
     }
   } catch {}
   return url;
