@@ -1,5 +1,5 @@
-import puppeteer, { Browser, Page } from 'puppeteer';
-import { execSync } from 'child_process';
+import puppeteer, { Browser, Page } from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 export interface SupplierRating {
   supplierName: string;
@@ -10,30 +10,14 @@ const PAGE_TIMEOUT = 30000;
 const ratingCache = new Map<string, { rating: SupplierRating | null; timestamp: number }>();
 const CACHE_TTL = 1000 * 60 * 60 * 24;
 
-function findChromiumPath(): string | undefined {
-  try {
-    // Honor environment hints first (common on serverless platforms)
-    const fromEnv = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROMIUM_PATH;
-    if (fromEnv && fromEnv.trim()) return fromEnv.trim();
-  } catch {}
-  try {
-    // Try common chromium binaries
-    const candidates = [
-      'which chromium',
-      'which chromium-browser',
-      'which google-chrome-stable',
-      'which google-chrome',
-      'which chrome'
-    ];
-    for (const cmd of candidates) {
-      try {
-        const out = execSync(`${cmd} 2>/dev/null`, { encoding: 'utf-8' }).trim();
-        if (out) return out;
-      } catch {}
-    }
-  } catch {}
-  // Return undefined to let Puppeteer use its bundled Chromium
-  return undefined;
+// Detect if running in serverless environment (Vercel, Netlify, AWS Lambda)
+function isServerless(): boolean {
+  return !!(
+    process.env.VERCEL ||
+    process.env.NETLIFY ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.AWS_EXECUTION_ENV
+  );
 }
 
 function slugify(text: string): string {
@@ -45,19 +29,39 @@ function slugify(text: string): string {
 }
 
 async function launchBrowser(): Promise<Browser> {
-  const executablePath = findChromiumPath();
-  return puppeteer.launch({
-    headless: true,
-    // If executablePath is undefined, Puppeteer uses its bundled Chromium
-    executablePath: executablePath || undefined,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--disable-gpu',
-    ],
-  });
+  const serverless = isServerless();
+  
+  if (serverless) {
+    console.log('[Scraper] Running in serverless environment - using @sparticuz/chromium');
+    
+    // Use serverless-optimized Chromium
+    return puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
+    });
+  } else {
+    console.log('[Scraper] Running in local/VPS environment - using system Chrome');
+    
+    // Local development or VPS - use system Chrome
+    // Try to find Chrome/Chromium on the system
+    const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || 
+                          process.env.CHROMIUM_PATH ||
+                          undefined;
+    
+    return puppeteer.launch({
+      headless: true,
+      executablePath,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--disable-gpu',
+      ],
+    });
+  }
 }
 
 async function extractRatingFromPage(page: Page): Promise<{ supplierName: string; overallRating: number; isValidProduct: boolean }> {
