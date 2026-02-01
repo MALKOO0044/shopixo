@@ -42,6 +42,8 @@ export default function LitbNavBar() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const dragActiveRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; y: number; startedOutside: boolean }>({ x: 0, y: 0, startedOutside: false });
 
   useEffect(() => {
     setMounted(true);
@@ -101,6 +103,44 @@ export default function LitbNavBar() {
       document.addEventListener("mousedown", handleClickOutside);
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
+  }, [menuOpen]);
+
+  // Close on drag: if the user presses and drags outside the menu/button
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      const insideDropdown = !!(dropdownRef.current && dropdownRef.current.contains(target));
+      const insideButton = !!(buttonRef.current && buttonRef.current.contains(target));
+      dragActiveRef.current = true;
+      dragStartRef.current = { x: e.clientX, y: e.clientY, startedOutside: !(insideDropdown || insideButton) };
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (!dragActiveRef.current) return;
+      const { x, y, startedOutside } = dragStartRef.current;
+      const dx = e.clientX - x;
+      const dy = e.clientY - y;
+      const moved = Math.hypot(dx, dy) > 10;
+      if (startedOutside && moved) {
+        setMenuOpen(false);
+        setHoveredCategoryId(null);
+        setIsInsideDropdown(false);
+        dragActiveRef.current = false;
+      }
+    };
+    const onPointerUpOrCancel = () => {
+      dragActiveRef.current = false;
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('pointermove', onPointerMove);
+    document.addEventListener('pointerup', onPointerUpOrCancel);
+    document.addEventListener('pointercancel', onPointerUpOrCancel);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('pointermove', onPointerMove);
+      document.removeEventListener('pointerup', onPointerUpOrCancel);
+      document.removeEventListener('pointercancel', onPointerUpOrCancel);
+    };
   }, [menuOpen]);
 
   const clearCloseTimeout = () => {

@@ -62,7 +62,7 @@ export default function CartDropdown() {
       </Link>
 
       {open && (
-        <div className="absolute right-0 top-full pt-2 z-50 hidden md:block">
+        <div className="absolute right-0 top-full pt-2 z-[80] hidden md:block">
           <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-[360px] p-3">
             {preview.length === 0 ? (
               <div className="text-sm text-gray-500 px-2 py-6 text-center">Your cart is empty.</div>
