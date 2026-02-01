@@ -68,6 +68,22 @@ export default function LitbNavBar() {
     }
   }, [menuOpen]);
 
+  // Lock body scroll while the categories mega menu is open; keep only the panel scrollable.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    const prevPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.paddingRight = prevPaddingRight;
+    };
+  }, [menuOpen]);
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       const target = event.target as Node;
@@ -213,7 +229,7 @@ export default function LitbNavBar() {
   ) : null;
 
   return (
-    <nav className="bg-white border-b border-gray-200 relative z-50">
+    <nav className="bg-white relative z-40">
       <div className="max-w-[1320px] mx-auto px-2">
         <div className="flex items-center gap-6 h-[42px] overflow-x-auto hide-scrollbar">
           <div className="relative">

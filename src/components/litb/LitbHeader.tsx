@@ -76,7 +76,7 @@ export default function LitbHeader() {
   const { count: cartCount } = useCartCount();
 
   return (
-    <header className="bg-white border-b sticky top-0 z-50">
+    <header className="bg-white border-b sticky top-0 z-60">
       <div className="max-w-[1320px] mx-auto px-2">
         <div className="flex items-center justify-between h-[60px] gap-3">
           <Link href="/" className="flex items-center gap-1 shrink-0">
