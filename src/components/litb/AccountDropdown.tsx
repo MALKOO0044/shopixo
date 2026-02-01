@@ -72,7 +72,7 @@ export default function AccountDropdown() {
 
       {isOpen && (
         <div className="absolute right-0 top-full pt-2 z-50">
-          <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-[200px] py-3">
+          <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-[220px] py-3 max-h-[70vh] overflow-y-auto">
             {user ? (
               <>
                 <div className="px-4 pb-3 border-b border-gray-100">

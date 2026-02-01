@@ -48,12 +48,23 @@ export default function LitbNavBar() {
   }, []);
 
   useEffect(() => {
-    if (menuOpen && buttonRef.current) {
+    const updatePosition = () => {
+      if (!menuOpen || !buttonRef.current) return;
       const rect = buttonRef.current.getBoundingClientRect();
+      // Use viewport coordinates for a fixed-position dropdown
       setDropdownPosition({
-        top: rect.bottom + window.scrollY,
-        left: rect.left + window.scrollX
+        top: rect.bottom,
+        left: rect.left,
       });
+    };
+    updatePosition();
+    if (menuOpen) {
+      window.addEventListener('scroll', updatePosition, { passive: true });
+      window.addEventListener('resize', updatePosition);
+      return () => {
+        window.removeEventListener('scroll', updatePosition);
+        window.removeEventListener('resize', updatePosition);
+      };
     }
   }, [menuOpen]);
 

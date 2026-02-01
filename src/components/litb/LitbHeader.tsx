@@ -6,6 +6,7 @@ import AnimatedSearchBar from "./AnimatedSearchBar";
 import AccountDropdown from "./AccountDropdown";
 import type { Route } from "next";
 import { useCartCount } from "@/components/cart/CartCountProvider";
+import CartDropdown from "./CartDropdown";
 
 function USAFlag() {
   return (
@@ -109,11 +110,14 @@ export default function LitbHeader() {
               <Heart className="h-5 w-5" />
             </Link>
 
-            <Link href="/cart" className="relative flex items-center gap-1 text-[#e31e24] font-medium">
+            {/* Desktop: hover cart dropdown with preview; Mobile: fall back to direct link */}
+            <div className="hidden md:block relative">
+              <CartDropdown />
+            </div>
+            <Link href="/cart" className="md:hidden relative flex items-center gap-1 text-[#e31e24] font-medium">
               <ShoppingCart className="h-5 w-5" />
-              <span className="hidden md:inline">CART</span>
               {cartCount > 0 && (
-                <span className="absolute -top-2 -right-2 md:static md:ml-0 bg-[#e31e24] text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                <span className="absolute -top-2 -right-2 bg-[#e31e24] text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
                   {cartCount}
                 </span>
               )}
