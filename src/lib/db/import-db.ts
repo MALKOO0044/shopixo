@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { computeRating } from '@/lib/rating/engine';
 
 let supabaseAdmin: SupabaseClient | null = null;
 
@@ -150,7 +151,6 @@ export async function addProductToQueue(batchId: number, product: {
   videoUrl?: string;
   variants: any[];
   avgPrice: number;
-  supplierRating?: number;
   totalSales?: number;
   totalStock: number;
   processingDays?: number;
@@ -225,7 +225,6 @@ export async function addProductToQueue(batchId: number, product: {
     shipping_cost_usd: null,
     calculated_retail_sar: null,
     margin_applied: null,
-    supplier_rating: product.supplierRating ?? null,
     total_sales: product.totalSales ?? null,
     stock_total: product.totalStock,
     processing_days: product.processingDays ?? null,
@@ -323,6 +322,24 @@ export async function addProductToQueue(batchId: number, product: {
     });
     return { success: false, error: errorMsg };
   }
+  // Log rating signals snapshot for traceability (no product_id at this stage)
+  try {
+    const res = computeRating({
+      orderVolume: product.totalSales ?? undefined,
+      imageCount: Array.isArray(product.images) ? product.images.length : undefined,
+      priceScore: 0.5,
+    });
+    await supabase.from('product_rating_signals').insert({
+      product_id: null,
+      order_volume: product.totalSales ?? null,
+      image_count: Array.isArray(product.images) ? product.images.length : null,
+      price_score: 0.5,
+      quality_penalty: null,
+      computed_score: res.displayedRating,
+      confidence: res.confidence,
+    });
+  } catch {}
+
   return { success: true };
 }
 

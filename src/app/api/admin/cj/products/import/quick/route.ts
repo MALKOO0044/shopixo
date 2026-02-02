@@ -6,7 +6,7 @@ import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { hasTable, hasColumn } from '@/lib/db-features';
 import { loggerForRequest } from '@/lib/log';
 import { isKillSwitchOn } from '@/lib/settings';
-import { scrapeSupplierRating } from '@/lib/cj/scrape-supplier-rating';
+import { computeRating } from '@/lib/rating/engine';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -178,15 +178,6 @@ export async function GET(req: Request) {
           : baseCost;
         const totalStock = (cj.variants || []).reduce((acc, v) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0);
 
-        // Determine supplier/product rating: prefer CJ-provided rating; otherwise scrape from CJ product page
-        let ratingVal: number | null = (typeof (cj as any).rating === 'number' && (cj as any).rating > 0) ? (cj as any).rating : null;
-        if (ratingVal === null) {
-          try {
-            const scraped = await scrapeSupplierRating(cj.productId, (cj.variants?.[0]?.cjSku), cj.name);
-            if (scraped && scraped.overallRating > 0) ratingVal = scraped.overallRating;
-          } catch {}
-        }
-
         let productPayload: any = {
           title: cj.name,
           slug: existing?.slug || baseSlug,
@@ -210,13 +201,12 @@ export async function GET(req: Request) {
           cj_product_id: cj.productId,
           shipping_from: cj.originArea ?? null,
           is_active: true,
-          ...(ratingVal !== null ? { rating: ratingVal } : {}),
         };
 
         // Prune optional fields that do not exist in schema
         await omitMissingProductColumns(supabase, optional, [
           'description','images','video_url','processing_time_hours','delivery_time_hours','origin_area','origin_country_code',
-          'free_shipping','inventory_shipping_fee','last_mile_fee','shipping_from','cj_product_id','is_active','rating'
+          'free_shipping','inventory_shipping_fee','last_mile_fee','shipping_from','cj_product_id','is_active'
         ]);
 
         let productId: number;
@@ -263,6 +253,19 @@ export async function GET(req: Request) {
         if (Object.keys(optional).length > 0) {
           await supabase.from('products').update(optional).eq('id', productId);
         }
+
+        // Compute and store displayed_rating and rating_confidence
+        try {
+          const ratingRes = computeRating({
+            orderVolume: (cj as any).listedNum || undefined,
+            imageCount: Array.isArray(cj.images) ? cj.images.length : undefined,
+            priceScore: 0.5,
+          });
+          await supabase.from('products').update({
+            displayed_rating: ratingRes.displayedRating,
+            rating_confidence: ratingRes.confidence,
+          }).eq('id', productId);
+        } catch {}
 
         const variantsRows = (cj.variants || [])
           .filter((v) => v && (v.size || v.cjSku || (v as any).vid))

@@ -827,10 +827,14 @@ export default function ProductDiscoveryPage() {
               className="w-full px-3 py-2 border border-gray-300 rounded"
             >
               <option value="any">Any Rating</option>
-              <option value="4.5">4.5+ Stars</option>
-              <option value="4">4+ Stars</option>
-              <option value="3.5">3.5+ Stars</option>
-              <option value="3">3+ Stars</option>
+              {Array.from({ length: 11 }).map((_, i) => {
+                const v = (40 + i) / 10; // 4.0 .. 5.0
+                return (
+                  <option key={v} value={v.toFixed(1)}>
+                    {v.toFixed(1)}+
+                  </option>
+                );
+              })}
             </select>
           </div>
           
@@ -1062,7 +1066,7 @@ export default function ProductDiscoveryPage() {
                     {/* Rating */}
                     <div className="flex items-center gap-2">
                       {(() => {
-                        const ratingVal = typeof product.rating === 'number' ? product.rating : 0;
+                        const ratingVal = typeof (product as any).displayedRating === 'number' ? (product as any).displayedRating : 0;
                         const display = ratingVal > 0 && ratingVal <= 5;
                         return (
                           <>

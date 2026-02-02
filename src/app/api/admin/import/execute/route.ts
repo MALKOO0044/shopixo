@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { slugify } from "@/lib/utils/slug";
 import { hasColumn, hasTable } from "@/lib/db-features";
 import { linkProductToMultipleCategories } from "@/lib/category-intelligence";
+import { computeRating } from "@/lib/rating/engine";
 
 // Helper to find category by name/slug/CJ-link and link product to category hierarchy
 async function linkProductToCategory(admin: any, productId: number, categoryName: string, cjCategoryId?: string, supabaseCategoryId?: number): Promise<boolean> {
@@ -578,6 +579,13 @@ export async function POST(req: NextRequest) {
         console.log(`[Import] Product ${qp.cj_product_id}: Found ${availableColors.length} colors: ${availableColors.join(', ')}`);
         console.log(`[Import] Product ${qp.cj_product_id}: Found ${availableSizes.length} sizes: ${availableSizes.join(', ')}`);
 
+        // Compute displayed rating from signals available at import time
+        const ratingRes = computeRating({
+          orderVolume: (qp as any).total_sales ?? undefined,
+          imageCount: Array.isArray(rawImages) ? rawImages.length : undefined,
+          priceScore: 0.5,
+        });
+
         const optionalFields: Record<string, any> = {
           description: cleanDescription(qp.description_en),
           images: rawImages,
@@ -607,10 +615,8 @@ export async function POST(req: NextRequest) {
           specifications: cleanedSpecs,
           selling_points: cleanedSellingPoints,
           cj_category_id: qp.cj_category_id || null,
-          // Use supplier rating as the actual product rating
-          rating: (qp as any).supplier_rating ?? (qp as any).rating ?? null,
-          // Do not store review_count; CJ does not provide product reviews
-          review_count: null,
+          displayed_rating: ratingRes.displayedRating,
+          rating_confidence: ratingRes.confidence,
         };
 
         await omitMissingColumns(optionalFields, [
@@ -620,7 +626,7 @@ export async function POST(req: NextRequest) {
           'pack_height', 'material', 'origin_country', 'origin_country_code', 'hs_code',
           'size_chart_images', 'available_sizes', 'available_colors', 'has_variants',
           'min_price', 'max_price', 'specifications', 'selling_points',
-          'cj_category_id', 'rating', 'review_count'
+          'cj_category_id', 'displayed_rating', 'rating_confidence'
         ]);
 
         const fullPayload = { ...productPayload, ...optionalFields };
@@ -652,6 +658,19 @@ export async function POST(req: NextRequest) {
             throw e;
           }
         }
+
+        // Insert rating signal snapshot with product_id
+        try {
+          await admin.from('product_rating_signals').insert({
+            product_id: productId,
+            order_volume: (qp as any).total_sales ?? null,
+            image_count: Array.isArray(rawImages) ? rawImages.length : null,
+            price_score: 0.5,
+            quality_penalty: null,
+            computed_score: ratingRes.displayedRating,
+            confidence: ratingRes.confidence,
+          });
+        } catch {}
 
         if (hasVariantsTable && variants.length > 0) {
           // Create proper variant rows with Color/Size format
