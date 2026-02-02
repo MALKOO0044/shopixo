@@ -144,10 +144,10 @@ export default function FlashSale({ products }: FlashSaleProps) {
                     {[...Array(5)].map((_, i) => (
                       <Star
                         key={i}
-                        className={`h-3 w-3 ${i < Math.round(product.rating) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`}
+                        className={`h-3 w-3 ${i < Math.floor(((product as any).displayed_rating ?? 0) as number) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`}
                       />
                     ))}
-                    <span className="text-xs text-gray-500">{product.rating}</span>
+                    <span className="text-xs text-gray-500">{(((product as any).displayed_rating ?? 0) as number).toFixed(1)}</span>
                   </div>
                 </div>
               </Link>

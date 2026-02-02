@@ -22,6 +22,7 @@ export interface HomepageProduct {
   price: number;
   originalPrice?: number;
   rating: number;
+  displayed_rating?: number;
   image: string;
   badge?: string;
   slug: string;
@@ -38,6 +39,7 @@ function mapProductToHomepage(product: Product, badge?: string): HomepageProduct
     price: product.price,
     originalPrice: undefined,
     rating: (product as any).displayed_rating ?? 0,
+    displayed_rating: (product as any).displayed_rating ?? 0,
     image: primaryImage,
     badge,
     slug: product.slug,
@@ -52,7 +54,7 @@ export async function getFlashSaleProducts(limit = 8): Promise<HomepageProduct[]
     const { data, error } = await supabase
       .from("products")
       .select("*")
-      .order("rating", { ascending: false })
+      .order("displayed_rating", { ascending: false })
       .limit(limit);
 
     if (error) {
@@ -108,7 +110,7 @@ export async function getBestSellers(limit = 6): Promise<HomepageProduct[]> {
     let { data, error } = await supabase
       .from("products")
       .select("*")
-      .order("rating", { ascending: false })
+      .order("displayed_rating", { ascending: false })
       .limit(limit);
 
     if (error) {
@@ -154,7 +156,7 @@ export async function getRecommendedProducts(limit = 10): Promise<HomepageProduc
     const { data, error } = await supabase
       .from("products")
       .select("*")
-      .order("rating", { ascending: false })
+      .order("displayed_rating", { ascending: false })
       .limit(limit);
 
     if (error) {
@@ -192,3 +194,5 @@ export async function getAllProducts(limit = 20): Promise<HomepageProduct[]> {
     return [];
   }
 }
+
+

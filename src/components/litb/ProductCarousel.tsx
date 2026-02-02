@@ -107,15 +107,15 @@ export default function ProductCarousel({ title, products, viewAllHref }: Produc
                       <span className="text-xs text-gray-400 line-through">${product.originalPrice.toFixed(2)}</span>
                     )}
                   </div>
-                  {product.rating && (
+                  {((product as any).displayed_rating ?? 0) > 0 && (
                     <div className="flex items-center gap-1">
                       {[...Array(5)].map((_, i) => (
                         <Star
                           key={i}
-                          className={`h-3 w-3 ${i < Math.floor(product.rating!) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`}
+                          className={`h-3 w-3 ${i < Math.floor(((product as any).displayed_rating ?? 0) as number) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`}
                         />
                       ))}
-                      <span className="text-xs text-gray-500">{product.rating}</span>
+                      <span className="text-xs text-gray-500">{(((product as any).displayed_rating ?? 0) as number).toFixed(1)}</span>
                     </div>
                   )}
                 </div>
