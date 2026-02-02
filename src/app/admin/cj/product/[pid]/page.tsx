@@ -147,7 +147,8 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
             variants: product.variants,
             variantPricing,
             stock: product.stock,
-            
+            rating: product.rating || 0,
+            reviewCount: (product as any).reviewCount ?? undefined,
             availableColors: product.availableColors || [],
             availableSizes: product.availableSizes || [],
             specifications: {
@@ -241,7 +242,11 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
                   }`}>
                     {totalStock > 0 ? `${totalStock.toLocaleString()} in stock` : 'Out of stock'}
                   </span>
-                  {/* Rating chip removed: preview renders rating within PreviewPageOne */}
+                  {product.rating && (
+                    <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-700">
+                      ★ {product.rating.toFixed(1)} ({product.reviewCount || 0} reviews)
+                    </span>
+                  )}
                 </div>
                 <h1 className="text-lg font-semibold text-gray-900 line-clamp-1 max-w-xl">
                   {product.name || 'Unknown Product'}
@@ -424,7 +429,12 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
                   <span className="text-gray-600">SKU</span>
                   <span className="font-mono text-sm text-gray-900">{product.cjSku}</span>
                 </div>
-                {/* Rating summary removed: shown in PreviewPageOne */}
+                {product.rating && (
+                  <div className="flex justify-between items-center py-2 border-b">
+                    <span className="text-gray-600">Rating</span>
+                    <span className="font-semibold text-amber-600">★ {product.rating.toFixed(1)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center py-2 border-b">
                   <span className="text-gray-600">Total Stock</span>
                   <span className={`font-semibold ${totalStock > 100 ? 'text-green-600' : totalStock > 0 ? 'text-amber-600' : 'text-red-600'}`}>

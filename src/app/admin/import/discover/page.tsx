@@ -447,7 +447,6 @@ export default function ProductDiscoveryPage() {
               cjCategoryId: category !== 'all' ? category : undefined,
               supabaseCategoryId: selectedFeaturesWithIds.length > 0 ? selectedFeaturesWithIds[0].supabaseCategoryId : undefined,
               supabaseCategorySlug: selectedFeaturesWithIds.length > 0 ? selectedFeaturesWithIds[0].supabaseCategorySlug : undefined,
-              rating: p.rating,
               productWeight: p.productWeight,
               packLength: p.packLength,
               packWidth: p.packWidth,
@@ -827,14 +826,9 @@ export default function ProductDiscoveryPage() {
               className="w-full px-3 py-2 border border-gray-300 rounded"
             >
               <option value="any">Any Rating</option>
-              {Array.from({ length: 11 }).map((_, i) => {
-                const v = (40 + i) / 10; // 4.0 .. 5.0
-                return (
-                  <option key={v} value={v.toFixed(1)}>
-                    {v.toFixed(1)}+
-                  </option>
-                );
-              })}
+              <option value="5.0">5.0+ Stars</option>
+              <option value="4.5">4.5+ Stars</option>
+              <option value="4.0">4.0+ Stars</option>
             </select>
           </div>
           

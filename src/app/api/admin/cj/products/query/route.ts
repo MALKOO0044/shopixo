@@ -125,6 +125,9 @@ export async function GET(req: Request) {
     const categoryId = searchParams.get('category') || undefined;
     const quantity = Math.max(1, Number(searchParams.get('quantity') || 25));
     const strictMode = searchParams.get('strict') !== 'false';
+    const minRating = Number(searchParams.get('minRating') || 0);
+    const includeUnratedParam = searchParams.get('includeUnrated');
+    const includeUnrated = includeUnratedParam === 'true' ? true : (includeUnratedParam === 'false' ? false : (minRating <= 0));
     
     if (!pid && urlParam) pid = extractPidFromUrl(urlParam);
     if (!pid && urlParam) {
@@ -141,6 +144,8 @@ export async function GET(req: Request) {
     let totalFound = 0;
     let pagesFetched = 0;
     let totalRawFetched = 0;
+    let skippedNoRating = 0;
+    let skippedLowRating = 0;
     let skippedNoMatch = 0;
     
     if (pid) {
@@ -155,7 +160,7 @@ export async function GET(req: Request) {
       const searchTokens = tokenize(keyword);
       
       const { requiredConcepts, genderExclusions } = classifyQuery(keyword);
-      console.log(`[Search v4] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}`);
+      console.log(`[Search v4] Keyword: "${keyword}", Required Concepts: [${Array.from(requiredConcepts).join(', ')}], Gender Exclusions: [${genderExclusions.join(', ')}], Target: ${quantity}, Strict: ${strictMode}, MinRating: ${minRating}, IncludeUnrated: ${includeUnrated}`);
       
       const pageSize = 50;
       const maxPagesForQuantity = Math.ceil(quantity * 20 / pageSize);
@@ -197,8 +202,26 @@ export async function GET(req: Request) {
           
           allRawItems.push(rawItem);
           
+          const supplierRating = Number(rawItem.supplierRating || rawItem.score || rawItem.rating || rawItem.productScore || 0);
+          const hasRating = supplierRating > 0;
+          
+          if (minRating > 0) {
+            if (!hasRating) {
+              if (!includeUnrated) {
+                skippedNoRating++;
+                continue;
+              }
+            } else if (supplierRating < minRating) {
+              skippedLowRating++;
+              continue;
+            }
+          }
+          
           const mappedItem = mapCjItemToProductLike(rawItem);
           if (!mappedItem) continue;
+          
+          (mappedItem as any).supplierRating = hasRating ? supplierRating : null;
+          (mappedItem as any).hasRating = hasRating;
           
           if (strictMode && searchTokens.length > 0 && requiredConcepts.size > 0) {
             const strictResult = smartMatch(mappedItem.name || '', keyword, false);
@@ -234,13 +257,21 @@ export async function GET(req: Request) {
         }
       }
       
-      strictMatchedItems.sort((a, b) => (((b as any)._matchScore || 0) - ((a as any)._matchScore || 0)));
+      strictMatchedItems.sort((a, b) => {
+        const ratingA = (a as any).hasRating ? ((a as any).supplierRating || 0) : -1;
+        const ratingB = (b as any).hasRating ? ((b as any).supplierRating || 0) : -1;
+        if (ratingB !== ratingA) return ratingB - ratingA;
+        return ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0);
+      });
       
       relaxedMatchedItems.sort((a, b) => {
         const ratioA = (a as any)._matchRatio || 0;
         const ratioB = (b as any)._matchRatio || 0;
         if (ratioB !== ratioA) return ratioB - ratioA;
-        return (((b as any)._matchScore || 0) - ((a as any)._matchScore || 0));
+        const ratingA = (a as any).hasRating ? ((a as any).supplierRating || 0) : -1;
+        const ratingB = (b as any).hasRating ? ((b as any).supplierRating || 0) : -1;
+        if (ratingB !== ratingA) return ratingB - ratingA;
+        return ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0);
       });
       
       const combined = [...strictMatchedItems, ...relaxedMatchedItems];
@@ -287,7 +318,7 @@ export async function GET(req: Request) {
       const duration = Date.now() - startTime;
       console.log(`[Search v4] Final: ${items.length}/${quantity} items from ${pagesFetched} pages in ${duration}ms`);
       console.log(`[Search v4] Stats: raw=${totalRawFetched}, unique=${seenPids.size}, strict=${strictMatchedItems.length}, relaxed=${relaxedMatchedItems.length}`);
-      console.log(`[Search v4] Skipped: noMatch=${skippedNoMatch}`);
+      console.log(`[Search v4] Skipped: noRating=${skippedNoRating}, lowRating=${skippedLowRating}, noMatch=${skippedNoMatch}`);
       console.log(`[Search v4] Hydration: ${detailsMap.size}/${pidsToHydrate.length} products successfully hydrated with full details`);
     }
 
@@ -300,6 +331,8 @@ export async function GET(req: Request) {
       pagesFetched,
       stats: {
         rawFetched: totalRawFetched,
+        skippedNoRating,
+        skippedLowRating,
         skippedNoMatch,
       },
       items 

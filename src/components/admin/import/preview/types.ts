@@ -79,8 +79,9 @@ export type PricedProduct = {
   sizeInfo?: string;
   productNote?: string;
   packingList?: string;
-  displayedRating?: number;
-  ratingConfidence?: number;
+  rating?: number;
+  reviewCount?: number;
+  supplierName?: string;
   categoryName?: string;
   productWeight?: number;
   packLength?: number;

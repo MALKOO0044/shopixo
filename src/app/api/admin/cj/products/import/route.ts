@@ -6,7 +6,7 @@ import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { hasTable, hasColumn } from '@/lib/db-features';
 import { loggerForRequest } from '@/lib/log';
 import { isKillSwitchOn } from '@/lib/settings';
-import { computeRating } from '@/lib/rating/engine';
+import { scrapeSupplierRating } from '@/lib/cj/scrape-supplier-rating';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -125,6 +125,15 @@ export async function POST(req: Request) {
               return acc + cjVal + factoryVal;
             }, 0);
 
+        // Determine supplier/product rating: prefer CJ-provided rating; otherwise scrape from CJ product page
+        let ratingVal: number | null = (typeof (cj as any).rating === 'number' && (cj as any).rating > 0) ? (cj as any).rating : null;
+        if (ratingVal === null) {
+          try {
+            const scraped = await scrapeSupplierRating(cj.productId, (cj.variants?.[0]?.cjSku), cj.name);
+            if (scraped && scraped.overallRating > 0) ratingVal = scraped.overallRating;
+          } catch {}
+        }
+
         let productPayload: any = {
           title: cj.name,
           slug: existing?.slug || baseSlug,
@@ -133,6 +142,8 @@ export async function POST(req: Request) {
           images: cj.images || [],
           category: categoryParam,
           stock: totalStock,
+          // Store rating if available; default 0 otherwise
+          ...(ratingVal !== null ? { rating: ratingVal } : {}),
           video_url: cj.videoUrl || null,
           processing_time_hours: null,
           delivery_time_hours: cj.deliveryTimeHours ?? null,
@@ -151,15 +162,6 @@ export async function POST(req: Request) {
           const { is_active, ...rest } = productPayload;
           productPayload = rest;
         }
-
-        // Compute rating from signals available at import time
-        const ratingRes = computeRating({
-          orderVolume: (cj as any).listedNum || undefined,
-          imageCount: Array.isArray(cj.images) ? cj.images.length : undefined,
-          priceScore: 0.5,
-        });
-
-        // Attempt to include displayed_rating and rating_confidence if columns exist later via update
 
         let productId: number;
         if (existing?.id) {
@@ -203,15 +205,6 @@ export async function POST(req: Request) {
           }
           productId = insResult.id as number;
         }
-
-        // After insert, set displayed_rating and rating_confidence if columns exist
-        try {
-          const updateRating: Record<string, any> = {};
-          // optimistic: try update both; omitMissing handled below if needed
-          updateRating.displayed_rating = ratingRes.displayedRating;
-          updateRating.rating_confidence = ratingRes.confidence;
-          await supabase.from('products').update(updateRating).eq('id', productId);
-        } catch {}
 
         // Insert variants if table exists
         // CRITICAL: Only import variants with accurate stock data (100% accuracy mandate)

@@ -7,15 +7,15 @@ type PreviewPageOneProps = {
   product: PricedProduct;
 };
 
-// Component to display computed rating with stars and optional confidence label
-function StarRating({ rating, confidence }: { rating: number; confidence?: number }) {
+// Component to display actual CJ rating with stars
+function StarRating({ rating, reviewCount }: { rating: number; reviewCount: number }) {
   const fullStars = Math.floor(rating);
-  const hasHalfStar = rating - fullStars >= 0.5;
+  const hasHalfStar = rating - fullStars >= 0.3;
   const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
-  const label = confidence == null ? undefined : (confidence >= 0.75 ? 'High' : confidence >= 0.45 ? 'Medium' : 'Low');
+
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-3">
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-4">
         <div className="flex items-center gap-1">
           {[...Array(fullStars)].map((_, i) => (
             <Star key={`full-${i}`} className="h-6 w-6 fill-amber-400 text-amber-400" />
@@ -33,11 +33,15 @@ function StarRating({ rating, confidence }: { rating: number; confidence?: numbe
           ))}
         </div>
         <span className="text-2xl font-bold text-gray-800">{rating.toFixed(1)}</span>
-        {label && (
-          <span className={`text-sm px-2 py-0.5 rounded ${label === 'High' ? 'bg-green-100 text-green-700' : label === 'Medium' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-700'}`}>
-            {label} confidence
-          </span>
-        )}
+      </div>
+      <div className="flex items-center gap-2 text-gray-600">
+        <span className="font-medium">{reviewCount.toLocaleString()} reviews</span>
+        <div className="group relative">
+          <Info className="h-4 w-4 text-gray-400 cursor-help" />
+          <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-3 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10">
+            Actual rating from CJ Dropshipping customer reviews
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -96,8 +100,11 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
 
   const imageCount = product.images?.length || 0;
   
-  const displayedRating = (product as any).displayedRating as number | undefined;
-  const ratingConfidence = (product as any).ratingConfidence as number | undefined;
+  // Supplier rating from CJ: use as the sole rating source
+  const hasRealRating = product.rating !== undefined && product.rating !== null && Number.isFinite(product.rating) && product.rating > 0 && product.rating <= 5;
+  const realRating = hasRealRating ? product.rating! : null;
+  
+  console.log(`[PreviewPageOne] Product ${product.cjSku}: listedNum=${product.listedNum}, cjRating=${product.rating}, hasRealRating=${hasRealRating}, supplierName=${product.supplierName}, colors=${uniqueColors.length}, sizes=${uniqueSizes.length}, models=${uniqueModels.length}`);
 
   return (
     <div className="flex flex-col lg:flex-row gap-8 p-4">
@@ -130,22 +137,54 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
       {/* Product Details Section */}
       <div className="lg:w-1/2 space-y-8">
         
-        {/* Rating - Computed by internal engine */}
+        {/* Rating - Supplier rating from CJ website */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-4">
             <Star className="h-5 w-5 text-amber-500" />
-            <span className="text-gray-500 font-medium">Rating</span>
+            <span className="text-gray-500 font-medium">Supplier Rating</span>
           </div>
-          {typeof displayedRating === 'number' && displayedRating > 0 ? (
-            <StarRating rating={displayedRating} confidence={ratingConfidence} />
-          ) : (
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={`empty-${i}`} className="h-6 w-6 text-gray-300" />
-                ))}
+          {hasRealRating && realRating !== null ? (
+            <div className="flex flex-col gap-4">
+              {/* Overall Rating Stars */}
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1">
+                  {[...Array(5)].map((_, i) => {
+                    const filled = i < Math.floor(realRating);
+                    const half = !filled && i < realRating;
+                    return (
+                      <Star
+                        key={`star-${i}`}
+                        className={`h-6 w-6 ${filled || half ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`}
+                      />
+                    );
+                  })}
+                </div>
+                <span className="text-2xl font-bold text-gray-800">{realRating.toFixed(1)}</span>
               </div>
-              <span className="text-xl font-medium text-gray-400">—</span>
+              {/* Supplier Name (optional) */}
+              {product.supplierName && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <span className="font-medium">Supplier: {product.supplierName}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={`empty-${i}`} className="h-6 w-6 text-gray-300" />
+                  ))}
+                </div>
+                <span className="text-xl font-medium text-gray-400">—</span>
+              </div>
+              <div className="flex items-center gap-2 text-gray-500">
+                <span className="font-medium">No rating available</span>
+                <div className="group relative">
+                  <Info className="h-4 w-4 text-gray-400 cursor-help" />
+                  <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-3 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10">Could not fetch supplier rating for this product</div>
+                </div>
+              </div>
             </div>
           )}
         </div>

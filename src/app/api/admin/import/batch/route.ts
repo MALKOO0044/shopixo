@@ -115,6 +115,7 @@ export async function POST(req: NextRequest) {
         videoUrl: p.videoUrl || undefined,
         variants: p.variants || [],
         avgPrice,
+        supplierRating: p.rating ?? p.supplierRating ?? undefined,
         totalSales: p.reviewCount ?? p.totalSales ?? undefined,
         totalStock,
         processingDays: p.processingDays ?? undefined,

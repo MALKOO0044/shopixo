@@ -425,14 +425,12 @@ interface DetailHeaderProps {
   title: string;
   productCode?: string | null;
   rating: number;
-  confidence?: number;
 }
 
-function DetailHeader({ title, productCode, rating, confidence }: DetailHeaderProps) {
+function DetailHeader({ title, productCode, rating }: DetailHeaderProps) {
   const displayRating = Math.min(5, Math.max(0, rating));
   const fullStars = Math.floor(displayRating);
   const hasHalfStar = displayRating % 1 >= 0.5;
-  const label = typeof confidence === 'number' ? (confidence >= 0.75 ? 'High' : confidence >= 0.45 ? 'Medium' : 'Low') : undefined;
 
   return (
     <div className="space-y-2">
@@ -465,14 +463,6 @@ function DetailHeader({ title, productCode, rating, confidence }: DetailHeaderPr
         <span className="text-sm text-muted-foreground">
           {displayRating > 0 ? `${displayRating.toFixed(1)}` : 'No rating'}
         </span>
-        {label && (
-          <span className={cn(
-            "text-xs px-2 py-0.5 rounded",
-            label === 'High' ? 'bg-green-100 text-green-700' : label === 'Medium' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-700'
-          )}>
-            {label} confidence
-          </span>
-        )}
       </div>
     </div>
   );
@@ -1527,8 +1517,7 @@ export default function ProductDetailsClient({
           <DetailHeader
             title={product.title}
             productCode={product.product_code}
-            rating={(product as any).displayed_rating || 0}
-            confidence={(product as any).rating_confidence}
+            rating={product.rating || (product as any).supplier_rating || 0}
           />
 
           <PriceBlock

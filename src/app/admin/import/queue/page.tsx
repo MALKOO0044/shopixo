@@ -10,6 +10,7 @@ import {
   Download,
   Edit,
   Trash2,
+  Star,
   ChevronLeft,
   ChevronRight,
   Loader2,
@@ -30,6 +31,7 @@ type QueueProduct = {
   cj_price_usd: number;
   shipping_cost_usd: number | null;
   calculated_retail_sar: number | null;
+  supplier_rating: number;
   total_sales: number;
   stock_total: number;
   quality_score: number;
@@ -295,7 +297,7 @@ export default function QueuePage() {
   };
 
   const exportCsv = () => {
-    const headers = ["ID", "CJ Product ID", "Name", "Category", "Price USD", "Stock", "Status", "Created"];
+    const headers = ["ID", "CJ Product ID", "Name", "Category", "Price USD", "Stock", "Rating", "Status", "Created"];
     const rows = products.map(p => [
       p.id,
       p.cj_product_id,
@@ -303,6 +305,7 @@ export default function QueuePage() {
       p.category,
       p.cj_price_usd,
       p.stock_total,
+      p.supplier_rating,
       p.status,
       new Date(p.created_at).toLocaleDateString(),
     ]);
@@ -520,6 +523,7 @@ export default function QueuePage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Variants</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="w-32 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
@@ -690,7 +694,24 @@ export default function QueuePage() {
                         )}
                       </div>
                     </td>
-                    
+                    <td className="px-4 py-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Star
+                              key={star}
+                              className={`h-3 w-3 ${
+                                star <= Math.round(product.supplier_rating || 0)
+                                  ? "fill-amber-400 text-amber-400"
+                                  : "text-gray-300"
+                              }`}
+                            />
+                          ))}
+                          <span className="text-xs font-medium ml-1">{product.supplier_rating?.toFixed(1) || "0.0"}</span>
+                        </div>
+                        {/* CJ does not provide product review counts; show rating only */}
+                      </div>
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${colors.bg} ${colors.text}`}>
                         <StatusIcon className="h-3 w-3" />
