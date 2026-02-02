@@ -110,7 +110,7 @@ export default function FlashSale({ products }: FlashSaleProps) {
             {products.map((product) => (
               <Link
                 key={product.id}
-                href={/product/}
+                href={`/product/${product.slug}`}
                 className="shrink-0 w-[220px] group/card"
               >
                 <div className="relative aspect-[3/4] rounded-lg overflow-hidden bg-gray-100 mb-2">
@@ -144,7 +144,7 @@ export default function FlashSale({ products }: FlashSaleProps) {
                     {[...Array(5)].map((_, i) => (
                       <Star
                         key={i}
-                        className={h-3 w-3 \}
+                        className={`h-3 w-3 ${i < Math.round(product.rating) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`}
                       />
                     ))}
                     <span className="text-xs text-gray-500">{product.rating}</span>
