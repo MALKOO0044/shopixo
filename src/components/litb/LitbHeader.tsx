@@ -7,6 +7,7 @@ import AccountDropdown from "./AccountDropdown";
 import type { Route } from "next";
 import { useCartCount } from "@/components/cart/CartCountProvider";
 import CartDropdown from "./CartDropdown";
+import { useEffect } from "react";
 
 function USAFlag() {
   return (
@@ -75,8 +76,21 @@ function USAFlag() {
 export default function LitbHeader() {
   const { count: cartCount } = useCartCount();
 
+  // Publish the header height as a CSS variable so the nav can stick right under it
+  useEffect(() => {
+    const update = () => {
+      const el = document.querySelector('[data-site-header]') as HTMLElement | null;
+      if (!el) return;
+      const h = Math.round(el.getBoundingClientRect().height);
+      document.documentElement.style.setProperty('--site-header-h', `${h}px`);
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
   return (
-    <header className="bg-white border-b sticky top-0 z-60">
+    <header data-site-header className="bg-white border-b sticky top-0 z-[200]">
       <div className="max-w-[1320px] mx-auto px-2">
         <div className="flex items-center justify-between h-[60px] gap-3">
           <Link href="/" className="flex items-center gap-1 shrink-0">

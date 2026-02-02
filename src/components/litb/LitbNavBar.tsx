@@ -38,6 +38,7 @@ export default function LitbNavBar() {
   const [hoveredCategoryId, setHoveredCategoryId] = useState<number | null>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const [mounted, setMounted] = useState(false);
+  const [stuck, setStuck] = useState(false);
   const [isInsideDropdown, setIsInsideDropdown] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -47,6 +48,14 @@ export default function LitbNavBar() {
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  // Track if page is scrolled to add a subtle shadow to the sticky nav
+  useEffect(() => {
+    const onScroll = () => setStuck(window.scrollY > 0);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
   useEffect(() => {
@@ -269,7 +278,7 @@ export default function LitbNavBar() {
   ) : null;
 
   return (
-    <nav className="bg-white relative z-40">
+    <nav className={`sticky top-[var(--site-header-h,60px)] z-[180] ${stuck ? 'bg-white shadow-sm border-b border-gray-200' : 'bg-white'}`}>
       <div className="max-w-[1320px] mx-auto px-2">
         <div className="flex items-center gap-6 h-[42px] overflow-x-auto hide-scrollbar">
           <div className="relative">

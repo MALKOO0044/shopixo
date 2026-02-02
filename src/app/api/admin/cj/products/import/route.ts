@@ -6,6 +6,7 @@ import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { hasTable, hasColumn } from '@/lib/db-features';
 import { loggerForRequest } from '@/lib/log';
 import { isKillSwitchOn } from '@/lib/settings';
+import { scrapeSupplierRating } from '@/lib/cj/scrape-supplier-rating';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -124,6 +125,15 @@ export async function POST(req: Request) {
               return acc + cjVal + factoryVal;
             }, 0);
 
+        // Determine supplier/product rating: prefer CJ-provided rating; otherwise scrape from CJ product page
+        let ratingVal: number | null = (typeof (cj as any).rating === 'number' && (cj as any).rating > 0) ? (cj as any).rating : null;
+        if (ratingVal === null) {
+          try {
+            const scraped = await scrapeSupplierRating(cj.productId, (cj.variants?.[0]?.cjSku), cj.name);
+            if (scraped && scraped.overallRating > 0) ratingVal = scraped.overallRating;
+          } catch {}
+        }
+
         let productPayload: any = {
           title: cj.name,
           slug: existing?.slug || baseSlug,
@@ -132,6 +142,8 @@ export async function POST(req: Request) {
           images: cj.images || [],
           category: categoryParam,
           stock: totalStock,
+          // Store rating if available; default 0 otherwise
+          ...(ratingVal !== null ? { rating: ratingVal } : {}),
           video_url: cj.videoUrl || null,
           processing_time_hours: null,
           delivery_time_hours: cj.deliveryTimeHours ?? null,
