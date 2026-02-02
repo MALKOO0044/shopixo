@@ -960,9 +960,6 @@ export type CjProductLike = {
   originArea?: string | null;
   originCountryCode?: string | null;
   // Added fields for better product display
-  rating?: number | null; // Product/supplier rating (0-5 scale)
-  reviewCount?: number | null; // Number of reviews
-  supplierName?: string | null; // Supplier name from CJ
   price?: number | null; // Product-level price (min variant price)
   categoryName?: string | null; // Full category path
   sku?: string | null; // Main product SKU
@@ -1197,147 +1194,12 @@ async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
 // Response: { success: true, code: 0, data: { total: "285", list: [{ score: "5", ... }] } }
 // Implements pagination to fetch ALL reviews for 100% accurate average rating calculation
 export async function getProductRating(pid: string): Promise<{ rating: number | null; reviewCount: number }> {
-  const PAGE_SIZE = 200; // Maximum reviews per page
-  const MAX_PAGES = 10; // Safety limit to prevent excessive API calls
-  
-  try {
-    console.log(`[CJ Rating] Fetching comments for pid: ${pid}`);
-    
-    // Helper function to extract score from a comment
-    const extractScore = (comment: any): number | null => {
-      const scoreVal = comment?.score ?? comment?.rating ?? comment?.starScore ?? comment?.commentScore;
-      if (scoreVal !== undefined && scoreVal !== null && scoreVal !== '') {
-        const score = parseFloat(String(scoreVal));
-        if (Number.isFinite(score) && score > 0 && score <= 5) {
-          return score;
-        }
-      }
-      return null;
-    };
-    
-    // Helper function to parse API response
-    const parseResponse = (res: any): { list: any[]; total: number; success: boolean } => {
-      const isSuccess = res?.success === true || res?.result === true || res?.code === 200 || res?.code === 0;
-      if (!isSuccess && res?.message) {
-        console.log(`[CJ Rating] API error for pid ${pid}: ${res.message}`);
-        return { list: [], total: 0, success: false };
-      }
-      
-      const data = res?.data;
-      let list: any[] = [];
-      let total = 0;
-      
-      if (data?.list && Array.isArray(data.list)) {
-        list = data.list;
-        total = parseInt(String(data?.total || data.list.length), 10) || 0;
-      } else if (Array.isArray(data)) {
-        list = data;
-        total = data.length;
-      } else if (Array.isArray(res?.list)) {
-        list = res.list;
-        total = parseInt(String(res?.total || res.list.length), 10) || 0;
-      } else if (Array.isArray(res)) {
-        list = res;
-        total = res.length;
-      }
-      
-      return { list, total, success: true };
-    };
-    
-    // Fetch first page
-    const firstPageEndpoint = `/product/productComments?pid=${encodeURIComponent(pid)}&pageNum=1&pageSize=${PAGE_SIZE}`;
-    const firstRes = await cjFetch<any>(firstPageEndpoint);
-    console.log(`[CJ Rating] First page response for pid ${pid}:`, JSON.stringify(firstRes).slice(0, 800));
-    
-    const firstPage = parseResponse(firstRes);
-    if (!firstPage.success) {
-      return { rating: null, reviewCount: 0 };
-    }
-    
-    const total = firstPage.total;
-    console.log(`[CJ Rating] pid ${pid}: total=${total}, firstPageLength=${firstPage.list.length}`);
-    
-    if (firstPage.list.length === 0) {
-      console.log(`[CJ Rating] No reviews found for pid ${pid}`);
-      return { rating: null, reviewCount: 0 };
-    }
-    
-    // Collect all reviews - start with first page
-    let allReviews = [...firstPage.list];
-    
-    // Fetch additional pages if there are more reviews
-    const totalPages = Math.min(Math.ceil(total / PAGE_SIZE), MAX_PAGES);
-    if (totalPages > 1) {
-      console.log(`[CJ Rating] pid ${pid}: Fetching ${totalPages - 1} additional pages for ${total} total reviews`);
-      
-      for (let page = 2; page <= totalPages; page++) {
-        try {
-          const pageEndpoint = `/product/productComments?pid=${encodeURIComponent(pid)}&pageNum=${page}&pageSize=${PAGE_SIZE}`;
-          const pageRes = await cjFetch<any>(pageEndpoint);
-          const pageData = parseResponse(pageRes);
-          
-          if (pageData.success && pageData.list.length > 0) {
-            allReviews = [...allReviews, ...pageData.list];
-            console.log(`[CJ Rating] pid ${pid}: Page ${page} added ${pageData.list.length} reviews, total now: ${allReviews.length}`);
-          } else {
-            break; // Stop if no more data
-          }
-        } catch (e: any) {
-          console.log(`[CJ Rating] pid ${pid}: Failed to fetch page ${page}: ${e?.message}`);
-          break; // Continue with what we have
-        }
-      }
-    }
-    
-    // Calculate average rating from ALL fetched reviews
-    let sumScore = 0;
-    let countScores = 0;
-    for (const comment of allReviews) {
-      const score = extractScore(comment);
-      if (score !== null) {
-        sumScore += score;
-        countScores++;
-      }
-    }
-    
-    if (countScores === 0) {
-      console.log(`[CJ Rating] pid ${pid}: ${total} reviews but no valid scores extracted`);
-      return { rating: null, reviewCount: total };
-    }
-    
-    const avgRating = sumScore / countScores;
-    const roundedRating = Math.round(avgRating * 10) / 10; // Round to 1 decimal place
-    
-    console.log(`[CJ Rating] pid ${pid}: avgRating=${roundedRating} (from ${countScores}/${allReviews.length} scored reviews), totalReviews=${total}`);
-    return { rating: roundedRating, reviewCount: total };
-    
-  } catch (e: any) {
-    console.error(`[CJ Rating] Failed to fetch product rating for pid ${pid}:`, e?.message || e);
-    return { rating: null, reviewCount: 0 };
-  }
+  return { rating: null, reviewCount: 0 };
 }
 
 // Batch fetch ratings for multiple products (with concurrency limit)
 export async function getProductRatings(pids: string[]): Promise<Map<string, { rating: number | null; reviewCount: number }>> {
-  const results = new Map<string, { rating: number | null; reviewCount: number }>();
-  const BATCH_SIZE = 5; // Limit concurrent requests
-  
-  for (let i = 0; i < pids.length; i += BATCH_SIZE) {
-    const batch = pids.slice(i, i + BATCH_SIZE);
-    const promises = batch.map(async (pid) => {
-      const result = await getProductRating(pid);
-      return { pid, result };
-    });
-    
-    const batchResults = await Promise.allSettled(promises);
-    for (const res of batchResults) {
-      if (res.status === 'fulfilled') {
-        results.set(res.value.pid, res.value.result);
-      }
-    }
-  }
-  
-  return results;
+  return new Map();
 }
 
 // Helper: Parse JSON array fields from CJ API (e.g., materialNameEn: '["","metal"]')
@@ -1409,24 +1271,7 @@ function mergeListV2Fields(productData: any, match: any, source: string): void {
     console.log(`[CJ Details] Got listedNum from listV2 (${source}): ${productData.listedNum}`);
   }
   
-  // Copy rating fields from listV2 (CJ products may have ratings in listing)
-  const ratingVal = match.rating ?? match.productRating ?? match.score ?? match.avgScore ?? match.averageRating;
-  if (ratingVal !== undefined && ratingVal !== null) {
-    const parsedRating = Number(ratingVal);
-    if (Number.isFinite(parsedRating) && parsedRating > 0 && parsedRating <= 5) {
-      productData.rating = parsedRating;
-      console.log(`[CJ Details] Got rating from listV2 (${source}): ${parsedRating}`);
-    }
-  }
-  
-  const reviewVal = match.reviewCount ?? match.ratingCount ?? match.reviews ?? match.commentCount ?? match.evaluateCount;
-  if (reviewVal !== undefined && reviewVal !== null) {
-    const parsedCount = Number(reviewVal);
-    if (Number.isFinite(parsedCount) && parsedCount >= 0) {
-      productData.reviewCount = parsedCount;
-      console.log(`[CJ Details] Got reviewCount from listV2 (${source}): ${parsedCount}`);
-    }
-  }
+  // Legacy CJ ratings are ignored; internal rating engine is used elsewhere
 }
 
 // Fetch full product details by PID - returns complete product with all images and variants
@@ -2089,19 +1934,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
 
   const originArea = (item.defaultArea || item.warehouse || item.areaName || null) as string | null;
   const originCountryCode = (item.areaCountryCode || item.countryCode || null) as string | null;
-
-  // Extract rating and review count
-  // Check multiple possible field names for supplier/product rating
-  const rating = pickNum(
-    item.supplierRating, item.supplierScore, item.starCount, item.star_count,
-    item.rating, item.productRating, item.score, item.avgScore, item.avgRating
-  ) ?? null;
-  const reviewCount = pickNum(item.reviewCount, item.ratingCount, item.reviews, item.commentCount, item.evaluateCount) ?? null;
-  
-  // Also check for nested supplier object
-  const supplierName = (item.supplierName || item.supplier?.name || item.vendorName || null) as string | null;
-  const supplierRatingFromNested = pickNum(item.supplier?.rating, item.supplier?.score, item.supplier?.starCount, item.supplier?.star_count) ?? null;
-  const finalRating = rating ?? supplierRatingFromNested;
+  // Legacy CJ ratings are ignored; internal engine computes ratings elsewhere
 
   // Extract price range (use minimum variant price or product-level price)
   const variantPrices = variants.map(v => v.price).filter((p): p is number => typeof p === 'number' && p > 0);
@@ -2151,9 +1984,6 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     originArea,
     originCountryCode,
     // New fields for better product display
-    rating: finalRating,  // Uses supplier rating if available
-    reviewCount,
-    supplierName,  // Supplier name from CJ API
     price: minPrice,
     categoryName,
     sku,

@@ -37,7 +37,7 @@ function mapProductToHomepage(product: Product, badge?: string): HomepageProduct
     name: product.title,
     price: product.price,
     originalPrice: undefined,
-    rating: product.rating || 4.5,
+    rating: (product as any).displayed_rating ?? 0,
     image: primaryImage,
     badge,
     slug: product.slug,

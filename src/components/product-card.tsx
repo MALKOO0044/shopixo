@@ -215,7 +215,7 @@ export default function ProductCard({ product }: { product: Product }) {
         <div className="text-lg font-bold text-foreground">{formatCurrency(product.price)}</div>
       </div>
       <div className="mt-1 text-sm text-muted-foreground">{product.category}</div>
-      <div className="mt-2"><Ratings value={product.rating} /></div>
+      <div className="mt-2"><Ratings value={(product as any).displayed_rating ?? 0} /></div>
     </Link>
   );
 }

@@ -1,4 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { computeRating } from '@/lib/rating/engine';
+import { hasTable } from '@/lib/db-features';
 
 let supabaseAdmin: SupabaseClient | null = null;
 
@@ -56,6 +58,8 @@ export async function checkProductQueueSchema(): Promise<{
     { name: 'cj_product_cost', type: 'NUMERIC(10,2)', default: 'NULL' },
     { name: 'profit_margin', type: 'NUMERIC(5,2)', default: 'NULL' },
     { name: 'color_image_map', type: 'JSONB', default: 'NULL' },
+    { name: 'displayed_rating', type: 'NUMERIC(3,1)', default: 'NULL' },
+    { name: 'rating_confidence', type: 'NUMERIC(3,2)', default: 'NULL' },
   ];
 
   const missingColumns: string[] = [];
@@ -150,8 +154,6 @@ export async function addProductToQueue(batchId: number, product: {
   videoUrl?: string;
   variants: any[];
   avgPrice: number;
-  supplierRating?: number;
-  totalSales?: number;
   totalStock: number;
   processingDays?: number;
   deliveryDaysMin?: number;
@@ -208,6 +210,18 @@ export async function addProductToQueue(batchId: number, product: {
     ? product.images.map((u) => transformImageUrl(String(u)))
     : [];
 
+  // Compute internal rating for queue row if columns exist
+  const ratingSignals = {
+    imageCount: Array.isArray(product.images) ? product.images.length : 0,
+    stock: product.totalStock || 0,
+    variantCount: Array.isArray(product.variants) ? product.variants.length : 0,
+    qualityScore: typeof product.qualityScore === 'number' ? Math.max(0, Math.min(1, product.qualityScore)) : 0.6,
+    priceUsd: Number(product.avgPrice) || 0,
+    sentiment: 0,
+    orderVolume: 0,
+  };
+  const ratingOut = computeRating(ratingSignals);
+
   // Core fields that always exist
   const productData: Record<string, any> = {
     batch_id: batchId,
@@ -225,8 +239,6 @@ export async function addProductToQueue(batchId: number, product: {
     shipping_cost_usd: null,
     calculated_retail_sar: null,
     margin_applied: null,
-    supplier_rating: product.supplierRating ?? null,
-    total_sales: product.totalSales ?? null,
     stock_total: product.totalStock,
     processing_days: product.processingDays ?? null,
     delivery_days_min: product.deliveryDaysMin ?? null,
@@ -253,6 +265,8 @@ export async function addProductToQueue(batchId: number, product: {
     cj_category_id: product.cjCategoryId || null,
     supabase_category_id: product.supabaseCategoryId || null,
     supabase_category_slug: product.supabaseCategorySlug || null,
+    displayed_rating: ratingOut.displayedRating,
+    rating_confidence: ratingOut.ratingConfidence,
   };
   
   // New columns that require migration - check if they exist first
@@ -322,6 +336,33 @@ export async function addProductToQueue(batchId: number, product: {
       productId: product.productId
     });
     return { success: false, error: errorMsg };
+  }
+  // Attempt to snapshot rating signals for queue save (if table exists)
+  try {
+    const signalsTable = await hasTable('product_rating_signals').catch(() => false);
+    if (signalsTable) {
+      const imagesCount = Array.isArray(product.images) ? product.images.length : 0;
+      const signals = {
+        imageCount: imagesCount,
+        stock: product.totalStock || 0,
+        variantCount: Array.isArray(product.variants) ? product.variants.length : 0,
+        qualityScore: typeof product.qualityScore === 'number' ? Math.max(0, Math.min(1, product.qualityScore)) : 0.6,
+        priceUsd: Number(product.avgPrice) || 0,
+        sentiment: 0,
+        orderVolume: 0,
+      };
+      const rating = computeRating(signals);
+      await supabase.from('product_rating_signals').insert({
+        product_id: null,
+        cj_product_id: product.productId,
+        context: 'queue',
+        signals: rating.signals,
+        displayed_rating: rating.displayedRating,
+        rating_confidence: rating.ratingConfidence,
+      });
+    }
+  } catch (e) {
+    // Non-fatal
   }
   return { success: true };
 }

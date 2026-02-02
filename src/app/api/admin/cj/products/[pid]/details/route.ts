@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
-import { getAccessToken, freightCalculate, fetchProductDetailsByPid, getProductRatings, getInventoryByPid, queryVariantInventory, getProductVariants } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsByPid, getInventoryByPid, queryVariantInventory, getProductVariants } from '@/lib/cj/v2';
 import type { PricedProduct, PricedVariant, InventoryVariant, ProductInventory } from '@/components/admin/import/preview/types';
+import { computeRating } from '@/lib/rating/engine';
+import { createClient } from '@supabase/supabase-js';
+import { hasTable } from '@/lib/db-features';
 
 /**
  * GET /api/admin/cj/products/[pid]/details
@@ -59,22 +62,8 @@ export async function GET(
     const name = String(source.productNameEn || source.name || source.productName || '');
     const cjSku = String(source.productSku || source.sku || `CJ-${pid}`);
 
-    // --- Fetch rating ---
+    // No external ratings: compute internal rating later
     let rating: number | undefined;
-    let reviewCount = 0;
-    try {
-      const ratingsMap = await getProductRatings([pid]);
-      const productRating = ratingsMap.get(pid);
-      if (productRating && productRating.rating !== null) {
-        const parsedRating = Number(productRating.rating);
-        if (Number.isFinite(parsedRating) && parsedRating > 0) {
-          rating = parsedRating;
-          reviewCount = Number(productRating.reviewCount) || 0;
-        }
-      }
-    } catch (e: any) {
-      console.log(`[ProductDetails] Failed to fetch rating: ${e?.message}`);
-    }
 
     // --- Fetch inventory ---
     let realInventory: ProductInventory | null = null;
@@ -601,6 +590,45 @@ export async function GET(
     const hsCode = source.entryCode ? `${source.entryCode}${source.entryNameEn ? ` (${source.entryNameEn})` : ''}` : undefined;
     const videoUrl = String(source.videoUrl || source.video || source.productVideo || '').trim() || undefined;
 
+    // Compute internal rating from signals
+    let ratingConfidenceVal: number | undefined;
+    try {
+      const imagesCount = Array.isArray(images) ? images.length : 0;
+      const variantCount = Array.isArray(variantsToProcess) ? variantsToProcess.length : 0;
+      const minVariantUsd = pricedVariants.length > 0 ? Math.min(...pricedVariants.map(v => v.variantPriceUSD || 0)) : 0;
+      const ratingOut = computeRating({
+        imageCount: imagesCount,
+        stock: typeof stock === 'number' ? stock : 0,
+        variantCount,
+        qualityScore: 0.6,
+        priceUsd: minVariantUsd,
+        sentiment: 0,
+        orderVolume: 0,
+      });
+      rating = ratingOut.displayedRating;
+      ratingConfidenceVal = ratingOut.ratingConfidence;
+
+      // Snapshot signals if table exists
+      try {
+        const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        if (url && key) {
+          const admin = createClient(url, key);
+          const hasSignals = await hasTable('product_rating_signals').catch(() => false);
+          if (hasSignals) {
+            await admin.from('product_rating_signals').insert({
+              product_id: null,
+              cj_product_id: pid,
+              context: 'details',
+              signals: ratingOut.signals,
+              displayed_rating: ratingOut.displayedRating,
+              rating_confidence: ratingOut.ratingConfidence,
+            });
+          }
+        }
+      } catch {}
+    } catch {}
+
     // Build final PricedProduct
     const pricedProduct: PricedProduct = {
       pid,
@@ -627,8 +655,8 @@ export async function GET(
       sizeInfo,
       productNote,
       packingList,
-      rating,
-      reviewCount,
+      displayedRating: rating,
+      ratingConfidence: ratingConfidenceVal,
       categoryName,
       productWeight,
       packLength,

@@ -95,7 +95,7 @@ export default function CategoryProductCard({ product, onAddToCart }: CategoryPr
   const imageUrl = safeImageUrl(product.images || product.image);
   
   const productName = product.title || product.name || "Product";
-  const rating = product.rating || 0;
+  const rating = (product as any).displayed_rating ?? product.rating ?? 0;
   const originalPrice = product.original_price || product.msrp;
   const hasDiscount = originalPrice && originalPrice > product.price;
   const discountPercent = hasDiscount ? Math.round((1 - product.price / originalPrice) * 100) : 0;

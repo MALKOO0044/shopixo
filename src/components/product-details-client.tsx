@@ -418,10 +418,10 @@ interface DetailHeaderProps {
   title: string;
   productCode?: string | null;
   rating: number;
-  reviewCount?: number;
+  confidence?: number | null;
 }
 
-function DetailHeader({ title, productCode, rating, reviewCount = 0 }: DetailHeaderProps) {
+function DetailHeader({ title, productCode, rating, confidence = null }: DetailHeaderProps) {
   const displayRating = Math.min(5, Math.max(0, rating));
   const fullStars = Math.floor(displayRating);
   const hasHalfStar = displayRating % 1 >= 0.5;
@@ -455,9 +455,13 @@ function DetailHeader({ title, productCode, rating, reviewCount = 0 }: DetailHea
           ))}
         </div>
         <span className="text-sm text-muted-foreground">
-          {displayRating > 0 
-            ? `${displayRating.toFixed(1)} (${reviewCount > 0 ? reviewCount.toLocaleString('en-US') : '0'} Reviewed)`
-            : 'No reviews yet'}
+          {displayRating > 0 ? `${displayRating.toFixed(1)}` : 'Unrated'}
+          {typeof confidence === 'number' && (
+            <>
+              {' '}
+              <span className="ml-1 text-xs text-muted-foreground">({confidence < 0.4 ? 'low' : confidence < 0.75 ? 'medium' : 'high'} confidence)</span>
+            </>
+          )}
         </span>
       </div>
     </div>
@@ -1513,8 +1517,8 @@ export default function ProductDetailsClient({
           <DetailHeader
             title={product.title}
             productCode={product.product_code}
-            rating={product.rating || (product as any).supplier_rating || 0}
-            reviewCount={(product as any).review_count || 0}
+            rating={(product as any).displayed_rating ?? 0}
+            confidence={(product as any).rating_confidence ?? null}
           />
 
           <PriceBlock

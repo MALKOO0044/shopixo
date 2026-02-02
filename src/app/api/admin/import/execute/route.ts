@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { slugify } from "@/lib/utils/slug";
 import { hasColumn, hasTable } from "@/lib/db-features";
 import { linkProductToMultipleCategories } from "@/lib/category-intelligence";
+import { computeRating } from "@/lib/rating/engine";
 
 // Helper to find category by name/slug/CJ-link and link product to category hierarchy
 async function linkProductToCategory(admin: any, productId: number, categoryName: string, cjCategoryId?: string, supabaseCategoryId?: number): Promise<boolean> {
@@ -564,6 +565,21 @@ export async function POST(req: NextRequest) {
         console.log(`[Import] Product ${qp.cj_product_id}: Found ${availableColors.length} colors: ${availableColors.join(', ')}`);
         console.log(`[Import] Product ${qp.cj_product_id}: Found ${availableSizes.length} sizes: ${availableSizes.join(', ')}`);
 
+        // Compute internal rating using available signals
+        const qualityScore = typeof qp.quality_score === 'number' && isFinite(qp.quality_score)
+          ? Math.max(0, Math.min(1, qp.quality_score))
+          : 0.6;
+        const signals = {
+          imageCount: Array.isArray(rawImages) ? rawImages.length : 0,
+          stock: typeof totalStock === 'number' ? totalStock : 0,
+          variantCount: Array.isArray(variants) ? variants.length : 0,
+          qualityScore,
+          priceUsd: Number(avgProductCostUsd) || 0,
+          sentiment: 0,
+          orderVolume: typeof qp.total_sales === 'number' ? qp.total_sales : 0,
+        };
+        const ratingOut = computeRating(signals);
+
         const optionalFields: Record<string, any> = {
           description: cleanDescription(qp.description_en),
           images: rawImages,
@@ -593,8 +609,8 @@ export async function POST(req: NextRequest) {
           specifications: cleanedSpecs,
           selling_points: cleanedSellingPoints,
           cj_category_id: qp.cj_category_id || null,
-          rating: qp.rating ?? null,
-          review_count: qp.review_count ?? null,
+          displayed_rating: ratingOut.displayedRating,
+          rating_confidence: ratingOut.ratingConfidence,
         };
 
         await omitMissingColumns(optionalFields, [
@@ -604,7 +620,7 @@ export async function POST(req: NextRequest) {
           'pack_height', 'material', 'origin_country', 'origin_country_code', 'hs_code',
           'size_chart_images', 'available_sizes', 'available_colors', 'has_variants',
           'min_price', 'max_price', 'specifications', 'selling_points',
-          'cj_category_id', 'rating', 'review_count'
+          'cj_category_id', 'displayed_rating', 'rating_confidence'
         ]);
 
         const fullPayload = { ...productPayload, ...optionalFields };
@@ -712,6 +728,23 @@ export async function POST(req: NextRequest) {
             margin_applied: pricing?.marginApplied || 8
           })
           .eq('id', qp.id);
+
+        // Insert rating signal snapshot if table exists
+        try {
+          const signalsTableExists = await hasTable('product_rating_signals').catch(() => false);
+          if (signalsTableExists) {
+            await admin.from('product_rating_signals').insert({
+              product_id: productId,
+              cj_product_id: qp.cj_product_id || null,
+              context: 'import',
+              signals: ratingOut.signals,
+              displayed_rating: ratingOut.displayedRating,
+              rating_confidence: ratingOut.ratingConfidence,
+            });
+          }
+        } catch (e) {
+          console.log('[Import] Failed to insert rating signals snapshot:', (e as any)?.message || e);
+        }
 
         results.push({ id: qp.id, success: true, shopixoId: String(productId) });
 

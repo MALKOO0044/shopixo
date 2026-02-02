@@ -147,7 +147,8 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
             variants: product.variants,
             variantPricing,
             stock: product.stock,
-            rating: product.rating || 0,
+            displayedRating: product.displayedRating ?? 0,
+            ratingConfidence: product.ratingConfidence ?? null,
             availableColors: product.availableColors || [],
             availableSizes: product.availableSizes || [],
             specifications: {
@@ -228,7 +229,7 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link href="/admin/import/queue" className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+              <Link href={'/admin/import/queue' as any} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                 <ArrowLeft className="h-5 w-5 text-gray-600" />
               </Link>
               <div>
@@ -241,9 +242,9 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
                   }`}>
                     {totalStock > 0 ? `${totalStock.toLocaleString()} in stock` : 'Out of stock'}
                   </span>
-                  {product.rating && (
+                  {typeof product.displayedRating === 'number' && product.displayedRating > 0 && (
                     <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-700">
-                      ★ {product.rating.toFixed(1)} ({product.reviewCount || 0} reviews)
+                      ★ {product.displayedRating.toFixed(1)}{typeof product.ratingConfidence === 'number' ? ` (${Math.round(product.ratingConfidence * 100)}% conf.)` : ''}
                     </span>
                   )}
                 </div>
@@ -428,10 +429,16 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
                   <span className="text-gray-600">SKU</span>
                   <span className="font-mono text-sm text-gray-900">{product.cjSku}</span>
                 </div>
-                {product.rating && (
+                {typeof product.displayedRating === 'number' && (
                   <div className="flex justify-between items-center py-2 border-b">
                     <span className="text-gray-600">Rating</span>
-                    <span className="font-semibold text-amber-600">★ {product.rating.toFixed(1)}</span>
+                    <span className="font-semibold text-amber-600">★ {product.displayedRating.toFixed(1)}</span>
+                  </div>
+                )}
+                {typeof product.ratingConfidence === 'number' && (
+                  <div className="flex justify-between items-center py-2 border-b">
+                    <span className="text-gray-600">Confidence</span>
+                    <span className="font-semibold text-gray-700">{Math.round(product.ratingConfidence * 100)}%</span>
                   </div>
                 )}
                 <div className="flex justify-between items-center py-2 border-b">
