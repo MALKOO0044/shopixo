@@ -155,16 +155,18 @@ export async function POST(req: NextRequest) {
     const productId = body?.productId as number | undefined;
     const cjProductId = body?.cjProductId as string | undefined;
 
+    const productSelect = "id, title, cj_product_id, displayed_rating, rating_confidence";
+
     if (!productId && !cjProductId) {
       return NextResponse.json({ ok: false, error: "Provide productId or cjProductId" }, { status: 400 });
     }
 
     let product: any = null;
     if (productId) {
-      const { data } = await supabase.from("products").select("*").eq("id", productId).single();
+      const { data } = await supabase.from("products").select(productSelect).eq("id", productId).single();
       product = data;
     } else if (cjProductId) {
-      const { data } = await supabase.from("products").select("*").eq("cj_product_id", cjProductId).single();
+      const { data } = await supabase.from("products").select(productSelect).eq("cj_product_id", cjProductId).single();
       product = data;
     }
 

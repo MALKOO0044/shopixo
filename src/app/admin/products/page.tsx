@@ -25,11 +25,13 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const productSelect = "id, title, price, stock, created_at, images, is_active, displayed_rating, rating_confidence";
+
 export default async function AdminProductsPage() {
   const supabase = createServerComponentClient({ cookies });
   const { data: products, error } = await supabase
     .from("products")
-    .select("*")
+    .select(productSelect)
     .order("created_at", { ascending: false });
 
   if (error) {

@@ -15,7 +15,7 @@ interface CategoryProduct {
   images?: string[];
   image?: string;
   category?: string;
-  rating?: number;
+  displayed_rating?: number | null;
   stock?: number | null;
   variants?: any;
   available_colors?: string[];
@@ -95,7 +95,7 @@ export default function CategoryProductCard({ product, onAddToCart }: CategoryPr
   const imageUrl = safeImageUrl(product.images || product.image);
   
   const productName = product.title || product.name || "Product";
-  const rating = (product as any).displayed_rating ?? 0;
+  const rating = product.displayed_rating ?? 0;
   const originalPrice = product.original_price || product.msrp;
   const hasDiscount = originalPrice && originalPrice > product.price;
   const discountPercent = hasDiscount ? Math.round((1 - product.price / originalPrice) * 100) : 0;
@@ -186,21 +186,19 @@ export default function CategoryProductCard({ product, onAddToCart }: CategoryPr
           </p>
         )}
 
-        {rating > 0 && (
-          <div className="flex items-center gap-1">
-            {[...Array(5)].map((_, i) => (
-              <Star
-                key={i}
-                className={`w-3 h-3 ${
-                  i < Math.floor(rating)
-                    ? "fill-yellow-400 text-yellow-400"
-                    : "fill-gray-200 text-gray-200"
-                }`}
-              />
-            ))}
-            <span className="text-xs text-gray-500 ml-1">{rating.toFixed(1)}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-1">
+          {[...Array(5)].map((_, i) => (
+            <Star
+              key={i}
+              className={`w-3 h-3 ${
+                i < Math.floor(rating)
+                  ? "fill-yellow-400 text-yellow-400"
+                  : "fill-gray-200 text-gray-200"
+              }`}
+            />
+          ))}
+          <span className="text-xs text-gray-500 ml-1">{rating.toFixed(1)}</span>
+        </div>
       </div>
     </Link>
   );

@@ -34,12 +34,38 @@ let cartItemsColumnsCache: {
 // Cache TTL: 5 minutes - allows picking up schema changes without restart
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+const productSelect = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence, compare_at_price, original_price, min_price, max_price, available_colors, available_sizes, color_image_map, product_code";
+const productSelectFallback = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence";
+
 function isColumnMissingError(error: any): boolean {
   if (!error) return false;
   // PostgreSQL error code 42703 = undefined column
   if (error.code === "42703") return true;
   const msg = String(error.message || "").toLowerCase();
   return msg.includes("does not exist") || msg.includes("column") && msg.includes("not");
+}
+
+async function fetchProductsByIds(admin: any, productIds: number[]): Promise<any[]> {
+  if (!productIds || productIds.length === 0) return [];
+  let { data, error } = await admin
+    .from("products")
+    .select(productSelect)
+    .in("id", productIds);
+
+  if (error && isColumnMissingError(error)) {
+    const fallback = await admin
+      .from("products")
+      .select(productSelectFallback)
+      .in("id", productIds);
+    data = fallback.data as any;
+    error = fallback.error as any;
+  }
+
+  if (error) {
+    console.error("[cart-actions] Error fetching products:", error.message || error);
+  }
+
+  return (data as any[]) || [];
 }
 
 async function detectCartItemsColumns(admin: any): Promise<typeof cartItemsColumnsCache> {
@@ -339,13 +365,8 @@ export async function getCart() {
   const productIds = items.map((i: any) => i.product_id).filter(Boolean);
   let productsMap: Record<number, any> = {};
   if (productIds.length > 0) {
-    const { data: products } = await supabaseAdmin
-      .from("products")
-      .select("*")
-      .in("id", productIds);
-    if (products) {
-      productsMap = Object.fromEntries(products.map((p: any) => [p.id, p]));
-    }
+    const products = await fetchProductsByIds(supabaseAdmin, productIds);
+    productsMap = Object.fromEntries(products.map((p: any) => [p.id, p]));
   }
 
   let variantsMap: Record<number, any> = {};
@@ -411,13 +432,8 @@ export async function getCartItemsBySessionId(cartSessionId: string) {
   const productIds = items.map((i: any) => i.product_id).filter(Boolean);
   let productsMap: Record<number, any> = {};
   if (productIds.length > 0) {
-    const { data: products } = await supabaseAdmin
-      .from("products")
-      .select("*")
-      .in("id", productIds);
-    if (products) {
-      productsMap = Object.fromEntries(products.map((p: any) => [p.id, p]));
-    }
+    const products = await fetchProductsByIds(supabaseAdmin, productIds);
+    productsMap = Object.fromEntries(products.map((p: any) => [p.id, p]));
   }
 
   let variantsMap: Record<number, any> = {};

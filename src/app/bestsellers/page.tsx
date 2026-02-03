@@ -12,6 +12,9 @@ export const metadata = { title: "Best Sellers | Shopixo", description: "Best se
 export const revalidate = 60
 export const dynamic = "force-dynamic"
 
+const productSelect = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence, original_price, msrp, badge, available_colors";
+const productSelectFallback = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence";
+
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -54,38 +57,45 @@ export default async function BestsellersPage({ searchParams }: { searchParams?:
     products = []
   } else {
     try {
-      let query = supabase.from("products").select("*")
-      
       const min = Number(searchParams?.min)
       const max = Number(searchParams?.max)
-      if (!isNaN(min) && min > 0) {
-        query = query.gte("price", min)
-      }
-      if (!isNaN(max) && max > 0) {
-        query = query.lte("price", max)
-      }
-      
       const sort = searchParams?.sort || ""
-      if (sort === "price-asc") {
-        query = query.order("price", { ascending: true })
-      } else if (sort === "price-desc") {
-        query = query.order("price", { ascending: false })
-      } else {
-        let { data, error } = await query.order("sales_count", { ascending: false })
+
+      const applyPriceFilters = (q: any) => {
+        if (!isNaN(min) && min > 0) q = q.gte("price", min)
+        if (!isNaN(max) && max > 0) q = q.lte("price", max)
+        return q
+      }
+
+      const buildQuery = (select: string) => applyPriceFilters(supabase.from("products").select(select))
+
+      if (sort === "price-asc" || sort === "price-desc") {
+        const ascending = sort === "price-asc"
+        let { data, error } = await buildQuery(productSelect).order("price", { ascending })
         if (error && (error as any).code === "42703") {
-          const byRating = await supabase.from("products").select("*").order("displayed_rating", { ascending: false })
-          data = byRating.data as any
-          error = byRating.error as any
-          if (error && (error as any).code === "42703") {
-            const byPrice = await supabase.from("products").select("*").order("price", { ascending: false })
-            data = byPrice.data as any
-          }
+          const fallback = await buildQuery(productSelectFallback).order("price", { ascending })
+          data = fallback.data as any
+          error = fallback.error as any
         }
         products = (data as any[] | null) ?? []
-      }
-      
-      if (!products) {
-        const { data } = await query
+      } else {
+        let { data, error } = await buildQuery(productSelect).order("sales_count", { ascending: false })
+        if (error && (error as any).code === "42703") {
+          const byRating = await buildQuery(productSelect).order("displayed_rating", { ascending: false })
+          if (byRating.error && (byRating.error as any).code === "42703") {
+            const byRatingFallback = await buildQuery(productSelectFallback).order("displayed_rating", { ascending: false })
+            data = byRatingFallback.data as any
+            error = byRatingFallback.error as any
+            if (error && (error as any).code === "42703") {
+              const byPriceFallback = await buildQuery(productSelectFallback).order("price", { ascending: false })
+              data = byPriceFallback.data as any
+              error = byPriceFallback.error as any
+            }
+          } else {
+            data = byRating.data as any
+            error = byRating.error as any
+          }
+        }
         products = (data as any[] | null) ?? []
       }
     } catch {

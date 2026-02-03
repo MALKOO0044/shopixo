@@ -7,6 +7,8 @@ export const metadata = { title: "New Arrivals", description: "Latest products a
 export const revalidate = 60
 export const dynamic = "force-dynamic"
 
+const productSelect = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence";
+
 export default async function NewArrivalsPage() {
   const supabase = getSupabaseAnonServer()
   let products: any[] | null = null
@@ -14,9 +16,9 @@ export default async function NewArrivalsPage() {
     products = []
   } else {
     try {
-      let { data, error } = await supabase.from("products").select("*").order("created_at", { ascending: false })
+      let { data, error } = await supabase.from("products").select(productSelect).order("created_at", { ascending: false })
       if (error && (error as any).code === "42703") {
-        const fb = await supabase.from("products").select("*").order("id", { ascending: false })
+        const fb = await supabase.from("products").select(productSelect).order("id", { ascending: false })
         data = fb.data as any
       }
       products = (data as any[] | null) ?? []

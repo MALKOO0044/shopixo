@@ -12,7 +12,7 @@ interface Product {
   image: string;
   price: number;
   originalPrice?: number;
-  rating: number;
+  displayed_rating?: number | null;
   badge?: string;
 }
 
@@ -99,13 +99,13 @@ export default function YouMayAlsoLike({ products, title = "You May Also Like" }
                 <Star
                   key={i}
                   className={`w-3 h-3 ${
-                    i < Math.floor(((product as any).displayed_rating ?? 0) as number)
+                    i < Math.floor(product.displayed_rating ?? 0)
                       ? "fill-amber-400 text-amber-400"
                       : "fill-gray-200 text-gray-200"
                   }`}
                 />
               ))}
-              <span className="text-xs text-gray-500">{(((product as any).displayed_rating ?? 0) as number).toFixed(1)}</span>
+              <span className="text-xs text-gray-500">{(product.displayed_rating ?? 0).toFixed(1)}</span>
             </div>
           </Link>
         ))}

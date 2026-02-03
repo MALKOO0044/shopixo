@@ -16,6 +16,8 @@ function getSupabaseAdmin() {
 
 export const revalidate = 60;
 
+const productSelect = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence";
+
 export async function generateMetadata(): Promise<Metadata> {
   const storeName = process.env.NEXT_PUBLIC_STORE_NAME || "Shopixo";
   const title = `Sale | ${storeName}`;
@@ -58,7 +60,7 @@ export default async function SalePage({ searchParams }: { searchParams?: { sort
 
   let query = supabase
     .from("products")
-    .select("*", { count: "exact" });
+    .select(productSelect, { count: "exact" });
 
   if (!isNaN(min) && min > 0) {
     query = query.gte("price", min);

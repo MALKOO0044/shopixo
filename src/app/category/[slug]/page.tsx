@@ -28,6 +28,9 @@ function getSupabaseAdmin() {
 
 export const revalidate = 60;
 
+const productSelect = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence, original_price, msrp, badge, available_colors";
+const productSelectFallback = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence";
+
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const supabase = getSupabaseAdmin();
   let categoryTitle = labelFromSlug(params.slug) || params.slug.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
@@ -138,7 +141,7 @@ export default async function CategoryPage({ params, searchParams }: { params: {
   if (products.length === 0 && supabase) {
     let query = supabase
       .from("products")
-      .select("*", { count: "exact" })
+      .select(productSelect, { count: "exact" })
       .or(`category.ilike.%${categoryTitle}%,category.ilike.%${englishFallback}%`)
       .or("is_active.is.null,is_active.eq.true") as any;
 
@@ -153,7 +156,23 @@ export default async function CategoryPage({ params, searchParams }: { params: {
 
     query = query.range(offset, offset + perPage - 1);
 
-    const { data, error, count } = await query;
+    let { data, error, count } = await query;
+    if (error && ((error as any).code === "42703" || String((error as any).message || "").includes("column"))) {
+      let fallbackQuery = supabase
+        .from("products")
+        .select(productSelectFallback, { count: "exact" })
+        .or(`category.ilike.%${categoryTitle}%,category.ilike.%${englishFallback}%`)
+        .or("is_active.is.null,is_active.eq.true") as any;
+      if (!Number.isNaN(minPrice)) fallbackQuery = fallbackQuery.gte("price", minPrice);
+      if (!Number.isNaN(maxPrice)) fallbackQuery = fallbackQuery.lte("price", maxPrice);
+      if (sortParam === 'price-asc') fallbackQuery = fallbackQuery.order('price', { ascending: true });
+      else if (sortParam === 'price-desc') fallbackQuery = fallbackQuery.order('price', { ascending: false });
+      fallbackQuery = fallbackQuery.range(offset, offset + perPage - 1);
+      const fallbackResult = await fallbackQuery;
+      data = fallbackResult.data as any;
+      error = fallbackResult.error as any;
+      count = fallbackResult.count as any;
+    }
     if (!error) {
       products = (data as any[] | null) || [];
       total = count || 0;

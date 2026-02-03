@@ -11,6 +11,9 @@ export const metadata = { title: "Shop", description: "Shop the latest products 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
 
+const productSelect = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence, is_active";
+const productSelectFallback = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence";
+
 export default async function ShopPage({ searchParams }: { searchParams?: { sort?: string; min?: string; max?: string } }) {
   const supabase = getSupabaseAnonServer();
   const supabaseAuth = createServerComponentClient({ cookies });
@@ -48,7 +51,7 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
   let products: any[] | null = null;
   let error: any = null;
   {
-    let query = supabase.from("products").select("*").or("is_active.is.null,is_active.eq.true") as any;
+    let query = supabase.from("products").select(productSelect).or("is_active.is.null,is_active.eq.true") as any;
     const sort = (searchParams?.sort || '').toLowerCase();
     if (sort === 'price-asc') query = query.order('price', { ascending: true });
     else if (sort === 'price-desc') query = query.order('price', { ascending: false });
@@ -58,7 +61,7 @@ export default async function ShopPage({ searchParams }: { searchParams?: { sort
     if (!Number.isNaN(max)) query = query.lte('price', max);
     const { data, error: err } = await query;
     if (err && (String(err.message || "").includes("is_active") || err.code === "42703")) {
-      const fallback = await supabase.from("products").select("*");
+      const fallback = await supabase.from("products").select(productSelectFallback);
       products = fallback.data as any[] | null;
       error = fallback.error;
     } else {

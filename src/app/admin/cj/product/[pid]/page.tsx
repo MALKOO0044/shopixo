@@ -242,11 +242,9 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
                   }`}>
                     {totalStock > 0 ? `${totalStock.toLocaleString()} in stock` : 'Out of stock'}
                   </span>
-                  {typeof product.displayedRating === 'number' && product.displayedRating > 0 && (
-                    <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-700">
-                      ★ {product.displayedRating.toFixed(1)}{typeof product.ratingConfidence === 'number' ? ` (${Math.round(product.ratingConfidence * 100)}% conf.)` : ''}
-                    </span>
-                  )}
+                  <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-700">
+                    ★ {(product.displayedRating ?? 0).toFixed(1)}{typeof product.ratingConfidence === 'number' ? ` (${Math.round(product.ratingConfidence * 100)}% conf.)` : ''}
+                  </span>
                 </div>
                 <h1 className="text-lg font-semibold text-gray-900 line-clamp-1 max-w-xl">
                   {product.name || 'Unknown Product'}

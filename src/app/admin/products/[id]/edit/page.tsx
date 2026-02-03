@@ -10,6 +10,8 @@ export const metadata = {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const productSelect = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence";
+
 export default async function EditProductPage({ params }: { params: { id: string } }) {
   const supabase = createServerComponentClient({ cookies });
   const { data: { session } } = await supabase.auth.getSession();
@@ -20,7 +22,7 @@ export default async function EditProductPage({ params }: { params: { id: string
 
   const { data: product } = await supabase
     .from("products")
-    .select("*")
+    .select(productSelect)
     .eq("id", params.id)
     .single();
 

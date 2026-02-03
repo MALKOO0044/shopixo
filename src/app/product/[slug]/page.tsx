@@ -51,6 +51,26 @@ import { headers } from "next/headers";
 export const revalidate = 60; // fresher PDP data every minute
 export const dynamic = "force-dynamic"; // render per-request to include session-based admin controls
 
+const productSelect = "id, title, slug, description, price, images, category, stock, variants, product_code, supplier_sku, video_url, processing_time_hours, delivery_time_hours, origin_area, origin_country_code, free_shipping, inventory_shipping_fee, last_mile_fee, cj_product_id, shipping_from, is_active, displayed_rating, rating_confidence, compare_at_price, original_price, min_price, max_price, available_colors, available_sizes, color_image_map, specifications, selling_points, category_name, gender, style, fit_type, season, msrp, badge";
+const productSelectFallback = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence";
+
+function isColumnMissingError(error: any): boolean {
+  if (!error) return false;
+  if ((error as any).code === "42703") return true;
+  const msg = String((error as any).message || "").toLowerCase();
+  return msg.includes("does not exist") || msg.includes("column");
+}
+
+async function runProductQuery<T>(builder: (select: string) => any) {
+  let { data, error } = await builder(productSelect);
+  if (error && isColumnMissingError(error)) {
+    const fallback = await builder(productSelectFallback);
+    data = fallback.data as any;
+    error = fallback.error as any;
+  }
+  return { data, error };
+}
+
 // --- Generate Metadata for SEO ---
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const supabase = getSupabaseAnonServer();
@@ -136,40 +156,31 @@ export default async function ProductPage({ params, searchParams }: { params: { 
   let product: Product | null = null;
   // Try slug first (even if numeric), without is_active filter
   {
-    const { data } = await supabase
-      .from("products")
-      .select<"*", Product>("*")
-      .eq("slug", params.slug)
-      .single();
+    const { data } = await runProductQuery((select) =>
+      supabase.from("products").select(select).eq("slug", params.slug).single()
+    );
     product = data as any;
   }
   // Fallbacks: case-insensitive and normalized
   if (!product) {
     const norm = normalizeSlugCandidate(params.slug);
-    const { data } = await supabase
-      .from("products")
-      .select<"*", Product>("*")
-      .ilike("slug", norm)
-      .maybeSingle();
+    const { data } = await runProductQuery((select) =>
+      supabase.from("products").select(select).ilike("slug", norm).maybeSingle()
+    );
     product = (data as any) || null;
   }
   if (!product) {
     const norm = normalizeSlugCandidate(params.slug);
-    const { data } = await supabase
-      .from("products")
-      .select<"*", Product>("*")
-      .ilike("slug", `%${norm}%`)
-      .limit(1)
-      .single();
+    const { data } = await runProductQuery((select) =>
+      supabase.from("products").select(select).ilike("slug", `%${norm}%`).limit(1).single()
+    );
     product = (data as any) || null;
   }
   // If not found and numeric, try by id then redirect to canonical slug
   if (!product && isNumeric) {
-    const { data } = await supabase
-      .from("products")
-      .select<"*", Product>("*")
-      .eq("id", Number(params.slug))
-      .single();
+    const { data } = await runProductQuery((select) =>
+      supabase.from("products").select(select).eq("id", Number(params.slug)).single()
+    );
     product = data as any;
     if (product && product.slug && product.slug !== params.slug) {
       redirect(`/product/${product.slug}`);

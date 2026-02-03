@@ -12,6 +12,8 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const productSelect = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence";
+
 export default async function SearchPage({
   searchParams,
 }: {
@@ -56,7 +58,7 @@ export default async function SearchPage({
   if (!supabase) {
     filtered = [];
   } else {
-    let query = supabase.from("products").select<"*", Product>("*").or("is_active.is.null,is_active.eq.true");
+    let query = supabase.from("products").select(productSelect).or("is_active.is.null,is_active.eq.true");
 
     if (q) {
       query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%`);

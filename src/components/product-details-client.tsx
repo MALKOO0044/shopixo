@@ -8,8 +8,6 @@ import SmartImage from "@/components/smart-image";
 import { Heart, Star, ChevronUp, ChevronDown, X, Plus, Minus, Truck, Shield, RotateCcw, Ruler } from "lucide-react";
 import SizeGuideModal from "@/components/product/SizeGuideModal";
 import ProductTabs from "@/components/product/ProductTabs";
-import YouMayAlsoLike from "@/components/product/YouMayAlsoLike";
-import MakeItAMatch from "@/components/product/MakeItAMatch";
 import { computeBilledWeightKg, resolveDdpShippingSar } from "@/lib/pricing";
 import { extractImagesFromHtml, parseProductDescription } from "@/components/product/SafeHtmlRenderer";
 
@@ -455,7 +453,7 @@ function DetailHeader({ title, productCode, rating, confidence = null }: DetailH
           ))}
         </div>
         <span className="text-sm text-muted-foreground">
-          {displayRating > 0 ? `${displayRating.toFixed(1)}` : 'Unrated'}
+          {displayRating.toFixed(1)}
           {typeof confidence === 'number' && (
             <>
               {' '}
@@ -1517,8 +1515,8 @@ export default function ProductDetailsClient({
           <DetailHeader
             title={product.title}
             productCode={product.product_code}
-            rating={(product as any).displayed_rating ?? 0}
-            confidence={(product as any).rating_confidence ?? null}
+            rating={product.displayed_rating ?? 0}
+            confidence={product.rating_confidence ?? null}
           />
 
           <PriceBlock
