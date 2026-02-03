@@ -19,7 +19,7 @@ export interface RecommendedProduct {
   price: number;
   images: string[];
   category: string;
-  rating: number;
+  displayed_rating?: number | null;
 }
 
 export async function getRelatedProducts(productId: number, limit: number = 8): Promise<RecommendedProduct[]> {
@@ -44,7 +44,7 @@ export async function getRelatedProducts(productId: number, limit: number = 8): 
       if (product?.category) {
         const { data: similar } = await supabase
           .from('products')
-          .select('id, title, slug, price, images, category, rating')
+          .select('id, title, slug, price, images, category, displayed_rating')
           .eq('category', product.category)
           .neq('id', productId)
           .limit(limit);
@@ -56,7 +56,7 @@ export async function getRelatedProducts(productId: number, limit: number = 8): 
     const { data: related } = await supabase
       .from('products')
       .select(`
-        id, title, slug, price, images, category, rating,
+        id, title, slug, price, images, category, displayed_rating,
         product_categories!inner(category_id)
       `)
       .eq('product_categories.category_id', catLink.category_id)
@@ -70,7 +70,7 @@ export async function getRelatedProducts(productId: number, limit: number = 8): 
       price: p.price,
       images: p.images,
       category: p.category,
-      rating: p.rating
+      displayed_rating: p.displayed_rating
     }));
   } catch (error) {
     console.error("[Recommendations] Error getting related products:", error);
@@ -141,7 +141,7 @@ export async function getProductsByCategory(
 
     let query = supabase
       .from('products')
-      .select('id, title, slug, price, images, category, rating', { count: 'exact' })
+      .select('id, title, slug, price, images, category, displayed_rating', { count: 'exact' })
       .in('id', productIds);
 
     if (typeof minPrice === 'number' && !isNaN(minPrice)) {
@@ -223,7 +223,7 @@ export async function getComplementaryProducts(
 
     const { data: products } = await supabase
       .from('products')
-      .select('id, title, slug, price, images, category, rating')
+      .select('id, title, slug, price, images, category, displayed_rating')
       .in('id', productIds)
       .limit(limit);
 

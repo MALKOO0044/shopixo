@@ -828,10 +828,17 @@ export default function ProductDiscoveryPage() {
               className="w-full px-3 py-2 border border-gray-300 rounded"
             >
               <option value="any">Any Rating</option>
-              <option value="4.5">4.5+ Stars</option>
-              <option value="4">4+ Stars</option>
-              <option value="3.5">3.5+ Stars</option>
-              <option value="3">3+ Stars</option>
+              <option value="4.0">4.0+</option>
+              <option value="4.1">4.1+</option>
+              <option value="4.2">4.2+</option>
+              <option value="4.3">4.3+</option>
+              <option value="4.4">4.4+</option>
+              <option value="4.5">4.5+</option>
+              <option value="4.6">4.6+</option>
+              <option value="4.7">4.7+</option>
+              <option value="4.8">4.8+</option>
+              <option value="4.9">4.9+</option>
+              <option value="5.0">5.0</option>
             </select>
           </div>
           

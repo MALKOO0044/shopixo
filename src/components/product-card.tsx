@@ -182,8 +182,8 @@ function transformCardImage(url: string): string {
   return url || '/placeholder.svg';
 }
 
-function getImageField(p: any): any {
-  return typeof p?.images !== 'undefined' && p?.images !== null && p?.images !== ''
+function getImageField(p: Pick<Product, "images" | "image">): Product["images"] | Product["image"] | null {
+  return typeof p?.images !== 'undefined' && p?.images !== null
     ? p.images
     : p?.image ?? null;
 }
@@ -191,12 +191,12 @@ function getImageField(p: any): any {
 export default function ProductCard({ product }: { product: Product }) {
   return (
     <Link
-      href={`/product/${product.slug || (product.id as any)}`}
+      href={`/product/${product.slug || product.id}`}
       className="group block rounded-[var(--radius-lg)] border bg-card p-5 shadow-soft transition will-change-transform hover:-translate-y-[6px] hover:shadow-soft"
     >
       <div className="relative mb-3 aspect-[4/3] w-full overflow-hidden rounded-image bg-slate-100">
         {(() => {
-          const media = pickPrimaryMedia(getImageField(product as any)) || "/placeholder.svg";
+          const media = pickPrimaryMedia(getImageField(product)) || "/placeholder.svg";
           const normalized = normalizeImageUrl(media);
           const thumb = transformCardImage(normalized);
           return (
@@ -215,7 +215,7 @@ export default function ProductCard({ product }: { product: Product }) {
         <div className="text-lg font-bold text-foreground">{formatCurrency(product.price)}</div>
       </div>
       <div className="mt-1 text-sm text-muted-foreground">{product.category}</div>
-      <div className="mt-2"><Ratings value={(product as any).displayed_rating ?? 0} /></div>
+      <div className="mt-2"><Ratings value={product.displayed_rating ?? 0} /></div>
     </Link>
   );
 }

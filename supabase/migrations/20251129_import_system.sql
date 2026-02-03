@@ -42,7 +42,6 @@ create table if not exists public.product_queue (
   shipping_cost_usd numeric(10,2),
   calculated_retail_sar numeric(10,2),
   margin_applied numeric(5,2),
-  supplier_rating numeric(3,2) default 4.0,
   total_sales integer default 0,
   stock_total integer default 0,
   processing_days integer default 3,

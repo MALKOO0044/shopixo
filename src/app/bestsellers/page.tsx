@@ -73,7 +73,7 @@ export default async function BestsellersPage({ searchParams }: { searchParams?:
       } else {
         let { data, error } = await query.order("sales_count", { ascending: false })
         if (error && (error as any).code === "42703") {
-          const byRating = await supabase.from("products").select("*").order("rating", { ascending: false })
+          const byRating = await supabase.from("products").select("*").order("displayed_rating", { ascending: false })
           data = byRating.data as any
           error = byRating.error as any
           if (error && (error as any).code === "42703") {

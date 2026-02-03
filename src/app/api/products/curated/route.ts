@@ -41,9 +41,9 @@ export async function GET(req: NextRequest) {
 
     let { data: products, error } = await supabase
       .from("products")
-      .select("id, title, price, images, slug, rating, stock")
+      .select("id, title, price, images, slug, displayed_rating, stock")
       .gt("stock", 0)
-      .order("rating", { ascending: false, nullsFirst: false })
+      .order("displayed_rating", { ascending: false, nullsFirst: false })
       .order("stock", { ascending: false })
       .limit(limit * 2);
 
@@ -55,8 +55,8 @@ export async function GET(req: NextRequest) {
     if (!products || products.length === 0) {
       const fallbackResult = await supabase
         .from("products")
-        .select("id, title, price, images, slug, rating, stock")
-        .order("rating", { ascending: false, nullsFirst: false })
+        .select("id, title, price, images, slug, displayed_rating, stock")
+        .order("displayed_rating", { ascending: false, nullsFirst: false })
         .limit(limit * 2);
       
       if (!fallbackResult.error) {

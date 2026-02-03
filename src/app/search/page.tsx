@@ -71,12 +71,13 @@ export default async function SearchPage({
       query = query.lte("price", maxPrice);
     }
     if (minRating) {
-      query = query.gte("rating", minRating);
+      query = query.gte("displayed_rating", minRating);
     }
 
     if (sort) {
-      const [field, order] = sort.split("-");
-      query = query.order(field, { ascending: order === "asc" });
+      const [rawField, order] = sort.split("-");
+      const field = rawField === "rating" ? "displayed_rating" : rawField;
+      query = query.order(field as any, { ascending: order === "asc" });
     }
 
     const { data, error } = await query;

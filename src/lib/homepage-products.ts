@@ -21,13 +21,15 @@ export interface HomepageProduct {
   name: string;
   price: number;
   originalPrice?: number;
-  rating: number;
+  displayed_rating?: number | null;
   image: string;
   badge?: string;
   slug: string;
 }
 
-function mapProductToHomepage(product: Product, badge?: string): HomepageProduct {
+type HomepageProductRow = Pick<Product, "id" | "title" | "slug" | "price" | "images" | "displayed_rating">;
+
+function mapProductToHomepage(product: HomepageProductRow, badge?: string): HomepageProduct {
   const primaryImage = Array.isArray(product.images) && product.images.length > 0
     ? product.images[0]
     : "https://images.unsplash.com/photo-1560393464-5c69a73c5770?w=200&h=200&fit=crop";
@@ -37,7 +39,7 @@ function mapProductToHomepage(product: Product, badge?: string): HomepageProduct
     name: product.title,
     price: product.price,
     originalPrice: undefined,
-    rating: (product as any).displayed_rating ?? 0,
+    displayed_rating: product.displayed_rating ?? 0,
     image: primaryImage,
     badge,
     slug: product.slug,
@@ -51,8 +53,8 @@ export async function getFlashSaleProducts(limit = 8): Promise<HomepageProduct[]
   try {
     const { data, error } = await supabase
       .from("products")
-      .select("*")
-      .order("rating", { ascending: false })
+      .select("id, title, slug, price, images, displayed_rating")
+      .order("displayed_rating", { ascending: false })
       .limit(limit);
 
     if (error) {
@@ -60,7 +62,7 @@ export async function getFlashSaleProducts(limit = 8): Promise<HomepageProduct[]
       return [];
     }
 
-    return (data || []).map((p: Product) => mapProductToHomepage(p, "FLASH"));
+    return (data || []).map((p: HomepageProductRow) => mapProductToHomepage(p, "FLASH"));
   } catch (e) {
     console.error("Exception fetching flash sale products:", e);
     return [];
@@ -74,14 +76,14 @@ export async function getNewArrivals(limit = 6): Promise<HomepageProduct[]> {
   try {
     let { data, error } = await supabase
       .from("products")
-      .select("*")
+      .select("id, title, slug, price, images, displayed_rating")
       .order("created_at", { ascending: false })
       .limit(limit);
 
     if (error && (error as any).code === "42703") {
       const fallback = await supabase
         .from("products")
-        .select("*")
+        .select("id, title, slug, price, images, displayed_rating")
         .order("id", { ascending: false })
         .limit(limit);
       data = fallback.data as any;
@@ -93,7 +95,7 @@ export async function getNewArrivals(limit = 6): Promise<HomepageProduct[]> {
       return [];
     }
 
-    return (data || []).map((p: Product) => mapProductToHomepage(p, "NEW"));
+    return (data || []).map((p: HomepageProductRow) => mapProductToHomepage(p, "NEW"));
   } catch (e) {
     console.error("Exception fetching new arrivals:", e);
     return [];
@@ -107,8 +109,8 @@ export async function getBestSellers(limit = 6): Promise<HomepageProduct[]> {
   try {
     let { data, error } = await supabase
       .from("products")
-      .select("*")
-      .order("rating", { ascending: false })
+      .select("id, title, slug, price, images, displayed_rating")
+      .order("displayed_rating", { ascending: false })
       .limit(limit);
 
     if (error) {
@@ -116,7 +118,7 @@ export async function getBestSellers(limit = 6): Promise<HomepageProduct[]> {
       return [];
     }
 
-    return (data || []).map((p: Product) => mapProductToHomepage(p));
+    return (data || []).map((p: HomepageProductRow) => mapProductToHomepage(p));
   } catch (e) {
     console.error("Exception fetching best sellers:", e);
     return [];
@@ -130,7 +132,7 @@ export async function getProductsByCategory(category: string, limit = 6): Promis
   try {
     const { data, error } = await supabase
       .from("products")
-      .select("*")
+      .select("id, title, slug, price, images, displayed_rating")
       .ilike("category", `%${category}%`)
       .limit(limit);
 
@@ -139,7 +141,7 @@ export async function getProductsByCategory(category: string, limit = 6): Promis
       return [];
     }
 
-    return (data || []).map((p: Product) => mapProductToHomepage(p));
+    return (data || []).map((p: HomepageProductRow) => mapProductToHomepage(p));
   } catch (e) {
     console.error(`Exception fetching ${category} products:`, e);
     return [];
@@ -153,8 +155,8 @@ export async function getRecommendedProducts(limit = 10): Promise<HomepageProduc
   try {
     const { data, error } = await supabase
       .from("products")
-      .select("*")
-      .order("rating", { ascending: false })
+      .select("id, title, slug, price, images, displayed_rating")
+      .order("displayed_rating", { ascending: false })
       .limit(limit);
 
     if (error) {
@@ -162,7 +164,7 @@ export async function getRecommendedProducts(limit = 10): Promise<HomepageProduc
       return [];
     }
 
-    return (data || []).map((p: Product, i: number) => 
+    return (data || []).map((p: HomepageProductRow, i: number) => 
       mapProductToHomepage(p, i % 3 === 0 ? "SALE" : undefined)
     );
   } catch (e) {
@@ -178,7 +180,7 @@ export async function getAllProducts(limit = 20): Promise<HomepageProduct[]> {
   try {
     const { data, error } = await supabase
       .from("products")
-      .select("*")
+      .select("id, title, slug, price, images, displayed_rating")
       .limit(limit);
 
     if (error) {
@@ -186,9 +188,11 @@ export async function getAllProducts(limit = 20): Promise<HomepageProduct[]> {
       return [];
     }
 
-    return (data || []).map((p: Product) => mapProductToHomepage(p));
+    return (data || []).map((p: HomepageProductRow) => mapProductToHomepage(p));
   } catch (e) {
     console.error("Exception fetching all products:", e);
     return [];
   }
 }
+
+
