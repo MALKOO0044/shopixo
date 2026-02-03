@@ -13,7 +13,6 @@ create table if not exists public.products (
   price numeric(12,2) not null default 0,
   images text[] not null default '{}',
   category text default 'General' not null,
-  rating numeric(3,2) default 0,
   stock integer not null default 0,
   is_active boolean default true,
   user_id uuid null,

@@ -21,6 +21,16 @@ export type ProductVariant = {
   height_cm?: number | null;
 };
 
+export type ProductVariantJson = {
+  name?: string;
+  options?: string[];
+  color?: string | null;
+  size?: string | null;
+  stock?: number | null;
+  image_url?: string | null;
+  [key: string]: any;
+};
+
 export type Product = {
   id: number;
   title: string;
@@ -28,12 +38,17 @@ export type Product = {
   description: string;
   price: number;
   compare_at_price?: number | null;
+  original_price?: number | null;
+  min_price?: number | null;
+  max_price?: number | null;
   images: string[];
+  image?: string | null;
   category: string;
-  rating: number;
+  displayed_rating?: number | null;
+  rating_confidence?: number | null;
   stock: number | null; // null = all variants have unknown stock
   // UI-oriented variants selector (kept for backward compatibility)
-  variants: { name: string; options: string[] }[];
+  variants: ProductVariantJson[];
   is_active?: boolean; // soft delete flag (optional to avoid breaking existing code)
 
   // Product codes
@@ -51,6 +66,18 @@ export type Product = {
   last_mile_fee?: number | null;
   cj_product_id?: string | null;
   shipping_from?: string | null;
+
+  // Optional merchandising metadata
+  available_colors?: string[] | null;
+  available_sizes?: string[] | null;
+  color_image_map?: Record<string, string> | null;
+  specifications?: Record<string, string> | null;
+  selling_points?: string[] | null;
+  category_name?: string | null;
+  gender?: string | null;
+  style?: string | null;
+  fit_type?: string | null;
+  season?: string | null;
 };
 
 export type OrderItem = {

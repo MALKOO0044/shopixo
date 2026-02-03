@@ -1188,20 +1188,6 @@ async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
-// --- Product Rating from Comments ---
-// CJDropshipping productComments API - fetches real customer reviews and calculates average rating
-// Endpoint: GET /product/productComments?pid=xxx&pageNum=1&pageSize=200
-// Response: { success: true, code: 0, data: { total: "285", list: [{ score: "5", ... }] } }
-// Implements pagination to fetch ALL reviews for 100% accurate average rating calculation
-export async function getProductRating(pid: string): Promise<{ rating: number | null; reviewCount: number }> {
-  return { rating: null, reviewCount: 0 };
-}
-
-// Batch fetch ratings for multiple products (with concurrency limit)
-export async function getProductRatings(pids: string[]): Promise<Map<string, { rating: number | null; reviewCount: number }>> {
-  return new Map();
-}
-
 // Helper: Parse JSON array fields from CJ API (e.g., materialNameEn: '["","metal"]')
 function parseCjJsonArray(val: any): string[] {
   if (!val) return [];

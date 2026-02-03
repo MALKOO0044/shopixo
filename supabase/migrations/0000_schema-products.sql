@@ -9,7 +9,6 @@ create table if not exists products (
     price numeric(10,2) not null,
     images text[] not null default '{}',
     category text not null default 'General',
-    rating numeric(3,2) not null default 0,
     stock integer not null default 0 check (stock >= 0),
     variants jsonb not null default '[]'::jsonb,
     created_at timestamptz not null default now()
