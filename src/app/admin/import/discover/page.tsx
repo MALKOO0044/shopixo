@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, TrendingUp, ChevronLeft, ChevronRight, Image as ImageIcon, BarChart3, DollarSign, Grid3X3, FileText, Truck } from "lucide-react";
-import SmartImage from "@/components/smart-image";
 import PreviewPageOne from "@/components/admin/import/preview/PreviewPageOne";
 import PreviewPageThree from "@/components/admin/import/preview/PreviewPageThree";
 import PreviewPageFour from "@/components/admin/import/preview/PreviewPageFour";
@@ -84,33 +83,6 @@ export default function ProductDiscoveryPage() {
   const quantityPresets = [2000, 1500, 1000, 500, 250, 100, 50, 25, 10];
   const profitPresets = [100, 50, 25, 15, 8];
   
-  // Transform remote/non-mp4 video URLs for consistent, high-quality playback via Cloudinary
-  function transformVideoForPreview(url: string): string {
-    try {
-      if (!url) return url;
-      const cloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-      const isHttp = /^https?:\/\//i.test(url);
-      const isCloudinary = /res\.cloudinary\.com\//i.test(url) && /\/video\//i.test(url);
-      const isMp4 = /\.mp4(\?|#|$)/i.test(url);
-      if (isCloudinary) {
-        const markerUpload = '/video/upload/';
-        const markerFetch = '/video/fetch/';
-        const marker = url.includes(markerUpload) ? markerUpload : (url.includes(markerFetch) ? markerFetch : null);
-        if (!marker) return url;
-        const idx = url.indexOf(marker);
-        const before = url.slice(0, idx + marker.length);
-        const after = url.slice(idx + marker.length);
-        const hasTransforms = after && !after.startsWith('v');
-        const inject = 'f_mp4,vc_h264,ac_aac,q_auto:best/';
-        const core = hasTransforms ? after : (inject + after);
-        return (before + core).replace(/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i, '.mp4');
-      }
-      if (cloud && isHttp && !isMp4) {
-        return `https://res.cloudinary.com/${cloud}/video/fetch/f_mp4,vc_h264,ac_aac,q_auto:best/${encodeURIComponent(url)}`;
-      }
-    } catch {}
-    return url;
-  }
 
   const testConnection = async () => {
     const start = Date.now();
@@ -226,10 +198,13 @@ export default function ProductDiscoveryPage() {
     let batchNumber = 0;
     let lastError: string | null = null;
     let consecutiveEmptyBatches = 0; // Track stalls
+    const batchSize = 3; // Keep aligned with API default for safe timing
+    const baseBatches = Math.ceil(quantity / batchSize);
+    const maxBatches = Math.max(100, baseBatches * (media ? 5 : 3));
     
     try {
       // Use batch mode to avoid Vercel timeout (10s limit)
-      // Each request processes up to 10 products to improve throughput for large quantities
+      // Each request processes 3 products max, then we accumulate results
       while (hasMore && allProducts.length < quantity) {
         batchNumber++;
         setSearchProgress(`Finding products... (batch ${batchNumber}, found ${allProducts.length}/${quantity})`);
@@ -251,7 +226,7 @@ export default function ProductDiscoveryPage() {
           freeShippingOnly: freeShippingOnly ? "1" : "0",
           // Batch mode params - cursor-based pagination
           batchMode: "1",
-          batchSize: "10",
+          batchSize: batchSize.toString(),
           cursor: cursor,
           remainingNeeded: remainingNeeded.toString(),
         });
@@ -278,10 +253,6 @@ export default function ProductDiscoveryPage() {
           }
           throw new Error(data.error || `Search failed: ${res.status}`);
         }
-        if (data.quotaExhausted) {
-          // Gentle backoff when CJ rate limit is hit but we still got some data
-          await new Promise((r) => setTimeout(r, 1200));
-        }
         
         // Add products from this batch, but stop at exactly the requested quantity
         const batchProducts: PricedProduct[] = data.products || [];
@@ -305,7 +276,7 @@ export default function ProductDiscoveryPage() {
         
         // Check batch pagination info
         if (data.batch) {
-          hasMore = data.batch.hasMore || !!data.quotaExhausted;
+          hasMore = data.batch.hasMore;
           // Update cursor for next batch (resume from where we left off)
           if (data.batch.cursor) {
             cursor = data.batch.cursor;
@@ -339,8 +310,8 @@ export default function ProductDiscoveryPage() {
         }
         
         // Safety: limit total batches to prevent infinite loops
-        if (batchNumber >= 500) {
-          console.log('Max batch limit reached');
+        if (batchNumber >= maxBatches) {
+          console.log(`Max batch limit reached (${maxBatches})`);
           break;
         }
       }
@@ -1028,14 +999,13 @@ export default function ProductDiscoveryPage() {
                 >
                   <div className="relative aspect-square bg-gray-100">
                     {product.images?.[0] ? (
-                      <SmartImage
+                      <img
                         src={product.images[0]}
                         alt={product.name}
-                        fill
-                        className="object-cover"
-                        loading="lazy"
-                        sizes="(max-width: 640px) 50vw, (max-width: 1024px) 25vw, 200px"
-                        quality={90 as any}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-gray-400">
@@ -1260,33 +1230,18 @@ export default function ProductDiscoveryPage() {
                   <div className="flex items-center justify-between mb-4">
                     <h4 className="font-medium text-gray-900">All Product Images ({previewProduct.images?.length || 0})</h4>
                   </div>
-
-                  {(previewProduct as any).videoUrl ? (
-                    <div className="mb-4 rounded-lg overflow-hidden">
-                      <video
-                        className="w-full max-h-[420px] bg-black"
-                        controls
-                        playsInline
-                        preload="metadata"
-                        crossOrigin="anonymous"
-                      >
-                        <source src={transformVideoForPreview((previewProduct as any).videoUrl)} type="video/mp4" />
-                      </video>
-                    </div>
-                  ) : null}
                   
                   {previewProduct.images && previewProduct.images.length > 0 ? (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                       {previewProduct.images.map((img, index) => (
                         <div key={index} className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden group">
-                          <SmartImage
-                            src={img}
+                          <img 
+                            src={img} 
                             alt={`${previewProduct.name} - Image ${index + 1}`}
-                            fill
-                            className="object-cover transition-transform group-hover:scale-105"
-                            loading="lazy"
-                            sizes="(max-width: 768px) 50vw, (max-width: 1280px) 25vw, 200px"
-                            quality={90 as any}
+                            className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
                           />
                           <div className="absolute bottom-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
                             {index + 1}

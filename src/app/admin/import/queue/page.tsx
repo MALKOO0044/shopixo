@@ -17,6 +17,7 @@ import {
   Filter,
   MoreHorizontal,
   Eye,
+  Play,
 } from "lucide-react";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
@@ -24,10 +25,13 @@ type QueueProduct = {
   id: number;
   batch_id: number | null;
   cj_product_id: string;
+  product_code?: string | null;
   name_en: string;
   name_ar: string | null;
   category: string;
   images: string[];
+  video_url?: string | null;
+  has_video?: boolean | null;
   variants: any[];
   cj_price_usd: number;
   shipping_cost_usd: number | null;
@@ -298,9 +302,10 @@ export default function QueuePage() {
   };
 
   const exportCsv = () => {
-    const headers = ["ID", "CJ Product ID", "Name", "Category", "Price USD", "Stock", "Displayed Rating", "Status", "Created"];
+    const headers = ["ID", "Store SKU", "CJ Product ID", "Name", "Category", "Price USD", "Stock", "Displayed Rating", "Status", "Created"];
     const rows = products.map(p => [
       p.id,
+      p.product_code || "",
       p.cj_product_id,
       `"${p.name_en.replace(/"/g, '""')}"`,
       p.category,
@@ -339,7 +344,7 @@ export default function QueuePage() {
             Export CSV
           </button>
           <Link
-            href="/admin/import/discover"
+            href={{ pathname: "/admin/import/discover" }}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
           >
             Discover Products
@@ -510,7 +515,7 @@ export default function QueuePage() {
           <div className="p-12 text-center text-gray-500">
             <Package className="h-12 w-12 mx-auto mb-3 opacity-50" />
             <p>No products in queue</p>
-            <Link href="/admin/import/discover" className="text-blue-600 hover:underline text-sm mt-2 inline-block">
+            <Link href={{ pathname: "/admin/import/discover" }} className="text-blue-600 hover:underline text-sm mt-2 inline-block">
               Discover products to import
             </Link>
           </div>
@@ -535,6 +540,12 @@ export default function QueuePage() {
                 const colors = statusColors[product.status] || statusColors.pending;
                 const StatusIcon = colors.icon;
                 const rating = normalizeDisplayedRating(product.displayed_rating);
+                const displaySku = product.product_code || product.cj_product_id;
+                const skuLabel = displaySku.length > 12 ? `...${displaySku.slice(-8)}` : displaySku;
+                const skuTitle = product.product_code
+                  ? `${product.product_code} (CJ: ${product.cj_product_id})`
+                  : product.cj_product_id;
+                const hasVideo = Boolean(product.has_video || product.video_url);
                 
                 return editingId === product.id ? (
                   <tr key={product.id} className="bg-blue-50">
@@ -631,7 +642,7 @@ export default function QueuePage() {
                       />
                     </td>
                     <td className="px-4 py-3">
-                      <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
+                      <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
                         {product.images[0] ? (
                           <img
                             src={product.images[0]}
@@ -643,12 +654,18 @@ export default function QueuePage() {
                             <Package className="h-6 w-6" />
                           </div>
                         )}
+                        {hasVideo && (
+                          <div className="absolute left-1 bottom-1 flex items-center gap-1 rounded-full bg-black/70 text-white px-1.5 py-0.5 text-[10px]">
+                            <Play className="h-3 w-3" />
+                            <span>Video</span>
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900 line-clamp-2">{product.name_en}</p>
-                      <span className="font-mono text-xs text-blue-600" title={product.cj_product_id}>
-                        SKU: {product.cj_product_id.length > 12 ? `...${product.cj_product_id.slice(-8)}` : product.cj_product_id}
+                      <span className="font-mono text-xs text-blue-600" title={skuTitle}>
+                        SKU: {skuLabel}
                       </span>
                     </td>
                     <td className="px-4 py-3">

@@ -543,7 +543,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     
     const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
     
-    const candidateProducts: any[] = [];
+    const candidateProducts: Array<{ item: any; cursor: { catIdx: number; page: number; itemOffset: number } }> = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
     // In batch mode: 8 seconds max (Vercel has 10s limit, need buffer)
@@ -571,6 +571,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     let currentCatIdx = isBatchMode ? cursorCatIdx : 0;
     let currentPage = isBatchMode ? cursorPageNum : 1;
     let currentItemOffset = isBatchMode ? cursorItemOffset : 0;
+    const startCursor = { catIdx: currentCatIdx, page: currentPage, itemOffset: currentItemOffset };
     let exhaustedAllPages = false;
     
     // Start from cursor position (for batch mode) or from beginning (for non-batch)
@@ -625,7 +626,6 @@ async function handleSearch(req: Request, isPost: boolean) {
           if (isBatchMode && seenPidsFromClient.has(pid)) continue;
           
           seenPids.add(pid);
-          attemptedPidsThisBatch.push(pid); // Track for returning to client
           
           const sellPrice = Number(item.sellPrice || item.price || 0);
           if (sellPrice < minPrice || sellPrice > maxPrice) {
@@ -640,7 +640,10 @@ async function handleSearch(req: Request, isPost: boolean) {
             }
           }
           
-          candidateProducts.push(item);
+          candidateProducts.push({
+            item,
+            cursor: { catIdx: currentCatIdx, page: currentPage, itemOffset: currentItemOffset },
+          });
           
           if (candidateProducts.length >= neededCandidates) break;
         }
@@ -653,7 +656,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       try {
         const admin = getSupabaseAdmin();
         if (admin) {
-          const pidList = Array.from(new Set(candidateProducts.map((it: any) => String(it.pid || it.productId || '')).filter(Boolean)));
+          const pidList = Array.from(new Set(candidateProducts.map(({ item }) => String(item.pid || item.productId || '')).filter(Boolean)));
           const chunkSize = 900; // stay under PostgREST IN limits
           const queued = new Set<string>();
           for (let i = 0; i < pidList.length; i += chunkSize) {
@@ -670,7 +673,7 @@ async function handleSearch(req: Request, isPost: boolean) {
           }
           if (queued.size > 0) {
             const before = candidateProducts.length;
-            const filtered = candidateProducts.filter((it: any) => !queued.has(String(it.pid || it.productId || '')));
+            const filtered = candidateProducts.filter(({ item }) => !queued.has(String(item.pid || item.productId || '')));
             filteredAlreadyQueued = before - filtered.length;
             if (filteredAlreadyQueued > 0) {
               candidateProducts.length = 0;
@@ -697,15 +700,33 @@ async function handleSearch(req: Request, isPost: boolean) {
     
     if (candidateProducts.length === 0) {
       console.log(`[Search&Price] No candidates found! Returning empty result.`);
+      const duration = Date.now() - startTime;
+      const hitTimeLimit = duration > maxDurationMs;
+      const hasMoreToProcess = !exhaustedAllPages;
       const r = NextResponse.json({
         ok: true,
         products: [],
         count: 0,
-        duration: Date.now() - startTime,
+        requestedQuantity: quantity,
+        quantityFulfilled: false,
+        duration,
+        quotaExhausted: false,
+        batch: isBatchMode ? {
+          hasMore: hasMoreToProcess,
+          cursor: `${currentCatIdx}.${currentPage}.${currentItemOffset}`,
+          attemptedPids: attemptedPidsThisBatch,
+          processedPids: [],
+          totalCandidates: 0,
+          productsThisBatch: 0,
+          batchSize,
+        } : undefined,
         debug: {
           categoriesSearched: categoryIds,
           totalSeen: seenPids.size,
           filtered: totalFiltered,
+          filteredAlreadyQueued,
+          hitTimeLimit,
+          exhaustedAllPages,
         }
       }, { headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
@@ -728,6 +749,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     let candidateIndex = 0;
     let consecutiveRateLimitErrors = 0; // Track consecutive rate limit errors to detect real quota issues
     let productsProcessedThisBatch = 0; // Count for batch mode limit
+    let lastAttemptedCursor: { catIdx: number; page: number; itemOffset: number } | null = null;
     
     // Process candidates until we have the target quantity or run out
     // In batch mode: stop after batchSize products OR after reaching remainingNeeded
@@ -749,8 +771,10 @@ async function handleSearch(req: Request, isPost: boolean) {
         break;
       }
       
-      const item = candidateProducts[candidateIndex];
+      const candidate = candidateProducts[candidateIndex];
       candidateIndex++;
+      const item = candidate.item;
+      lastAttemptedCursor = candidate.cursor;
       
       // Reactive rate limiting: only add delay if we hit rate limit errors recently
       // This keeps things fast when CJ API is responsive
@@ -759,6 +783,9 @@ async function handleSearch(req: Request, isPost: boolean) {
         await new Promise(resolve => setTimeout(resolve, backoffMs));
       }
       const pid = String(item.pid || item.productId || '');
+      if (pid) {
+        attemptedPidsThisBatch.push(pid);
+      }
       const cjSku = String(item.productSku || item.sku || `CJ-${pid}`);
       const name = String(item.productNameEn || item.name || item.productName || '');
       
@@ -2370,6 +2397,19 @@ async function handleSearch(req: Request, isPost: boolean) {
       productsProcessedThisBatch++;
     }
     
+    // After processing, align cursor to last attempted candidate so we don't skip unprocessed ones
+    if (isBatchMode) {
+      if (lastAttemptedCursor) {
+        currentCatIdx = lastAttemptedCursor.catIdx;
+        currentPage = lastAttemptedCursor.page;
+        currentItemOffset = lastAttemptedCursor.itemOffset;
+      } else if (candidateProducts.length > 0) {
+        currentCatIdx = startCursor.catIdx;
+        currentPage = startCursor.page;
+        currentItemOffset = startCursor.itemOffset;
+      }
+    }
+
     // Apply post-hydration filters (sizes, media)
     let filteredProducts = pricedProducts;
     let filteredBySizes = 0;

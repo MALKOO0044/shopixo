@@ -1,7 +1,6 @@
 "use client";
 
 import { Star, TrendingUp, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign, Info, Palette, Smartphone, Play } from "lucide-react";
-import SmartImage from "@/components/smart-image";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import type { PricedProduct } from "./types";
 
@@ -14,6 +13,44 @@ function confidenceLabel(c?: number) {
   if (c >= 0.75) return 'high';
   if (c >= 0.4) return 'medium';
   return 'low';
+}
+
+function transformVideo(url: string): string {
+  try {
+    const cleaned = url.trim();
+    if (cleaned.includes('res.cloudinary.com') && cleaned.includes('/video/')) {
+      const marker = cleaned.includes('/video/upload/') ? '/video/upload/' : (cleaned.includes('/video/fetch/') ? '/video/fetch/' : null);
+      if (!marker) return cleaned;
+      const idx = cleaned.indexOf(marker);
+      const before = cleaned.slice(0, idx + marker.length);
+      const after = cleaned.slice(idx + marker.length);
+      const hasTransforms = after && !after.startsWith('v');
+      const inject = 'f_mp4,vc_h264,ac_aac,q_auto:best/';
+      const core = hasTransforms ? after : (inject + after);
+      return (before + core).replace(/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i, '.mp4');
+    }
+    const cloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    if (cloud && /^https?:\/\//i.test(cleaned)) {
+      return `https://res.cloudinary.com/${cloud}/video/fetch/f_mp4,vc_h264,ac_aac,q_auto:best/${encodeURIComponent(cleaned)}`;
+    }
+  } catch {}
+  return url;
+}
+
+function getVideoPoster(url: string): string | null {
+  try {
+    const cleaned = url.trim();
+    if (cleaned.includes('res.cloudinary.com') && (cleaned.includes('/video/upload/') || cleaned.includes('/video/fetch/'))) {
+      const marker = cleaned.includes('/video/upload/') ? '/video/upload/' : '/video/fetch/';
+      const idx = cleaned.indexOf(marker);
+      if (idx === -1) return null;
+      const before = cleaned.slice(0, idx + marker.length);
+      const after = cleaned.slice(idx + marker.length);
+      const core = after.replace(/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i, '');
+      return `${before}so_0,q_auto:best/${core}.jpg`;
+    }
+  } catch {}
+  return null;
 }
 
 function getPopularityInfo(listedNum: number): { label: string; level: number; color: string; bgColor: string } {
@@ -68,7 +105,12 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
     : [];
 
   const imageCount = product.images?.length || 0;
-  const hasVideo = !!(product as any)?.videoUrl;
+  const rawVideo = typeof (product as any)?.videoUrl === 'string'
+    ? String((product as any).videoUrl).trim()
+    : '';
+  const hasVideo = !!rawVideo;
+  const videoSrc = rawVideo ? transformVideo(rawVideo) : '';
+  const videoPoster = rawVideo ? getVideoPoster(rawVideo) : null;
   // Deterministic preview SKU: xo + 8 digits derived from pid
   const previewSku = (() => {
     const pid = String((product as any)?.pid || (product as any)?.cjProductId || "");
@@ -90,14 +132,13 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
       <div className="lg:w-1/2 flex flex-col items-center">
         <div className="relative w-full max-w-md aspect-square bg-gray-50 rounded-2xl overflow-hidden shadow-md border border-gray-100">
           {product.images?.[0] ? (
-            <SmartImage
+            <img
               src={product.images[0]}
               alt="Product image"
-              fill
-              className="object-cover"
-              loading="eager"
-              sizes="(max-width: 768px) 90vw, 480px"
-              quality={90 as any}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "/placeholder-product.png";
+              }}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
@@ -112,6 +153,25 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
           )}
         </div>
         
+        {hasVideo && (
+          <div className="mt-4 w-full max-w-md">
+            <div className="text-sm font-medium text-gray-600 mb-2">Video preview</div>
+            <div className="rounded-xl overflow-hidden border border-gray-200 bg-black">
+              <video
+                className="w-full h-full object-cover"
+                controls
+                preload="metadata"
+                playsInline
+                poster={videoPoster ?? undefined}
+              >
+                <source src={videoSrc} type="video/mp4" />
+                {rawVideo && rawVideo !== videoSrc && <source src={rawVideo} />}
+                Your browser does not support the video tag.
+              </video>
+            </div>
+          </div>
+        )}
+
         {/* Image Count */}
         <div className="mt-4 flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-full">
           <ImageIcon className="h-5 w-5" />
