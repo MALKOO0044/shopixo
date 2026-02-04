@@ -1,6 +1,7 @@
 "use client";
 
 import { Star, TrendingUp, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign, Info, Palette, Smartphone, Play } from "lucide-react";
+import SmartImage from "@/components/smart-image";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import type { PricedProduct } from "./types";
 
@@ -89,13 +90,14 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
       <div className="lg:w-1/2 flex flex-col items-center">
         <div className="relative w-full max-w-md aspect-square bg-gray-50 rounded-2xl overflow-hidden shadow-md border border-gray-100">
           {product.images?.[0] ? (
-            <img
+            <SmartImage
               src={product.images[0]}
               alt="Product image"
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = "/placeholder-product.png";
-              }}
+              fill
+              className="object-cover"
+              loading="eager"
+              sizes="(max-width: 768px) 90vw, 480px"
+              quality={90 as any}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
