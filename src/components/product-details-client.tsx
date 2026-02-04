@@ -62,7 +62,9 @@ function transformVideo(url: string): string {
       const before = url.slice(0, idx + marker.length);
       const after = url.slice(idx + marker.length);
       const hasTransforms = after && !after.startsWith('v');
-      const inject = 'f_mp4,vc_h264/';
+      // High-quality MP4 with H.264, AAC audio, and automatic quality selection
+      // Prefer q_auto:best with appropriate bitrate hinting; keep format mp4 for wide compatibility
+      const inject = 'f_mp4,vc_h264,ac_aac,q_auto:best/';
       const core = hasTransforms ? after : (inject + after);
       return (before + core).replace(/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i, '.mp4');
     }
@@ -70,7 +72,7 @@ function transformVideo(url: string): string {
     const isHttp = typeof url === 'string' && /^https?:\/\//i.test(url);
     const isMp4 = typeof url === 'string' && /\.mp4(\?|#|$)/i.test(url);
     if (cloud && isHttp && !isMp4) {
-      return `https://res.cloudinary.com/${cloud}/video/fetch/f_mp4,vc_h264/${encodeURIComponent(url)}`;
+      return `https://res.cloudinary.com/${cloud}/video/fetch/f_mp4,vc_h264,ac_aac,q_auto:best/${encodeURIComponent(url)}`;
     }
   } catch {}
   return url;
@@ -107,7 +109,8 @@ function getCloudinaryVideoPoster(url: string): string | null {
       if (idx === -1) return null;
       const before = u.slice(0, idx + marker.length);
       const after = u.slice(idx + marker.length);
-      const inject = 'so_0/';
+      // Request high-res poster at the first frame with automatic quality
+      const inject = 'so_0,q_auto:best/';
       const core = after.replace(/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i, '');
       return `${before}${inject}${core}.jpg`;
     }
