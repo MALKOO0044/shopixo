@@ -120,6 +120,9 @@ export async function POST(req: NextRequest) {
         deliveryDaysMin: p.deliveryDaysMin ?? undefined,
         deliveryDaysMax: p.deliveryDaysMax ?? undefined,
         qualityScore: p.qualityScore ?? undefined,
+        // propagate discovery-computed rating for consistency
+        displayedRating: typeof p.displayedRating === 'number' ? p.displayedRating : undefined,
+        ratingConfidence: typeof p.ratingConfidence === 'number' ? p.ratingConfidence : undefined,
         weightG: p.productWeight || undefined,
         packLength: p.packLength || undefined,
         packWidth: p.packWidth || undefined,

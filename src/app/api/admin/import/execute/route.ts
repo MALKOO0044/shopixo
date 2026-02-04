@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { slugify } from "@/lib/utils/slug";
 import { hasColumn, hasTable } from "@/lib/db-features";
 import { linkProductToMultipleCategories } from "@/lib/category-intelligence";
-import { computeRating } from "@/lib/rating/engine";
+import { computeRating, normalizeDisplayedRating } from "@/lib/rating/engine";
 
 // Helper to find category by name/slug/CJ-link and link product to category hierarchy
 async function linkProductToCategory(admin: any, productId: number, categoryName: string, cjCategoryId?: string, supabaseCategoryId?: number): Promise<boolean> {
@@ -565,16 +565,21 @@ export async function POST(req: NextRequest) {
         console.log(`[Import] Product ${qp.cj_product_id}: Found ${availableColors.length} colors: ${availableColors.join(', ')}`);
         console.log(`[Import] Product ${qp.cj_product_id}: Found ${availableSizes.length} sizes: ${availableSizes.join(', ')}`);
 
-        // Compute internal rating using available signals
-        const qualityScore = typeof qp.quality_score === 'number' && isFinite(qp.quality_score)
-          ? Math.max(0, Math.min(1, qp.quality_score))
-          : 0.6;
+        // Compute rating signals (for logging/snapshot), but DISPLAYED rating will
+        // prefer queue's stored values to ensure consistency across discovery → queue → store.
+        const imgCount = Array.isArray(rawImages) ? rawImages.length : 0;
+        const minCostUsd = Number(avgProductCostUsd) || 0;
+        const imgNorm = Math.max(0, Math.min(1, imgCount / 15));
+        const priceNorm = Math.max(0, Math.min(1, minCostUsd / 50));
+        const dynQuality = Math.max(0, Math.min(1, 0.6 * imgNorm + 0.4 * (1 - priceNorm)));
         const signals = {
-          imageCount: Array.isArray(rawImages) ? rawImages.length : 0,
+          imageCount: imgCount,
           stock: typeof totalStock === 'number' ? totalStock : 0,
           variantCount: Array.isArray(variants) ? variants.length : 0,
-          qualityScore,
-          priceUsd: Number(avgProductCostUsd) || 0,
+          qualityScore: typeof qp.quality_score === 'number' && isFinite(qp.quality_score)
+            ? Math.max(0, Math.min(1, qp.quality_score))
+            : dynQuality,
+          priceUsd: minCostUsd,
           sentiment: 0,
           orderVolume: typeof qp.total_sales === 'number' ? qp.total_sales : 0,
         };
@@ -609,8 +614,13 @@ export async function POST(req: NextRequest) {
           specifications: cleanedSpecs,
           selling_points: cleanedSellingPoints,
           cj_category_id: qp.cj_category_id || null,
-          displayed_rating: ratingOut.displayedRating,
-          rating_confidence: ratingOut.ratingConfidence,
+          // Keep displayed rating consistent with queue if present
+          displayed_rating: typeof qp.displayed_rating === 'number'
+            ? normalizeDisplayedRating(qp.displayed_rating)
+            : ratingOut.displayedRating,
+          rating_confidence: typeof qp.rating_confidence === 'number'
+            ? Math.max(0.05, Math.min(1, Number(qp.rating_confidence)))
+            : ratingOut.ratingConfidence,
         };
 
         await omitMissingColumns(optionalFields, [
@@ -738,8 +748,8 @@ export async function POST(req: NextRequest) {
               cj_product_id: qp.cj_product_id || null,
               context: 'import',
               signals: ratingOut.signals,
-              displayed_rating: ratingOut.displayedRating,
-              rating_confidence: ratingOut.ratingConfidence,
+              displayed_rating: fullPayload.displayed_rating,
+              rating_confidence: fullPayload.rating_confidence,
             });
           }
         } catch (e) {

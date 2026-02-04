@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { computeRating } from '@/lib/rating/engine';
+import { computeRating, normalizeDisplayedRating } from '@/lib/rating/engine';
 import { hasTable } from '@/lib/db-features';
 
 let supabaseAdmin: SupabaseClient | null = null;
@@ -159,6 +159,8 @@ export async function addProductToQueue(batchId: number, product: {
   deliveryDaysMin?: number;
   deliveryDaysMax?: number;
   qualityScore?: number;
+  displayedRating?: number;
+  ratingConfidence?: number;
   weightG?: number;
   packLength?: number;
   packWidth?: number;
@@ -212,7 +214,21 @@ export async function addProductToQueue(batchId: number, product: {
 
   // Compute internal rating for queue row if columns exist
   const imagesCount = Array.isArray(product.images) ? product.images.length : 0;
-  const minVariantUsd = Number(product.avgPrice) || 0;
+  // Determine USD price signal: prefer variant USD costs; fallback to SAR avg -> USD
+  const vpArray: any[] = Array.isArray((product as any).variantPricing) ? (product as any).variantPricing as any[] : [];
+  const usdCandidates: number[] = [];
+  for (const vp of vpArray) {
+    const c = Number(vp?.costPrice);
+    if (Number.isFinite(c) && c > 0) usdCandidates.push(c);
+  }
+  if (Array.isArray(product.variants)) {
+    for (const v of product.variants) {
+      const c = Number((v as any)?.variantPriceUSD ?? (v as any)?.variantPrice);
+      if (Number.isFinite(c) && c > 0) usdCandidates.push(c);
+    }
+  }
+  const fallbackAvgUsd = Number((product as any).avgPriceUsd) || (Number(product.avgPrice) ? Number(product.avgPrice) / 3.75 : 0);
+  const minVariantUsd = usdCandidates.length > 0 ? Math.min(...usdCandidates) : fallbackAvgUsd;
   const imgNorm = Math.max(0, Math.min(1, imagesCount / 15));
   const priceNorm = Math.max(0, Math.min(1, minVariantUsd / 50));
   const dynQuality = Math.max(0, Math.min(1, 0.6 * imgNorm + 0.4 * (1 - priceNorm)));
@@ -229,6 +245,10 @@ export async function addProductToQueue(batchId: number, product: {
     orderVolume: 0,
   };
   const ratingOut = computeRating(ratingSignals);
+  const providedDisplayed = typeof product.displayedRating === 'number' ? normalizeDisplayedRating(product.displayedRating) : undefined;
+  const providedConfidence = typeof product.ratingConfidence === 'number' && Number.isFinite(product.ratingConfidence)
+    ? Math.max(0.05, Math.min(1, product.ratingConfidence))
+    : undefined;
 
   // Core fields that always exist
   const productData: Record<string, any> = {
@@ -243,7 +263,7 @@ export async function addProductToQueue(batchId: number, product: {
     images: transformedImages.length > 0 ? transformedImages : product.images,
     video_url: product.videoUrl || null,
     variants: product.variants,
-    cj_price_usd: product.avgPrice,
+    cj_price_usd: minVariantUsd,
     shipping_cost_usd: null,
     calculated_retail_sar: null,
     margin_applied: null,
@@ -273,8 +293,8 @@ export async function addProductToQueue(batchId: number, product: {
     cj_category_id: product.cjCategoryId || null,
     supabase_category_id: product.supabaseCategoryId || null,
     supabase_category_slug: product.supabaseCategorySlug || null,
-    displayed_rating: ratingOut.displayedRating,
-    rating_confidence: ratingOut.ratingConfidence,
+    displayed_rating: providedDisplayed ?? ratingOut.displayedRating,
+    rating_confidence: providedConfidence ?? ratingOut.ratingConfidence,
   };
   
   // New columns that require migration - check if they exist first
@@ -350,16 +370,12 @@ export async function addProductToQueue(batchId: number, product: {
     const signalsTable = await hasTable('product_rating_signals').catch(() => false);
     if (signalsTable) {
       const imagesCount = Array.isArray(product.images) ? product.images.length : 0;
-      const minVariantUsd = Number(product.avgPrice) || 0;
-      const imgNorm = Math.max(0, Math.min(1, imagesCount / 15));
-      const priceNorm = Math.max(0, Math.min(1, minVariantUsd / 50));
-      const dynQuality = Math.max(0, Math.min(1, 0.6 * imgNorm + 0.4 * (1 - priceNorm)));
       const signals = {
         imageCount: imagesCount,
         stock: product.totalStock || 0,
         variantCount: Array.isArray(product.variants) ? product.variants.length : 0,
-        qualityScore: typeof product.qualityScore === 'number' ? Math.max(0, Math.min(1, product.qualityScore)) : dynQuality,
-        priceUsd: minVariantUsd,
+        qualityScore: ratingSignals.qualityScore,
+        priceUsd: ratingSignals.priceUsd,
         sentiment: 0,
         orderVolume: 0,
       };
@@ -369,8 +385,8 @@ export async function addProductToQueue(batchId: number, product: {
         cj_product_id: product.productId,
         context: 'queue',
         signals: rating.signals,
-        displayed_rating: rating.displayedRating,
-        rating_confidence: rating.ratingConfidence,
+        displayed_rating: productData.displayed_rating,
+        rating_confidence: productData.rating_confidence,
       });
     }
   } catch (e) {
