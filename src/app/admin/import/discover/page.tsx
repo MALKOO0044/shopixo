@@ -82,6 +82,12 @@ export default function ProductDiscoveryPage() {
 
   const quantityPresets = [2000, 1500, 1000, 500, 250, 100, 50, 25, 10];
   const profitPresets = [100, 50, 25, 15, 8];
+
+  const isValidCjCategoryId = (value: string) =>
+    value === "all" || value.startsWith("first-") || value.startsWith("second-") || /^\d+$/.test(value);
+
+  const normalizeCategoryName = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   
 
   const testConnection = async () => {
@@ -190,7 +196,8 @@ export default function ProductDiscoveryPage() {
     setSelected(new Set());
     setSavedBatchId(null);
     
-    const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
+    const validFeatureIds = selectedFeatures.filter(isValidCjCategoryId);
+    const categoryIds = validFeatureIds.length > 0 ? validFeatureIds : [category];
     const allProducts: PricedProduct[] = [];
     let hasMore = true;
     let cursor = "0.1.0"; // Initial cursor: categoryIndex.pageNum.itemOffset
@@ -703,10 +710,23 @@ export default function ProductDiscoveryPage() {
                   <optgroup key={group.id} label={group.name}>
                     {group.children?.map(item => {
                       // Find matching CJ category by name for the CJ search
+                      const normalizedSupabaseName = normalizeCategoryName(item.name);
                       const matchingCjCat = selectedCategory?.children
                         ?.flatMap(c => c.children || [])
-                        ?.find(cj => cj?.categoryName?.toLowerCase() === item.name.toLowerCase());
-                      const cjId = matchingCjCat?.categoryId || `supabase-${item.id}`;
+                        ?.find(cj => {
+                          const cjName = normalizeCategoryName(String(cj?.categoryName || ""));
+                          return cjName === normalizedSupabaseName ||
+                            cjName.includes(normalizedSupabaseName) ||
+                            normalizedSupabaseName.includes(cjName);
+                        });
+                      const cjId = matchingCjCat?.categoryId;
+                      if (!cjId) {
+                        return (
+                          <option key={item.id} value="" disabled>
+                            {item.name} (No CJ match)
+                          </option>
+                        );
+                      }
                       
                       return (
                         <option 
