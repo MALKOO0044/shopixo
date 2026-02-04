@@ -218,6 +218,7 @@ export default function ProductDiscoveryPage() {
           profitMargin: profitMargin.toString(),
           popularity: popularity,
           minRating: minRating,
+          media: media || "",
           shippingMethod: shippingMethod,
           freeShippingOnly: freeShippingOnly ? "1" : "0",
           // Batch mode params - cursor-based pagination

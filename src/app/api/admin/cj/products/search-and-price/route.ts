@@ -18,6 +18,35 @@ type ShippingOption = {
   deliveryDays: string;
 };
 
+function extractVideoUrlFrom(obj: any): string | undefined {
+  try {
+    if (!obj) return undefined;
+    const direct = [
+      obj.videoUrl,
+      obj.video,
+      obj.productVideo,
+      obj.productVideoUrl,
+      obj.product_video,
+      obj.spuVideo,
+      obj.spuVideoUrl,
+    ].find((v: any) => typeof v === 'string' && v.trim());
+    if (typeof direct === 'string' && direct.trim()) return direct.trim();
+
+    const listCandidates = [obj.videoList, obj.videos, obj.media, obj.mediaList, obj.productVideoList]
+      .filter((x: any) => Array.isArray(x)) as any[];
+    for (const arr of listCandidates) {
+      for (const it of arr) {
+        if (typeof it === 'string' && it.trim()) return it.trim();
+        if (it && typeof it === 'object') {
+          const cand = it.url || it.videoUrl || it.src || it.source || it.file;
+          if (typeof cand === 'string' && cand.trim()) return cand.trim();
+        }
+      }
+    }
+  } catch {}
+  return undefined;
+}
+
 type PricedVariant = {
   variantId: string;
   variantSku: string;
@@ -435,6 +464,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     const shippingMethod = searchParams.get('shippingMethod') || 'any';
     const sizesParam = searchParams.get('sizes') || '';
     const excludeQueued = searchParams.get('excludeQueued') !== '0';
+    const media = (searchParams.get('media') || '').trim(); // '' | 'withVideo' | 'imagesOnly'
     
     // Batching parameters for Vercel timeout handling
     // batchSize: max products to fully process per request (default 3 for safe margin)
@@ -496,6 +526,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   profitMargin: ${profitMargin}%`);
     console.log(`[Search&Price]   shippingMethod: ${shippingMethod}`);
     console.log(`[Search&Price]   sizes filter: ${requestedSizes.length > 0 ? requestedSizes.join(',') : 'none'}`);
+    console.log(`[Search&Price]   media: ${media || 'all'}`);
     console.log(`[Search&Price]   batchMode: ${isBatchMode}, batchSize: ${batchSize}`);
     console.log(`[Search&Price]   cursor: ${cursorParam} (cat=${cursorCatIdx}, page=${cursorPageNum}, offset=${cursorItemOffset})`);
     console.log(`[Search&Price]   seenPids: ${seenPidsFromClient.size} already processed`);
@@ -524,9 +555,14 @@ async function handleSearch(req: Request, isPost: boolean) {
     // For batch mode, use cursor-based pagination to resume from exact position
     // This avoids re-fetching pages that were already processed in previous batches
     // seenPidsFromClient is used as backup deduplication
-    const neededCandidates = isBatchMode 
-      ? batchSize * 3 // Just need enough for this batch
-      : quantity * 3; // Non-batch: 3x buffer as before
+    let neededCandidates = isBatchMode 
+      ? batchSize * 3 // baseline buffer
+      : quantity * 3; // baseline buffer
+    // When filtering by media, sample more candidates to find matches within time budget
+    if (media === 'withVideo' || media === 'imagesOnly') {
+      const boosted = isBatchMode ? batchSize * 8 : quantity * 8;
+      if (boosted > neededCandidates) neededCandidates = boosted;
+    }
     
     // Track ALL PIDs attempted in this batch (for returning to client)
     const attemptedPidsThisBatch: string[] = [];
@@ -595,6 +631,13 @@ async function handleSearch(req: Request, isPost: boolean) {
           if (sellPrice < minPrice || sellPrice > maxPrice) {
             totalFiltered.price++;
             continue;
+          }
+          // Quick media prefilter for imagesOnly only; for withVideo we defer to detail extraction
+          if (media === 'imagesOnly') {
+            const quickVid = extractVideoUrlFrom(item);
+            if (quickVid) {
+              continue;
+            }
           }
           
           candidateProducts.push(item);
@@ -2262,8 +2305,8 @@ async function handleSearch(req: Request, isPost: boolean) {
       const originCountry = String(source.originCountry || source.countryOrigin || source.originArea || '').trim() || undefined;
       const hsCode = source.entryCode ? `${source.entryCode}${source.entryNameEn ? ` (${source.entryNameEn})` : ''}` : undefined;
       
-      // Extract video URL if available
-      const videoUrl = String(source.videoUrl || source.video || source.productVideo || '').trim() || undefined;
+      // Extract video URL if available (robust across CJ shapes)
+      const videoUrl = extractVideoUrlFrom(source) || extractVideoUrlFrom(item);
       
       pricedProducts.push({
         pid,
@@ -2327,9 +2370,10 @@ async function handleSearch(req: Request, isPost: boolean) {
       productsProcessedThisBatch++;
     }
     
-    // Apply post-hydration filters (sizes)
+    // Apply post-hydration filters (sizes, media)
     let filteredProducts = pricedProducts;
     let filteredBySizes = 0;
+    let filteredByMedia = 0;
     
     // Filter by requested sizes
     if (requestedSizes.length > 0) {
@@ -2344,6 +2388,17 @@ async function handleSearch(req: Request, isPost: boolean) {
       });
       filteredBySizes = beforeCount - filteredProducts.length;
       console.log(`[Search&Price] Filtered ${filteredBySizes} products not matching sizes: ${requestedSizes.join(',')}`);
+    }
+    if (media === 'withVideo') {
+      const before = filteredProducts.length;
+      filteredProducts = filteredProducts.filter(p => !!(p as any).videoUrl && String((p as any).videoUrl).trim());
+      filteredByMedia = before - filteredProducts.length;
+      console.log(`[Search&Price] Filtered ${filteredByMedia} products without video`);
+    } else if (media === 'imagesOnly') {
+      const before = filteredProducts.length;
+      filteredProducts = filteredProducts.filter(p => !(p as any).videoUrl || !String((p as any).videoUrl).trim());
+      filteredByMedia = before - filteredProducts.length;
+      console.log(`[Search&Price] Filtered ${filteredByMedia} products with video (images only)`);
     }
     
     // NOTE: Inventory is now fetched DURING product processing loop via getInventoryByPid
@@ -2443,6 +2498,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         pricedSuccessfully: pricedProducts.length,
         skippedNoShipping,
         filteredBySizes,
+        filteredByMedia,
         filteredAlreadyQueued,
         shippingErrors,
         hitTimeLimit,
