@@ -127,7 +127,8 @@ function transformImage(url: string): string {
       const after = url.slice(idx + marker.length);
       const hasTransforms = after && !after.startsWith('v');
       if (hasTransforms) return url;
-      const inject = 'f_auto,q_auto,c_fill,g_auto,w_800,h_800/';
+      // Only set format/quality; let Next/Image control sizes via srcset for crisp DPR rendering
+      const inject = 'f_auto,q_auto/';
       return url.replace(marker, marker + inject);
     }
   } catch {}
@@ -297,6 +298,7 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
                   fill
                   className="object-cover"
                   loading="lazy"
+                  sizes="48px"
                   onError={(e: any) => {
                     try {
                       const el = e.currentTarget as HTMLImageElement;
@@ -338,6 +340,7 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
               fill
               className="object-cover"
               loading="eager"
+              sizes="(max-width: 768px) 100vw, 500px"
               onError={(e: any) => {
                 try {
                   const el = e.currentTarget as HTMLImageElement;

@@ -12,7 +12,7 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const productSelect = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence";
+const productSelect = "id, title, slug, description, price, images, category, stock, variants, displayed_rating, rating_confidence, video_url, product_code";
 
 export default async function SearchPage({
   searchParams,
@@ -29,6 +29,7 @@ export default async function SearchPage({
   const minPriceRaw = getFirst(searchParams?.minPrice);
   const maxPriceRaw = getFirst(searchParams?.maxPrice);
   const minRatingRaw = getFirst(searchParams?.minRating);
+  const mediaRaw = getFirst(searchParams?.media);
   const sort = getFirst(searchParams?.sort);
 
   const minPrice = Number.isFinite(parseFloat(minPriceRaw))
@@ -61,7 +62,8 @@ export default async function SearchPage({
     let query = supabase.from("products").select(productSelect).or("is_active.is.null,is_active.eq.true");
 
     if (q) {
-      query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%`);
+      const skuQuery = q.startsWith('xo') ? q : `%${q}%`;
+      query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%,product_code.ilike.${skuQuery}`);
     }
     if (category) {
       query = query.eq("category", category);
@@ -74,6 +76,11 @@ export default async function SearchPage({
     }
     if (minRating) {
       query = query.gte("displayed_rating", minRating);
+    }
+    if (mediaRaw === 'withVideo') {
+      query = query.not('video_url', 'is', null);
+    } else if (mediaRaw === 'imagesOnly') {
+      query = query.is('video_url', null);
     }
 
     if (sort) {
@@ -112,7 +119,7 @@ export default async function SearchPage({
       </nav>
       <h1 className="text-3xl font-bold">Search</h1>
 
-      <form className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-6" method="get">
+      <form className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-7" method="get">
         <div className="lg:col-span-2">
           <input
             name="q"
@@ -156,6 +163,13 @@ export default async function SearchPage({
             <option value="4.5">4.5+ Stars</option>
             <option value="4.8">4.8+ Stars</option>
             <option value="5.0">5.0 Stars</option>
+          </select>
+        </div>
+        <div>
+          <select name="media" defaultValue={mediaRaw} className="w-full rounded-md border px-3 py-2">
+            <option value="">All Media</option>
+            <option value="withVideo">With Video</option>
+            <option value="imagesOnly">Images Only</option>
           </select>
         </div>
         <div>

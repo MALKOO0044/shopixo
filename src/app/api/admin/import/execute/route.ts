@@ -589,6 +589,8 @@ export async function POST(req: NextRequest) {
           description: cleanDescription(qp.description_en),
           images: rawImages,
           video_url: qp.video_url || null,
+          has_video: typeof (qp as any).has_video === 'boolean' ? (qp as any).has_video : (qp.video_url ? true : null),
+          product_code: (qp as any).product_code || null,
           is_active: totalStock === null || totalStock > 0,
           cj_product_id: qp.cj_product_id,
           supplier_sku: qp.cj_sku || `CJ-${qp.cj_product_id}`,
@@ -624,7 +626,7 @@ export async function POST(req: NextRequest) {
         };
 
         await omitMissingColumns(optionalFields, [
-          'description', 'images', 'video_url', 'is_active', 'cj_product_id',
+          'description', 'images', 'video_url', 'has_video', 'product_code', 'is_active', 'cj_product_id',
           'free_shipping', 'processing_time_hours', 'delivery_time_hours',
           'supplier_sku', 'variants', 'weight_g', 'weight_grams', 'pack_length', 'pack_width', 
           'pack_height', 'material', 'origin_country', 'origin_country_code', 'hs_code',

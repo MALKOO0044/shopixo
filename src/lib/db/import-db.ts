@@ -35,6 +35,9 @@ export async function checkProductQueueSchema(): Promise<{
 
   // ALL extended columns that addProductToQueue requires
   const requiredColumns = [
+    { name: 'video_url', type: 'TEXT', default: 'NULL' },
+    { name: 'has_video', type: 'BOOLEAN', default: 'false' },
+    { name: 'product_code', type: 'TEXT', default: 'NULL' },
     { name: 'weight_g', type: 'NUMERIC', default: 'NULL' },
     { name: 'pack_length', type: 'NUMERIC', default: 'NULL' },
     { name: 'pack_width', type: 'NUMERIC', default: 'NULL' },
@@ -212,6 +215,24 @@ export async function addProductToQueue(batchId: number, product: {
     ? product.images.map((u) => transformImageUrl(String(u)))
     : [];
 
+  // Generate or reuse product code (xo########)
+  async function generateUniqueProductCode(): Promise<string> {
+    const gen = () => 'xo' + Math.floor(Math.random() * 1_0000_0000).toString().padStart(8, '0');
+    for (let i = 0; i < 6; i++) {
+      const code = gen();
+      const [{ data: q1 }, { data: q2 }] = await Promise.all([
+        supabase.from('product_queue').select('id').eq('product_code', code).limit(1),
+        supabase.from('products').select('id').eq('product_code', code).limit(1),
+      ]);
+      if (!q1?.length && !q2?.length) return code;
+    }
+    // Fallback: timestamp-based
+    const ts = Date.now() % 100000000; // 8 digits
+    return 'xo' + String(ts).padStart(8, '0');
+  }
+  const hasVideo = typeof product.videoUrl === 'string' && !!product.videoUrl?.trim();
+  const productCode: string = await generateUniqueProductCode();
+
   // Compute internal rating for queue row if columns exist
   const imagesCount = Array.isArray(product.images) ? product.images.length : 0;
   // Determine USD price signal: prefer variant USD costs; fallback to SAR avg -> USD
@@ -262,6 +283,7 @@ export async function addProductToQueue(batchId: number, product: {
     category: product.category,
     images: transformedImages.length > 0 ? transformedImages : product.images,
     video_url: product.videoUrl || null,
+    has_video: hasVideo,
     variants: product.variants,
     cj_price_usd: minVariantUsd,
     shipping_cost_usd: null,
@@ -310,6 +332,7 @@ export async function addProductToQueue(batchId: number, product: {
     cj_product_cost: product.cjProductCost || null,
     profit_margin: product.profitMargin || null,
     color_image_map: product.colorImageMap || null,
+    product_code: productCode,
   };
   
   // Check which new columns exist in the schema
