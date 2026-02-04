@@ -1,6 +1,6 @@
 "use client";
 
-import { Star, TrendingUp, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign, Info, Palette, Smartphone } from "lucide-react";
+import { Star, TrendingUp, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign, Info, Palette, Smartphone, Play } from "lucide-react";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import type { PricedProduct } from "./types";
 
@@ -67,6 +67,18 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
     : [];
 
   const imageCount = product.images?.length || 0;
+  const hasVideo = !!(product as any)?.videoUrl;
+  // Deterministic preview SKU: xo + 8 digits derived from pid
+  const previewSku = (() => {
+    const pid = String((product as any)?.pid || (product as any)?.cjProductId || "");
+    let h = 2166136261;
+    for (let i = 0; i < pid.length; i++) {
+      h ^= pid.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    const n = Math.abs(h) % 100000000;
+    return `xo${n.toString().padStart(8, '0')}`;
+  })();
   
   const displayedRating = normalizeDisplayedRating(product.displayedRating);
   const ratingConfidence = product.ratingConfidence ?? null;
@@ -88,6 +100,12 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <ImageIcon className="h-20 w-20 text-gray-300" />
+            </div>
+          )}
+          {hasVideo && (
+            <div className="absolute left-3 top-3 flex items-center gap-1 rounded-full bg-black/60 text-white px-2 py-1 text-xs">
+              <Play className="h-3.5 w-3.5" />
+              <span>Video</span>
             </div>
           )}
         </div>
@@ -137,7 +155,7 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
           <PopularityDisplay listedNum={product.listedNum || 0} />
         </div>
 
-        {/* SKU */}
+        {/* SKU (CJ) */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-3">
             <Tag className="h-5 w-5 text-blue-600" />
@@ -146,6 +164,18 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
           <p className="font-mono text-2xl font-bold text-blue-700 bg-blue-50 px-4 py-3 rounded-lg">
             {product.cjSku}
           </p>
+        </div>
+
+        {/* Store SKU (Preview) */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-3">
+            <Tag className="h-5 w-5 text-emerald-600" />
+            <span className="text-gray-500 font-medium">Store SKU (preview)</span>
+          </div>
+          <p className="font-mono text-2xl font-bold text-emerald-700 bg-emerald-50 px-4 py-3 rounded-lg">
+            {previewSku}
+          </p>
+          <p className="mt-2 text-xs text-gray-500">Final SKU is guaranteed unique and will be assigned when you add to queue.</p>
         </div>
 
         {/* Colors */}

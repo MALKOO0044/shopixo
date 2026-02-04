@@ -283,8 +283,6 @@ export async function addProductToQueue(batchId: number, product: {
     description_ar: null,
     category: product.category,
     images: transformedImages.length > 0 ? transformedImages : product.images,
-    video_url: product.videoUrl || null,
-    has_video: hasVideo,
     variants: product.variants,
     cj_price_usd: minVariantUsd,
     shipping_cost_usd: null,
@@ -334,6 +332,8 @@ export async function addProductToQueue(batchId: number, product: {
     profit_margin: product.profitMargin || null,
     color_image_map: product.colorImageMap || null,
     product_code: productCode,
+    video_url: product.videoUrl || null,
+    has_video: hasVideo,
   };
   
   // Check which new columns exist in the schema
