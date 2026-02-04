@@ -9,6 +9,7 @@ import { Heart, Star, ChevronUp, ChevronDown, X, Plus, Minus, Truck, Shield, Rot
 import SizeGuideModal from "@/components/product/SizeGuideModal";
 import ProductTabs from "@/components/product/ProductTabs";
 import { computeBilledWeightKg, resolveDdpShippingSar } from "@/lib/pricing";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import { extractImagesFromHtml, parseProductDescription } from "@/components/product/SafeHtmlRenderer";
 
 function isLikelyImageUrl(s: string): boolean {
@@ -420,7 +421,7 @@ interface DetailHeaderProps {
 }
 
 function DetailHeader({ title, productCode, rating, confidence = null }: DetailHeaderProps) {
-  const displayRating = Math.min(5, Math.max(0, rating));
+  const displayRating = normalizeDisplayedRating(rating);
   const fullStars = Math.floor(displayRating);
   const hasHalfStar = displayRating % 1 >= 0.5;
 

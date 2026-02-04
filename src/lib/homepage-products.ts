@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Product } from "./types";
+import { normalizeDisplayedRating } from "./rating/engine";
 
 function getServerSupabase() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -39,7 +40,7 @@ function mapProductToHomepage(product: HomepageProductRow, badge?: string): Home
     name: product.title,
     price: product.price,
     originalPrice: undefined,
-    displayed_rating: product.displayed_rating ?? 0,
+    displayed_rating: normalizeDisplayedRating(product.displayed_rating),
     image: primaryImage,
     badge,
     slug: product.slug,

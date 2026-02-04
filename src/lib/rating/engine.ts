@@ -8,6 +8,9 @@ export type RatingSignals = {
   orderVolume?: number; // recent orders, if available
 };
 
+const MIN_DISPLAYED_RATING = 4;
+const MAX_DISPLAYED_RATING = 5;
+
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
@@ -17,6 +20,11 @@ function normalize(n: number | null | undefined, min: number, max: number): numb
   if (max === min) return 0;
   const v = (n - min) / (max - min);
   return clamp(v, 0, 1);
+}
+
+export function normalizeDisplayedRating(value: number | null | undefined, fallback = MIN_DISPLAYED_RATING): number {
+  const raw = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  return clamp(raw, MIN_DISPLAYED_RATING, MAX_DISPLAYED_RATING);
 }
 
 export function computeRating(signals: RatingSignals): { displayedRating: number; ratingConfidence: number; signals: Required<Record<string, number>> } {
@@ -48,7 +56,7 @@ export function computeRating(signals: RatingSignals): { displayedRating: number
     sentimentScore * w.sentiment +
     orderScore * w.orders;
 
-  const displayed = clamp(+(composite * 5).toFixed(1), 0, 5);
+  const displayed = normalizeDisplayedRating(+(MIN_DISPLAYED_RATING + composite).toFixed(1));
 
   const presentSignals = [
     signals.imageCount,

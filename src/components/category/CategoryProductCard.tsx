@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Star, ShoppingCart } from "lucide-react";
 import { useState } from "react";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
 interface CategoryProduct {
   id: number;
@@ -95,7 +96,7 @@ export default function CategoryProductCard({ product, onAddToCart }: CategoryPr
   const imageUrl = safeImageUrl(product.images || product.image);
   
   const productName = product.title || product.name || "Product";
-  const rating = product.displayed_rating ?? 0;
+  const rating = normalizeDisplayedRating(product.displayed_rating);
   const originalPrice = product.original_price || product.msrp;
   const hasDiscount = originalPrice && originalPrice > product.price;
   const discountPercent = hasDiscount ? Math.round((1 - product.price / originalPrice) * 100) : 0;

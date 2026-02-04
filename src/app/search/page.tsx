@@ -152,10 +152,10 @@ export default async function SearchPage({
         <div>
           <select name="minRating" defaultValue={minRatingRaw} className="w-full rounded-md border px-3 py-2">
             <option value="">Any Rating</option>
-            <option value="3">3+ Stars</option>
-            <option value="4">4+ Stars</option>
+            <option value="4.0">4.0+ Stars</option>
             <option value="4.5">4.5+ Stars</option>
-            <option value="5">5 Stars</option>
+            <option value="4.8">4.8+ Stars</option>
+            <option value="5.0">5.0 Stars</option>
           </select>
         </div>
         <div>

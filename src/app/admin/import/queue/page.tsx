@@ -18,6 +18,7 @@ import {
   MoreHorizontal,
   Eye,
 } from "lucide-react";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
 type QueueProduct = {
   id: number;
@@ -305,7 +306,7 @@ export default function QueuePage() {
       p.category,
       p.cj_price_usd,
       p.stock_total,
-      (p.displayed_rating ?? 0).toFixed(1),
+      normalizeDisplayedRating(p.displayed_rating).toFixed(1),
       p.status,
       new Date(p.created_at).toLocaleDateString(),
     ]);
@@ -533,6 +534,7 @@ export default function QueuePage() {
                 const isSelected = selected.has(product.id);
                 const colors = statusColors[product.status] || statusColors.pending;
                 const StatusIcon = colors.icon;
+                const rating = normalizeDisplayedRating(product.displayed_rating);
                 
                 return editingId === product.id ? (
                   <tr key={product.id} className="bg-blue-50">
@@ -687,13 +689,13 @@ export default function QueuePage() {
                           <Star
                             key={star}
                             className={`h-3 w-3 ${
-                              star <= Math.round((product.displayed_rating || 0))
+                              star <= Math.round(rating)
                                 ? "fill-amber-400 text-amber-400"
                                 : "text-gray-300"
                             }`}
                           />
                         ))}
-                        <span className="text-xs font-medium ml-1">{(product.displayed_rating ?? 0).toFixed(1)}</span>
+                        <span className="text-xs font-medium ml-1">{rating.toFixed(1)}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3">

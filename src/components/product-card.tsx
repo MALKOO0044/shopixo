@@ -3,6 +3,7 @@ import Ratings from "@/components/ratings";
 import { formatCurrency } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 import SmartImage from "@/components/smart-image";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
 function isLikelyImageUrl(s: string): boolean {
   if (!s) return false;
@@ -189,6 +190,7 @@ function getImageField(p: Pick<Product, "images" | "image">): Product["images"] 
 }
 
 export default function ProductCard({ product }: { product: Product }) {
+  const rating = normalizeDisplayedRating(product.displayed_rating);
   return (
     <Link
       href={`/product/${product.slug || product.id}`}
@@ -215,7 +217,7 @@ export default function ProductCard({ product }: { product: Product }) {
         <div className="text-lg font-bold text-foreground">{formatCurrency(product.price)}</div>
       </div>
       <div className="mt-1 text-sm text-muted-foreground">{product.category}</div>
-      <div className="mt-2"><Ratings value={product.displayed_rating ?? 0} /></div>
+      <div className="mt-2"><Ratings value={rating} /></div>
     </Link>
   );
 }

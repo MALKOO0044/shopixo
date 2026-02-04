@@ -1,6 +1,7 @@
 "use client";
 
 import { Star, TrendingUp, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign, Info, Palette, Smartphone } from "lucide-react";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import type { PricedProduct } from "./types";
 
 type PreviewPageOneProps = {
@@ -67,7 +68,7 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
 
   const imageCount = product.images?.length || 0;
   
-  const displayedRating = product.displayedRating ?? 0;
+  const displayedRating = normalizeDisplayedRating(product.displayedRating);
   const ratingConfidence = product.ratingConfidence ?? null;
 
   return (
