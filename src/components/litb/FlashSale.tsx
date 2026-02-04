@@ -140,7 +140,9 @@ export default function FlashSale({ products }: FlashSaleProps) {
                         <span className="text-xs">⚡</span>
                       </span>
                       {product.originalPrice && (
-                        <span className="text-xs text-gray-400 line-through"></span>
+                        <span className="text-xs text-gray-400 line-through">
+                          ${product.originalPrice.toFixed(2)}
+                        </span>
                       )}
                     </div>
                     <div className="flex items-center gap-1">

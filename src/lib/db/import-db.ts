@@ -211,12 +211,20 @@ export async function addProductToQueue(batchId: number, product: {
     : [];
 
   // Compute internal rating for queue row if columns exist
+  const imagesCount = Array.isArray(product.images) ? product.images.length : 0;
+  const minVariantUsd = Number(product.avgPrice) || 0;
+  const imgNorm = Math.max(0, Math.min(1, imagesCount / 15));
+  const priceNorm = Math.max(0, Math.min(1, minVariantUsd / 50));
+  const dynQuality = Math.max(0, Math.min(1, 0.6 * imgNorm + 0.4 * (1 - priceNorm)));
+
   const ratingSignals = {
-    imageCount: Array.isArray(product.images) ? product.images.length : 0,
+    imageCount: imagesCount,
     stock: product.totalStock || 0,
     variantCount: Array.isArray(product.variants) ? product.variants.length : 0,
-    qualityScore: typeof product.qualityScore === 'number' ? Math.max(0, Math.min(1, product.qualityScore)) : 0.6,
-    priceUsd: Number(product.avgPrice) || 0,
+    qualityScore: typeof product.qualityScore === 'number'
+      ? Math.max(0, Math.min(1, product.qualityScore))
+      : dynQuality,
+    priceUsd: minVariantUsd,
     sentiment: 0,
     orderVolume: 0,
   };
@@ -342,12 +350,16 @@ export async function addProductToQueue(batchId: number, product: {
     const signalsTable = await hasTable('product_rating_signals').catch(() => false);
     if (signalsTable) {
       const imagesCount = Array.isArray(product.images) ? product.images.length : 0;
+      const minVariantUsd = Number(product.avgPrice) || 0;
+      const imgNorm = Math.max(0, Math.min(1, imagesCount / 15));
+      const priceNorm = Math.max(0, Math.min(1, minVariantUsd / 50));
+      const dynQuality = Math.max(0, Math.min(1, 0.6 * imgNorm + 0.4 * (1 - priceNorm)));
       const signals = {
         imageCount: imagesCount,
         stock: product.totalStock || 0,
         variantCount: Array.isArray(product.variants) ? product.variants.length : 0,
-        qualityScore: typeof product.qualityScore === 'number' ? Math.max(0, Math.min(1, product.qualityScore)) : 0.6,
-        priceUsd: Number(product.avgPrice) || 0,
+        qualityScore: typeof product.qualityScore === 'number' ? Math.max(0, Math.min(1, product.qualityScore)) : dynQuality,
+        priceUsd: minVariantUsd,
         sentiment: 0,
         orderVolume: 0,
       };

@@ -38,13 +38,13 @@ export function computeRating(signals: RatingSignals): { displayedRating: number
 
   // Weights sum to 1
   const w = {
-    img: 0.12,
-    stock: 0.18,
-    variant: 0.1,
-    quality: 0.3,
-    price: 0.15,
+    img: 0.15,
+    stock: 0.2,
+    variant: 0.15,
+    quality: 0.1,
+    price: 0.2,
     sentiment: 0.05,
-    orders: 0.1,
+    orders: 0.15,
   };
 
   const composite =
@@ -56,7 +56,8 @@ export function computeRating(signals: RatingSignals): { displayedRating: number
     sentimentScore * w.sentiment +
     orderScore * w.orders;
 
-  const displayed = normalizeDisplayedRating(+(MIN_DISPLAYED_RATING + composite).toFixed(1));
+  // Do not round inside the engine; callers/UI may round for display.
+  const displayed = normalizeDisplayedRating(MIN_DISPLAYED_RATING + composite);
 
   const presentSignals = [
     signals.imageCount,

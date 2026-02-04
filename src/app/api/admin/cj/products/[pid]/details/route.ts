@@ -596,11 +596,15 @@ export async function GET(
       const imagesCount = Array.isArray(images) ? images.length : 0;
       const variantCount = Array.isArray(variantsToProcess) ? variantsToProcess.length : 0;
       const minVariantUsd = pricedVariants.length > 0 ? Math.min(...pricedVariants.map(v => v.variantPriceUSD || 0)) : 0;
+      // Dynamic quality score based on imagery richness and affordability
+      const imgNorm = Math.max(0, Math.min(1, imagesCount / 15));
+      const priceNorm = Math.max(0, Math.min(1, minVariantUsd / 50));
+      const dynQuality = Math.max(0, Math.min(1, 0.6 * imgNorm + 0.4 * (1 - priceNorm)));
       const ratingOut = computeRating({
         imageCount: imagesCount,
         stock: typeof stock === 'number' ? stock : 0,
         variantCount,
-        qualityScore: 0.6,
+        qualityScore: dynQuality,
         priceUsd: minVariantUsd,
         sentiment: 0,
         orderVolume: 0,

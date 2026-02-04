@@ -71,11 +71,14 @@ export async function POST(req: NextRequest) {
         const priceSar = typeof p.price === 'number' ? p.price : 0;
         const priceUsd = priceSar > 0 ? priceSar / 3.75 : 0;
 
+        const imgNorm = Math.max(0, Math.min(1, (images.length || 0) / 15));
+        const priceNorm = Math.max(0, Math.min(1, (priceUsd || 0) / 50));
+        const dynQuality = Math.max(0, Math.min(1, 0.6 * imgNorm + 0.4 * (1 - priceNorm)));
         const rating = computeRating({
           imageCount: images.length,
           stock,
           variantCount,
-          qualityScore: 0.6,
+          qualityScore: dynQuality,
           priceUsd,
           sentiment: 0,
           orderVolume: 0,
