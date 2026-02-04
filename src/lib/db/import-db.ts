@@ -216,13 +216,13 @@ export async function addProductToQueue(batchId: number, product: {
     : [];
 
   // Generate or reuse product code (xo########)
-  async function generateUniqueProductCode(): Promise<string> {
+  async function generateUniqueProductCode(admin: SupabaseClient): Promise<string> {
     const gen = () => 'xo' + Math.floor(Math.random() * 1_0000_0000).toString().padStart(8, '0');
     for (let i = 0; i < 6; i++) {
       const code = gen();
       const [{ data: q1 }, { data: q2 }] = await Promise.all([
-        supabase.from('product_queue').select('id').eq('product_code', code).limit(1),
-        supabase.from('products').select('id').eq('product_code', code).limit(1),
+        admin.from('product_queue').select('id').eq('product_code', code).limit(1),
+        admin.from('products').select('id').eq('product_code', code).limit(1),
       ]);
       if (!q1?.length && !q2?.length) return code;
     }
@@ -231,7 +231,8 @@ export async function addProductToQueue(batchId: number, product: {
     return 'xo' + String(ts).padStart(8, '0');
   }
   const hasVideo = typeof product.videoUrl === 'string' && !!product.videoUrl?.trim();
-  const productCode: string = await generateUniqueProductCode();
+  const admin = supabase as SupabaseClient;
+  const productCode: string = await generateUniqueProductCode(admin);
 
   // Compute internal rating for queue row if columns exist
   const imagesCount = Array.isArray(product.images) ? product.images.length : 0;
