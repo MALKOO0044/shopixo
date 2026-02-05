@@ -84,10 +84,32 @@ export default function ProductDiscoveryPage() {
   const profitPresets = [100, 50, 25, 15, 8];
 
   const isValidCjCategoryId = (value: string) =>
-    value === "all" || value.startsWith("first-") || value.startsWith("second-") || /^\d+$/.test(value);
+    value === "all" || /^\d+$/.test(value);
 
-  const normalizeCategoryName = (value: string) =>
-    value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const collectLeafCategoryIds = (node?: Category | null): string[] => {
+    if (!node) return [];
+    const ids: string[] = [];
+    const visit = (cat: Category) => {
+      if (cat.children && cat.children.length > 0) {
+        cat.children.forEach(visit);
+        return;
+      }
+      if (/^\d+$/.test(cat.categoryId)) {
+        ids.push(cat.categoryId);
+      }
+    };
+    visit(node);
+    return ids;
+  };
+
+  const resolveCategoryIds = () => {
+    const featureIds = selectedFeatures.filter(isValidCjCategoryId).filter(id => id !== "all");
+    if (featureIds.length > 0) return featureIds;
+    if (category === "all") return ["all"];
+    const selectedCategory = categories.find(c => c.categoryId === category);
+    const leafIds = collectLeafCategoryIds(selectedCategory);
+    return leafIds.length > 0 ? leafIds : [category];
+  };
   
 
   const testConnection = async () => {
@@ -196,8 +218,7 @@ export default function ProductDiscoveryPage() {
     setSelected(new Set());
     setSavedBatchId(null);
     
-    const validFeatureIds = selectedFeatures.filter(isValidCjCategoryId);
-    const categoryIds = validFeatureIds.length > 0 ? validFeatureIds : [category];
+    const categoryIds = resolveCategoryIds();
     const allProducts: PricedProduct[] = [];
     let hasMore = true;
     let cursor = "0.1.0"; // Initial cursor: categoryIndex.pageNum.itemOffset
@@ -600,23 +621,6 @@ export default function ProductDiscoveryPage() {
   };
 
   const selectedCategory = categories.find(c => c.categoryId === category);
-  
-  // Find matching Supabase main category based on CJ category name
-  const getMatchingSupabaseMainCategory = (): SupabaseCategory | null => {
-    if (!selectedCategory || category === 'all') return null;
-    
-    const cjName = selectedCategory.categoryName.toLowerCase();
-    return supabaseCategories.find(sc => {
-      const scName = sc.name.toLowerCase();
-      const scSlug = sc.slug.toLowerCase();
-      return scName === cjName || 
-             scSlug === cjName.replace(/[^a-z0-9]+/g, '-') ||
-             scName.includes(cjName) ||
-             cjName.includes(scName);
-    }) || null;
-  };
-  
-  const matchingSupabaseCategory = getMatchingSupabaseMainCategory();
 
   // Apply client-side media filter to fetched products
   const displayedProducts = products.filter((p) => {
@@ -678,75 +682,21 @@ export default function ProductDiscoveryPage() {
             <div className="relative">
               <select
                 onChange={(e) => {
-                  if (e.target.value) {
-                    // Parse the value: "cjId:supabaseId:name"
-                    const [cjId, supabaseId, ...nameParts] = e.target.value.split(':');
-                    const name = nameParts.join(':');
-                    
-                    // Toggle the CJ feature ID
+                  const cjId = e.target.value;
+                  if (cjId) {
                     toggleFeature(cjId);
-                    
-                    // Track the Supabase category ID if available
-                    if (supabaseId && parseInt(supabaseId) > 0) {
-                      const existing = selectedFeaturesWithIds.find(sf => sf.cjCategoryId === cjId);
-                      if (!existing) {
-                        setSelectedFeaturesWithIds(prev => [...prev, {
-                          cjCategoryId: cjId,
-                          cjCategoryName: name,
-                          supabaseCategoryId: parseInt(supabaseId),
-                          supabaseCategorySlug: '',
-                        }]);
-                        console.log(`[Discovery] Selected Feature: ${name} (CJ: ${cjId}, Supabase: ${supabaseId})`);
-                      }
-                    }
                   }
                   e.target.value = "";
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded appearance-none"
               >
                 <option value="">Select features...</option>
-                {/* Use Supabase categories if available for better organization */}
-                {matchingSupabaseCategory?.children?.map(group => (
-                  <optgroup key={group.id} label={group.name}>
-                    {group.children?.map(item => {
-                      // Find matching CJ category by name for the CJ search
-                      const normalizedSupabaseName = normalizeCategoryName(item.name);
-                      const matchingCjCat = selectedCategory?.children
-                        ?.flatMap(c => c.children || [])
-                        ?.find(cj => {
-                          const cjName = normalizeCategoryName(String(cj?.categoryName || ""));
-                          return cjName === normalizedSupabaseName ||
-                            cjName.includes(normalizedSupabaseName) ||
-                            normalizedSupabaseName.includes(cjName);
-                        });
-                      const cjId = matchingCjCat?.categoryId;
-                      if (!cjId) {
-                        return (
-                          <option key={item.id} value="" disabled>
-                            {item.name} (No CJ match)
-                          </option>
-                        );
-                      }
-                      
-                      return (
-                        <option 
-                          key={item.id} 
-                          value={`${cjId}:${item.id}:${item.name}`}
-                          disabled={selectedFeatures.includes(cjId)}
-                        >
-                          {item.name}
-                        </option>
-                      );
-                    })}
-                  </optgroup>
-                ))}
-                {/* Fallback to CJ categories if no Supabase match */}
-                {!matchingSupabaseCategory && selectedCategory?.children?.map(child => (
+                {selectedCategory?.children?.map(child => (
                   <optgroup key={child.categoryId} label={child.categoryName}>
                     {child.children?.map(subChild => (
-                      <option 
-                        key={subChild.categoryId} 
-                        value={`${subChild.categoryId}:0:${subChild.categoryName}`}
+                      <option
+                        key={subChild.categoryId}
+                        value={subChild.categoryId}
                         disabled={selectedFeatures.includes(subChild.categoryId)}
                       >
                         {subChild.categoryName}
