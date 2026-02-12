@@ -22,6 +22,7 @@ export interface HomepageProduct {
   name: string;
   price: number;
   originalPrice?: number;
+  rating: number;
   displayed_rating?: number | null;
   image: string;
   badge?: string;
@@ -40,7 +41,8 @@ function mapProductToHomepage(product: HomepageProductRow, badge?: string): Home
     name: product.title,
     price: product.price,
     originalPrice: undefined,
-    displayed_rating: normalizeDisplayedRating(product.displayed_rating),
+    rating: normalizeDisplayedRating(product.displayed_rating ?? product.rating ?? 4.5),
+    displayed_rating: product.displayed_rating ?? null,
     image: primaryImage,
     badge,
     slug: product.slug,

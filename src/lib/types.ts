@@ -44,6 +44,7 @@ export type Product = {
   images: string[];
   image?: string | null;
   category: string;
+  rating: number;
   displayed_rating?: number | null;
   rating_confidence?: number | null;
   stock: number | null; // null = all variants have unknown stock
@@ -52,7 +53,7 @@ export type Product = {
   is_active?: boolean; // soft delete flag (optional to avoid breaking existing code)
 
   // Product codes
-  product_code?: string | null; // Shopixo public code (XO00001 format) - visible to customers
+  product_code?: string | null; // Shopixo public code (########xo########) - visible to customers
   supplier_sku?: string | null; // Supplier SKU from CJ - admin only
 
   // Shipping and CJ linkage metadata (optional)

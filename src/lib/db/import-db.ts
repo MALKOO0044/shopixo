@@ -193,31 +193,9 @@ export async function addProductToQueue(batchId: number, product: {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { success: false, error: 'Supabase not configured' };
 
-  // Optional image proxy/upscale config
-  // IMAGE_UPSCALE_MODE: 'none' | 'proxy'
-  // IMAGE_PROXY_TEMPLATE: e.g., 'https://imgproxy.example.com/width:{w}/plain/{url}' or Cloudinary fetch template
-  // IMAGE_TARGET_WIDTH: e.g., '3840' for 4K, '7680' for 8K
-  const UPSCALE_MODE = (process.env.IMAGE_UPSCALE_MODE || 'none').toLowerCase();
-  const PROXY_TPL = process.env.IMAGE_PROXY_TEMPLATE || '';
-  const TARGET_W = Math.max(512, Math.min(8192, parseInt(process.env.IMAGE_TARGET_WIDTH || '3840', 10) || 3840));
-
-  const transformImageUrl = (url: string): string => {
-    if (!url || typeof url !== 'string') return url;
-    if (!/^https?:\/\//i.test(url)) return url;
-    if (UPSCALE_MODE !== 'proxy' || !PROXY_TPL) return url;
-    const encoded = encodeURIComponent(url);
-    return PROXY_TPL
-      .replace('{url}', encoded)
-      .replace('{w}', String(TARGET_W));
-  };
-
-  const transformedImages = Array.isArray(product.images)
-    ? product.images.map((u) => transformImageUrl(String(u)))
-    : [];
-
-  // Generate or reuse product code (xo########)
+  // Generate or reuse product code (########xo format)
   async function generateUniqueProductCode(admin: SupabaseClient): Promise<string> {
-    const gen = () => 'xo' + Math.floor(Math.random() * 1_0000_0000).toString().padStart(8, '0');
+    const gen = () => '########xo' + Math.floor(Math.random() * 1_0000_0000).toString().padStart(8, '0');
     for (let i = 0; i < 6; i++) {
       const code = gen();
       const [{ data: q1 }, { data: q2 }] = await Promise.all([
@@ -226,9 +204,8 @@ export async function addProductToQueue(batchId: number, product: {
       ]);
       if (!q1?.length && !q2?.length) return code;
     }
-    // Fallback: timestamp-based
     const ts = Date.now() % 100000000; // 8 digits
-    return 'xo' + String(ts).padStart(8, '0');
+    return '########xo' + String(ts).padStart(8, '0');
   }
   const hasVideo = typeof product.videoUrl === 'string' && !!product.videoUrl?.trim();
   const admin = supabase as SupabaseClient;
@@ -236,7 +213,6 @@ export async function addProductToQueue(batchId: number, product: {
 
   // Compute internal rating for queue row if columns exist
   const imagesCount = Array.isArray(product.images) ? product.images.length : 0;
-  // Determine USD price signal: prefer variant USD costs; fallback to SAR avg -> USD
   const vpArray: any[] = Array.isArray((product as any).variantPricing) ? (product as any).variantPricing as any[] : [];
   const usdCandidates: number[] = [];
   for (const vp of vpArray) {
@@ -272,7 +248,6 @@ export async function addProductToQueue(batchId: number, product: {
     ? Math.max(0.05, Math.min(1, product.ratingConfidence))
     : undefined;
 
-  // Core fields that always exist
   const productData: Record<string, any> = {
     batch_id: batchId,
     cj_product_id: product.productId,
@@ -282,7 +257,7 @@ export async function addProductToQueue(batchId: number, product: {
     description_en: product.description || null,
     description_ar: null,
     category: product.category,
-    images: transformedImages.length > 0 ? transformedImages : product.images,
+    images: product.images,
     variants: product.variants,
     cj_price_usd: minVariantUsd,
     shipping_cost_usd: null,
@@ -318,7 +293,6 @@ export async function addProductToQueue(batchId: number, product: {
     rating_confidence: providedConfidence ?? ratingOut.ratingConfidence,
   };
   
-  // New columns that require migration - check if they exist first
   const newColumns: Record<string, any> = {
     variant_pricing: product.variantPricing || [],
     size_chart_data: product.sizeChartData || null,
@@ -339,7 +313,6 @@ export async function addProductToQueue(batchId: number, product: {
   // Check which new columns exist in the schema
   const schemaCheck = await checkProductQueueSchema();
   if (schemaCheck.ready) {
-    // All new columns exist, add them to productData
     Object.assign(productData, newColumns);
   } else {
     // Only add columns that exist
@@ -389,7 +362,6 @@ export async function addProductToQueue(batchId: number, product: {
     });
     return { success: false, error: errorMsg };
   }
-  // Attempt to snapshot rating signals for queue save (if table exists)
   try {
     const signalsTable = await hasTable('product_rating_signals').catch(() => false);
     if (signalsTable) {

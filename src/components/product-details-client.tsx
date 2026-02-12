@@ -2,6 +2,7 @@
 
 import { useState, useRef, useMemo, useEffect } from "react";
 import { formatCurrency, cn } from "@/lib/utils";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import type { Product, ProductVariant } from "@/lib/types";
 import AddToCart from "@/components/add-to-cart";
 import SmartImage from "@/components/smart-image";
@@ -9,7 +10,6 @@ import { Heart, Star, ChevronUp, ChevronDown, X, Plus, Minus, Truck, Shield, Rot
 import SizeGuideModal from "@/components/product/SizeGuideModal";
 import ProductTabs from "@/components/product/ProductTabs";
 import { computeBilledWeightKg, resolveDdpShippingSar } from "@/lib/pricing";
-import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import { extractImagesFromHtml, parseProductDescription } from "@/components/product/SafeHtmlRenderer";
 
 function isLikelyImageUrl(s: string): boolean {
@@ -424,9 +424,10 @@ interface DetailHeaderProps {
   productCode?: string | null;
   rating: number;
   confidence?: number | null;
+  reviewCount?: number;
 }
 
-function DetailHeader({ title, productCode, rating, confidence = null }: DetailHeaderProps) {
+function DetailHeader({ title, productCode, rating, confidence = null, reviewCount = 0 }: DetailHeaderProps) {
   const displayRating = normalizeDisplayedRating(rating);
   const fullStars = Math.floor(displayRating);
   const hasHalfStar = displayRating % 1 >= 0.5;
@@ -463,8 +464,14 @@ function DetailHeader({ title, productCode, rating, confidence = null }: DetailH
           {displayRating.toFixed(1)}
           {typeof confidence === 'number' && (
             <>
-              {' '}
-              <span className="ml-1 text-xs text-muted-foreground">({confidence < 0.4 ? 'low' : confidence < 0.75 ? 'medium' : 'high'} confidence)</span>
+              <span className="mx-1">•</span>
+              <span>{Math.round(confidence * 100)}% confidence</span>
+            </>
+          )}
+          {reviewCount > 0 && (
+            <>
+              <span className="mx-1">•</span>
+              <span>{reviewCount.toLocaleString('en-US')}+ reviews</span>
             </>
           )}
         </span>
@@ -1522,8 +1529,9 @@ export default function ProductDetailsClient({
           <DetailHeader
             title={product.title}
             productCode={product.product_code}
-            rating={product.displayed_rating ?? 0}
-            confidence={product.rating_confidence ?? null}
+          rating={product.displayed_rating ?? product.rating ?? 0}
+          confidence={product.rating_confidence ?? null}
+          reviewCount={0}
           />
 
           <PriceBlock

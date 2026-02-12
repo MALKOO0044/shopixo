@@ -191,7 +191,7 @@ function getImageField(p: Pick<Product, "images" | "image">): Product["images"] 
 }
 
 export default function ProductCard({ product }: { product: Product }) {
-  const rating = normalizeDisplayedRating(product.displayed_rating);
+  const rating = normalizeDisplayedRating(product.displayed_rating ?? product.rating ?? 0);
   return (
     <Link
       href={`/product/${product.slug || product.id}`}

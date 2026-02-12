@@ -122,7 +122,7 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
     const n = Math.abs(h) % 100000000;
     return `xo${n.toString().padStart(8, '0')}`;
   })();
-  
+
   const displayedRating = normalizeDisplayedRating(product.displayedRating);
   const ratingConfidence = product.ratingConfidence ?? null;
 

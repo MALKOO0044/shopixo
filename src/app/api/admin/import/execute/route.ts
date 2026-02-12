@@ -477,7 +477,7 @@ export async function POST(req: NextRequest) {
           // If rawStock is null/undefined, finalStock stays null = "unknown availability"
           
           return {
-            sku: generateSku("CJ", qp.cj_product_id, i),
+            sku: generateSku("########xo", qp.cj_product_id, i),
             cj_sku: v.variantSku || v.cjSku || v.vid || null,
             cj_variant_id: v.variantId || null,
             size: matchingPricing?.size || v.size || null,
@@ -616,7 +616,6 @@ export async function POST(req: NextRequest) {
           specifications: cleanedSpecs,
           selling_points: cleanedSellingPoints,
           cj_category_id: qp.cj_category_id || null,
-          // Keep displayed rating consistent with queue if present
           displayed_rating: typeof qp.displayed_rating === 'number'
             ? normalizeDisplayedRating(qp.displayed_rating)
             : ratingOut.displayedRating,
@@ -628,7 +627,7 @@ export async function POST(req: NextRequest) {
         await omitMissingColumns(optionalFields, [
           'description', 'images', 'video_url', 'has_video', 'product_code', 'is_active', 'cj_product_id',
           'free_shipping', 'processing_time_hours', 'delivery_time_hours',
-          'supplier_sku', 'variants', 'weight_g', 'weight_grams', 'pack_length', 'pack_width', 
+          'supplier_sku', 'variants', 'weight_g', 'weight_grams', 'pack_length', 'pack_width',
           'pack_height', 'material', 'origin_country', 'origin_country_code', 'hs_code',
           'size_chart_images', 'available_sizes', 'available_colors', 'has_variants',
           'min_price', 'max_price', 'specifications', 'selling_points',

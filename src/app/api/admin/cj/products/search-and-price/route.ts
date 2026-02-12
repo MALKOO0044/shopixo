@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getAccessToken, freightCalculate, fetchProductDetailsBatch, findCJPacketOrdinary, getInventoryByPid, queryVariantInventory } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsBatch, getProductRatings, findCJPacketOrdinary, getInventoryByPid, queryVariantInventory } from '@/lib/cj/v2';
+import { computeRating } from '@/lib/rating/engine';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 import { usdToSar, computeRetailFromLanded } from '@/lib/pricing';
 import { createClient } from '@supabase/supabase-js';
-import { computeRating } from '@/lib/rating/engine';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -126,6 +126,8 @@ type PricedProduct = {
   packingList?: string;
   displayedRating?: number;
   ratingConfidence?: number;
+  rating?: number;
+  reviewCount?: number;
   categoryName?: string;
   productWeight?: number;
   packLength?: number;
@@ -1032,9 +1034,49 @@ async function handleSearch(req: Request, isPost: boolean) {
       const source = fullDetails || item;
       const rawDescriptionHtml = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
       
-      // Internal rating will be computed after pricing/shipping
+      // Get rating from productComments API (reliable source)
+      let rating: number | undefined = undefined;
+      let reviewCount = 0;
       let displayedRating: number | undefined = undefined;
       let ratingConfidence: number | undefined = undefined;
+      if (productRating && productRating.rating !== null && productRating.rating !== undefined) {
+        // Ensure rating is a number (CJ API may return strings)
+        const parsedRating = Number(productRating.rating);
+        if (Number.isFinite(parsedRating) && parsedRating > 0) {
+          rating = parsedRating;
+          reviewCount = Number(productRating.reviewCount) || 0;
+          console.log(`[Search&Price] Product ${pid}: Rating ${rating} from comments API (${reviewCount} reviews)`);
+        } else {
+          console.log(`[Search&Price] Product ${pid}: Invalid rating value: ${productRating.rating}`);
+        }
+      } else {
+        console.log(`[Search&Price] Product ${pid}: No rating available from comments API`);
+      }
+
+      // Compute internal rating from signals and apply minRating filter (new rating system)
+      try {
+        const imagesCount = Array.isArray(images) ? images.length : 0;
+        const minVariantUsd = pricedVariants.length > 0 ? Math.min(...pricedVariants.map(v => v.variantPriceUSD || 0)) : 0;
+        const imgNorm = Math.max(0, Math.min(1, imagesCount / 15));
+        const priceNorm = Math.max(0, Math.min(1, minVariantUsd / 50));
+        const dynQuality = Math.max(0, Math.min(1, 0.6 * imgNorm + 0.4 * (1 - priceNorm)));
+        const out = computeRating({
+          imageCount: imagesCount,
+          stock,
+          variantCount: pricedVariants.length,
+          qualityScore: dynQuality,
+          priceUsd: minVariantUsd,
+          sentiment: 0,
+          orderVolume: listedNum,
+        });
+        displayedRating = out.displayedRating;
+        ratingConfidence = out.ratingConfidence;
+        const minRatingNum = minRating === 'any' ? 0 : Number(minRating);
+        if (Number.isFinite(minRatingNum) && displayedRating < minRatingNum) {
+          totalFiltered.rating++;
+          continue;
+        }
+      } catch {}
       
       const categoryName = String(source.categoryName || source.categoryNameEn || source.category || '').trim() || undefined;
       
@@ -2371,6 +2413,8 @@ async function handleSearch(req: Request, isPost: boolean) {
         packingList,
         displayedRating,
         ratingConfidence,
+        rating,
+        reviewCount,
         categoryName,
         productWeight,
         packLength,
