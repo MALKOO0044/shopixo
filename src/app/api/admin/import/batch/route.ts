@@ -160,6 +160,7 @@ export async function POST(req: NextRequest) {
         cjShippingCost: p.cjShippingCost || undefined,
         cjProductCost: p.cjProductCost || undefined,
         profitMargin: p.profitMargin || undefined,
+        previewPayload: typeof p.previewPayload === 'object' ? p.previewPayload : undefined,
       });
 
       if (result.success) {

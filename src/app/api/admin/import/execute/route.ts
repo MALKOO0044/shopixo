@@ -440,6 +440,9 @@ export async function POST(req: NextRequest) {
 
         const rawVariantPricing = typeof qp.variant_pricing === 'string' ? JSON.parse(qp.variant_pricing) : (qp.variant_pricing || []);
         const rawVariants = typeof qp.variants === 'string' ? JSON.parse(qp.variants) : (qp.variants || []);
+        const previewPayload = typeof qp.preview_payload === 'string'
+          ? JSON.parse(qp.preview_payload)
+          : (qp.preview_payload || null);
         
         // Parse colorImageMap from queue payload - maps color names to their specific images
         const colorImageMap: Record<string, string> = typeof qp.color_image_map === 'string' 
@@ -491,16 +494,17 @@ export async function POST(req: NextRequest) {
             weight_g: v.weight || v.weightGrams || null,
             // Use colorImageMap as PRIMARY source for color-specific images
             // This ensures color swatches show the correct product image for each color
-            image_url: (matchingPricing?.color && colorImageMap[matchingPricing.color]) 
-              ? colorImageMap[matchingPricing.color]
-              : (v.color && colorImageMap[v.color])
-                ? colorImageMap[v.color]
+            image_url: (matchingPricing?.color && (previewColorImageMap?.[matchingPricing.color] || colorImageMap[matchingPricing.color])) 
+              ? (previewColorImageMap?.[matchingPricing.color] || colorImageMap[matchingPricing.color])
+              : (v.color && (previewColorImageMap?.[v.color] || colorImageMap[v.color]))
+                ? (previewColorImageMap?.[v.color] || colorImageMap[v.color])
                 : matchingPricing?.colorImage || v.variantImage || v.imageUrl || v.image || v.whiteImage || null,
           };
         });
         
-        if (Object.keys(colorImageMap).length > 0) {
-          console.log(`[Import] Product ${qp.cj_product_id}: Using colorImageMap for ${Object.keys(colorImageMap).length} colors`);
+        const effectiveColorImageMap = previewColorImageMap || colorImageMap;
+        if (effectiveColorImageMap && Object.keys(effectiveColorImageMap).length > 0) {
+          console.log(`[Import] Product ${qp.cj_product_id}: Using colorImageMap for ${Object.keys(effectiveColorImageMap).length} colors`);
         }
 
         // Calculate total stock - only sum explicit stock values
@@ -552,14 +556,16 @@ export async function POST(req: NextRequest) {
         const qpSizes = Array.isArray(qp.available_sizes) ? qp.available_sizes : [];
         const pricingSizes = rawVariantPricing.map((vp: any) => vp.size).filter(Boolean);
         const variantSizes = variants.map((v: any) => v.size).filter(Boolean);
-        const allSizes = [...qpSizes, ...pricingSizes, ...variantSizes];
+        const previewSizes = Array.isArray(previewPayload?.availableSizes) ? previewPayload.availableSizes : [];
+        const allSizes = [...previewSizes, ...qpSizes, ...pricingSizes, ...variantSizes];
         const availableSizes = deduplicateByNormalizedKey(allSizes);
         
         // Extract ALL colors from all available sources (merged and smart-deduplicated)
         const qpColors = Array.isArray(qp.available_colors) ? qp.available_colors : [];
         const pricingColors = rawVariantPricing.map((vp: any) => vp.color).filter(Boolean);
         const variantColors = variants.map((v: any) => v.color).filter(Boolean);
-        const allColors = [...qpColors, ...pricingColors, ...variantColors];
+        const previewColors = Array.isArray(previewPayload?.availableColors) ? previewPayload.availableColors : [];
+        const allColors = [...previewColors, ...qpColors, ...pricingColors, ...variantColors];
         const availableColors = deduplicateByNormalizedKey(allColors);
         
         console.log(`[Import] Product ${qp.cj_product_id}: Found ${availableColors.length} colors: ${availableColors.join(', ')}`);
@@ -585,11 +591,48 @@ export async function POST(req: NextRequest) {
         };
         const ratingOut = computeRating(signals);
 
+        const rawDescription = previewPayload?.description ?? qp.description_en ?? '';
+        const rawDescriptionCleaned = cleanDescription(rawDescription);
+        const mergedSellingPoints = Array.from(new Set([
+          ...(cleanedSellingPoints || []),
+          ...(previewPayload?.overview
+            ? String(previewPayload.overview).split(/\n|<br\s*\/?>/i).map((l: string) => cleanDescription(l)).filter(Boolean)
+            : []),
+          ...(previewPayload?.productInfo
+            ? String(previewPayload.productInfo).split(/\n|<br\s*\/?>/i).map((l: string) => cleanDescription(l)).filter(Boolean)
+            : []),
+          ...(previewPayload?.sizeInfo
+            ? String(previewPayload.sizeInfo).split(/\n|<br\s*\/?>/i).map((l: string) => cleanDescription(l)).filter(Boolean)
+            : []),
+          ...(previewPayload?.productNote
+            ? String(previewPayload.productNote).split(/\n|<br\s*\/?>/i).map((l: string) => cleanDescription(l)).filter(Boolean)
+            : []),
+          ...(previewPayload?.packingList
+            ? String(previewPayload.packingList).split(/\n|<br\s*\/?>/i).map((l: string) => cleanDescription(l)).filter(Boolean)
+            : []),
+        ].filter(Boolean)));
+
+        const mergedSpecs: Record<string, any> = {
+          ...(cleanedSpecs || {}),
+          ...(previewPayload?.productInfo ? { "Product Info": cleanDescription(String(previewPayload.productInfo)) } : {}),
+          ...(previewPayload?.sizeInfo ? { "Size Info": cleanDescription(String(previewPayload.sizeInfo)) } : {}),
+          ...(previewPayload?.productNote ? { "Notes": cleanDescription(String(previewPayload.productNote)) } : {}),
+          ...(previewPayload?.packingList ? { "Package": cleanDescription(String(previewPayload.packingList)) } : {}),
+        };
+
+        const previewImages: string[] = Array.isArray(previewPayload?.images) ? previewPayload.images : [];
+        const previewVideoUrl = typeof previewPayload?.videoUrl === 'string' ? previewPayload.videoUrl : null;
+        const previewColorImageMap = (previewPayload?.colorImageMap && typeof previewPayload.colorImageMap === 'object')
+          ? previewPayload.colorImageMap
+          : null;
+
         const optionalFields: Record<string, any> = {
-          description: cleanDescription(qp.description_en),
-          images: rawImages,
-          video_url: qp.video_url || null,
-          has_video: typeof (qp as any).has_video === 'boolean' ? (qp as any).has_video : (qp.video_url ? true : null),
+          description: rawDescriptionCleaned,
+          images: previewImages.length > 0 ? previewImages : rawImages,
+          video_url: previewVideoUrl || qp.video_url || null,
+          has_video: previewVideoUrl
+            ? true
+            : (typeof (qp as any).has_video === 'boolean' ? (qp as any).has_video : (qp.video_url ? true : null)),
           product_code: (qp as any).product_code || null,
           is_active: totalStock === null || totalStock > 0,
           cj_product_id: qp.cj_product_id,
@@ -607,14 +650,15 @@ export async function POST(req: NextRequest) {
           origin_country: qp.origin_country || null,
           origin_country_code: qp.origin_country || null,
           hs_code: qp.hs_code || null,
-          size_chart_images: qp.size_chart_images || null,
-          available_sizes: availableSizes,
-          available_colors: availableColors,
+          size_chart_images: previewPayload?.sizeChartImages || qp.size_chart_images || null,
+          available_sizes: previewPayload?.availableSizes || availableSizes,
+          available_colors: previewPayload?.availableColors || availableColors,
+          color_image_map: previewColorImageMap || colorImageMap || null,
           has_variants: variants.length > 0,
           min_price: minVariantPrice,
           max_price: maxVariantPrice,
-          specifications: cleanedSpecs,
-          selling_points: cleanedSellingPoints,
+          specifications: mergedSpecs,
+          selling_points: mergedSellingPoints,
           cj_category_id: qp.cj_category_id || null,
           displayed_rating: typeof qp.displayed_rating === 'number'
             ? normalizeDisplayedRating(qp.displayed_rating)
@@ -630,7 +674,7 @@ export async function POST(req: NextRequest) {
           'supplier_sku', 'variants', 'weight_g', 'weight_grams', 'pack_length', 'pack_width',
           'pack_height', 'material', 'origin_country', 'origin_country_code', 'hs_code',
           'size_chart_images', 'available_sizes', 'available_colors', 'has_variants',
-          'min_price', 'max_price', 'specifications', 'selling_points',
+          'min_price', 'max_price', 'specifications', 'selling_points', 'color_image_map',
           'cj_category_id', 'displayed_rating', 'rating_confidence'
         ]);
 

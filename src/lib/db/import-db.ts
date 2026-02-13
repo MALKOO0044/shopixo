@@ -63,6 +63,7 @@ export async function checkProductQueueSchema(): Promise<{
     { name: 'color_image_map', type: 'JSONB', default: 'NULL' },
     { name: 'displayed_rating', type: 'NUMERIC(3,1)', default: 'NULL' },
     { name: 'rating_confidence', type: 'NUMERIC(3,2)', default: 'NULL' },
+    { name: 'preview_payload', type: 'JSONB', default: 'NULL' },
   ];
 
   const missingColumns: string[] = [];
@@ -189,6 +190,7 @@ export async function addProductToQueue(batchId: number, product: {
   cjProductCost?: number;
   profitMargin?: number;
   colorImageMap?: Record<string, string>;
+  previewPayload?: any;
 }): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { success: false, error: 'Supabase not configured' };
@@ -308,6 +310,7 @@ export async function addProductToQueue(batchId: number, product: {
     product_code: productCode,
     video_url: product.videoUrl || null,
     has_video: hasVideo,
+    preview_payload: product.previewPayload || null,
   };
   
   // Check which new columns exist in the schema
