@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Star, ChevronLeft, ChevronRight } from "lucide-react";
 import { useRef } from "react";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
 interface Product {
   id: number;
@@ -12,7 +13,7 @@ interface Product {
   image: string;
   price: number;
   originalPrice?: number;
-  rating: number;
+  displayed_rating?: number | null;
   badge?: string;
 }
 
@@ -60,7 +61,9 @@ export default function YouMayAlsoLike({ products, title = "You May Also Like" }
         ref={scrollRef}
         className="flex gap-4 overflow-x-auto hide-scrollbar scroll-smooth pb-2"
       >
-        {products.map((product) => (
+        {products.map((product) => {
+          const rating = normalizeDisplayedRating(product.displayed_rating);
+          return (
           <Link
             key={product.id}
             href={`/product/${product.slug}`}
@@ -99,16 +102,17 @@ export default function YouMayAlsoLike({ products, title = "You May Also Like" }
                 <Star
                   key={i}
                   className={`w-3 h-3 ${
-                    i < Math.floor(product.rating)
+                    i < Math.floor(rating)
                       ? "fill-amber-400 text-amber-400"
                       : "fill-gray-200 text-gray-200"
                   }`}
                 />
               ))}
-              <span className="text-xs text-gray-500">{product.rating}</span>
+              <span className="text-xs text-gray-500">{rating.toFixed(1)}</span>
             </div>
           </Link>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

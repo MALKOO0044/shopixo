@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import DescriptionGallery from "./DescriptionGallery";
 import { parseProductDescription } from "./SafeHtmlRenderer";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
 interface Review {
   id: number;
@@ -26,7 +27,7 @@ interface RelatedProduct {
   image: string;
   price: number;
   originalPrice?: number;
-  rating: number;
+  displayed_rating?: number | null;
   badge?: string;
 }
 
@@ -54,6 +55,7 @@ export default function ProductTabs({
   productTitle = "Product",
 }: ProductTabsProps) {
   const [activeTab, setActiveTab] = useState<"overview" | "reviews" | "recommendations">("overview");
+  const normalizedAverageRating = normalizeDisplayedRating(averageRating);
 
   const parsedDescription = useMemo(() => {
     return parseProductDescription(description);
@@ -184,13 +186,13 @@ export default function ProductTabs({
               <div className="flex flex-col md:flex-row md:items-start gap-6 md:gap-8">
                 <div className="bg-gray-50 rounded-xl p-6 text-center md:text-left">
                   <div className="flex items-center justify-center md:justify-start gap-2 mb-2">
-                    <span className="text-4xl font-bold">{averageRating.toFixed(1)}</span>
+                    <span className="text-4xl font-bold">{normalizedAverageRating.toFixed(1)}</span>
                     <div className="flex">
                       {[...Array(5)].map((_, i) => (
                         <Star
                           key={i}
                           className={`w-5 h-5 ${
-                            i < Math.floor(averageRating)
+                            i < Math.floor(normalizedAverageRating)
                               ? "fill-amber-400 text-amber-400"
                               : "fill-gray-200 text-gray-200"
                           }`}
@@ -204,48 +206,52 @@ export default function ProductTabs({
 
               {reviews.length > 0 && (
                 <div className="space-y-4 pt-4 border-t">
-                  {reviews.map((review) => (
-                    <div key={review.id} className="bg-white border rounded-xl p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <div className="flex">
-                            {[...Array(5)].map((_, i) => (
-                              <Star
-                                key={i}
-                                className={`w-4 h-4 ${
-                                  i < review.rating
-                                    ? "fill-amber-400 text-amber-400"
-                                    : "fill-gray-200 text-gray-200"
-                                }`}
-                              />
-                            ))}
+                  {reviews.map((review) => {
+                    const reviewRating = normalizeDisplayedRating(review.rating);
+                    const reviewStars = Math.floor(reviewRating);
+                    return (
+                      <div key={review.id} className="bg-white border rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex">
+                              {[...Array(5)].map((_, i) => (
+                                <Star
+                                  key={i}
+                                  className={`w-4 h-4 ${
+                                    i < reviewStars
+                                      ? "fill-amber-400 text-amber-400"
+                                      : "fill-gray-200 text-gray-200"
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                            <span className="text-sm font-medium">{reviewRating.toFixed(1)}</span>
                           </div>
-                          <span className="text-sm font-medium text-gray-700">{review.author}</span>
-                          <span className="text-sm text-gray-400">{review.date}</span>
+                          <span className="text-xs text-gray-400">{review.date}</span>
                         </div>
                         <button className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors">
                           <ThumbsUp className="w-4 h-4" />
                           <span className="hidden sm:inline">Helpful</span> ({review.helpful})
                         </button>
+                        <p className="text-sm text-gray-700 mb-3">{review.content}</p>
+                        {review.images && review.images.length > 0 && (
+                          <div className="flex gap-2 mb-3">
+                            {review.images.map((img, i) => (
+                              <div key={i} className="w-16 h-16 rounded-lg overflow-hidden relative">
+                                <Image src={img} alt="" fill className="object-cover" />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {review.purchased && (
+                          <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 inline-block">
+                            Purchased: {review.purchased}
+                            {review.fit && ` | Overall Fit: ${review.fit}`}
+                          </p>
+                        )}
                       </div>
-                      <p className="text-sm text-gray-700 mb-3">{review.content}</p>
-                      {review.images && review.images.length > 0 && (
-                        <div className="flex gap-2 mb-3">
-                          {review.images.map((img, i) => (
-                            <div key={i} className="w-16 h-16 rounded-lg overflow-hidden relative">
-                              <Image src={img} alt="" fill className="object-cover" />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {review.purchased && (
-                        <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 inline-block">
-                          Purchased: {review.purchased}
-                          {review.fit && ` | Overall Fit: ${review.fit}`}
-                        </p>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </>
@@ -298,17 +304,24 @@ export default function ProductTabs({
                     )}
                   </div>
                   <div className="flex items-center gap-1 mt-1">
-                    {[...Array(5)].map((_, i) => (
-                      <Star
-                        key={i}
-                        className={`w-3 h-3 ${
-                          i < Math.floor(product.rating)
-                            ? "fill-amber-400 text-amber-400"
-                            : "fill-gray-200 text-gray-200"
-                        }`}
-                      />
-                    ))}
-                    <span className="text-xs text-gray-500">{product.rating}</span>
+                    {(() => {
+                      const rating = normalizeDisplayedRating(product.displayed_rating);
+                      return (
+                        <>
+                          {[...Array(5)].map((_, i) => (
+                            <Star
+                              key={i}
+                              className={`w-3 h-3 ${
+                                i < Math.floor(rating)
+                                  ? "fill-amber-400 text-amber-400"
+                                  : "fill-gray-200 text-gray-200"
+                              }`}
+                            />
+                          ))}
+                          <span className="text-xs text-gray-500">{rating.toFixed(1)}</span>
+                        </>
+                      );
+                    })()}
                   </div>
                 </Link>
               ))

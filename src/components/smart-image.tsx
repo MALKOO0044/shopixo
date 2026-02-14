@@ -44,7 +44,7 @@ export default function SmartImage({ src, alt, fill, className, loading, ...rest
           loading={loading as any}
           sizes={(rest as any).sizes || "(max-width: 768px) 100vw, 33vw"}
           priority={(rest as any).priority}
-          quality={(rest as any).quality}
+          quality={(rest as any).quality ?? 90}
         />
       );
     }
@@ -59,7 +59,7 @@ export default function SmartImage({ src, alt, fill, className, loading, ...rest
         className={className}
         loading={loading as any}
         priority={(rest as any).priority}
-        quality={(rest as any).quality}
+        quality={(rest as any).quality ?? 90}
       />
     );
   }

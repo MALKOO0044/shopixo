@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Star } from "lucide-react";
 import type { Route } from "next";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
 function safeImageUrl(img: string | undefined | null): string {
   if (!img) return '/placeholder.svg';
@@ -28,7 +29,7 @@ interface Product {
   name: string;
   price: number;
   originalPrice?: number;
-  rating?: number;
+  displayed_rating?: number | null;
   image: string;
   badge?: string;
   slug?: string;
@@ -74,7 +75,9 @@ export default function ProductCarousel({ title, products, viewAllHref }: Produc
             ref={scrollRef}
             className="flex gap-4 overflow-x-auto hide-scrollbar scroll-smooth"
           >
-            {products.map((product) => (
+            {products.map((product) => {
+              const rating = normalizeDisplayedRating(product.displayed_rating);
+              return (
               <Link
                 key={product.id}
                 href={`/product/${product.slug || product.id}` as Route}
@@ -107,20 +110,18 @@ export default function ProductCarousel({ title, products, viewAllHref }: Produc
                       <span className="text-xs text-gray-400 line-through">${product.originalPrice.toFixed(2)}</span>
                     )}
                   </div>
-                  {product.rating && (
-                    <div className="flex items-center gap-1">
-                      {[...Array(5)].map((_, i) => (
-                        <Star
-                          key={i}
-                          className={`h-3 w-3 ${i < Math.floor(product.rating!) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`}
-                        />
-                      ))}
-                      <span className="text-xs text-gray-500">{product.rating}</span>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-1">
+                    {[...Array(5)].map((_, i) => (
+                      <Star
+                        key={i}
+                        className={`h-3 w-3 ${i < Math.floor(rating) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`}
+                      />
+                    ))}
+                    <span className="text-xs text-gray-500">{rating.toFixed(1)}</span>
+                  </div>
                 </div>
               </Link>
-            ))}
+            )})}
           </div>
 
           <button

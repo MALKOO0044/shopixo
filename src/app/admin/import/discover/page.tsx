@@ -55,6 +55,7 @@ export default function ProductDiscoveryPage() {
   // Always use CJPacket Ordinary - no filter option (100% accuracy requirement)
   const shippingMethod = "cjpacket ordinary";
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
+  const [media, setMedia] = useState("");
   
   const [loading, setLoading] = useState(false);
   const [searchProgress, setSearchProgress] = useState("");
@@ -589,6 +590,13 @@ export default function ProductDiscoveryPage() {
 
   const selectedCategory = categories.find(c => c.categoryId === category);
   
+  // Apply client-side media filter to fetched products
+  const displayedProducts = products.filter((p) => {
+    if (media === 'withVideo') return !!(p as any).videoUrl;
+    if (media === 'imagesOnly') return !(p as any).videoUrl;
+    return true;
+  });
+  
   // Find matching Supabase main category based on CJ category name
   const getMatchingSupabaseMainCategory = (): SupabaseCategory | null => {
     if (!selectedCategory || category === 'all') return null;
@@ -942,7 +950,7 @@ export default function ProductDiscoveryPage() {
           <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-4">
             <div className="flex items-center gap-4">
               <span className="text-sm text-gray-900">
-                Found <strong>{products.length}</strong> products with prices
+                Found <strong>{displayedProducts.length}</strong> of <strong>{products.length}</strong> products (filtered)
               </span>
               <span className="text-sm text-gray-400">|</span>
               <span className="text-sm text-gray-600">
@@ -950,13 +958,13 @@ export default function ProductDiscoveryPage() {
               </span>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={selectAll} className="text-sm text-blue-600 hover:underline">Select All</button>
+              <button onClick={() => setSelected(new Set(displayedProducts.map(p => p.pid)))} className="text-sm text-blue-600 hover:underline">Select All</button>
               <button onClick={deselectAll} className="text-sm text-gray-500 hover:underline">Clear</button>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {products.map((product) => {
+            {displayedProducts.map((product) => {
               const isSelected = selected.has(product.pid);
               
               return (
@@ -979,6 +987,12 @@ export default function ProductDiscoveryPage() {
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-gray-400">
                         <Package className="h-12 w-12" />
+                      </div>
+                    )}
+                    {(product as any).videoUrl && (
+                      <div className="absolute left-2 bottom-2 rounded-full bg-black/60 text-white px-2 py-1 text-[11px] flex items-center gap-1">
+                        <Play className="h-3.5 w-3.5" />
+                        <span>Video</span>
                       </div>
                     )}
                     

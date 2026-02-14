@@ -3,6 +3,8 @@ import Ratings from "@/components/ratings";
 import { formatCurrency } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 import SmartImage from "@/components/smart-image";
+import { PlayCircle } from "lucide-react";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
 function isLikelyImageUrl(s: string): boolean {
   if (!s) return false;
@@ -182,21 +184,22 @@ function transformCardImage(url: string): string {
   return url || '/placeholder.svg';
 }
 
-function getImageField(p: any): any {
-  return typeof p?.images !== 'undefined' && p?.images !== null && p?.images !== ''
+function getImageField(p: Pick<Product, "images" | "image">): Product["images"] | Product["image"] | null {
+  return typeof p?.images !== 'undefined' && p?.images !== null
     ? p.images
     : p?.image ?? null;
 }
 
 export default function ProductCard({ product }: { product: Product }) {
+  const rating = normalizeDisplayedRating(product.displayed_rating);
   return (
     <Link
-      href={`/product/${product.slug || (product.id as any)}`}
+      href={`/product/${product.slug || product.id}`}
       className="group block rounded-[var(--radius-lg)] border bg-card p-5 shadow-soft transition will-change-transform hover:-translate-y-[6px] hover:shadow-soft"
     >
       <div className="relative mb-3 aspect-[4/3] w-full overflow-hidden rounded-image bg-slate-100">
         {(() => {
-          const media = pickPrimaryMedia(getImageField(product as any)) || "/placeholder.svg";
+          const media = pickPrimaryMedia(getImageField(product)) || "/placeholder.svg";
           const normalized = normalizeImageUrl(media);
           const thumb = transformCardImage(normalized);
           return (
@@ -206,16 +209,26 @@ export default function ProductCard({ product }: { product: Product }) {
               loading="lazy"
               className="h-full w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03]"
               fill
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 20vw"
             />
           );
         })()}
+        {!!product.video_url && (
+          <div className="absolute left-2 top-2 rounded-full bg-black/60 text-white px-2 py-1 text-[11px] flex items-center gap-1">
+            <PlayCircle className="h-3.5 w-3.5" />
+            <span>Video</span>
+          </div>
+        )}
       </div>
       <div className="flex items-center justify-between gap-2">
         <h3 className="truncate text-base font-semibold text-foreground" title={product.title}>{product.title}</h3>
         <div className="text-lg font-bold text-foreground">{formatCurrency(product.price)}</div>
       </div>
+      {product.product_code && (
+        <div className="mt-0.5 text-[11px] text-slate-500">SKU: {product.product_code}</div>
+      )}
       <div className="mt-1 text-sm text-muted-foreground">{product.category}</div>
-      <div className="mt-2"><Ratings value={product.rating} /></div>
+      <div className="mt-2"><Ratings value={rating} /></div>
     </Link>
   );
 }

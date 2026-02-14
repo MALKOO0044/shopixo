@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Star, ShoppingCart } from "lucide-react";
+import { Star } from "lucide-react";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import type { HomepageProduct } from "@/lib/homepage-products";
 
 function safeImageUrl(img: string | undefined | null): string {
@@ -40,7 +41,9 @@ export default function RecommendedProducts({ products }: RecommendedProductsPro
         <h2 className="text-lg font-bold text-gray-800 mb-4">Recommended for You</h2>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-3">
-          {products.slice(0, visibleCount).map((product) => (
+          {products.slice(0, visibleCount).map((product) => {
+            const rating = normalizeDisplayedRating(product.displayed_rating);
+            return (
             <Link
               key={product.id}
               href={`/product/${product.slug || product.id}`}
@@ -77,14 +80,15 @@ export default function RecommendedProducts({ products }: RecommendedProductsPro
                   {[...Array(5)].map((_, i) => (
                     <Star
                       key={i}
-                      className={`h-3 w-3 ${i < Math.floor(product.rating) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`}
+                      className={`h-3 w-3 ${i < Math.floor(rating) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`}
                     />
                   ))}
-                  <span className="text-xs text-gray-500">{product.rating}</span>
+                  <span className="text-xs text-gray-500">{rating.toFixed(1)}</span>
                 </div>
               </div>
             </Link>
-          ))}
+            );
+          })}
         </div>
 
         {visibleCount < products.length && (

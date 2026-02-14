@@ -11,6 +11,7 @@ import ProductTabs from "@/components/product/ProductTabs";
 import YouMayAlsoLike from "@/components/product/YouMayAlsoLike";
 import MakeItAMatch from "@/components/product/MakeItAMatch";
 import { computeBilledWeightKg, resolveDdpShippingSar } from "@/lib/pricing";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import { extractImagesFromHtml, parseProductDescription } from "@/components/product/SafeHtmlRenderer";
 
 function isLikelyImageUrl(s: string): boolean {
@@ -108,7 +109,7 @@ function getCloudinaryVideoPoster(url: string): string | null {
       if (idx === -1) return null;
       const before = u.slice(0, idx + marker.length);
       const after = u.slice(idx + marker.length);
-      const inject = 'so_0/';
+      const inject = 'so_0,q_auto:best/';
       const core = after.replace(/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i, '');
       return `${before}${inject}${core}.jpg`;
     }
@@ -117,22 +118,7 @@ function getCloudinaryVideoPoster(url: string): string | null {
 }
 
 function transformImage(url: string): string {
-  try {
-    url = normalizeImageUrl(url);
-    if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/')) {
-      const isUpload = url.includes('/image/upload/');
-      const isFetch = url.includes('/image/fetch/');
-      const marker = isUpload ? '/image/upload/' : (isFetch ? '/image/fetch/' : null);
-      if (!marker) return url;
-      const idx = url.indexOf(marker);
-      const after = url.slice(idx + marker.length);
-      const hasTransforms = after && !after.startsWith('v');
-      if (hasTransforms) return url;
-      const inject = 'f_auto,q_auto,c_fill,g_auto,w_800,h_800/';
-      return url.replace(marker, marker + inject);
-    }
-  } catch {}
-  return url;
+  return normalizeImageUrl(url);
 }
 
 interface MediaGalleryProps {
@@ -422,7 +408,7 @@ interface DetailHeaderProps {
 }
 
 function DetailHeader({ title, productCode, rating, reviewCount = 0 }: DetailHeaderProps) {
-  const displayRating = Math.min(5, Math.max(0, rating));
+  const displayRating = normalizeDisplayedRating(rating);
   const fullStars = Math.floor(displayRating);
   const hasHalfStar = displayRating % 1 >= 0.5;
 
@@ -455,7 +441,7 @@ function DetailHeader({ title, productCode, rating, reviewCount = 0 }: DetailHea
           ))}
         </div>
         <span className="text-sm text-muted-foreground">
-          {displayRating > 0 
+          {displayRating > 0
             ? `${displayRating.toFixed(1)} (${reviewCount > 0 ? reviewCount.toLocaleString('en-US') : '0'} Reviewed)`
             : 'No reviews yet'}
         </span>
