@@ -1499,7 +1499,7 @@ export default function ProductDetailsClient({
           <DetailHeader
             title={product.title}
             productCode={product.product_code}
-            rating={product.rating || (product as any).supplier_rating || 0}
+            rating={product.displayed_rating || (product as any).supplier_rating || 0}
             reviewCount={(product as any).review_count || 0}
           />
 
