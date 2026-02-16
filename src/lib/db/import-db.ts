@@ -41,8 +41,15 @@ export async function checkProductQueueSchema(): Promise<{
     { name: 'origin_country', type: 'TEXT', default: 'NULL' },
     { name: 'hs_code', type: 'TEXT', default: 'NULL' },
     { name: 'category_name', type: 'TEXT', default: 'NULL' },
+    { name: 'store_sku', type: 'TEXT', default: 'NULL' },
+    { name: 'overview', type: 'TEXT', default: 'NULL' },
+    { name: 'product_info', type: 'TEXT', default: 'NULL' },
+    { name: 'size_info', type: 'TEXT', default: 'NULL' },
+    { name: 'product_note', type: 'TEXT', default: 'NULL' },
+    { name: 'packing_list', type: 'TEXT', default: 'NULL' },
     { name: 'available_colors', type: 'JSONB', default: 'NULL' },
     { name: 'available_sizes', type: 'JSONB', default: 'NULL' },
+    { name: 'available_models', type: 'JSONB', default: 'NULL' },
     { name: 'size_chart_images', type: 'JSONB', default: 'NULL' },
     { name: 'cj_category_id', type: 'TEXT', default: 'NULL' },
     { name: 'variant_pricing', type: 'JSONB', default: "'[]'::JSONB" },
@@ -50,6 +57,8 @@ export async function checkProductQueueSchema(): Promise<{
     { name: 'specifications', type: 'JSONB', default: "'{}'::JSONB" },
     { name: 'selling_points', type: 'JSONB', default: "'[]'::JSONB" },
     { name: 'inventory_by_warehouse', type: 'JSONB', default: 'NULL' },
+    { name: 'inventory_status', type: 'TEXT', default: 'NULL' },
+    { name: 'inventory_error_message', type: 'TEXT', default: 'NULL' },
     { name: 'price_breakdown', type: 'JSONB', default: 'NULL' },
     { name: 'cj_total_cost', type: 'NUMERIC(10,2)', default: 'NULL' },
     { name: 'cj_shipping_cost', type: 'NUMERIC(10,2)', default: 'NULL' },
@@ -143,8 +152,14 @@ export async function createImportBatch(data: {
 export async function addProductToQueue(batchId: number, product: {
   productId: string;
   cjSku?: string;
+  storeSku?: string;
   name: string;
   description?: string;
+  overview?: string;
+  productInfo?: string;
+  sizeInfo?: string;
+  productNote?: string;
+  packingList?: string;
   category: string;
   images: string[];
   videoUrl?: string;
@@ -162,11 +177,13 @@ export async function addProductToQueue(batchId: number, product: {
   packWidth?: number;
   packHeight?: number;
   material?: string;
+  productType?: string;
   originCountry?: string;
   hsCode?: string;
   sizeChartImages?: string[];
   availableSizes?: string[];
   availableColors?: string[];
+  availableModels?: string[];
   categoryName?: string;
   cjCategoryId?: string;
   supabaseCategoryId?: number;
@@ -176,6 +193,8 @@ export async function addProductToQueue(batchId: number, product: {
   specifications?: Record<string, any>;
   sellingPoints?: string[];
   inventoryByWarehouse?: any;
+  inventoryStatus?: string;
+  inventoryErrorMessage?: string;
   priceBreakdown?: any;
   cjTotalCost?: number;
   cjShippingCost?: number;
@@ -185,16 +204,32 @@ export async function addProductToQueue(batchId: number, product: {
 }): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { success: false, error: 'Supabase not configured' };
+  if (!product.productId) return { success: false, error: 'Missing required field: pid' };
+  if (!product.storeSku) return { success: false, error: 'Missing required field: storeSku' };
+  if (!product.name) return { success: false, error: 'Missing required field: name' };
+  if (!Array.isArray(product.variants) || product.variants.length === 0) {
+    return { success: false, error: 'Missing required field: variants' };
+  }
+  for (const v of product.variants) {
+    if (!v?.variantSku) return { success: false, error: 'Missing required field: variantSku' };
+    if (v?.sellPriceSAR == null) return { success: false, error: 'Missing required field: sellPriceSAR' };
+  }
 
   // Core fields that always exist
   const productData: Record<string, any> = {
     batch_id: batchId,
     cj_product_id: product.productId,
     cj_sku: product.cjSku || null,
+    store_sku: product.storeSku || null,
     name_en: product.name,
     name_ar: null,
     description_en: product.description || null,
     description_ar: null,
+    overview: product.overview || null,
+    product_info: product.productInfo || null,
+    size_info: product.sizeInfo || null,
+    product_note: product.productNote || null,
+    packing_list: product.packingList || null,
     category: product.category,
     images: product.images,
     video_url: product.videoUrl || null,
@@ -222,15 +257,19 @@ export async function addProductToQueue(batchId: number, product: {
     pack_width: product.packWidth || null,
     pack_height: product.packHeight || null,
     material: product.material || null,
+    product_type: product.productType || null,
     origin_country: product.originCountry || null,
     hs_code: product.hsCode || null,
     category_name: product.categoryName || null,
     size_chart_images: product.sizeChartImages || null,
     available_sizes: product.availableSizes || null,
     available_colors: product.availableColors || null,
+    available_models: product.availableModels || null,
     cj_category_id: product.cjCategoryId || null,
     supabase_category_id: product.supabaseCategoryId || null,
     supabase_category_slug: product.supabaseCategorySlug || null,
+    inventory_status: product.inventoryStatus || null,
+    inventory_error_message: product.inventoryErrorMessage || null,
   };
   
   // New columns that require migration - check if they exist first

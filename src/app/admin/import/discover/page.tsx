@@ -424,19 +424,21 @@ export default function ProductDiscoveryPage() {
           category: category !== 'all' ? categories.find(c => c.categoryId === category)?.categoryName : undefined,
           products: selectedProducts.map(p => {
             const availableVariants = p.variants.filter(v => v.shippingAvailable);
-            const avgProductCost = availableVariants.length > 0
-              ? availableVariants.reduce((sum, v) => sum + v.variantPriceUSD, 0) / availableVariants.length
-              : p.avgPriceSAR / 3.75;
-            const avgShippingCost = availableVariants.length > 0
-              ? availableVariants.reduce((sum, v) => sum + v.shippingPriceUSD, 0) / availableVariants.length
-              : 5;
+            const avgProductCost = p.avgPriceSAR ? p.avgPriceSAR / 3.75 : 0;
+            const avgShippingCost = 0;
             const totalCost = avgProductCost + avgShippingCost;
             
             return {
               cjProductId: p.pid,
               cjSku: p.cjSku,
+              storeSku: p.storeSku,
               name: p.name,
-              description: p.description || p.overview || '',
+              description: p.description,
+              overview: p.overview,
+              productInfo: p.productInfo,
+              sizeInfo: p.sizeInfo,
+              productNote: p.productNote,
+              packingList: p.packingList,
               images: p.images,
               videoUrl: p.videoUrl,
               minPriceSAR: p.minPriceSAR,
@@ -455,14 +457,16 @@ export default function ProductDiscoveryPage() {
               packWidth: p.packWidth,
               packHeight: p.packHeight,
               material: p.material,
+              productType: p.productType,
               originCountry: p.originCountry,
               hsCode: p.hsCode,
               sizeChartImages: p.sizeChartImages,
               availableSizes: p.availableSizes,
               availableColors: p.availableColors,
-              processingDays: p.processingTimeHours ? Math.ceil(p.processingTimeHours / 24) : 3,
-              deliveryDaysMin: 7,
-              deliveryDaysMax: p.deliveryTimeHours ? Math.ceil(p.deliveryTimeHours / 24) : 15,
+              availableModels: p.availableModels,
+              processingDays: p.processingTimeHours,
+              deliveryDaysMin: undefined,
+              deliveryDaysMax: p.deliveryTimeHours,
               variantPricing: availableVariants.map(v => ({
                 variantId: v.variantId,
                 sku: v.variantSku,
@@ -471,9 +475,9 @@ export default function ProductDiscoveryPage() {
                 price: v.sellPriceSAR,
                 costPrice: v.variantPriceUSD,
                 shippingCost: v.shippingPriceUSD,
-                stock: v.stock || 0,
-                cjStock: v.cjStock || 0,
-                factoryStock: v.factoryStock || 0,
+                stock: v.stock ?? null,
+                cjStock: v.cjStock ?? null,
+                factoryStock: v.factoryStock ?? null,
                 colorImage: v.variantImage,
               })),
               specifications: {
@@ -484,18 +488,14 @@ export default function ProductDiscoveryPage() {
               },
               sellingPoints: p.overview ? p.overview.split('\n').filter((l: string) => l.trim()) : [],
               inventoryByWarehouse: p.inventory,
+              inventoryStatus: p.inventoryStatus,
+              inventoryErrorMessage: p.inventoryErrorMessage,
               colorImageMap: p.colorImageMap,
-              priceBreakdown: {
-                avgProductCost,
-                avgShippingCost,
-                totalCost,
-                avgSellPrice: p.avgPriceSAR,
-                profitMargin: p.avgPriceSAR > 0 ? ((p.avgPriceSAR - totalCost * 3.75) / p.avgPriceSAR * 100) : 0,
-              },
-              cjProductCost: avgProductCost,
-              cjShippingCost: avgShippingCost,
-              cjTotalCost: totalCost,
-              profitMargin: p.avgPriceSAR > 0 ? ((p.avgPriceSAR - totalCost * 3.75) / p.avgPriceSAR * 100) : 8,
+              priceBreakdown: undefined,
+              cjProductCost: undefined,
+              cjShippingCost: undefined,
+              cjTotalCost: undefined,
+              profitMargin: undefined,
             };
           }),
         }),

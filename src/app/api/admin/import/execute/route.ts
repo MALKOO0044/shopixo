@@ -250,105 +250,7 @@ async function calculateRetailPrice(costUsd: number, shippingUsd: number | null,
   };
 }
 
-function generateSku(prefix: string, productId: string, variantIndex: number): string {
-  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${prefix}-${productId.slice(-4).toUpperCase()}-${variantIndex + 1}-${random}`;
-}
-
-// Clean HTML entities and STRIP ALL HTML TAGS from description
-function cleanDescription(html: string | null | undefined): string {
-  if (!html) return '';
-  
-  let text = html;
-  
-  // First, replace block-level tags with newlines for better formatting
-  text = text.replace(/<br\s*\/?>/gi, '\n');
-  text = text.replace(/<\/p>/gi, '\n\n');
-  text = text.replace(/<\/div>/gi, '\n');
-  text = text.replace(/<\/li>/gi, '\n');
-  text = text.replace(/<\/h[1-6]>/gi, '\n\n');
-  
-  // Remove all remaining HTML tags completely
-  text = text.replace(/<[^>]+>/g, '');
-  
-  // Decode common HTML entities
-  const entities: Record<string, string> = {
-    '&nbsp;': ' ',
-    '&amp;': '&',
-    '&lt;': '<',
-    '&gt;': '>',
-    '&quot;': '"',
-    '&#39;': "'",
-    '&apos;': "'",
-    '&copy;': '©',
-    '&reg;': '®',
-    '&trade;': '™',
-    '&mdash;': '—',
-    '&ndash;': '–',
-    '&hellip;': '...',
-    '&#160;': ' ',
-    '&#8203;': '', // Zero-width space
-  };
-  
-  for (const [entity, char] of Object.entries(entities)) {
-    text = text.replace(new RegExp(entity, 'gi'), char);
-  }
-  
-  // Decode numeric entities
-  text = text.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)));
-  text = text.replace(/&#x([0-9A-Fa-f]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)));
-  
-  // Clean up multiple newlines and spaces
-  text = text.replace(/\n{3,}/g, '\n\n'); // Max 2 newlines
-  text = text.replace(/[ \t]+/g, ' '); // Multiple spaces/tabs to single space
-  text = text.replace(/^\s+|\s+$/gm, ''); // Trim each line
-  text = text.trim();
-  
-  return text;
-}
-
-// Clean HTML from selling points array
-function cleanSellingPoints(points: any): string[] {
-  if (!points) return [];
-  const arr = Array.isArray(points) ? points : [];
-  return arr.map((p: any) => {
-    if (typeof p === 'string') {
-      return cleanDescription(p);
-    }
-    return String(p || '');
-  }).filter(Boolean);
-}
-
-// Clean specifications object - remove HTML from string values, preserve arrays/objects
-function cleanSpecifications(specs: any): Record<string, any> {
-  if (!specs || typeof specs !== 'object') return {};
-  
-  function cleanValue(value: any): any {
-    if (value === null || value === undefined) {
-      return value;
-    }
-    if (typeof value === 'string') {
-      return cleanDescription(value);
-    }
-    if (Array.isArray(value)) {
-      return value.map(cleanValue);
-    }
-    if (typeof value === 'object') {
-      const cleaned: Record<string, any> = {};
-      for (const [k, v] of Object.entries(value)) {
-        cleaned[k] = cleanValue(v);
-      }
-      return cleaned;
-    }
-    return value; // numbers, booleans, etc.
-  }
-  
-  const cleaned: Record<string, any> = {};
-  for (const [key, value] of Object.entries(specs)) {
-    cleaned[key] = cleanValue(value);
-  }
-  return cleaned;
-}
+// Preview is the source of truth; do not modify fields during import.
 
 async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
   const s = slugify(base);
@@ -374,6 +276,12 @@ async function omitMissingColumns(payload: Record<string, any>, cols: string[]) 
     } catch {
       delete payload[c];
     }
+  }
+}
+
+function requireField(value: any, name: string) {
+  if (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)) {
+    throw new Error(`Missing required field: ${name}`);
   }
 }
 
@@ -413,6 +321,15 @@ export async function POST(req: NextRequest) {
 
     for (const qp of queueProducts) {
       try {
+        requireField(qp.cj_product_id, 'pid');
+        requireField(qp.store_sku, 'storeSku');
+        requireField(qp.name_en, 'name');
+        const rawVariantsRequired = typeof qp.variants === 'string' ? JSON.parse(qp.variants) : (qp.variants || []);
+        requireField(rawVariantsRequired, 'variants');
+        for (const v of rawVariantsRequired) {
+          requireField(v?.variantSku, 'variantSku');
+          requireField(v?.sellPriceSAR, 'sellPriceSAR');
+        }
         let existing: any = null;
         if (hasCjProductIdColumn) {
           const { data } = await admin
@@ -445,56 +362,24 @@ export async function POST(req: NextRequest) {
           ? JSON.parse(qp.color_image_map) 
           : (qp.color_image_map || {});
         
-        const hasValidVariantPricing = rawVariantPricing.length > 0 && rawVariantPricing.some((vp: any) => vp.price > 0 && vp.costPrice > 0);
-        
-        const avgProductCostUsd = qp.cj_product_cost || qp.cj_price_usd || 0;
-        const avgShippingCostUsd = qp.cj_shipping_cost || qp.shipping_cost_usd || DEFAULT_SHIPPING_USD;
-        
-        const pricing = hasValidVariantPricing 
-          ? null 
-          : await calculateRetailPrice(avgProductCostUsd, avgShippingCostUsd, qp.category || "General", admin);
-        
-        const defaultRetailPrice = pricing?.retailSar || 50;
-        
         const variants = rawVariants.map((v: any, i: number) => {
-          const matchingPricing = rawVariantPricing.find((vp: any) => 
+          const matchingPricing = rawVariantPricing.find((vp: any) =>
             vp.variantId === v.variantId || vp.sku === v.variantSku
           );
-          
-          const variantCostUsd = matchingPricing?.costPrice || v.variantPriceUSD || v.price || avgProductCostUsd;
-          const variantShippingUsd = matchingPricing?.shippingCost || v.shippingPriceUSD || avgShippingCostUsd;
-          const variantSellPrice = matchingPricing?.price || v.sellPriceSAR || defaultRetailPrice;
-          
-          // Calculate stock PROPERLY: null/undefined means "unknown availability" (NOT 0)
-          // Only subtract safety buffer when we have actual stock data
-          const rawStock = matchingPricing?.stock ?? v.stock ?? v.variantQuantity ?? null;
-          let finalStock: number | null = null;
-          if (typeof rawStock === 'number' && rawStock >= 0) {
-            // Apply 5-unit safety buffer, but result could still be 0 (out of stock)
-            finalStock = Math.max(0, rawStock - 5);
-          }
-          // If rawStock is null/undefined, finalStock stays null = "unknown availability"
-          
           return {
-            sku: generateSku("CJ", qp.cj_product_id, i),
+            sku: v.storeSku || matchingPricing?.storeSku || null,
             cj_sku: v.variantSku || v.cjSku || v.vid || null,
             cj_variant_id: v.variantId || null,
-            size: matchingPricing?.size || v.size || null,
-            color: matchingPricing?.color || v.color || null,
-            price_sar: Math.round(variantSellPrice * 100) / 100,
-            cost_usd: variantCostUsd,
-            shipping_usd: variantShippingUsd,
-            stock: finalStock,
-            cj_stock: matchingPricing?.cjStock ?? v.cjStock ?? null,
-            factory_stock: matchingPricing?.factoryStock ?? v.factoryStock ?? null,
-            weight_g: v.weight || v.weightGrams || null,
-            // Use colorImageMap as PRIMARY source for color-specific images
-            // This ensures color swatches show the correct product image for each color
-            image_url: (matchingPricing?.color && colorImageMap[matchingPricing.color]) 
-              ? colorImageMap[matchingPricing.color]
-              : (v.color && colorImageMap[v.color])
-                ? colorImageMap[v.color]
-                : matchingPricing?.colorImage || v.variantImage || v.imageUrl || v.image || v.whiteImage || null,
+            size: v.size ?? matchingPricing?.size ?? null,
+            color: v.color ?? matchingPricing?.color ?? null,
+            price_sar: v.sellPriceSAR ?? matchingPricing?.price ?? null,
+            cost_usd: v.variantPriceUSD ?? matchingPricing?.costPrice ?? null,
+            shipping_usd: v.shippingPriceUSD ?? matchingPricing?.shippingCost ?? null,
+            stock: v.stock ?? null,
+            cj_stock: v.cjStock ?? matchingPricing?.cjStock ?? null,
+            factory_stock: v.factoryStock ?? matchingPricing?.factoryStock ?? null,
+            weight_g: v.weight ?? v.weightGrams ?? null,
+            image_url: v.variantImage ?? matchingPricing?.colorImage ?? null,
           };
         });
         
@@ -502,76 +387,41 @@ export async function POST(req: NextRequest) {
           console.log(`[Import] Product ${qp.cj_product_id}: Using colorImageMap for ${Object.keys(colorImageMap).length} colors`);
         }
 
-        // Calculate total stock - only sum explicit stock values
-        // If all variants have null stock, totalStock stays null (unknown inventory)
-        const knownStocks = variants.filter((v: any) => typeof v.stock === 'number');
-        const totalStock: number | null = knownStocks.length > 0 
-          ? knownStocks.reduce((sum: number, v: any) => sum + v.stock, 0)
-          : null; // No fabrication - null means unknown
+        const totalStock: number | null = qp.stock_total ?? null;
         const rawImages = typeof qp.images === 'string' ? JSON.parse(qp.images) : (qp.images || []);
-        const baseSlug = await ensureUniqueSlug(admin, qp.name_en);
+        const baseSlug = qp.store_sku || await ensureUniqueSlug(admin, qp.name_en);
 
-        const variantPrices = variants.map((v: any) => v.price_sar).filter((p: number) => p > 0);
-        const minVariantPrice = variantPrices.length > 0 ? Math.min(...variantPrices) : defaultRetailPrice;
-        const maxVariantPrice = variantPrices.length > 0 ? Math.max(...variantPrices) : defaultRetailPrice;
+        const variantPrices = variants.map((v: any) => v.price_sar).filter((p: number) => typeof p === 'number');
+        const minVariantPrice = variantPrices.length > 0 ? Math.min(...variantPrices) : null;
+        const maxVariantPrice = variantPrices.length > 0 ? Math.max(...variantPrices) : null;
 
         const productPayload: Record<string, any> = {
           title: qp.name_en,
           slug: baseSlug,
-          price: minVariantPrice,
+          price: minVariantPrice ?? qp.calculated_retail_sar ?? null,
           category: qp.category || "General",
           stock: totalStock,
         };
 
         const rawSpecifications = typeof qp.specifications === 'string' ? JSON.parse(qp.specifications) : (qp.specifications || {});
         const rawSellingPoints = typeof qp.selling_points === 'string' ? JSON.parse(qp.selling_points) : (qp.selling_points || []);
-        
-        // Clean HTML from specifications and selling points
-        const cleanedSpecs = cleanSpecifications(rawSpecifications);
-        const cleanedSellingPoints = cleanSellingPoints(rawSellingPoints);
-        
-        // SMART DEDUPLICATION: Use normalized keys (lowercase, trimmed, collapsed whitespace)
-        // but preserve the original CJ display name (first occurrence wins)
-        function deduplicateByNormalizedKey(items: string[]): string[] {
-          const seen = new Map<string, string>();
-          for (const item of items) {
-            if (!item || typeof item !== 'string') continue;
-            const display = item.trim();
-            if (!display) continue;
-            // Normalize: lowercase, trim, collapse multiple spaces to single space
-            const key = display.toLowerCase().replace(/\s+/g, ' ');
-            if (!seen.has(key)) {
-              seen.set(key, display); // First occurrence preserves original display name
-            }
-          }
-          return Array.from(seen.values());
-        }
-        
-        // Extract ALL sizes from all available sources (merged and smart-deduplicated)
-        const qpSizes = Array.isArray(qp.available_sizes) ? qp.available_sizes : [];
-        const pricingSizes = rawVariantPricing.map((vp: any) => vp.size).filter(Boolean);
-        const variantSizes = variants.map((v: any) => v.size).filter(Boolean);
-        const allSizes = [...qpSizes, ...pricingSizes, ...variantSizes];
-        const availableSizes = deduplicateByNormalizedKey(allSizes);
-        
-        // Extract ALL colors from all available sources (merged and smart-deduplicated)
-        const qpColors = Array.isArray(qp.available_colors) ? qp.available_colors : [];
-        const pricingColors = rawVariantPricing.map((vp: any) => vp.color).filter(Boolean);
-        const variantColors = variants.map((v: any) => v.color).filter(Boolean);
-        const allColors = [...qpColors, ...pricingColors, ...variantColors];
-        const availableColors = deduplicateByNormalizedKey(allColors);
-        
-        console.log(`[Import] Product ${qp.cj_product_id}: Found ${availableColors.length} colors: ${availableColors.join(', ')}`);
-        console.log(`[Import] Product ${qp.cj_product_id}: Found ${availableSizes.length} sizes: ${availableSizes.join(', ')}`);
+        const availableSizes = Array.isArray(qp.available_sizes) ? qp.available_sizes : null;
+        const availableColors = Array.isArray(qp.available_colors) ? qp.available_colors : null;
 
         const optionalFields: Record<string, any> = {
-          description: cleanDescription(qp.description_en),
+          description: qp.description_en ?? null,
+          overview: qp.overview ?? null,
+          product_info: qp.product_info ?? null,
+          size_info: qp.size_info ?? null,
+          product_note: qp.product_note ?? null,
+          packing_list: qp.packing_list ?? null,
           images: rawImages,
           video_url: qp.video_url || null,
-          is_active: totalStock === null || totalStock > 0,
+          is_active: null,
           cj_product_id: qp.cj_product_id,
-          supplier_sku: qp.cj_sku || `CJ-${qp.cj_product_id}`,
-          free_shipping: true,
+          supplier_sku: qp.cj_sku || null,
+          store_sku: qp.store_sku || null,
+          free_shipping: null,
           processing_time_hours: qp.processing_days ? qp.processing_days * 24 : null,
           delivery_time_hours: qp.delivery_days_max ? qp.delivery_days_max * 24 : null,
           variants: variants.length > 0 ? variants : null,
@@ -580,7 +430,8 @@ export async function POST(req: NextRequest) {
           pack_length: qp.pack_length || null,
           pack_width: qp.pack_width || null,
           pack_height: qp.pack_height || null,
-          material: cleanDescription(qp.material) || null,
+          material: qp.material || null,
+          product_type: qp.product_type || null,
           origin_country: qp.origin_country || null,
           origin_country_code: qp.origin_country || null,
           hs_code: qp.hs_code || null,
@@ -590,21 +441,26 @@ export async function POST(req: NextRequest) {
           has_variants: variants.length > 0,
           min_price: minVariantPrice,
           max_price: maxVariantPrice,
-          specifications: cleanedSpecs,
-          selling_points: cleanedSellingPoints,
+          specifications: rawSpecifications,
+          selling_points: rawSellingPoints,
           cj_category_id: qp.cj_category_id || null,
           rating: qp.supplier_rating ?? null,
           review_count: qp.total_sales ?? null,
+          inventory_status: qp.inventory_status ?? null,
+          inventory_error_message: qp.inventory_error_message ?? null,
+          available_models: qp.available_models ?? null,
         };
 
         await omitMissingColumns(optionalFields, [
           'description', 'images', 'video_url', 'is_active', 'cj_product_id',
           'free_shipping', 'processing_time_hours', 'delivery_time_hours',
           'supplier_sku', 'variants', 'weight_g', 'weight_grams', 'pack_length', 'pack_width', 
-          'pack_height', 'material', 'origin_country', 'origin_country_code', 'hs_code',
+          'pack_height', 'material', 'product_type', 'origin_country', 'origin_country_code', 'hs_code',
           'size_chart_images', 'available_sizes', 'available_colors', 'has_variants',
           'min_price', 'max_price', 'specifications', 'selling_points',
-          'cj_category_id', 'rating', 'review_count'
+          'cj_category_id', 'rating', 'review_count', 'overview', 'product_info', 'size_info',
+          'product_note', 'packing_list', 'store_sku', 'inventory_status', 'inventory_error_message',
+          'available_models', 'product_type'
         ]);
 
         const fullPayload = { ...productPayload, ...optionalFields };
@@ -662,11 +518,13 @@ export async function POST(req: NextRequest) {
               option_name: optionName,
               option_value: optionValue,
               cj_sku: v.cj_sku || null,
+              store_sku: v.sku || null,
               cj_variant_id: v.cj_variant_id || null,
               price: v.price_sar,
               cost_price: v.cost_usd || null,
               stock: v.stock,
               image_url: v.image_url || null,
+              shipping_usd: v.shipping_usd || null,
             };
           });
 

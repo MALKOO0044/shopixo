@@ -57,6 +57,7 @@ export type InventoryVariant = {
 export type PricedProduct = {
   pid: string;
   cjSku: string;
+  storeSku?: string;
   name: string;
   images: string[];
   minPriceSAR: number;

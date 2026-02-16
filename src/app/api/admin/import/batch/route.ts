@@ -64,6 +64,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "No products provided" }, { status: 400 });
     }
 
+    const missingRequired: string[] = [];
+    for (const p of products) {
+      if (!p?.pid) missingRequired.push(`pid`);
+      if (!p?.storeSku) missingRequired.push(`storeSku`);
+      if (!p?.name) missingRequired.push(`name`);
+      if (!Array.isArray(p?.variants) || p.variants.length === 0) {
+        missingRequired.push(`variants`);
+      } else {
+        for (const v of p.variants) {
+          if (!v?.variantSku) missingRequired.push(`variantSku`);
+          if (v?.sellPriceSAR == null) missingRequired.push(`sellPriceSAR`);
+        }
+      }
+      if (missingRequired.length > 0) break;
+    }
+    if (missingRequired.length > 0) {
+      return NextResponse.json({ ok: false, error: `Missing required fields: ${missingRequired.join(', ')}` }, { status: 400 });
+    }
+
     const batch = await createImportBatch({
       name: name || `Import ${new Date().toISOString()}`,
       keywords: keywords || "",
@@ -83,18 +102,8 @@ export async function POST(req: NextRequest) {
     const errorMessages: string[] = [];
     
     for (const p of products) {
-      // Calculate average price from variants, or use provided avgPriceSAR
-      let avgPrice = p.avgPriceSAR || 0;
-      if (!avgPrice && p.variants?.length > 0) {
-        avgPrice = p.variants.reduce((sum: number, v: any) => sum + (v.price || v.variantSellPrice || 0), 0) / p.variants.length;
-      }
-      
-      // Calculate total stock from variants, or use provided stock
-      let totalStock = p.stock || 0;
-      if (!totalStock && p.variants?.length > 0) {
-        totalStock = p.variants.reduce((sum: number, v: any) => sum + (v.stock || v.variantQuantity || 0), 0);
-      }
-      
+      const avgPrice = p.avgPriceSAR || 0;
+      const totalStock = p.stock || 0;
       const productId = p.cjProductId || p.pid || p.productId;
       
       // Handle images - could be array or single image
@@ -107,9 +116,15 @@ export async function POST(req: NextRequest) {
 
       const result = await addProductToQueue(batch.id, {
         productId,
-        cjSku: p.cjSku || p.variants?.[0]?.cjSku || p.variants?.[0]?.variantSku || undefined,
-        name: p.name || "Untitled",
+        cjSku: p.cjSku || undefined,
+        storeSku: p.storeSku || undefined,
+        name: p.name || undefined,
         description: p.description || undefined,
+        overview: p.overview || undefined,
+        productInfo: p.productInfo || undefined,
+        sizeInfo: p.sizeInfo || undefined,
+        productNote: p.productNote || undefined,
+        packingList: p.packingList || undefined,
         category: p.categoryName || category || "General",
         images,
         videoUrl: p.videoUrl || undefined,
@@ -127,32 +142,24 @@ export async function POST(req: NextRequest) {
         packWidth: p.packWidth || undefined,
         packHeight: p.packHeight || undefined,
         material: p.material || undefined,
+        productType: p.productType || undefined,
         originCountry: p.originCountry || undefined,
         hsCode: p.hsCode || undefined,
         sizeChartImages: p.sizeChartImages || undefined,
         availableSizes: p.availableSizes || undefined,
         availableColors: p.availableColors || undefined,
+        availableModels: p.availableModels || undefined,
         categoryName: p.categoryName || undefined,
         cjCategoryId: p.cjCategoryId || undefined,
         supabaseCategoryId: p.supabaseCategoryId || undefined,
         supabaseCategorySlug: p.supabaseCategorySlug || undefined,
-        variantPricing: p.variantPricing || p.variants?.map((v: any) => ({
-          variantId: v.vid || v.variantId,
-          sku: v.variantSku || v.sku,
-          color: v.color || v.variantKey?.split('-')?.[0],
-          size: v.size || v.variantKey?.split('-')?.[1],
-          price: v.variantSellPrice || v.price || avgPrice,
-          costPrice: v.variantPrice || v.costPrice,
-          shippingCost: v.shippingPrice || v.shippingCost,
-          stock: v.variantQuantity || v.stock || 0,
-          cjStock: v.cjStock || 0,
-          factoryStock: v.factoryStock || 0,
-          colorImage: v.variantImage,
-        })) || [],
+        variantPricing: p.variantPricing || [],
         sizeChartData: p.sizeChartData || undefined,
         specifications: p.specifications || undefined,
         sellingPoints: p.sellingPoints || undefined,
         inventoryByWarehouse: p.inventoryByWarehouse || p.inventory || undefined,
+        inventoryStatus: p.inventoryStatus || undefined,
+        inventoryErrorMessage: p.inventoryErrorMessage || undefined,
         priceBreakdown: p.priceBreakdown || undefined,
         colorImageMap: p.colorImageMap || undefined,
         cjTotalCost: p.cjTotalCost || undefined,
