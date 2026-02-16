@@ -269,162 +269,128 @@ export default async function AIMetricsPage() {
       </div>
 
       <div className="grid grid-cols-3 gap-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-blue-50 rounded-lg">
-                <Target className="h-4 w-4 text-blue-600" />
-              </div>
-              <span className="text-sm font-medium text-gray-700">Sync Accuracy</span>
-            </div>
+        <div className="bg-white rounded-xl border border-gray-100 p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <Target className="h-5 w-5 text-blue-600" />
+            <h3 className="text-base font-semibold text-gray-900">Sync Accuracy</h3>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-3xl font-bold text-gray-900">{data.kpis.syncAccuracy.current.toFixed(1)}%</span>
             <TrendIndicator value={data.kpis.syncAccuracy.trend} />
           </div>
-          <p className="text-2xl font-bold text-gray-900 mb-2">
-            {data.kpis.syncAccuracy.current}%
-          </p>
-          <MiniChart data={data.kpis.syncAccuracy.history} />
-          <p className="text-xs text-gray-500 mt-2">Products synced without errors</p>
+          <div className="mt-3">
+            <MiniChart data={data.kpis.syncAccuracy.history} />
+          </div>
         </div>
-
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-green-50 rounded-lg">
-                <TrendingUp className="h-4 w-4 text-green-600" />
-              </div>
-              <span className="text-sm font-medium text-gray-700">Average Margin</span>
-            </div>
+        <div className="bg-white rounded-xl border border-gray-100 p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingUp className="h-5 w-5 text-emerald-600" />
+            <h3 className="text-base font-semibold text-gray-900">Average Margin</h3>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-3xl font-bold text-gray-900">{data.kpis.averageMargin.current.toFixed(1)}%</span>
             <TrendIndicator value={data.kpis.averageMargin.trend} />
           </div>
-          <p className="text-2xl font-bold text-gray-900 mb-2">
-            {data.kpis.averageMargin.current}%
-          </p>
-          <MiniChart data={data.kpis.averageMargin.history} />
-          <p className="text-xs text-gray-500 mt-2">Average profit margin across products</p>
+          <div className="mt-3">
+            <MiniChart data={data.kpis.averageMargin.history} />
+          </div>
         </div>
-
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-purple-50 rounded-lg">
-                <Gauge className="h-4 w-4 text-purple-600" />
-              </div>
-              <span className="text-sm font-medium text-gray-700">Inventory Health</span>
-            </div>
+        <div className="bg-white rounded-xl border border-gray-100 p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <Gauge className="h-5 w-5 text-amber-600" />
+            <h3 className="text-base font-semibold text-gray-900">Inventory Health</h3>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-3xl font-bold text-gray-900">{data.kpis.inventoryHealth.current.toFixed(1)}%</span>
             <TrendIndicator value={data.kpis.inventoryHealth.trend} />
           </div>
-          <p className="text-2xl font-bold text-gray-900 mb-2">
-            {data.kpis.inventoryHealth.current}%
-          </p>
-          <MiniChart data={data.kpis.inventoryHealth.history} />
-          <p className="text-xs text-gray-500 mt-2">Overall product catalog health</p>
-        </div>
-
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-amber-50 rounded-lg">
-                <Clock className="h-4 w-4 text-amber-600" />
-              </div>
-              <span className="text-sm font-medium text-gray-700">Sync Latency</span>
-            </div>
-            <TrendIndicator value={data.kpis.syncLatency.trend} inverse />
+          <div className="mt-3">
+            <MiniChart data={data.kpis.inventoryHealth.history} />
           </div>
-          <p className="text-2xl font-bold text-gray-900 mb-2">
-            {data.kpis.syncLatency.current < 1000 
-              ? `${data.kpis.syncLatency.current}ms` 
-              : `${(data.kpis.syncLatency.current / 1000).toFixed(1)}s`}
-          </p>
-          <MiniChart data={data.kpis.syncLatency.history} />
-          <p className="text-xs text-gray-500 mt-2">Time to complete sync (lower is better)</p>
-        </div>
-
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-cyan-50 rounded-lg">
-                <LineChart className="h-4 w-4 text-cyan-600" />
-              </div>
-              <span className="text-sm font-medium text-gray-700">Stock Match Rate</span>
-            </div>
-            <TrendIndicator value={data.kpis.stockMatchRate.trend} />
-          </div>
-          <p className="text-2xl font-bold text-gray-900 mb-2">
-            {data.kpis.stockMatchRate.current}%
-          </p>
-          <MiniChart data={data.kpis.stockMatchRate.history} />
-          <p className="text-xs text-gray-500 mt-2">Products with accurate stock levels</p>
-        </div>
-
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-red-50 rounded-lg">
-                <TrendingDown className="h-4 w-4 text-red-600" />
-              </div>
-              <span className="text-sm font-medium text-gray-700">Out of Stock Rate</span>
-            </div>
-            <TrendIndicator value={data.kpis.outOfStockRate.trend} inverse />
-          </div>
-          <p className="text-2xl font-bold text-gray-900 mb-2">
-            {data.kpis.outOfStockRate.current}%
-          </p>
-          <MiniChart data={data.kpis.outOfStockRate.history} />
-          <p className="text-xs text-gray-500 mt-2">Products out of stock (lower is better)</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200">
-        <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-            <Activity className="h-4 w-4 text-gray-600" />
-            Recent Metric Recordings
-          </h3>
-          <span className="text-sm text-gray-500">{data.recentMetrics.length} records</span>
+      <div className="grid grid-cols-3 gap-6">
+        <div className="bg-white rounded-xl border border-gray-100 p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <Clock className="h-5 w-5 text-purple-600" />
+            <h3 className="text-base font-semibold text-gray-900">Sync Latency</h3>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-3xl font-bold text-gray-900">{data.kpis.syncLatency.current.toFixed(1)} min</span>
+            <TrendIndicator value={data.kpis.syncLatency.trend} inverse />
+          </div>
+          <div className="mt-3">
+            <MiniChart data={data.kpis.syncLatency.history} />
+          </div>
         </div>
-        
+        <div className="bg-white rounded-xl border border-gray-100 p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <LineChart className="h-5 w-5 text-teal-600" />
+            <h3 className="text-base font-semibold text-gray-900">Stock Match Rate</h3>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-3xl font-bold text-gray-900">{data.kpis.stockMatchRate.current.toFixed(1)}%</span>
+            <TrendIndicator value={data.kpis.stockMatchRate.trend} />
+          </div>
+          <div className="mt-3">
+            <MiniChart data={data.kpis.stockMatchRate.history} />
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-100 p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <Activity className="h-5 w-5 text-rose-600" />
+            <h3 className="text-base font-semibold text-gray-900">Out of Stock Rate</h3>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-3xl font-bold text-gray-900">{data.kpis.outOfStockRate.current.toFixed(1)}%</span>
+            <TrendIndicator value={data.kpis.outOfStockRate.trend} inverse />
+          </div>
+          <div className="mt-3">
+            <MiniChart data={data.kpis.outOfStockRate.history} />
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-100 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <BarChart3 className="h-5 w-5 text-purple-600" />
+          <h2 className="text-lg font-semibold text-gray-900">Recent Metrics Activity</h2>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Time</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Metric</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Agent</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Value</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Unit</th>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-gray-500 border-b">
+                <th className="pb-3 pr-4">Metric</th>
+                <th className="pb-3 pr-4">Value</th>
+                <th className="pb-3 pr-4">Trend</th>
+                <th className="pb-3">Recorded At</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {data.recentMetrics.length > 0 ? (
-                data.recentMetrics.map((metric: any) => (
-                  <tr key={metric.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-                      {new Date(metric.recorded_at).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm font-medium text-gray-900">
-                        {metric.metric_type?.replace(/_/g, ' ')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="px-2 py-1 rounded text-xs font-medium bg-purple-100 text-purple-700">
-                        {metric.agent_name}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                      {Number(metric.value).toFixed(1)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">
-                      {metric.unit}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center">
-                    <BarChart3 className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                    <p className="text-gray-500">No metrics recorded yet</p>
-                    <p className="text-sm text-gray-400 mt-1">Run AI agents to start collecting metrics</p>
+            <tbody>
+              {data.recentMetrics.map((m: any, idx: number) => (
+                <tr key={idx} className="border-b last:border-b-0">
+                  <td className="py-3 pr-4 text-gray-900">
+                    <div className="font-medium">{m.metric_type.replace(/_/g, ' ')}</div>
+                    <div className="text-xs text-gray-500">{m.agent_name}</div>
+                  </td>
+                  <td className="py-3 pr-4 text-gray-900 font-medium">
+                    {Number(m.value).toFixed(2)} {m.unit}
+                  </td>
+                  <td className="py-3 pr-4">
+                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
+                      (m.delta || 0) > 0 ? 'bg-green-100 text-green-700' : 
+                      (m.delta || 0) < 0 ? 'bg-red-100 text-red-700' : 
+                      'bg-gray-100 text-gray-700'
+                    }`}>
+                      {(m.delta || 0) > 0 ? <TrendingUp className="h-3 w-3" /> : 
+                       (m.delta || 0) < 0 ? <TrendingDown className="h-3 w-3" /> : 
+                       <Minus className="h-3 w-3" />}
+                      {(m.delta || 0) > 0 ? '+' : ''}{Number(m.delta || 0).toFixed(2)}
+                    </span>
+                  </td>
+                  <td className="py-3 text-gray-700">
+                    {new Date(m.recorded_at).toLocaleString()}
                   </td>
                 </tr>
               )}
@@ -445,7 +411,7 @@ export default async function AIMetricsPage() {
               <li>• <strong>Sync Accuracy</strong>: Products are being synced with CJ without errors</li>
               <li>• <strong>Average Margin</strong>: The pricing agent is maintaining healthy profit margins</li>
               <li>• <strong>Inventory Health</strong>: Product data quality is being monitored and improved</li>
-              <li>• <strong>Stock Match Rate</strong>: Your inventory levels match the supplier's data</li>
+              <li>• <strong>Stock Match Rate</strong>: Your inventory levels match the supplier&#39;s data</li>
             </ul>
           </div>
           <div>
