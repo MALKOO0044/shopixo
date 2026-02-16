@@ -567,7 +567,7 @@ export async function POST(req: NextRequest) {
             shopixo_product_id: productId,
             imported_at: new Date().toISOString(),
             calculated_retail_sar: minVariantPrice,
-            margin_applied: pricing?.marginApplied || 8
+            margin_applied: null
           })
           .eq('id', qp.id);
 
