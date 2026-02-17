@@ -1,7 +1,17 @@
 import { NextResponse } from 'next/server';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
-import { getAccessToken, freightCalculate, fetchProductDetailsByPid, getProductRatings, getInventoryByPid, queryVariantInventory, getProductVariants } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsByPid, getInventoryByPid, queryVariantInventory, getProductVariants } from '@/lib/cj/v2';
 import type { PricedProduct, PricedVariant, InventoryVariant, ProductInventory } from '@/components/admin/import/preview/types';
+import { computeRating } from '@/lib/rating/engine';
+import { createClient } from '@supabase/supabase-js';
+import { hasTable } from '@/lib/db-features';
+
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
 
 /**
  * GET /api/admin/cj/products/[pid]/details
@@ -59,22 +69,9 @@ export async function GET(
     const name = String(source.productNameEn || source.name || source.productName || '');
     const cjSku = String(source.productSku || source.sku || `CJ-${pid}`);
 
-    // --- Fetch rating ---
-    let rating: number | undefined;
-    let reviewCount = 0;
-    try {
-      const ratingsMap = await getProductRatings([pid]);
-      const productRating = ratingsMap.get(pid);
-      if (productRating && productRating.rating !== null) {
-        const parsedRating = Number(productRating.rating);
-        if (Number.isFinite(parsedRating) && parsedRating > 0) {
-          rating = parsedRating;
-          reviewCount = Number(productRating.reviewCount) || 0;
-        }
-      }
-    } catch (e: any) {
-      console.log(`[ProductDetails] Failed to fetch rating: ${e?.message}`);
-    }
+    // No external ratings: compute internal rating later from product signals.
+    let displayedRating: number | undefined;
+    let ratingConfidence: number | undefined;
 
     // --- Fetch inventory ---
     let realInventory: ProductInventory | null = null;
@@ -601,6 +598,47 @@ export async function GET(
     const hsCode = source.entryCode ? `${source.entryCode}${source.entryNameEn ? ` (${source.entryNameEn})` : ''}` : undefined;
     const videoUrl = String(source.videoUrl || source.video || source.productVideo || '').trim() || undefined;
 
+    // Compute internal rating from signals
+    try {
+      const imagesCount = Array.isArray(images) ? images.length : 0;
+      const variantCount = Array.isArray(variantsToProcess) ? variantsToProcess.length : 0;
+      const minVariantUsd = pricedVariants.length > 0 ? Math.min(...pricedVariants.map(v => v.variantPriceUSD || 0)) : 0;
+
+      const imgNorm = Math.max(0, Math.min(1, imagesCount / 15));
+      const priceNorm = Math.max(0, Math.min(1, minVariantUsd / 50));
+      const dynQuality = Math.max(0, Math.min(1, 0.6 * imgNorm + 0.4 * (1 - priceNorm)));
+
+      const ratingOut = computeRating({
+        imageCount: imagesCount,
+        stock: typeof stock === 'number' ? stock : 0,
+        variantCount,
+        qualityScore: dynQuality,
+        priceUsd: minVariantUsd,
+        sentiment: 0,
+        orderVolume: 0,
+      });
+
+      displayedRating = ratingOut.displayedRating;
+      ratingConfidence = ratingOut.ratingConfidence;
+
+      try {
+        const admin = getSupabaseAdmin();
+        if (admin) {
+          const hasSignals = await hasTable('product_rating_signals').catch(() => false);
+          if (hasSignals) {
+            await admin.from('product_rating_signals').insert({
+              product_id: null,
+              cj_product_id: pid,
+              context: 'details',
+              signals: ratingOut.signals,
+              displayed_rating: ratingOut.displayedRating,
+              rating_confidence: ratingOut.ratingConfidence,
+            });
+          }
+        }
+      } catch {}
+    } catch {}
+
     // Build final PricedProduct
     const pricedProduct: PricedProduct = {
       pid,
@@ -627,8 +665,8 @@ export async function GET(
       sizeInfo,
       productNote,
       packingList,
-      rating,
-      reviewCount,
+      displayedRating,
+      ratingConfidence,
       categoryName,
       productWeight,
       packLength,

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { slugify } from "@/lib/utils/slug";
 import { hasColumn, hasTable } from "@/lib/db-features";
 import { linkProductToMultipleCategories } from "@/lib/category-intelligence";
+import { computeRating, normalizeDisplayedRating } from "@/lib/rating/engine";
 
 // Helper to find category by name/slug/CJ-link and link product to category hierarchy
 async function linkProductToCategory(admin: any, productId: number, categoryName: string, cjCategoryId?: string, supabaseCategoryId?: number): Promise<boolean> {
@@ -395,6 +396,24 @@ export async function POST(req: NextRequest) {
         const minVariantPrice = variantPrices.length > 0 ? Math.min(...variantPrices) : null;
         const maxVariantPrice = variantPrices.length > 0 ? Math.max(...variantPrices) : null;
 
+        const imgCount = Array.isArray(rawImages) ? rawImages.length : 0;
+        const minCostUsd = Number(qp.cj_product_cost || qp.cj_price_usd || 0);
+        const imgNorm = Math.max(0, Math.min(1, imgCount / 15));
+        const priceNorm = Math.max(0, Math.min(1, minCostUsd / 50));
+        const dynQuality = Math.max(0, Math.min(1, 0.6 * imgNorm + 0.4 * (1 - priceNorm)));
+        const signals = {
+          imageCount: imgCount,
+          stock: typeof totalStock === 'number' ? totalStock : 0,
+          variantCount: Array.isArray(variants) ? variants.length : 0,
+          qualityScore: typeof qp.quality_score === 'number' && isFinite(qp.quality_score)
+            ? Math.max(0, Math.min(1, qp.quality_score))
+            : dynQuality,
+          priceUsd: minCostUsd,
+          sentiment: 0,
+          orderVolume: typeof qp.total_sales === 'number' ? qp.total_sales : 0,
+        };
+        const ratingOut = computeRating(signals);
+
         const productPayload: Record<string, any> = {
           title: qp.name_en,
           slug: baseSlug,
@@ -417,6 +436,8 @@ export async function POST(req: NextRequest) {
           packing_list: qp.packing_list ?? null,
           images: rawImages,
           video_url: qp.video_url || null,
+          has_video: typeof qp.has_video === 'boolean' ? qp.has_video : (qp.video_url ? true : null),
+          product_code: qp.product_code || null,
           is_active: null,
           cj_product_id: qp.cj_product_id,
           supplier_sku: qp.cj_sku || null,
@@ -444,21 +465,25 @@ export async function POST(req: NextRequest) {
           specifications: rawSpecifications,
           selling_points: rawSellingPoints,
           cj_category_id: qp.cj_category_id || null,
-          rating: qp.supplier_rating ?? null,
-          review_count: qp.total_sales ?? null,
+          displayed_rating: typeof qp.displayed_rating === 'number'
+            ? normalizeDisplayedRating(qp.displayed_rating)
+            : ratingOut.displayedRating,
+          rating_confidence: typeof qp.rating_confidence === 'number'
+            ? Math.max(0.05, Math.min(1, Number(qp.rating_confidence)))
+            : ratingOut.ratingConfidence,
           inventory_status: qp.inventory_status ?? null,
           inventory_error_message: qp.inventory_error_message ?? null,
           available_models: qp.available_models ?? null,
         };
 
         await omitMissingColumns(optionalFields, [
-          'description', 'images', 'video_url', 'is_active', 'cj_product_id',
+          'description', 'images', 'video_url', 'has_video', 'product_code', 'is_active', 'cj_product_id',
           'free_shipping', 'processing_time_hours', 'delivery_time_hours',
           'supplier_sku', 'variants', 'weight_g', 'weight_grams', 'pack_length', 'pack_width', 
           'pack_height', 'material', 'product_type', 'origin_country', 'origin_country_code', 'hs_code',
           'size_chart_images', 'available_sizes', 'available_colors', 'has_variants',
           'min_price', 'max_price', 'specifications', 'selling_points',
-          'cj_category_id', 'rating', 'review_count', 'overview', 'product_info', 'size_info',
+          'cj_category_id', 'displayed_rating', 'rating_confidence', 'overview', 'product_info', 'size_info',
           'product_note', 'packing_list', 'store_sku', 'inventory_status', 'inventory_error_message',
           'available_models', 'product_type'
         ]);
@@ -570,6 +595,22 @@ export async function POST(req: NextRequest) {
             margin_applied: null
           })
           .eq('id', qp.id);
+
+        try {
+          const signalsTableExists = await hasTable('product_rating_signals').catch(() => false);
+          if (signalsTableExists) {
+            await admin.from('product_rating_signals').insert({
+              product_id: productId,
+              cj_product_id: qp.cj_product_id || null,
+              context: 'import',
+              signals: ratingOut.signals,
+              displayed_rating: fullPayload.displayed_rating,
+              rating_confidence: fullPayload.rating_confidence,
+            });
+          }
+        } catch (e) {
+          console.log('[Import] Failed to insert rating signals snapshot:', (e as any)?.message || e);
+        }
 
         results.push({ id: qp.id, success: true, shopixoId: String(productId) });
 

@@ -80,6 +80,9 @@ export type PricedProduct = {
   sizeInfo?: string;
   productNote?: string;
   packingList?: string;
+  displayedRating?: number;
+  ratingConfidence?: number;
+  // Legacy fields kept for compatibility with any untouched callers.
   rating?: number;
   reviewCount?: number;
   supplierName?: string;

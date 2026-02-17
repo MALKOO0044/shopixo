@@ -66,8 +66,7 @@ export async function POST(req: NextRequest) {
 
     const missingRequired: string[] = [];
     for (const p of products) {
-      if (!p?.pid) missingRequired.push(`pid`);
-      if (!p?.storeSku) missingRequired.push(`storeSku`);
+      if (!p?.pid && !p?.cjProductId && !p?.productId) missingRequired.push(`pid`);
       if (!p?.name) missingRequired.push(`name`);
       if (!Array.isArray(p?.variants) || p.variants.length === 0) {
         missingRequired.push(`variants`);
@@ -102,8 +101,16 @@ export async function POST(req: NextRequest) {
     const errorMessages: string[] = [];
     
     for (const p of products) {
-      const avgPrice = p.avgPriceSAR || 0;
-      const totalStock = p.stock || 0;
+      let avgPrice = p.avgPriceSAR || 0;
+      if (!avgPrice && p.variants?.length > 0) {
+        avgPrice = p.variants.reduce((sum: number, v: any) => sum + (v.price || v.variantSellPrice || 0), 0) / p.variants.length;
+      }
+
+      let totalStock = p.stock || 0;
+      if (!totalStock && p.variants?.length > 0) {
+        totalStock = p.variants.reduce((sum: number, v: any) => sum + (v.stock || v.variantQuantity || 0), 0);
+      }
+
       const productId = p.cjProductId || p.pid || p.productId;
       
       // Handle images - could be array or single image
@@ -130,8 +137,8 @@ export async function POST(req: NextRequest) {
         videoUrl: p.videoUrl || undefined,
         variants: p.variants || [],
         avgPrice,
-        supplierRating: p.rating ?? p.supplierRating ?? undefined,
-        totalSales: p.reviewCount ?? p.totalSales ?? undefined,
+        displayedRating: typeof p.displayedRating === 'number' ? p.displayedRating : undefined,
+        ratingConfidence: typeof p.ratingConfidence === 'number' ? p.ratingConfidence : undefined,
         totalStock,
         processingDays: p.processingDays ?? undefined,
         deliveryDaysMin: p.deliveryDaysMin ?? undefined,

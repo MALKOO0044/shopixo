@@ -18,6 +18,7 @@ import {
   MoreHorizontal,
   Eye,
 } from "lucide-react";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
 type QueueProduct = {
   id: number;
@@ -31,8 +32,8 @@ type QueueProduct = {
   cj_price_usd: number;
   shipping_cost_usd: number | null;
   calculated_retail_sar: number | null;
-  supplier_rating: number;
-  total_sales: number;
+  displayed_rating?: number | null;
+  rating_confidence?: number | null;
   stock_total: number;
   quality_score: number;
   status: string;
@@ -297,7 +298,7 @@ export default function QueuePage() {
   };
 
   const exportCsv = () => {
-    const headers = ["ID", "CJ Product ID", "Name", "Category", "Price USD", "Stock", "Rating", "Status", "Created"];
+    const headers = ["ID", "CJ Product ID", "Name", "Category", "Price USD", "Stock", "Displayed Rating", "Status", "Created"];
     const rows = products.map(p => [
       p.id,
       p.cj_product_id,
@@ -305,7 +306,7 @@ export default function QueuePage() {
       p.category,
       p.cj_price_usd,
       p.stock_total,
-      p.supplier_rating,
+      normalizeDisplayedRating(p.displayed_rating).toFixed(1),
       p.status,
       new Date(p.created_at).toLocaleDateString(),
     ]);
@@ -523,7 +524,7 @@ export default function QueuePage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Variants</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating / Sales</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="w-32 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
@@ -683,20 +684,36 @@ export default function QueuePage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="space-y-1">
+                        {(() => {
+                          const rating = normalizeDisplayedRating(product.displayed_rating);
+                          const confidence =
+                            typeof product.rating_confidence === "number"
+                              ? product.rating_confidence >= 0.75
+                                ? "high"
+                                : product.rating_confidence >= 0.4
+                                  ? "medium"
+                                  : "low"
+                              : "unknown";
+
+                          return (
+                            <>
                         <div className="flex items-center gap-1">
                           {[1, 2, 3, 4, 5].map((star) => (
                             <Star
                               key={star}
                               className={`h-3 w-3 ${
-                                star <= Math.round(product.supplier_rating || 0)
+                                star <= Math.round(rating)
                                   ? "fill-amber-400 text-amber-400"
                                   : "text-gray-300"
                               }`}
                             />
                           ))}
-                          <span className="text-xs font-medium ml-1">{product.supplier_rating?.toFixed(1) || "0.0"}</span>
+                          <span className="text-xs font-medium ml-1">{rating.toFixed(1)}</span>
                         </div>
-                        <p className="text-xs text-gray-500">{product.total_sales || 0} sales</p>
+                        <p className="text-xs text-gray-500">{confidence} confidence</p>
+                            </>
+                          );
+                        })()}
                       </div>
                     </td>
                     <td className="px-4 py-3">
