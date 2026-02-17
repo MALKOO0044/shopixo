@@ -393,7 +393,7 @@ export default async function AIMetricsPage() {
                     {new Date(m.recorded_at).toLocaleString()}
                   </td>
                 </tr>
-              )}
+              ))}
             </tbody>
           </table>
         </div>

@@ -35,11 +35,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { productId, newPrice } = body;
+    const productId = Number(body?.productId);
+    const newPrice = Number(body?.newPrice);
 
-    if (!productId || !newPrice) {
+    if (!Number.isFinite(productId) || productId <= 0 || !Number.isFinite(newPrice) || newPrice <= 0) {
       return NextResponse.json(
-        { success: false, error: 'Missing productId or newPrice' },
+        { success: false, error: 'Invalid productId or newPrice' },
         { status: 400 }
       );
     }

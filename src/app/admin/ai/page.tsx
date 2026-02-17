@@ -1,12 +1,9 @@
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { createClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
 import Link from "next/link";
 import type { Route } from "next";
 import { 
-  Brain, Activity, HeartPulse, Zap, Shield, 
-  CheckCircle, AlertTriangle, XCircle, Clock,
-  TrendingUp, Package, ShoppingCart, RefreshCw, BarChart3
+  Brain, Activity, HeartPulse, Zap, Shield,
+  CheckCircle, XCircle, Clock, RefreshCw, BarChart3
 } from "lucide-react";
 
 export const metadata = {
@@ -34,7 +31,7 @@ async function getAIStats() {
       { data: orders },
       { data: healthData }
     ] = await Promise.all([
-      admin.from('ai_actions').select('id, status, agent_name, created_at').order('created_at', { ascending: false }).limit(100),
+      admin.from('ai_actions').select('id, status, agent_name, action_type, created_at').order('created_at', { ascending: false }).limit(100),
       admin.from('products').select('id, active, stock').not('metadata->cj_product_id', 'is', null),
       admin.from('orders').select('id, status, created_at').order('created_at', { ascending: false }).limit(50),
       admin.from('product_health').select('health_score, issues').limit(100),
