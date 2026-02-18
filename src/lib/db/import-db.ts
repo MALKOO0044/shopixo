@@ -241,6 +241,7 @@ export async function addProductToQueue(batchId: number, product: {
   }
 
   const productCode = await generateUniqueProductCode(admin);
+  const storeSku = product.storeSku || productCode;
 
   const imagesCount = Array.isArray(product.images) ? product.images.length : 0;
   const vpArray: any[] = Array.isArray(product.variantPricing) ? product.variantPricing : [];
@@ -283,7 +284,7 @@ export async function addProductToQueue(batchId: number, product: {
     batch_id: batchId,
     cj_product_id: product.productId,
     cj_sku: product.cjSku || null,
-    store_sku: product.storeSku || null,
+    store_sku: storeSku,
     name_en: product.name,
     name_ar: null,
     description_en: product.description || null,

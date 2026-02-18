@@ -323,7 +323,8 @@ export async function POST(req: NextRequest) {
     for (const qp of queueProducts) {
       try {
         requireField(qp.cj_product_id, 'pid');
-        requireField(qp.store_sku, 'storeSku');
+        const queueStoreSku = qp.store_sku || qp.product_code || null;
+        requireField(queueStoreSku, 'storeSku');
         requireField(qp.name_en, 'name');
         const rawVariantsRequired = typeof qp.variants === 'string' ? JSON.parse(qp.variants) : (qp.variants || []);
         requireField(rawVariantsRequired, 'variants');
@@ -390,7 +391,7 @@ export async function POST(req: NextRequest) {
 
         const totalStock: number | null = qp.stock_total ?? null;
         const rawImages = typeof qp.images === 'string' ? JSON.parse(qp.images) : (qp.images || []);
-        const baseSlug = qp.store_sku || await ensureUniqueSlug(admin, qp.name_en);
+        const baseSlug = queueStoreSku || await ensureUniqueSlug(admin, qp.name_en);
 
         const variantPrices = variants.map((v: any) => v.price_sar).filter((p: number) => typeof p === 'number');
         const minVariantPrice = variantPrices.length > 0 ? Math.min(...variantPrices) : null;
@@ -441,7 +442,7 @@ export async function POST(req: NextRequest) {
           is_active: null,
           cj_product_id: qp.cj_product_id,
           supplier_sku: qp.cj_sku || null,
-          store_sku: qp.store_sku || null,
+          store_sku: queueStoreSku,
           free_shipping: null,
           processing_time_hours: qp.processing_days ? qp.processing_days * 24 : null,
           delivery_time_hours: qp.delivery_days_max ? qp.delivery_days_max * 24 : null,

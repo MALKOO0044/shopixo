@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getAccessToken, freightCalculate, fetchProductDetailsBatch, getProductRatings, findCJPacketOrdinary, getInventoryByPid, queryVariantInventory } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsBatch, findCJPacketOrdinary, getInventoryByPid, queryVariantInventory } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 import { usdToSar, computeRetailFromLanded } from '@/lib/pricing';
-import { scrapeSupplierRating, SupplierRating } from '@/lib/cj/scrape-supplier-rating';
+import { computeRating } from '@/lib/rating/engine';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -94,6 +94,9 @@ type PricedProduct = {
   sizeInfo?: string;
   productNote?: string;
   packingList?: string;
+  displayedRating?: number;
+  ratingConfidence?: number;
+  // Legacy fields kept for compatibility with any untouched callers.
   rating?: number;
   reviewCount?: number;
   supplierName?: string;
@@ -684,48 +687,8 @@ async function handleSearch(req: Request, isPost: boolean) {
         console.log(`[Search&Price] Product ${pid} - Failed to fetch details: ${e?.message}`);
       }
       
-      // Extract supplier info directly from CJ API response (item or fullDetails)
-      const rawSource = fullDetails || item;
-      const apiSupplierName = rawSource.supplierName || rawSource.supplier?.name || null;
-      const apiSupplierRating = Number(rawSource.supplierRating || rawSource.supplierScore || rawSource.starCount || rawSource.star_count || rawSource.supplier?.rating || rawSource.supplier?.starCount || 0);
-      
-      // Log all rating-related fields from CJ API for debugging
-      const ratingFields = Object.entries(rawSource).filter(([k]) => 
-        /rating|score|star|review|comment|supplier/i.test(k)
-      );
-      if (ratingFields.length > 0) {
-        console.log(`[Search&Price] Product ${pid} - Rating/Supplier fields in CJ response:`, JSON.stringify(Object.fromEntries(ratingFields)));
-      }
-      
-      if (apiSupplierRating > 0) {
-        console.log(`[Search&Price] Product ${pid} - Found supplier rating from API: ${apiSupplierRating} stars (${apiSupplierName})`);
-      }
-      
-      // SCRAPE SUPPLIER RATING from CJ website if API doesn't provide it
-      let scrapedSupplierRating: SupplierRating | null = null;
-      if (apiSupplierRating === 0) {
-        try {
-          const productSku = item.sku || item.productSku || rawSource.sku || null;
-          const productName = item.nameEn || item.name || item.productName || null;
-          scrapedSupplierRating = await scrapeSupplierRating(pid, productSku, productName);
-          if (scrapedSupplierRating && scrapedSupplierRating.overallRating > 0) {
-            console.log(`[Search&Price] Product ${pid} - Scraped supplier rating: ${scrapedSupplierRating.overallRating} stars (${scrapedSupplierRating.supplierName})`);
-          }
-        } catch (e: any) {
-          console.log(`[Search&Price] Product ${pid} - Failed to scrape supplier rating: ${e?.message}`);
-        }
-      }
-      
-      // Fetch customer reviews from productComments API (fallback only)
-      let productRating: { rating: number | null; reviewCount: number } | undefined;
-      if (apiSupplierRating === 0 && (!scrapedSupplierRating || scrapedSupplierRating.overallRating === 0)) {
-        try {
-          const ratingsMap = await getProductRatings([pid]);
-          productRating = ratingsMap.get(pid);
-        } catch (e: any) {
-          console.log(`[Search&Price] Product ${pid} - Failed to fetch rating: ${e?.message}`);
-        }
-      }
+      // Legacy supplier/comment rating sources are intentionally not used.
+      // Internal rating engine values are computed later from product signals.
       
       // CRITICAL: Fetch REAL inventory data from CJ's dedicated inventory API
       // This is the ONLY reliable way to get per-warehouse stock breakdown
@@ -960,76 +923,13 @@ async function handleSearch(req: Request, isPost: boolean) {
       const source = fullDetails || item;
       const rawDescriptionHtml = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
       
-      // Get rating - try multiple sources in priority order:
-      // 1. SCRAPED supplier rating (from CJ website - "Offer by Supplier" section)
-      // 2. productComments API (calculated from user reviews)
-      // 3. fullDetails.rating (from listV2 API - may contain product rating field)
-      // 4. source.rating (from product listing or details)
-      let rating: number | undefined = undefined;
-      let reviewCount = 0;
-      let ratingSource = 'none';
-      let supplierName: string | undefined = undefined;
-      let itemAsDescribed: number | undefined = undefined;
-      let serviceRating: number | undefined = undefined;
-      let shippingSpeedRating: number | undefined = undefined;
-      
-      // Source 1: Supplier rating from CJ API (highest priority)
-      if (apiSupplierRating > 0 && apiSupplierRating <= 5) {
-        rating = apiSupplierRating;
-        ratingSource = 'supplier (API)';
-        supplierName = apiSupplierName || undefined;
-        reviewCount = -1; // Special marker for "supplier rating" vs "customer reviews"
-      }
-      
-      // Source 2: SCRAPED supplier rating from CJ website (second priority)
-      if (rating === undefined && scrapedSupplierRating && scrapedSupplierRating.overallRating > 0) {
-        rating = scrapedSupplierRating.overallRating;
-        ratingSource = 'supplier (scraped)';
-        supplierName = scrapedSupplierRating.supplierName || undefined;
-        reviewCount = -1; // Special marker for "supplier rating" vs "customer reviews"
-      }
-      
-      // Source 3: productComments API (fallback - customer reviews)
-      if (rating === undefined && productRating && productRating.rating !== null && productRating.rating !== undefined) {
-        const parsedRating = Number(productRating.rating);
-        if (Number.isFinite(parsedRating) && parsedRating > 0 && parsedRating <= 5) {
-          rating = parsedRating;
-          reviewCount = Number(productRating.reviewCount) || 0;
-          ratingSource = 'comments API';
-        }
-      }
-      
-      // Source 3: fullDetails (from listV2 merge)
-      if (rating === undefined && fullDetails) {
-        const detailsRating = fullDetails.rating ?? fullDetails.productRating ?? fullDetails.score ?? fullDetails.avgScore;
-        if (detailsRating !== undefined && detailsRating !== null) {
-          const parsedRating = Number(detailsRating);
-          if (Number.isFinite(parsedRating) && parsedRating > 0 && parsedRating <= 5) {
-            rating = parsedRating;
-            reviewCount = Number(fullDetails.reviewCount ?? fullDetails.ratingCount ?? fullDetails.evaluateCount ?? 0);
-            ratingSource = 'product details';
-          }
-        }
-      }
-      
-      // Source 4: item from product listing
-      if (rating === undefined && item) {
-        const itemRating = item.rating ?? item.productRating ?? item.score ?? item.avgScore;
-        if (itemRating !== undefined && itemRating !== null) {
-          const parsedRating = Number(itemRating);
-          if (Number.isFinite(parsedRating) && parsedRating > 0 && parsedRating <= 5) {
-            rating = parsedRating;
-            reviewCount = Number(item.reviewCount ?? item.ratingCount ?? item.evaluateCount ?? 0);
-            ratingSource = 'product listing';
-          }
-        }
-      }
-      
-      if (rating !== undefined) {
-        console.log(`[Search&Price] Product ${pid}: Rating ${rating} from ${ratingSource}${supplierName ? ` (Supplier: ${supplierName})` : ''}`);
-      } else {
-        console.log(`[Search&Price] Product ${pid}: No rating available from any source`);
-      }
+      // Legacy display placeholders kept for compatibility with untouched UI paths.
+      const rating: number | undefined = undefined;
+      const reviewCount = 0;
+      const supplierName: string | undefined = undefined;
+      const itemAsDescribed: number | undefined = undefined;
+      const serviceRating: number | undefined = undefined;
+      const shippingSpeedRating: number | undefined = undefined;
       
       const categoryName = String(source.categoryName || source.categoryNameEn || source.category || '').trim() || undefined;
       
@@ -2267,6 +2167,33 @@ async function handleSearch(req: Request, isPost: boolean) {
       const minPriceSAR = Math.min(...prices);
       const maxPriceSAR = Math.max(...prices);
       const avgPriceSAR = Math.round(prices.reduce((a, b) => a + b, 0) / prices.length);
+
+      let displayedRating: number | undefined;
+      let ratingConfidence: number | undefined;
+      try {
+        const imagesCount = Array.isArray(images) ? images.length : 0;
+        const minVariantUsd = pricedVariants.length > 0 ? Math.min(...pricedVariants.map(v => v.variantPriceUSD || 0)) : 0;
+        const imgNorm = Math.max(0, Math.min(1, imagesCount / 15));
+        const priceNorm = Math.max(0, Math.min(1, minVariantUsd / 50));
+        const dynQuality = Math.max(0, Math.min(1, 0.6 * imgNorm + 0.4 * (1 - priceNorm)));
+        const out = computeRating({
+          imageCount: imagesCount,
+          stock,
+          variantCount: pricedVariants.length,
+          qualityScore: dynQuality,
+          priceUsd: minVariantUsd,
+          sentiment: 0,
+          orderVolume: listedNum,
+        });
+        displayedRating = out.displayedRating;
+        ratingConfidence = out.ratingConfidence;
+
+        const minRatingNum = minRating === 'any' ? 0 : Number(minRating);
+        if (Number.isFinite(minRatingNum) && displayedRating < minRatingNum) {
+          totalFiltered.rating++;
+          continue;
+        }
+      } catch {}
       
       // Extract processing/delivery time estimates from CJ data
       const deliveryCycle = source.deliveryCycle;
@@ -2338,6 +2265,8 @@ async function handleSearch(req: Request, isPost: boolean) {
         sizeInfo,
         productNote,
         packingList,
+        displayedRating,
+        ratingConfidence,
         rating,
         reviewCount,
         supplierName,
