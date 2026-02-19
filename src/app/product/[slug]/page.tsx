@@ -206,12 +206,21 @@ export default async function ProductPage({ params, searchParams }: { params: { 
   // Fetch variant rows for this product and synthesize UI variants if missing
   let variantRows: ProductVariant[] = [];
   try {
-    const { data: v } = await supabase
+    const withColor = await supabase
       .from("product_variants")
-      .select("id, product_id, option_name, option_value, cj_sku, cj_variant_id, price, stock, image_url")
+      .select("id, product_id, option_name, option_value, cj_sku, cj_variant_id, price, stock, image_url, color")
       .eq("product_id", (product as any).id)
       .order("option_value", { ascending: true });
-    variantRows = (v as any) || [];
+    if (withColor.error) {
+      const legacy = await supabase
+        .from("product_variants")
+        .select("id, product_id, option_name, option_value, cj_sku, cj_variant_id, price, stock, image_url")
+        .eq("product_id", (product as any).id)
+        .order("option_value", { ascending: true });
+      variantRows = (legacy.data as any) || [];
+    } else {
+      variantRows = (withColor.data as any) || [];
+    }
   } catch {}
   if ((!product.variants || product.variants.length === 0) && variantRows.length > 0) {
     const name = variantRows[0].option_name || "Size";

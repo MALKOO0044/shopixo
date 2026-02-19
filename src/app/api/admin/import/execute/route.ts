@@ -286,6 +286,161 @@ function requireField(value: any, name: string) {
   }
 }
 
+function normalizeColorKey(value: unknown): string {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function resolveColorImageForColor(colorValue: unknown, colorMap: Record<string, string>): string | null {
+  const color = String(colorValue ?? '').trim();
+  if (!color || !colorMap || Object.keys(colorMap).length === 0) return null;
+
+  const exact = colorMap[color];
+  if (typeof exact === 'string' && exact) return exact;
+
+  const target = normalizeColorKey(color);
+  if (!target) return null;
+
+  for (const [mapColor, imageUrl] of Object.entries(colorMap)) {
+    if (!imageUrl) continue;
+    const key = normalizeColorKey(mapColor);
+    if (!key) continue;
+    if (key === target || key.includes(target) || target.includes(key)) {
+      return imageUrl;
+    }
+  }
+
+  return null;
+}
+
+function alignColorImageMapToColors(
+  availableColors: string[] | null,
+  colorMap: Record<string, string>
+): Record<string, string> {
+  if (!colorMap || Object.keys(colorMap).length === 0) return {};
+  if (!Array.isArray(availableColors) || availableColors.length === 0) return colorMap;
+
+  const aligned: Record<string, string> = {};
+  for (const color of availableColors) {
+    const resolved = resolveColorImageForColor(color, colorMap);
+    if (resolved) aligned[color] = resolved;
+  }
+
+  for (const [k, v] of Object.entries(colorMap)) {
+    if (!v) continue;
+    if (!aligned[k]) aligned[k] = v;
+  }
+
+  return aligned;
+}
+
+function parseJsonMaybe(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function parseStringArrayOrNull(value: unknown): string[] | null {
+  const parsed = parseJsonMaybe(value);
+  return Array.isArray(parsed) ? (parsed as string[]) : null;
+}
+
+function parseArrayOrEmpty(value: unknown): any[] {
+  const parsed = parseJsonMaybe(value);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function parseObjectOrEmpty(value: unknown): Record<string, any> {
+  const parsed = parseJsonMaybe(value);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  return parsed as Record<string, any>;
+}
+
+function parseColorImageMap(value: unknown): Record<string, string> {
+  const parsed = parseJsonMaybe(value);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+  const normalized: Record<string, string> = {};
+  for (const [key, url] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof url === 'string' && url) {
+      normalized[key] = url;
+    }
+  }
+  return normalized;
+}
+
+function toPositiveNumberOrNull(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+function normalizeVariantToken(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function isVariantPricingMatch(variant: any, pricingRow: any): boolean {
+  const variantId = normalizeVariantToken(variant?.variantId || variant?.vid);
+  const pricingVariantId = normalizeVariantToken(pricingRow?.variantId || pricingRow?.vid);
+  if (variantId && pricingVariantId && variantId === pricingVariantId) return true;
+
+  const variantSku = normalizeVariantToken(variant?.variantSku || variant?.cjSku);
+  const pricingSku = normalizeVariantToken(pricingRow?.sku || pricingRow?.variantSku || pricingRow?.cjSku);
+  if (variantSku && pricingSku && variantSku === pricingSku) return true;
+
+  return false;
+}
+
+const FIDELITY_PARITY_FIELDS = [
+  'store_sku',
+  'description',
+  'overview',
+  'product_info',
+  'size_info',
+  'product_note',
+  'packing_list',
+  'available_colors',
+  'available_sizes',
+  'color_image_map',
+] as const;
+
+type FidelityParityField = (typeof FIDELITY_PARITY_FIELDS)[number];
+
+function sortJsonForParity(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sortJsonForParity(item));
+  }
+
+  if (value && typeof value === 'object') {
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      sorted[key] = sortJsonForParity((value as Record<string, unknown>)[key]);
+    }
+    return sorted;
+  }
+
+  return value ?? null;
+}
+
+function toParitySignature(value: unknown): string {
+  return JSON.stringify(sortJsonForParity(value));
+}
+
+function findFidelityMismatches(
+  expected: Record<FidelityParityField, unknown>,
+  actual: Record<string, unknown>
+): FidelityParityField[] {
+  const mismatches: FidelityParityField[] = [];
+  for (const field of FIDELITY_PARITY_FIELDS) {
+    if (toParitySignature(expected[field]) !== toParitySignature(actual[field])) {
+      mismatches.push(field);
+    }
+  }
+  return mismatches;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -318,6 +473,60 @@ export async function POST(req: NextRequest) {
     const hasCjProductIdColumn = await hasColumn('products', 'cj_product_id');
     const hasVariantsTable = await hasTable('product_variants');
 
+    // Accuracy guardrail: prevent silent field dropping for critical import fidelity fields.
+    const productFidelityRequiredColumns = [
+      'store_sku',
+      'description',
+      'overview',
+      'product_info',
+      'size_info',
+      'product_note',
+      'packing_list',
+      'available_colors',
+      'available_sizes',
+      'color_image_map',
+    ];
+    const missingProductFidelityColumns: string[] = [];
+    for (const col of productFidelityRequiredColumns) {
+      const exists = await hasColumn('products', col).catch(() => false);
+      if (!exists) missingProductFidelityColumns.push(col);
+    }
+    if (missingProductFidelityColumns.length > 0) {
+      return NextResponse.json({
+        ok: false,
+        error: `Products table is missing required fidelity columns: ${missingProductFidelityColumns.join(', ')}. Please run latest Supabase migrations before importing.`,
+        missingColumns: missingProductFidelityColumns,
+      }, { status: 400 });
+    }
+
+    const queueFidelityRequiredColumns = [
+      'store_sku',
+      'description_en',
+      'overview',
+      'product_info',
+      'size_info',
+      'product_note',
+      'packing_list',
+      'available_colors',
+      'available_sizes',
+      'color_image_map',
+      'variant_pricing',
+      'variants',
+      'calculated_retail_sar',
+    ];
+    const missingQueueFidelityColumns: string[] = [];
+    for (const col of queueFidelityRequiredColumns) {
+      const exists = await hasColumn('product_queue', col).catch(() => false);
+      if (!exists) missingQueueFidelityColumns.push(col);
+    }
+    if (missingQueueFidelityColumns.length > 0) {
+      return NextResponse.json({
+        ok: false,
+        error: `Product queue table is missing required fidelity columns: ${missingQueueFidelityColumns.join(', ')}. Please run latest Supabase migrations before importing.`,
+        missingColumns: missingQueueFidelityColumns,
+      }, { status: 400 });
+    }
+
     const results: { id: number; success: boolean; shopixoId?: string; error?: string }[] = [];
 
     for (const qp of queueProducts) {
@@ -326,11 +535,11 @@ export async function POST(req: NextRequest) {
         const queueStoreSku = qp.store_sku || qp.product_code || null;
         requireField(queueStoreSku, 'storeSku');
         requireField(qp.name_en, 'name');
-        const rawVariantsRequired = typeof qp.variants === 'string' ? JSON.parse(qp.variants) : (qp.variants || []);
+        const rawVariantsRequired = parseArrayOrEmpty(qp.variants);
         requireField(rawVariantsRequired, 'variants');
         for (const v of rawVariantsRequired) {
-          requireField(v?.variantSku, 'variantSku');
-          requireField(v?.sellPriceSAR, 'sellPriceSAR');
+          const variantIdentifier = v?.variantSku || v?.cjSku || v?.variantId || v?.vid;
+          requireField(variantIdentifier, 'variantIdentifier');
         }
         let existing: any = null;
         if (hasCjProductIdColumn) {
@@ -356,46 +565,59 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        const rawVariantPricing = typeof qp.variant_pricing === 'string' ? JSON.parse(qp.variant_pricing) : (qp.variant_pricing || []);
-        const rawVariants = typeof qp.variants === 'string' ? JSON.parse(qp.variants) : (qp.variants || []);
+        const rawVariantPricing = parseArrayOrEmpty(qp.variant_pricing);
+        const rawVariants = rawVariantsRequired;
+        const availableSizes = parseStringArrayOrNull(qp.available_sizes);
+        const availableColors = parseStringArrayOrNull(qp.available_colors);
         
         // Parse colorImageMap from queue payload - maps color names to their specific images
-        const colorImageMap: Record<string, string> = typeof qp.color_image_map === 'string' 
-          ? JSON.parse(qp.color_image_map) 
-          : (qp.color_image_map || {});
+        const colorImageMap = parseColorImageMap(qp.color_image_map);
+        const alignedColorImageMap = alignColorImageMapToColors(availableColors, colorImageMap);
         
-        const variants = rawVariants.map((v: any, i: number) => {
-          const matchingPricing = rawVariantPricing.find((vp: any) =>
-            vp.variantId === v.variantId || vp.sku === v.variantSku
-          );
+        const variants = rawVariants.map((v: any) => {
+          const matchingPricing = rawVariantPricing.find((vp: any) => isVariantPricingMatch(v, vp));
+          const resolvedSize = v.size ?? matchingPricing?.size ?? null;
+          const resolvedColor = v.color ?? matchingPricing?.color ?? null;
+          const resolvedRetailSar = toPositiveNumberOrNull(
+            matchingPricing?.price ?? matchingPricing?.sellPriceSAR ?? matchingPricing?.sellPriceSar
+          )
+            ?? toPositiveNumberOrNull(v.sellPriceSAR);
+          const mappedVariantImage = resolveColorImageForColor(resolvedColor, alignedColorImageMap);
           return {
             sku: v.storeSku || matchingPricing?.storeSku || null,
             cj_sku: v.variantSku || v.cjSku || v.vid || null,
             cj_variant_id: v.variantId || null,
-            size: v.size ?? matchingPricing?.size ?? null,
-            color: v.color ?? matchingPricing?.color ?? null,
-            price_sar: v.sellPriceSAR ?? matchingPricing?.price ?? null,
+            size: resolvedSize,
+            color: resolvedColor,
+            price_sar: resolvedRetailSar,
             cost_usd: v.variantPriceUSD ?? matchingPricing?.costPrice ?? null,
             shipping_usd: v.shippingPriceUSD ?? matchingPricing?.shippingCost ?? null,
             stock: v.stock ?? null,
             cj_stock: v.cjStock ?? matchingPricing?.cjStock ?? null,
             factory_stock: v.factoryStock ?? matchingPricing?.factoryStock ?? null,
             weight_g: v.weight ?? v.weightGrams ?? null,
-            image_url: v.variantImage ?? matchingPricing?.colorImage ?? null,
+            image_url: mappedVariantImage || matchingPricing?.colorImage || v.variantImage || v.whiteImage || v.image || null,
           };
         });
         
-        if (Object.keys(colorImageMap).length > 0) {
-          console.log(`[Import] Product ${qp.cj_product_id}: Using colorImageMap for ${Object.keys(colorImageMap).length} colors`);
+        if (Object.keys(alignedColorImageMap).length > 0) {
+          console.log(`[Import] Product ${qp.cj_product_id}: Using colorImageMap for ${Object.keys(alignedColorImageMap).length} colors`);
         }
 
         const totalStock: number | null = qp.stock_total ?? null;
-        const rawImages = typeof qp.images === 'string' ? JSON.parse(qp.images) : (qp.images || []);
+        const rawImages = parseArrayOrEmpty(qp.images);
         const baseSlug = queueStoreSku || await ensureUniqueSlug(admin, qp.name_en);
 
-        const variantPrices = variants.map((v: any) => v.price_sar).filter((p: number) => typeof p === 'number');
-        const minVariantPrice = variantPrices.length > 0 ? Math.min(...variantPrices) : null;
-        const maxVariantPrice = variantPrices.length > 0 ? Math.max(...variantPrices) : null;
+        const variantPrices = variants
+          .map((v: any) => Number(v.price_sar))
+          .filter((p: number) => Number.isFinite(p) && p > 0);
+        const queueRetailSar = Number(qp.calculated_retail_sar);
+        const fallbackRetailSar = Number.isFinite(queueRetailSar) && queueRetailSar > 0 ? queueRetailSar : null;
+        const resolvedMinPrice = variantPrices.length > 0 ? Math.min(...variantPrices) : fallbackRetailSar;
+        const resolvedMaxPrice = variantPrices.length > 0 ? Math.max(...variantPrices) : fallbackRetailSar;
+        if (!Number.isFinite(resolvedMinPrice) || (resolvedMinPrice as number) <= 0) {
+          throw new Error('Unable to resolve a positive retail SAR price from approved queue data');
+        }
 
         const imgCount = Array.isArray(rawImages) ? rawImages.length : 0;
         const minCostUsd = Number(qp.cj_product_cost || qp.cj_price_usd || 0);
@@ -418,15 +640,13 @@ export async function POST(req: NextRequest) {
         const productPayload: Record<string, any> = {
           title: qp.name_en,
           slug: baseSlug,
-          price: minVariantPrice ?? qp.calculated_retail_sar ?? null,
+          price: resolvedMinPrice,
           category: qp.category || "General",
           stock: totalStock,
         };
 
-        const rawSpecifications = typeof qp.specifications === 'string' ? JSON.parse(qp.specifications) : (qp.specifications || {});
-        const rawSellingPoints = typeof qp.selling_points === 'string' ? JSON.parse(qp.selling_points) : (qp.selling_points || []);
-        const availableSizes = Array.isArray(qp.available_sizes) ? qp.available_sizes : null;
-        const availableColors = Array.isArray(qp.available_colors) ? qp.available_colors : null;
+        const rawSpecifications = parseObjectOrEmpty(qp.specifications);
+        const rawSellingPoints = parseArrayOrEmpty(qp.selling_points);
 
         const optionalFields: Record<string, any> = {
           description: qp.description_en ?? null,
@@ -460,9 +680,10 @@ export async function POST(req: NextRequest) {
           size_chart_images: qp.size_chart_images || null,
           available_sizes: availableSizes,
           available_colors: availableColors,
+          color_image_map: Object.keys(alignedColorImageMap).length > 0 ? alignedColorImageMap : null,
           has_variants: variants.length > 0,
-          min_price: minVariantPrice,
-          max_price: maxVariantPrice,
+          min_price: resolvedMinPrice,
+          max_price: resolvedMaxPrice,
           specifications: rawSpecifications,
           selling_points: rawSellingPoints,
           cj_category_id: qp.cj_category_id || null,
@@ -486,7 +707,7 @@ export async function POST(req: NextRequest) {
           'min_price', 'max_price', 'specifications', 'selling_points',
           'cj_category_id', 'displayed_rating', 'rating_confidence', 'overview', 'product_info', 'size_info',
           'product_note', 'packing_list', 'store_sku', 'inventory_status', 'inventory_error_message',
-          'available_models', 'product_type'
+          'available_models', 'product_type', 'color_image_map'
         ]);
 
         const fullPayload = { ...productPayload, ...optionalFields };
@@ -517,6 +738,41 @@ export async function POST(req: NextRequest) {
           } else {
             throw e;
           }
+        }
+
+        const expectedFidelity: Record<FidelityParityField, unknown> = {
+          store_sku: queueStoreSku,
+          description: qp.description_en ?? null,
+          overview: qp.overview ?? null,
+          product_info: qp.product_info ?? null,
+          size_info: qp.size_info ?? null,
+          product_note: qp.product_note ?? null,
+          packing_list: qp.packing_list ?? null,
+          available_colors: availableColors,
+          available_sizes: availableSizes,
+          color_image_map: Object.keys(alignedColorImageMap).length > 0 ? alignedColorImageMap : null,
+        };
+
+        const { data: persistedFidelity, error: fidelityError } = await admin
+          .from('products')
+          .select(FIDELITY_PARITY_FIELDS.join(','))
+          .eq('id', productId)
+          .maybeSingle();
+
+        if (fidelityError || !persistedFidelity) {
+          throw new Error(`Failed to verify persisted fidelity fields for product ${productId}`);
+        }
+
+        const persistedFidelityRecord = persistedFidelity as unknown as Record<string, unknown>;
+
+        const mismatchedFields = findFidelityMismatches(
+          expectedFidelity,
+          persistedFidelityRecord
+        );
+
+        if (mismatchedFields.length > 0) {
+          await admin.from('products').delete().eq('id', productId);
+          throw new Error(`Import fidelity check failed for fields: ${mismatchedFields.join(', ')}`);
         }
 
         if (hasVariantsTable && variants.length > 0) {
@@ -592,7 +848,7 @@ export async function POST(req: NextRequest) {
             status: 'imported',
             shopixo_product_id: productId,
             imported_at: new Date().toISOString(),
-            calculated_retail_sar: minVariantPrice,
+            calculated_retail_sar: resolvedMinPrice,
             margin_applied: null
           })
           .eq('id', qp.id);

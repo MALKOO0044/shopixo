@@ -53,6 +53,7 @@ export type Product = {
 
   // Product codes
   product_code?: string | null; // Shopixo public code (XO00001 format) - visible to customers
+  store_sku?: string | null; // Deterministic store SKU used in admin/storefront views
   supplier_sku?: string | null; // Supplier SKU from CJ - admin only
 
   // Shipping and CJ linkage metadata (optional)

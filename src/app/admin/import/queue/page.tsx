@@ -24,6 +24,8 @@ type QueueProduct = {
   id: number;
   batch_id: number | null;
   cj_product_id: string;
+  store_sku?: string | null;
+  product_code?: string | null;
   name_en: string;
   name_ar: string | null;
   category: string;
@@ -43,8 +45,47 @@ type QueueProduct = {
   created_at: string;
   available_colors?: string[];
   available_sizes?: string[];
-  variant_pricing?: any[];
+  variant_pricing?: any[] | string | null;
 };
+
+function parseQueueVariantPricing(value: QueueProduct["variant_pricing"]): any[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function resolveQueueDisplayPriceSar(product: QueueProduct): number | null {
+  const directRetailSar = Number(product.calculated_retail_sar);
+  if (Number.isFinite(directRetailSar) && directRetailSar > 0) return directRetailSar;
+
+  const variantPricing = parseQueueVariantPricing(product.variant_pricing);
+  const variantRetailPrices = variantPricing
+    .map((v: any) => Number(v?.price ?? v?.sellPriceSAR ?? v?.sellPriceSar))
+    .filter((p: number) => Number.isFinite(p) && p > 0);
+
+  if (variantRetailPrices.length > 0) {
+    return Math.min(...variantRetailPrices);
+  }
+
+  return null;
+}
+
+function resolveQueueStoreSku(product: QueueProduct): string {
+  const storeSku = typeof product.store_sku === "string" ? product.store_sku.trim() : "";
+  if (storeSku) return storeSku;
+
+  const productCode = typeof product.product_code === "string" ? product.product_code.trim() : "";
+  if (productCode) return productCode;
+
+  return product.cj_product_id || "-";
+}
 
 type Stats = {
   pending: number;
@@ -137,7 +178,7 @@ export default function QueuePage() {
   }, []);
 
   const toggleSelect = (id: number) => {
-    setSelected(prev => {
+    setSelected((prev: Set<number>) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
@@ -149,7 +190,7 @@ export default function QueuePage() {
   };
 
   const selectAll = () => {
-    setSelected(new Set(products.map(p => p.id)));
+    setSelected(new Set(products.map((p: QueueProduct) => p.id)));
   };
 
   const deselectAll = () => {
@@ -182,7 +223,9 @@ export default function QueuePage() {
   };
 
   const handleImport = async () => {
-    const approvedIds = products.filter(p => p.status === "approved" && selected.has(p.id)).map(p => p.id);
+    const approvedIds = products
+      .filter((p: QueueProduct) => p.status === "approved" && selected.has(p.id))
+      .map((p: QueueProduct) => p.id);
     if (approvedIds.length === 0) {
       setError("Select approved products to import");
       return;
@@ -298,12 +341,26 @@ export default function QueuePage() {
   };
 
   const exportCsv = () => {
-    const headers = ["ID", "CJ Product ID", "Name", "Category", "Price USD", "Stock", "Displayed Rating", "Status", "Created"];
-    const rows = products.map(p => [
+    const headers = [
+      "ID",
+      "Store SKU",
+      "CJ Product ID",
+      "Name",
+      "Category",
+      "Retail SAR",
+      "Cost USD",
+      "Stock",
+      "Displayed Rating",
+      "Status",
+      "Created",
+    ];
+    const rows = products.map((p: QueueProduct) => [
       p.id,
+      resolveQueueStoreSku(p),
       p.cj_product_id,
       `"${p.name_en.replace(/"/g, '""')}"`,
       p.category,
+      resolveQueueDisplayPriceSar(p)?.toFixed(2) ?? "",
       p.cj_price_usd,
       p.stock_total,
       normalizeDisplayedRating(p.displayed_rating).toFixed(1),
@@ -311,7 +368,7 @@ export default function QueuePage() {
       new Date(p.created_at).toLocaleDateString(),
     ]);
     
-    const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const csv = [headers.join(","), ...rows.map((r: Array<string | number | null>) => r.join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -534,6 +591,8 @@ export default function QueuePage() {
                 const isSelected = selected.has(product.id);
                 const colors = statusColors[product.status] || statusColors.pending;
                 const StatusIcon = colors.icon;
+                const displayRetailSar = resolveQueueDisplayPriceSar(product);
+                const displayStoreSku = resolveQueueStoreSku(product);
                 
                 return editingId === product.id ? (
                   <tr key={product.id} className="bg-blue-50">
@@ -646,15 +705,21 @@ export default function QueuePage() {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900 line-clamp-2">{product.name_en}</p>
+                      <span className="block font-mono text-xs text-emerald-700" title={displayStoreSku}>
+                        Store SKU: {displayStoreSku}
+                      </span>
                       <span className="font-mono text-xs text-blue-600" title={product.cj_product_id}>
-                        SKU: {product.cj_product_id.length > 12 ? `...${product.cj_product_id.slice(-8)}` : product.cj_product_id}
+                        CJ PID: {product.cj_product_id.length > 12 ? `...${product.cj_product_id.slice(-8)}` : product.cj_product_id}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-1 bg-gray-100 rounded text-xs text-gray-700">{product.category}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <p className="font-medium text-green-600">${product.cj_price_usd?.toFixed(2) || "0.00"}</p>
+                      <p className="font-medium text-green-600">
+                        {displayRetailSar !== null ? `SAR ${displayRetailSar.toFixed(2)}` : "SAR -"}
+                      </p>
+                      <p className="text-xs text-gray-500">Cost: ${product.cj_price_usd?.toFixed(2) || "0.00"}</p>
                       <p className="text-xs text-gray-500">Stock: {product.stock_total}</p>
                     </td>
                     <td className="px-4 py-3">

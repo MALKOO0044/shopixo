@@ -97,6 +97,32 @@ function normalizeImageUrl(url: string): string {
   return url;
 }
 
+function normalizeColorKey(value: unknown): string {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function resolveColorImageForColor(colorValue: unknown, colorMap: Record<string, string>): string | null {
+  const color = String(colorValue ?? '').trim();
+  if (!color || !colorMap || Object.keys(colorMap).length === 0) return null;
+
+  const exact = colorMap[color];
+  if (typeof exact === 'string' && exact) return exact;
+
+  const target = normalizeColorKey(color);
+  if (!target) return null;
+
+  for (const [mapColor, imageUrl] of Object.entries(colorMap)) {
+    if (!imageUrl) continue;
+    const key = normalizeColorKey(mapColor);
+    if (!key) continue;
+    if (key === target || key.includes(target) || target.includes(key)) {
+      return imageUrl;
+    }
+  }
+
+  return null;
+}
+
 function getCloudinaryVideoPoster(url: string): string | null {
   try {
     const u = normalizeImageUrl(url);
@@ -159,7 +185,7 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
   useEffect(() => {
     if (!selectedColor) return;
     
-    const colorImage = colorImageMap[selectedColor];
+    const colorImage = resolveColorImageForColor(selectedColor, colorImageMap) || undefined;
     
     // Only update if the color's image has actually changed
     if (colorImage === prevColorImageRef.current) return;
@@ -402,12 +428,13 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
 
 interface DetailHeaderProps {
   title: string;
+  storeSku?: string | null;
   productCode?: string | null;
   rating: number;
   reviewCount?: number;
 }
 
-function DetailHeader({ title, productCode, rating, reviewCount = 0 }: DetailHeaderProps) {
+function DetailHeader({ title, storeSku, productCode, rating, reviewCount = 0 }: DetailHeaderProps) {
   const displayRating = normalizeDisplayedRating(rating);
   const fullStars = Math.floor(displayRating);
   const hasHalfStar = displayRating % 1 >= 0.5;
@@ -417,8 +444,14 @@ function DetailHeader({ title, productCode, rating, reviewCount = 0 }: DetailHea
       <h1 className="text-lg md:text-xl font-bold text-foreground leading-tight">
         {title}
       </h1>
+
+      {storeSku && (
+        <p className="text-sm text-muted-foreground">
+          Store SKU: <span className="font-mono text-foreground">{storeSku}</span>
+        </p>
+      )}
       
-      {productCode && (
+      {productCode && productCode !== storeSku && (
         <p className="text-sm text-muted-foreground">
           Product Code: <span className="font-mono text-foreground">{productCode}</span>
         </p>
@@ -1317,8 +1350,10 @@ export default function ProductDetailsClient({
     if (hasRows && variantRows) {
       for (const v of variantRows) {
         const vAny = v as any;
-        if (vAny.color && vAny.image_url && !map[vAny.color]) {
-          map[vAny.color] = vAny.image_url;
+        const parsed = splitColorSize(String(vAny.option_value || ''));
+        const variantColor = vAny.color || parsed.color;
+        if (variantColor && vAny.image_url && !map[variantColor]) {
+          map[variantColor] = vAny.image_url;
         }
       }
     }
@@ -1390,13 +1425,27 @@ export default function ProductDetailsClient({
       }
     }
     
-    // Final fallback: Fill any remaining unmapped colors with first product image
+    // Align keys with actual color options using normalized lookup.
+    const alignedMap: Record<string, string> = {};
     for (const color of colorOptions) {
-      if (!map[color]) {
-        map[color] = product.images[0] || '';
+      const resolved = resolveColorImageForColor(color, map);
+      if (resolved) {
+        alignedMap[color] = resolved;
       }
     }
-    return map;
+
+    const hasReliableColorMap = Object.keys(alignedMap).length > 0 || Object.keys(map).length > 0;
+    if (hasReliableColorMap) {
+      return { ...map, ...alignedMap };
+    }
+
+    // Last-resort fallback only when there is no known color-image relation at all.
+    const firstImage = product.images[0] || '';
+    if (!firstImage) return { ...map };
+    for (const color of colorOptions) {
+      alignedMap[color] = firstImage;
+    }
+    return alignedMap;
   }, [colorOptions, product.images, product, hasRows, variantRows]);
 
   const currentSizes = effectiveBothDims 
@@ -1474,6 +1523,7 @@ export default function ProductDetailsClient({
   
   // When variant is selected, use variant price; otherwise use min_price
   const currentPrice = selectedVariant?.price ?? minPrice;
+  const storeSku = ((product as any).store_sku || product.product_code || null) as string | null;
 
   const descriptionImages = useMemo(() => {
     if (!product.description) return [];
@@ -1498,6 +1548,7 @@ export default function ProductDetailsClient({
         <div className="w-full space-y-4">
           <DetailHeader
             title={product.title}
+            storeSku={storeSku}
             productCode={product.product_code}
             rating={product.displayed_rating || (product as any).supplier_rating || 0}
             reviewCount={(product as any).review_count || 0}
