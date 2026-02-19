@@ -606,7 +606,7 @@ export async function POST(req: NextRequest) {
               image_url: mappedVariantImage || matchingPricing?.colorImage || v.variantImage || v.whiteImage || v.image || null,
             };
           })
-          .filter((variant): variant is Record<string, any> => Boolean(variant));
+          .filter((variant): variant is NonNullable<typeof variant> => Boolean(variant));
 
         if (hasCanonicalVariantPricing && variants.length === 0) {
           throw new Error('Unable to resolve positive SAR prices from queue variant_pricing');
