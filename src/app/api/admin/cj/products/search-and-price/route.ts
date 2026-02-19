@@ -3,7 +3,7 @@ import { getAccessToken, freightCalculate, fetchProductDetailsBatch, findCJPacke
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
-import { usdToSar, computeRetailFromLanded } from '@/lib/pricing';
+import { usdToSar, sarToUsd, computeRetailFromLanded } from '@/lib/pricing';
 import { computeRating } from '@/lib/rating/engine';
 
 export const dynamic = 'force-dynamic';
@@ -27,8 +27,12 @@ type PricedVariant = {
   deliveryDays: string;
   logisticName?: string;
   sellPriceSAR: number;
+  sellPriceUSD?: number;
   totalCostSAR: number;
+  totalCostUSD?: number;
   profitSAR: number;
+  profitUSD?: number;
+  marginPercent?: number;
   error?: string;
   stock?: number;
   cjStock?: number;          // CJ warehouse stock (verified)
@@ -74,6 +78,10 @@ type PricedProduct = {
   minPriceSAR: number;
   maxPriceSAR: number;
   avgPriceSAR: number;
+  minPriceUSD?: number;
+  maxPriceUSD?: number;
+  avgPriceUSD?: number;
+  profitMarginApplied?: number;
   stock: number;
   listedNum: number;
   // Inventory breakdown from CJ's dedicated inventory API
@@ -1953,6 +1961,12 @@ async function handleSearch(req: Request, isPost: boolean) {
           const totalCostSAR = costSAR + shippingPriceSAR;
           const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
           const profitSAR = sellPriceSAR - totalCostSAR;
+          const totalCostUSD = Number((sellPrice + shippingPriceUSD).toFixed(2));
+          const sellPriceUSD = sarToUsd(sellPriceSAR);
+          const profitUSD = Number((sellPriceUSD - totalCostUSD).toFixed(2));
+          const marginPercent = sellPriceUSD > 0
+            ? Number(((profitUSD / sellPriceUSD) * 100).toFixed(2))
+            : 0;
           
           // Get variant stock from the inventory map using multiple key fallbacks
           // Single-variant product: try productSku, pid, or first available stock entry (aggregate if multiple rows)
@@ -1991,8 +2005,12 @@ async function handleSearch(req: Request, isPost: boolean) {
             deliveryDays,
             logisticName,
             sellPriceSAR,
+            sellPriceUSD,
             totalCostSAR,
+            totalCostUSD,
             profitSAR,
+            profitUSD,
+            marginPercent,
             error: shippingError,
             stock: variantStock?.totalStock,
             cjStock: variantStock?.cjStock,
@@ -2163,6 +2181,12 @@ async function handleSearch(req: Request, isPost: boolean) {
             const totalCostSAR = costSAR + highest.shippingPriceSAR;
             const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
             const profitSAR = sellPriceSAR - totalCostSAR;
+            const totalCostUSD = Number((variantPriceUSD + highest.shippingPriceUSD).toFixed(2));
+            const sellPriceUSD = sarToUsd(sellPriceSAR);
+            const profitUSD = Number((sellPriceUSD - totalCostUSD).toFixed(2));
+            const marginPercent = sellPriceUSD > 0
+              ? Number(((profitUSD / sellPriceUSD) * 100).toFixed(2))
+              : 0;
 
             const variantKey = String(variant.variantKey || '');
             const variantStock = getVariantStock({
@@ -2183,8 +2207,12 @@ async function handleSearch(req: Request, isPost: boolean) {
               deliveryDays: highest.deliveryDays,
               logisticName: highest.logisticName,
               sellPriceSAR,
+              sellPriceUSD,
               totalCostSAR,
+              totalCostUSD,
               profitSAR,
+              profitUSD,
+              marginPercent,
               variantName,
               variantImage,
               size,
@@ -2219,6 +2247,14 @@ async function handleSearch(req: Request, isPost: boolean) {
       const minPriceSAR = Math.min(...prices);
       const maxPriceSAR = Math.max(...prices);
       const avgPriceSAR = Math.round(prices.reduce((a, b) => a + b, 0) / prices.length);
+      const usdPrices = pricedVariants
+        .map(v => Number(v.sellPriceUSD ?? sarToUsd(v.sellPriceSAR)))
+        .filter((price) => Number.isFinite(price) && price > 0);
+      const minPriceUSD = usdPrices.length > 0 ? Math.min(...usdPrices) : 0;
+      const maxPriceUSD = usdPrices.length > 0 ? Math.max(...usdPrices) : 0;
+      const avgPriceUSD = usdPrices.length > 0
+        ? Number((usdPrices.reduce((sum, price) => sum + price, 0) / usdPrices.length).toFixed(2))
+        : 0;
 
       let displayedRating: number | undefined;
       let ratingConfidence: number | undefined;
@@ -2291,6 +2327,10 @@ async function handleSearch(req: Request, isPost: boolean) {
         minPriceSAR,
         maxPriceSAR,
         avgPriceSAR,
+        minPriceUSD,
+        maxPriceUSD,
+        avgPriceUSD,
+        profitMarginApplied: profitMargin,
         stock,
         listedNum,
         // Inventory breakdown from CJ's dedicated inventory API (most accurate)

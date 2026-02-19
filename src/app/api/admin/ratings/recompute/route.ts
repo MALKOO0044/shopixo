@@ -3,6 +3,7 @@ import { ensureAdmin } from "@/lib/auth/admin-guard";
 import { createClient } from "@supabase/supabase-js";
 import { hasColumn, hasTable } from "@/lib/db-features";
 import { computeRating } from "@/lib/rating/engine";
+import { sarToUsd } from "@/lib/pricing";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
         const images = Array.isArray(p.images) ? p.images : [];
         const stock = typeof p.stock === 'number' ? p.stock : 0;
         const priceSar = typeof p.price === 'number' ? p.price : 0;
-        const priceUsd = priceSar > 0 ? priceSar / 3.75 : 0;
+        const priceUsd = priceSar > 0 ? sarToUsd(priceSar) : 0;
 
         const imgNorm = Math.max(0, Math.min(1, (images.length || 0) / 15));
         const priceNorm = Math.max(0, Math.min(1, (priceUsd || 0) / 50));

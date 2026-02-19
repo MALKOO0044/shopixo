@@ -27,6 +27,7 @@ import PreviewPageFour from '@/components/admin/import/preview/PreviewPageFour'
 import PreviewPageFive from '@/components/admin/import/preview/PreviewPageFive'
 import PreviewPageSix from '@/components/admin/import/preview/PreviewPageSix'
 import { normalizeDisplayedRating } from '@/lib/rating/engine'
+import { sarToUsd } from '@/lib/pricing'
 
 function ImageWithFallback({ src, alt, className }: { src: string; alt: string; className?: string }) {
   const [error, setError] = useState(false)
@@ -130,19 +131,30 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
 
       // Build variant_pricing array with all variant data for accurate import
       const variantPricing = (product.variants || [])
-        .map(v => ({
-          variantId: v.variantId,
-          sku: v.variantSku,
-          color: v.color,
-          size: v.size,
-          colorImage: v.variantImage,
-          price: v.sellPriceSAR || 0,
-          costPrice: v.variantPriceUSD || 0,
-          shippingCost: v.shippingPriceUSD || 0,
-          stock: (v.cjStock || 0) + (v.factoryStock || 0),
-          cjStock: v.cjStock || 0,
-          factoryStock: v.factoryStock || 0,
-        }))
+        .map(v => {
+          const sellPriceSar = Number(v.sellPriceSAR || 0)
+          const directSellUsd = Number((v as any).sellPriceUSD)
+          const sellPriceUsd = Number.isFinite(directSellUsd) && directSellUsd > 0
+            ? directSellUsd
+            : (sellPriceSar > 0 ? sarToUsd(sellPriceSar) : 0)
+          const variantMarginPercent = Number((v as any).marginPercent)
+
+          return {
+            variantId: v.variantId,
+            sku: v.variantSku,
+            color: v.color,
+            size: v.size,
+            colorImage: v.variantImage,
+            price: sellPriceSar,
+            priceUsd: sellPriceUsd,
+            marginPercent: Number.isFinite(variantMarginPercent) ? variantMarginPercent : null,
+            costPrice: v.variantPriceUSD || 0,
+            shippingCost: v.shippingPriceUSD || 0,
+            stock: (v.cjStock || 0) + (v.factoryStock || 0),
+            cjStock: v.cjStock || 0,
+            factoryStock: v.factoryStock || 0,
+          }
+        })
         .filter(v => Number(v.price) > 0)
 
       const specifications: Record<string, string> = {}
@@ -190,6 +202,7 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
             originCountry: product.originCountry,
             hsCode: product.hsCode,
             sizeChartImages: product.sizeChartImages,
+            profitMargin: Number((product as any).profitMarginApplied) || undefined,
           }]
         })
       })
@@ -510,14 +523,38 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
                   <div className="flex justify-between items-center py-2 border-b">
                     <span className="text-gray-600">Suggested Retail</span>
                     <span className="font-bold text-green-600">
-                      ${((product.minPriceSAR / 3.75)).toFixed(2)} - ${((product.maxPriceSAR / 3.75)).toFixed(2)}
+                      {(() => {
+                        const directMinUsd = Number((product as any).minPriceUSD)
+                        const directMaxUsd = Number((product as any).maxPriceUSD)
+                        const minUsd = Number.isFinite(directMinUsd) && directMinUsd > 0
+                          ? directMinUsd
+                          : sarToUsd(Number(product.minPriceSAR))
+                        const maxUsd = Number.isFinite(directMaxUsd) && directMaxUsd > 0
+                          ? directMaxUsd
+                          : sarToUsd(Number(product.maxPriceSAR))
+                        return `$${minUsd.toFixed(2)} - $${maxUsd.toFixed(2)}`
+                      })()}
                     </span>
                   </div>
+                  {Number((product as any).profitMarginApplied) > 0 && (
+                    <div className="flex justify-between items-center py-2 border-b">
+                      <span className="text-gray-600">Applied Margin</span>
+                      <span className="font-semibold text-emerald-700">
+                        {Number((product as any).profitMarginApplied).toFixed(0)}%
+                      </span>
+                    </div>
+                  )}
                   {product.variants[0]?.profitSAR > 0 && (
                     <div className="flex justify-between items-center py-2">
                       <span className="text-gray-600">Est. Profit</span>
                       <span className="font-bold text-emerald-600">
-                        ${(product.variants[0].profitSAR / 3.75).toFixed(2)}
+                        {(() => {
+                          const directProfitUsd = Number((product.variants[0] as any)?.profitUSD)
+                          const profitUsd = Number.isFinite(directProfitUsd)
+                            ? directProfitUsd
+                            : sarToUsd(Number(product.variants[0].profitSAR))
+                          return `$${profitUsd.toFixed(2)}`
+                        })()}
                       </span>
                     </div>
                   )}

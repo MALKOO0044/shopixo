@@ -2,6 +2,7 @@
 
 import { Truck, Clock, DollarSign, CheckCircle, XCircle, MapPin, Timer, Package, TrendingUp } from "lucide-react";
 import type { PricedProduct } from "./types";
+import { sarToUsd } from "@/lib/pricing";
 
 type PreviewPageFiveProps = {
   product: PricedProduct;
@@ -32,14 +33,35 @@ export default function PreviewPageFive({ product }: PreviewPageFiveProps) {
     ? Math.round((availableVariants.length / product.totalVariants) * 100)
     : 0;
 
-  // CJPacket Ordinary only - no multiple shipping methods
   const firstVariant = availableVariants[0];
-  const productCostUSD = firstVariant?.variantPriceUSD || 0;
-  const shippingCostUSD = firstVariant?.shippingPriceUSD || 0;
-  const totalCostUSD = productCostUSD + shippingCostUSD;
-  const profitMargin = 0.08;
-  const sellPriceUSD = totalCostUSD / (1 - profitMargin);
-  const profitUSD = sellPriceUSD - totalCostUSD;
+  const productCostUSD = Number(firstVariant?.variantPriceUSD || 0);
+  const shippingCostUSD = Number(firstVariant?.shippingPriceUSD || 0);
+  const totalCostUSD = Number(
+    (firstVariant as any)?.totalCostUSD
+      ?? (Number(firstVariant?.totalCostSAR || 0) > 0 ? sarToUsd(Number(firstVariant?.totalCostSAR || 0)) : 0)
+  );
+  const sellPriceUSD = Number(
+    (firstVariant as any)?.sellPriceUSD
+      ?? (Number(firstVariant?.sellPriceSAR || 0) > 0 ? sarToUsd(Number(firstVariant?.sellPriceSAR || 0)) : 0)
+  );
+  const profitUSD = Number(
+    (firstVariant as any)?.profitUSD
+      ?? (Number(firstVariant?.profitSAR || 0) > 0 ? sarToUsd(Number(firstVariant?.profitSAR || 0)) : 0)
+  );
+  const marginPercent = Number(
+    (firstVariant as any)?.marginPercent
+      ?? (sellPriceUSD > 0 ? (profitUSD / sellPriceUSD) * 100 : 0)
+  );
+
+  const directMinUsd = Number((product as any).minPriceUSD);
+  const directMaxUsd = Number((product as any).maxPriceUSD);
+  const minUsd = Number.isFinite(directMinUsd) && directMinUsd > 0
+    ? directMinUsd
+    : (Number(product.minPriceSAR) > 0 ? sarToUsd(Number(product.minPriceSAR)) : NaN);
+  const maxUsd = Number.isFinite(directMaxUsd) && directMaxUsd > 0
+    ? directMaxUsd
+    : (Number(product.maxPriceSAR) > 0 ? sarToUsd(Number(product.maxPriceSAR)) : NaN);
+  const hasUsdRange = Number.isFinite(minUsd) && Number.isFinite(maxUsd) && maxUsd > minUsd;
 
   return (
     <div className="space-y-6">
@@ -69,14 +91,28 @@ export default function PreviewPageFive({ product }: PreviewPageFiveProps) {
                 <span className="text-2xl font-bold text-green-600">${sellPriceUSD.toFixed(2)}</span>
               </div>
             </div>
+
+            {Number.isFinite(minUsd) && minUsd > 0 && (
+              <div className="bg-white/70 rounded-lg p-4 text-center">
+                <span className="text-xs text-gray-500 block mb-1">Variant Price Range (USD)</span>
+                <span className="text-lg font-bold text-green-700">
+                  {hasUsdRange
+                    ? `$${minUsd.toFixed(2)} - $${maxUsd.toFixed(2)} USD`
+                    : `$${minUsd.toFixed(2)} USD`}
+                </span>
+              </div>
+            )}
             
             <div className="bg-green-100 rounded-lg p-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-green-600" />
-                <span className="text-green-800 font-medium">Your Profit (8% margin)</span>
+                <span className="text-green-800 font-medium">Estimated Profit (USD)</span>
               </div>
               <span className="text-3xl font-bold text-green-700">${profitUSD.toFixed(2)}</span>
             </div>
+            {Number.isFinite(marginPercent) && marginPercent > 0 && (
+              <div className="text-sm text-emerald-700 text-right">Applied margin: {marginPercent.toFixed(1)}%</div>
+            )}
             
             {firstVariant.logisticName && (
               <div className="text-sm text-indigo-600 flex items-center gap-2">
@@ -85,7 +121,7 @@ export default function PreviewPageFive({ product }: PreviewPageFiveProps) {
               </div>
             )}
             <div className="text-xs text-gray-500 mt-2 italic">
-              * Using highest shipping cost variant for 100% accuracy with CJ website
+              * Sell prices are the exact USD values from priced variants (same values sent to checklist/queue).
             </div>
           </div>
         ) : (

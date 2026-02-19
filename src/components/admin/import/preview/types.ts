@@ -15,8 +15,12 @@ export type PricedVariant = {
   deliveryDays: string;
   logisticName?: string;
   sellPriceSAR: number;
+  sellPriceUSD?: number;
   totalCostSAR: number;
+  totalCostUSD?: number;
   profitSAR: number;
+  profitUSD?: number;
+  marginPercent?: number;
   error?: string;
   stock?: number;
   cjStock?: number;
@@ -63,6 +67,10 @@ export type PricedProduct = {
   minPriceSAR: number;
   maxPriceSAR: number;
   avgPriceSAR: number;
+  minPriceUSD?: number;
+  maxPriceUSD?: number;
+  avgPriceUSD?: number;
+  profitMarginApplied?: number;
   stock: number;
   listedNum: number;
   totalVerifiedInventory?: number;

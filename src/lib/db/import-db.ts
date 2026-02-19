@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { computeRating, normalizeDisplayedRating } from '@/lib/rating/engine';
 import { hasTable } from '@/lib/db-features';
+import { sarToUsd } from '@/lib/pricing';
 
 let supabaseAdmin: SupabaseClient | null = null;
 
@@ -256,7 +257,8 @@ export async function addProductToQueue(batchId: number, product: {
       if (Number.isFinite(c) && c > 0) usdCandidates.push(c);
     }
   }
-  const fallbackAvgUsd = Number((product as any).avgPriceUsd) || (Number(product.avgPrice) ? Number(product.avgPrice) / 3.75 : 0);
+  const fallbackAvgUsd = Number((product as any).avgPriceUsd)
+    || (Number(product.avgPrice) ? sarToUsd(Number(product.avgPrice)) : 0);
   const minVariantUsd = usdCandidates.length > 0 ? Math.min(...usdCandidates) : fallbackAvgUsd;
   const imgNorm = Math.max(0, Math.min(1, imagesCount / 15));
   const priceNorm = Math.max(0, Math.min(1, minVariantUsd / 50));

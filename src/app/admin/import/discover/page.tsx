@@ -10,6 +10,7 @@ import PreviewPageFour from "@/components/admin/import/preview/PreviewPageFour";
 import PreviewPageFive from "@/components/admin/import/preview/PreviewPageFive";
 import PreviewPageSix from "@/components/admin/import/preview/PreviewPageSix";
 import type { PricedProduct, PricedVariant } from "@/components/admin/import/preview/types";
+import { sarToUsd } from "@/lib/pricing";
 
 type Category = {
   categoryId: string;
@@ -484,6 +485,7 @@ export default function ProductDiscoveryPage() {
             const normalizedSellingPoints = sourceSellingPoints.length > 0
               ? sourceSellingPoints
               : htmlToLines(p.overview).slice(0, 8);
+            const appliedMargin = Number((p as any).profitMarginApplied ?? profitMargin);
             
             return {
               cjProductId: p.pid,
@@ -501,6 +503,9 @@ export default function ProductDiscoveryPage() {
               minPriceSAR: p.minPriceSAR,
               maxPriceSAR: p.maxPriceSAR,
               avgPriceSAR: p.avgPriceSAR,
+              minPriceUSD: (p as any).minPriceUSD,
+              maxPriceUSD: (p as any).maxPriceUSD,
+              avgPriceUSD: (p as any).avgPriceUSD,
               stock: p.stock,
               variants: p.variants,
               categoryName: p.categoryName,
@@ -524,19 +529,32 @@ export default function ProductDiscoveryPage() {
               processingDays: p.processingTimeHours,
               deliveryDaysMin: undefined,
               deliveryDaysMax: p.deliveryTimeHours,
-              variantPricing: pricedVariants.map(v => ({
-                variantId: v.variantId,
-                sku: v.variantSku,
-                color: v.color,
-                size: v.size,
-                price: v.sellPriceSAR,
-                costPrice: v.variantPriceUSD,
-                shippingCost: v.shippingPriceUSD,
-                stock: v.stock ?? null,
-                cjStock: v.cjStock ?? null,
-                factoryStock: v.factoryStock ?? null,
-                colorImage: v.variantImage,
-              })),
+              variantPricing: pricedVariants.map(v => {
+                const sellPriceSar = Number((v as any).sellPriceSAR || 0);
+                const sellPriceUsdFromVariant = Number((v as any).sellPriceUSD);
+                const sellPriceUsd = Number.isFinite(sellPriceUsdFromVariant) && sellPriceUsdFromVariant > 0
+                  ? sellPriceUsdFromVariant
+                  : (sellPriceSar > 0 ? sarToUsd(sellPriceSar) : 0);
+                const variantMarginPercent = Number((v as any).marginPercent);
+
+                return {
+                  variantId: v.variantId,
+                  sku: v.variantSku,
+                  color: v.color,
+                  size: v.size,
+                  price: sellPriceSar,
+                  priceUsd: sellPriceUsd > 0 ? sellPriceUsd : null,
+                  marginPercent: Number.isFinite(variantMarginPercent)
+                    ? variantMarginPercent
+                    : (Number.isFinite(appliedMargin) ? appliedMargin : null),
+                  costPrice: v.variantPriceUSD,
+                  shippingCost: v.shippingPriceUSD,
+                  stock: v.stock ?? null,
+                  cjStock: v.cjStock ?? null,
+                  factoryStock: v.factoryStock ?? null,
+                  colorImage: v.variantImage,
+                };
+              }),
               specifications: plainSpecifications,
               sellingPoints: normalizedSellingPoints,
               inventoryByWarehouse: p.inventory,
@@ -547,7 +565,7 @@ export default function ProductDiscoveryPage() {
               cjProductCost: undefined,
               cjShippingCost: undefined,
               cjTotalCost: undefined,
-              profitMargin: undefined,
+              profitMargin: Number.isFinite(appliedMargin) && appliedMargin > 0 ? appliedMargin : undefined,
             };
           }),
         }),
@@ -949,7 +967,7 @@ export default function ProductDiscoveryPage() {
             </div>
           </div>
           <p className="text-xs text-amber-600 mt-2 text-right">
-            Set your desired profit margin. Products will display final USD sell prices including shipping + profit when search completes.
+            Set your desired profit margin. Products display final USD sell prices from priced variants using this applied margin.
           </p>
         </div>
 
@@ -983,7 +1001,7 @@ export default function ProductDiscoveryPage() {
             <span className="text-sm text-amber-700">{searchProgress}</span>
           </div>
           <p className="text-xs text-amber-600 mt-2">
-            Searching products, calculating shipping costs, and applying {profitMargin}% profit margin. Products will display final USD sell prices including shipping + profit when search completes.
+            Searching products, calculating shipping costs, and applying {profitMargin}% profit margin. Final USD sell prices (with applied margin) will be added to the checklist exactly as shown.
           </p>
         </div>
       )}
@@ -1092,23 +1110,40 @@ export default function ProductDiscoveryPage() {
                     
                     <div className="bg-green-50 rounded-lg p-2">
                       <div className="flex justify-between items-center">
-                        <span className="text-xs text-gray-600">Sell Price</span>
+                        <span className="text-xs text-gray-600">Sell Price (USD)</span>
                         <span className="font-bold text-green-700 text-lg">
                           {(() => {
-                            // Calculate final sell price from first available variant
-                            const availableVariants = product.variants.filter((v: any) => v.shippingAvailable);
-                            const firstVariant = availableVariants[0];
-                            if (firstVariant) {
-                              const productCostUSD = firstVariant.variantPriceUSD || 0;
-                              const shippingCostUSD = firstVariant.shippingPriceUSD || 0;
-                              const totalCostUSD = productCostUSD + shippingCostUSD;
-                              const sellPriceUSD = totalCostUSD / (1 - 0.08);
-                              return `$${sellPriceUSD.toFixed(2)}`;
+                            const directMinUsd = Number((product as any).minPriceUSD);
+                            const directMaxUsd = Number((product as any).maxPriceUSD);
+                            const fallbackMinUsd = Number(product.minPriceSAR) > 0
+                              ? sarToUsd(Number(product.minPriceSAR))
+                              : NaN;
+                            const fallbackMaxUsd = Number(product.maxPriceSAR) > 0
+                              ? sarToUsd(Number(product.maxPriceSAR))
+                              : NaN;
+
+                            const minUsd = Number.isFinite(directMinUsd) && directMinUsd > 0 ? directMinUsd : fallbackMinUsd;
+                            const maxUsd = Number.isFinite(directMaxUsd) && directMaxUsd > 0 ? directMaxUsd : fallbackMaxUsd;
+
+                            if (Number.isFinite(minUsd) && minUsd > 0) {
+                              if (Number.isFinite(maxUsd) && maxUsd > minUsd) {
+                                return `$${minUsd.toFixed(2)} - $${maxUsd.toFixed(2)}`;
+                              }
+                              return `$${minUsd.toFixed(2)}`;
                             }
-                            return "N/A";
+                            return "$-";
                           })()}
                         </span>
                       </div>
+                      {(() => {
+                        const appliedMargin = Number((product as any).profitMarginApplied ?? profitMargin);
+                        if (!Number.isFinite(appliedMargin) || appliedMargin <= 0) return null;
+                        return (
+                          <p className="text-[11px] text-emerald-700 mt-1">
+                            Applied margin: {appliedMargin.toFixed(0)}%
+                          </p>
+                        );
+                      })()}
                     </div>
                     
                     <div className="grid grid-cols-2 gap-2 text-xs">

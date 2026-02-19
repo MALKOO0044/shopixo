@@ -113,9 +113,24 @@ export function calculateRetailSar(
   };
 }
 
+export function getUsdToSarRate(): number {
+  const privateRate = Number(process.env.EXCHANGE_USD_TO_SAR || '');
+  if (Number.isFinite(privateRate) && privateRate > 0) return privateRate;
+
+  const publicRate = Number(process.env.NEXT_PUBLIC_EXCHANGE_USD_TO_SAR || '');
+  if (Number.isFinite(publicRate) && publicRate > 0) return publicRate;
+
+  return 3.75;
+}
+
 export function usdToSar(usd: number): number {
-  const rate = Number(process.env.EXCHANGE_USD_TO_SAR || '3.75');
+  const rate = getUsdToSarRate();
   return Math.round(usd * rate * 100) / 100;
+}
+
+export function sarToUsd(sar: number): number {
+  const rate = getUsdToSarRate();
+  return Math.round((sar / rate) * 100) / 100;
 }
 
 export function convertToSar(amount: number, currency?: string | null): number {

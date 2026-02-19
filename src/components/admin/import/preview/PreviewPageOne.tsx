@@ -2,6 +2,7 @@
 
 import { Star, TrendingUp, Image as ImageIcon, Tag, Ruler, FolderOpen, DollarSign, Info, Palette, Smartphone } from "lucide-react";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
+import { sarToUsd } from "@/lib/pricing";
 import type { PricedProduct } from "./types";
 
 type PreviewPageOneProps = {
@@ -271,24 +272,48 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
             <span className="text-gray-600 font-medium">Price</span>
           </div>
           {(() => {
-            // Calculate final sell price from first available variant (highest shipping)
-            const availableVariants = product.variants.filter(v => v.shippingAvailable);
-            const firstVariant = availableVariants[0];
-            
-            if (firstVariant) {
-              const productCostUSD = firstVariant.variantPriceUSD || 0;
-              const shippingCostUSD = firstVariant.shippingPriceUSD || 0;
-              const totalCostUSD = productCostUSD + shippingCostUSD;
-              const profitMargin = 0.08;
-              const sellPriceUSD = totalCostUSD / (1 - profitMargin);
-              
+            const directMinUsd = Number((product as any).minPriceUSD);
+            const directMaxUsd = Number((product as any).maxPriceUSD);
+            const directAvgUsd = Number((product as any).avgPriceUSD);
+
+            const minUsd = Number.isFinite(directMinUsd) && directMinUsd > 0
+              ? directMinUsd
+              : Number(product.minPriceSAR) > 0
+                ? sarToUsd(Number(product.minPriceSAR))
+                : NaN;
+            const maxUsd = Number.isFinite(directMaxUsd) && directMaxUsd > 0
+              ? directMaxUsd
+              : Number(product.maxPriceSAR) > 0
+                ? sarToUsd(Number(product.maxPriceSAR))
+                : NaN;
+            const avgUsd = Number.isFinite(directAvgUsd) && directAvgUsd > 0
+              ? directAvgUsd
+              : Number(product.avgPriceSAR) > 0
+                ? sarToUsd(Number(product.avgPriceSAR))
+                : NaN;
+            const appliedMargin = Number((product as any).profitMarginApplied);
+
+            if (Number.isFinite(minUsd) && minUsd > 0) {
+              const hasRange = Number.isFinite(maxUsd) && maxUsd > minUsd;
               return (
                 <div className="text-center py-2">
                   <span className="text-4xl font-bold text-green-700">
-                    ${sellPriceUSD.toFixed(2)}
+                    {hasRange
+                      ? `$${minUsd.toFixed(2)} - $${maxUsd.toFixed(2)} USD`
+                      : `$${minUsd.toFixed(2)} USD`}
                   </span>
-                  <p className="text-sm text-gray-500 mt-2">
-                    Final price (includes product, shipping & 8% margin)
+                  {Number.isFinite(avgUsd) && avgUsd > 0 && (
+                    <p className="text-sm text-gray-500 mt-2">
+                      Average variant price: ${avgUsd.toFixed(2)} USD
+                    </p>
+                  )}
+                  {Number.isFinite(appliedMargin) && appliedMargin > 0 && (
+                    <p className="text-xs text-emerald-700 mt-1">
+                      Applied margin: {appliedMargin.toFixed(0)}%
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-500 mt-1">
+                    Exact USD sell values from priced variants (same values sent to checklist/queue).
                   </p>
                 </div>
               );

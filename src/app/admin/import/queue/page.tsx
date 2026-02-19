@@ -19,6 +19,7 @@ import {
   Eye,
 } from "lucide-react";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
+import { sarToUsd } from "@/lib/pricing";
 
 type QueueProduct = {
   id: number;
@@ -34,6 +35,7 @@ type QueueProduct = {
   cj_price_usd: number;
   shipping_cost_usd: number | null;
   calculated_retail_sar: number | null;
+  profit_margin?: number | null;
   displayed_rating?: number | null;
   rating_confidence?: number | null;
   stock_total: number;
@@ -61,20 +63,43 @@ function parseQueueVariantPricing(value: QueueProduct["variant_pricing"]): any[]
   return [];
 }
 
-function resolveQueueDisplayPriceSar(product: QueueProduct): number | null {
-  const directRetailSar = Number(product.calculated_retail_sar);
-  if (Number.isFinite(directRetailSar) && directRetailSar > 0) return directRetailSar;
-
+function resolveQueueDisplayPriceUsd(product: QueueProduct): number | null {
   const variantPricing = parseQueueVariantPricing(product.variant_pricing);
+  const directUsdPrices = variantPricing
+    .map((v: any) => Number(v?.priceUsd ?? v?.sellPriceUSD ?? v?.sellPriceUsd))
+    .filter((p: number) => Number.isFinite(p) && p > 0);
+
+  if (directUsdPrices.length > 0) {
+    return Math.min(...directUsdPrices);
+  }
+
+  const directRetailSar = Number(product.calculated_retail_sar);
+  if (Number.isFinite(directRetailSar) && directRetailSar > 0) {
+    return sarToUsd(directRetailSar);
+  }
+
   const variantRetailPrices = variantPricing
     .map((v: any) => Number(v?.price ?? v?.sellPriceSAR ?? v?.sellPriceSar))
     .filter((p: number) => Number.isFinite(p) && p > 0);
 
   if (variantRetailPrices.length > 0) {
-    return Math.min(...variantRetailPrices);
+    return sarToUsd(Math.min(...variantRetailPrices));
   }
 
   return null;
+}
+
+function resolveQueueMarginPercent(product: QueueProduct): number | null {
+  const directMargin = Number(product.profit_margin);
+  if (Number.isFinite(directMargin) && directMargin > 0) return directMargin;
+
+  const variantPricing = parseQueueVariantPricing(product.variant_pricing);
+  const margins = variantPricing
+    .map((v: any) => Number(v?.marginPercent ?? v?.profitMargin ?? v?.margin))
+    .filter((m: number) => Number.isFinite(m) && m > 0);
+
+  if (margins.length === 0) return null;
+  return Number((margins.reduce((sum, m) => sum + m, 0) / margins.length).toFixed(1));
 }
 
 function resolveQueueStoreSku(product: QueueProduct): string {
@@ -347,8 +372,9 @@ export default function QueuePage() {
       "CJ Product ID",
       "Name",
       "Category",
-      "Retail SAR",
+      "Retail USD",
       "Cost USD",
+      "Margin %",
       "Stock",
       "Displayed Rating",
       "Status",
@@ -360,8 +386,9 @@ export default function QueuePage() {
       p.cj_product_id,
       `"${p.name_en.replace(/"/g, '""')}"`,
       p.category,
-      resolveQueueDisplayPriceSar(p)?.toFixed(2) ?? "",
+      resolveQueueDisplayPriceUsd(p)?.toFixed(2) ?? "",
       p.cj_price_usd,
+      resolveQueueMarginPercent(p)?.toFixed(1) ?? "",
       p.stock_total,
       normalizeDisplayedRating(p.displayed_rating).toFixed(1),
       p.status,
@@ -591,7 +618,8 @@ export default function QueuePage() {
                 const isSelected = selected.has(product.id);
                 const colors = statusColors[product.status] || statusColors.pending;
                 const StatusIcon = colors.icon;
-                const displayRetailSar = resolveQueueDisplayPriceSar(product);
+                const displayRetailUsd = resolveQueueDisplayPriceUsd(product);
+                const displayMarginPercent = resolveQueueMarginPercent(product);
                 const displayStoreSku = resolveQueueStoreSku(product);
                 
                 return editingId === product.id ? (
@@ -717,9 +745,12 @@ export default function QueuePage() {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-green-600">
-                        {displayRetailSar !== null ? `SAR ${displayRetailSar.toFixed(2)}` : "SAR -"}
+                        {displayRetailUsd !== null ? `$${displayRetailUsd.toFixed(2)} USD` : "$-"}
                       </p>
-                      <p className="text-xs text-gray-500">Cost: ${product.cj_price_usd?.toFixed(2) || "0.00"}</p>
+                      <p className="text-xs text-gray-500">Base Cost: ${product.cj_price_usd?.toFixed(2) || "0.00"}</p>
+                      {displayMarginPercent !== null && (
+                        <p className="text-xs text-emerald-600">Margin: {displayMarginPercent.toFixed(1)}%</p>
+                      )}
                       <p className="text-xs text-gray-500">Stock: {product.stock_total}</p>
                     </td>
                     <td className="px-4 py-3">

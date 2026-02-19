@@ -2,6 +2,7 @@
 
 import { DollarSign, TrendingUp, AlertCircle, Truck, Package } from "lucide-react";
 import type { PricedProduct } from "./types";
+import { sarToUsd } from "@/lib/pricing";
 
 type PreviewPageSixProps = {
   product: PricedProduct;
@@ -11,30 +12,28 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
   const availableVariants = product.variants.filter((v) => v.shippingAvailable);
   const unavailableVariants = product.variants.filter((v) => !v.shippingAvailable);
 
-  const profitMargin = 0.08;
-
   const computedVariants = availableVariants.map(v => {
-    const productCost = v.variantPriceUSD;
-    const shippingCost = v.shippingPriceUSD;
-    const totalCost = productCost + shippingCost;
-    const sellPrice = totalCost / (1 - profitMargin);
-    const profit = sellPrice - totalCost;
-    const marginPercent = sellPrice > 0 ? (profit / sellPrice) * 100 : 0;
-    return { ...v, productCost, shippingCost, totalCost, sellPrice, profit, marginPercent };
+    const productCostUsd = Number(v.variantPriceUSD || 0);
+    const shippingCostUsd = Number(v.shippingPriceUSD || 0);
+    const totalCostUsd = Number((v as any).totalCostUSD ?? sarToUsd(Number(v.totalCostSAR || 0)));
+    const sellPriceUsd = Number((v as any).sellPriceUSD ?? sarToUsd(Number(v.sellPriceSAR || 0)));
+    const profitUsd = Number((v as any).profitUSD ?? sarToUsd(Number(v.profitSAR || 0)));
+    const marginPercent = Number((v as any).marginPercent ?? (sellPriceUsd > 0 ? (profitUsd / sellPriceUsd) * 100 : 0));
+    return { ...v, productCostUsd, shippingCostUsd, totalCostUsd, sellPriceUsd, profitUsd, marginPercent };
   });
 
   const avgProfit = computedVariants.length > 0
-    ? computedVariants.reduce((sum, v) => sum + v.profit, 0) / computedVariants.length
+    ? computedVariants.reduce((sum, v) => sum + v.profitUsd, 0) / computedVariants.length
     : 0;
 
   const avgMarginPercent = computedVariants.length > 0
     ? computedVariants.reduce((sum, v) => sum + v.marginPercent, 0) / computedVariants.length
     : 0;
 
-  const totalProductCost = computedVariants.reduce((sum, v) => sum + v.productCost, 0);
-  const totalShippingCost = computedVariants.reduce((sum, v) => sum + v.shippingCost, 0);
-  const totalRevenue = computedVariants.reduce((sum, v) => sum + v.sellPrice, 0);
-  const totalProfit = computedVariants.reduce((sum, v) => sum + v.profit, 0);
+  const totalProductCostUsd = computedVariants.reduce((sum, v) => sum + v.productCostUsd, 0);
+  const totalShippingCostUsd = computedVariants.reduce((sum, v) => sum + v.shippingCostUsd, 0);
+  const totalRevenueUsd = computedVariants.reduce((sum, v) => sum + v.sellPriceUsd, 0);
+  const totalProfitUsd = computedVariants.reduce((sum, v) => sum + v.profitUsd, 0);
 
   return (
     <div className="space-y-6">
@@ -45,7 +44,7 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
             <span className="text-xs text-blue-700">Total Product Cost</span>
           </div>
           <p className="text-2xl font-bold text-blue-700">
-            ${totalProductCost.toFixed(2)}
+            ${totalProductCostUsd.toFixed(2)}
           </p>
         </div>
 
@@ -55,7 +54,7 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
             <span className="text-xs text-purple-700">Total Shipping</span>
           </div>
           <p className="text-2xl font-bold text-purple-700">
-            ${totalShippingCost.toFixed(2)}
+            ${totalShippingCostUsd.toFixed(2)}
           </p>
         </div>
 
@@ -65,7 +64,7 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
             <span className="text-xs text-orange-700">Total Revenue</span>
           </div>
           <p className="text-2xl font-bold text-orange-700">
-            ${totalRevenue.toFixed(2)}
+            ${totalRevenueUsd.toFixed(2)}
           </p>
         </div>
 
@@ -75,7 +74,7 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
             <span className="text-xs text-green-700">Total Profit</span>
           </div>
           <p className="text-2xl font-bold text-green-700">
-            ${totalProfit.toFixed(2)}
+            ${totalProfitUsd.toFixed(2)}
           </p>
         </div>
       </div>
@@ -117,11 +116,11 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="text-left px-4 py-3 font-semibold text-gray-700">Variant</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Product Cost</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Shipping</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Total Cost</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Sell Price</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Profit</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Product Cost (USD)</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Shipping (USD)</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Total Cost (USD)</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Sell Price (USD)</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-700">Profit (USD)</th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-700">Margin</th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-700">Shipping Method</th>
                 </tr>
@@ -147,19 +146,19 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-gray-700">
-                        ${variant.productCost.toFixed(2)}
+                        ${variant.productCostUsd.toFixed(2)}
                       </td>
                       <td className="px-4 py-3 text-blue-600 font-medium">
-                        ${variant.shippingCost.toFixed(2)}
+                        ${variant.shippingCostUsd.toFixed(2)}
                       </td>
                       <td className="px-4 py-3 font-medium text-orange-600">
-                        ${variant.totalCost.toFixed(2)}
+                        ${variant.totalCostUsd.toFixed(2)}
                       </td>
                       <td className="px-4 py-3 font-bold text-gray-800">
-                        ${variant.sellPrice.toFixed(2)}
+                        ${variant.sellPriceUsd.toFixed(2)}
                       </td>
                       <td className="px-4 py-3 font-bold text-green-600">
-                        ${variant.profit.toFixed(2)}
+                        ${variant.profitUsd.toFixed(2)}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`font-medium ${

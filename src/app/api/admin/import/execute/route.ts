@@ -566,6 +566,7 @@ export async function POST(req: NextRequest) {
         }
 
         const rawVariantPricing = parseArrayOrEmpty(qp.variant_pricing);
+        const hasCanonicalVariantPricing = rawVariantPricing.length > 0;
         const rawVariants = rawVariantsRequired;
         const availableSizes = parseStringArrayOrNull(qp.available_sizes);
         const availableColors = parseStringArrayOrNull(qp.available_colors);
@@ -574,31 +575,42 @@ export async function POST(req: NextRequest) {
         const colorImageMap = parseColorImageMap(qp.color_image_map);
         const alignedColorImageMap = alignColorImageMapToColors(availableColors, colorImageMap);
         
-        const variants = rawVariants.map((v: any) => {
-          const matchingPricing = rawVariantPricing.find((vp: any) => isVariantPricingMatch(v, vp));
-          const resolvedSize = v.size ?? matchingPricing?.size ?? null;
-          const resolvedColor = v.color ?? matchingPricing?.color ?? null;
-          const resolvedRetailSar = toPositiveNumberOrNull(
-            matchingPricing?.price ?? matchingPricing?.sellPriceSAR ?? matchingPricing?.sellPriceSar
-          )
-            ?? toPositiveNumberOrNull(v.sellPriceSAR);
-          const mappedVariantImage = resolveColorImageForColor(resolvedColor, alignedColorImageMap);
-          return {
-            sku: v.storeSku || matchingPricing?.storeSku || null,
-            cj_sku: v.variantSku || v.cjSku || v.vid || null,
-            cj_variant_id: v.variantId || null,
-            size: resolvedSize,
-            color: resolvedColor,
-            price_sar: resolvedRetailSar,
-            cost_usd: v.variantPriceUSD ?? matchingPricing?.costPrice ?? null,
-            shipping_usd: v.shippingPriceUSD ?? matchingPricing?.shippingCost ?? null,
-            stock: v.stock ?? null,
-            cj_stock: v.cjStock ?? matchingPricing?.cjStock ?? null,
-            factory_stock: v.factoryStock ?? matchingPricing?.factoryStock ?? null,
-            weight_g: v.weight ?? v.weightGrams ?? null,
-            image_url: mappedVariantImage || matchingPricing?.colorImage || v.variantImage || v.whiteImage || v.image || null,
-          };
-        });
+        const variants = rawVariants
+          .map((v: any) => {
+            const matchingPricing = rawVariantPricing.find((vp: any) => isVariantPricingMatch(v, vp));
+            const resolvedSize = v.size ?? matchingPricing?.size ?? null;
+            const resolvedColor = v.color ?? matchingPricing?.color ?? null;
+            const resolvedRetailSar = toPositiveNumberOrNull(
+              matchingPricing?.price ?? matchingPricing?.sellPriceSAR ?? matchingPricing?.sellPriceSar
+            )
+              ?? (hasCanonicalVariantPricing ? null : toPositiveNumberOrNull(v.sellPriceSAR));
+
+            if (!resolvedRetailSar) {
+              return null;
+            }
+
+            const mappedVariantImage = resolveColorImageForColor(resolvedColor, alignedColorImageMap);
+            return {
+              sku: v.storeSku || matchingPricing?.storeSku || null,
+              cj_sku: v.variantSku || v.cjSku || v.vid || null,
+              cj_variant_id: v.variantId || null,
+              size: resolvedSize,
+              color: resolvedColor,
+              price_sar: resolvedRetailSar,
+              cost_usd: toPositiveNumberOrNull(matchingPricing?.costPrice) ?? toPositiveNumberOrNull(v.variantPriceUSD) ?? null,
+              shipping_usd: toPositiveNumberOrNull(matchingPricing?.shippingCost) ?? toPositiveNumberOrNull(v.shippingPriceUSD) ?? null,
+              stock: v.stock ?? null,
+              cj_stock: v.cjStock ?? matchingPricing?.cjStock ?? null,
+              factory_stock: v.factoryStock ?? matchingPricing?.factoryStock ?? null,
+              weight_g: v.weight ?? v.weightGrams ?? null,
+              image_url: mappedVariantImage || matchingPricing?.colorImage || v.variantImage || v.whiteImage || v.image || null,
+            };
+          })
+          .filter((variant): variant is Record<string, any> => Boolean(variant));
+
+        if (hasCanonicalVariantPricing && variants.length === 0) {
+          throw new Error('Unable to resolve positive SAR prices from queue variant_pricing');
+        }
         
         if (Object.keys(alignedColorImageMap).length > 0) {
           console.log(`[Import] Product ${qp.cj_product_id}: Using colorImageMap for ${Object.keys(alignedColorImageMap).length} colors`);

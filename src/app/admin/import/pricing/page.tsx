@@ -15,6 +15,7 @@ import {
   AlertCircle,
   Loader2,
 } from "lucide-react";
+import { getUsdToSarRate } from "@/lib/pricing";
 
 type PricingRule = {
   id: number;
@@ -44,6 +45,7 @@ const defaultCategories = [
 ];
 
 export default function PricingRulesPage() {
+  const usdToSarRate = getUsdToSarRate();
   const [rules, setRules] = useState<PricingRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -179,9 +181,8 @@ export default function PricingRulesPage() {
       return;
     }
 
-    const usdToSar = 3.75;
-    const baseSar = testCost * usdToSar;
-    const shippingSar = testShipping * usdToSar;
+    const baseSar = testCost * usdToSarRate;
+    const shippingSar = testShipping * usdToSarRate;
     const subtotal = baseSar + shippingSar;
     const vat = subtotal * (rule.vat_percent / 100);
     const afterVat = subtotal + vat;
@@ -564,7 +565,7 @@ export default function PricingRulesPage() {
           <div className="bg-amber-50 rounded-xl border border-amber-200 p-4">
             <h4 className="font-medium text-amber-800 mb-2">Pricing Formula</h4>
             <div className="text-xs text-amber-700 space-y-1 font-mono">
-              <p>Base Cost (SAR) = CJ Price × 3.75</p>
+              <p>Base Cost (SAR) = CJ Price × {usdToSarRate.toFixed(2)}</p>
               <p>+ DDP Shipping (SAR)</p>
               <p>+ VAT (15%)</p>
               <p>+ Payment Fee (2.9%)</p>

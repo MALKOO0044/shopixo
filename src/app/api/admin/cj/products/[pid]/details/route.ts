@@ -5,6 +5,7 @@ import type { PricedProduct, PricedVariant, InventoryVariant, ProductInventory }
 import { computeRating } from '@/lib/rating/engine';
 import { createClient } from '@supabase/supabase-js';
 import { hasTable } from '@/lib/db-features';
+import { computeRetailFromLanded, sarToUsd, usdToSar } from '@/lib/pricing';
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -43,7 +44,7 @@ export async function GET(
     }
 
     const { searchParams } = new URL(req.url);
-    const profitMargin = Math.max(1, Number(searchParams.get('profitMargin') || 40));
+    const profitMargin = Math.max(1, Number(searchParams.get('profitMargin') || 8));
 
     console.log(`[ProductDetails] Fetching full details for product ${pid}`);
     const startTime = Date.now();
@@ -438,7 +439,6 @@ export async function GET(
 
     // --- Build priced variants with shipping ---
     const pricedVariants: PricedVariant[] = [];
-    const usdToSar = (usd: number) => usd * 3.75; // SAR conversion
 
     const findCJPacketOrdinary = (options: any[]) => {
       return options.find((o: any) => 
@@ -448,21 +448,9 @@ export async function GET(
       ) || options[0];
     };
 
-    const calculateSellPriceWithMargin = (totalCost: number, marginPercent: number): number => {
-      const minProfit = 10 * 3.75; // $10 min profit in SAR
-      const targetPrice = totalCost * (1 + marginPercent / 100);
-      const withMinProfit = totalCost + minProfit;
-      const rawPrice = Math.max(targetPrice, withMinProfit);
-      
-      // Smart rounding to .99 prices
-      const priceInUsd = rawPrice / 3.75;
-      let roundedUsd: number;
-      if (priceInUsd < 10) roundedUsd = Math.ceil(priceInUsd) - 0.01;
-      else if (priceInUsd < 20) roundedUsd = Math.ceil(priceInUsd / 5) * 5 - 0.01;
-      else if (priceInUsd < 50) roundedUsd = Math.ceil(priceInUsd / 5) * 5 - 0.01;
-      else roundedUsd = Math.ceil(priceInUsd / 10) * 10 - 0.01;
-      
-      return Math.round(roundedUsd * 3.75 * 100) / 100;
+    const calculateSellPriceWithMargin = (landedCostSar: number, marginPercent: number): number => {
+      const margin = marginPercent / 100;
+      return computeRetailFromLanded(landedCostSar, { margin });
     };
 
     // Process up to 10 variants for shipping quotes
@@ -525,6 +513,12 @@ export async function GET(
         const totalCostSAR = costSAR + shippingPriceSAR;
         const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
         const profitSAR = sellPriceSAR - totalCostSAR;
+        const totalCostUSD = Number((variantPriceUSD + shippingPriceUSD).toFixed(2));
+        const sellPriceUSD = sarToUsd(sellPriceSAR);
+        const profitUSD = Number((sellPriceUSD - totalCostUSD).toFixed(2));
+        const marginPercent = sellPriceUSD > 0
+          ? Number(((profitUSD / sellPriceUSD) * 100).toFixed(2))
+          : 0;
 
         pricedVariants.push({
           variantId,
@@ -536,8 +530,12 @@ export async function GET(
           deliveryDays,
           logisticName,
           sellPriceSAR,
+          sellPriceUSD,
           totalCostSAR,
+          totalCostUSD,
           profitSAR,
+          profitUSD,
+          marginPercent,
           variantName,
           variantImage,
           size,
@@ -558,8 +556,12 @@ export async function GET(
           shippingPriceSAR: 0,
           deliveryDays: 'Unknown',
           sellPriceSAR: 0,
+          sellPriceUSD: 0,
           totalCostSAR: costSAR,
+          totalCostUSD: Number(variantPriceUSD.toFixed(2)),
           profitSAR: 0,
+          profitUSD: 0,
+          marginPercent: 0,
           variantName,
           variantImage,
           size,
@@ -578,6 +580,14 @@ export async function GET(
     const minPriceSAR = prices.length > 0 ? Math.min(...prices) : 0;
     const maxPriceSAR = prices.length > 0 ? Math.max(...prices) : 0;
     const avgPriceSAR = prices.length > 0 ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0;
+    const usdPrices = pricedVariants
+      .map(v => Number(v.sellPriceUSD ?? sarToUsd(v.sellPriceSAR)))
+      .filter((price) => Number.isFinite(price) && price > 0);
+    const minPriceUSD = usdPrices.length > 0 ? Math.min(...usdPrices) : 0;
+    const maxPriceUSD = usdPrices.length > 0 ? Math.max(...usdPrices) : 0;
+    const avgPriceUSD = usdPrices.length > 0
+      ? Number((usdPrices.reduce((sum, price) => sum + price, 0) / usdPrices.length).toFixed(2))
+      : 0;
 
     // Time estimates
     const parseTimeValue = (val: any): { display: string | undefined; hours: number | undefined } => {
@@ -648,6 +658,10 @@ export async function GET(
       minPriceSAR,
       maxPriceSAR,
       avgPriceSAR,
+      minPriceUSD,
+      maxPriceUSD,
+      avgPriceUSD,
+      profitMarginApplied: profitMargin,
       stock,
       listedNum,
       totalVerifiedInventory: totalVerifiedInventory > 0 ? totalVerifiedInventory : undefined,
