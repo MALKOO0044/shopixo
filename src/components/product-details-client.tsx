@@ -123,6 +123,28 @@ function resolveColorImageForColor(colorValue: unknown, colorMap: Record<string,
   return null;
 }
 
+function htmlToPlainText(value: unknown): string {
+  return String(value ?? '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/\r/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+const BLOCKED_SPEC_KEYS = new Set([
+  'productinfo',
+  'sizeinfo',
+  'overview',
+  'productnote',
+  'packinglist',
+  'description',
+]);
+
 function getCloudinaryVideoPoster(url: string): string | null {
   try {
     const u = normalizeImageUrl(url);
@@ -176,7 +198,6 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
   })();
 
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const prevColorImageRef = useRef<string | undefined>(undefined);
   const selected = items[selectedIndex] || items[0];
   const thumbnailContainerRef = useRef<HTMLDivElement>(null);
   
@@ -186,9 +207,6 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
     if (!selectedColor) return;
     
     const colorImage = resolveColorImageForColor(selectedColor, colorImageMap) || undefined;
-    
-    // Only update if the color's image has actually changed
-    if (colorImage === prevColorImageRef.current) return;
     
     let targetIndex = -1;
     
@@ -208,20 +226,25 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
     // Strategy 2: Positional fallback - use color's index in available_colors
     // The gallery images are typically ordered to match color order
     if (targetIndex < 0 && selectedColor && availableColors.length > 0) {
-      const colorIndex = availableColors.indexOf(selectedColor);
-      if (colorIndex >= 0 && colorIndex < items.length) {
-        // Skip video if present (video is always first when it exists)
-        const hasVideo = items.length > 0 && 
-          (items[0]?.includes('youtube') || items[0]?.includes('video') || items[0]?.includes('.mp4'));
-        targetIndex = hasVideo ? colorIndex + 1 : colorIndex;
+      // Positional fallback is only safe when gallery image slots exactly match color count.
+      const hasVideo = items.length > 0 && isLikelyVideoUrl(items[0] || '');
+      const mediaSlots = hasVideo ? Math.max(items.length - 1, 0) : items.length;
+      const positionalFallbackSafe = mediaSlots === availableColors.length;
+
+      if (positionalFallbackSafe) {
+        const normalizedSelectedColor = selectedColor.toLowerCase().trim();
+        const colorIndex = availableColors.findIndex(
+          (c) => String(c || '').toLowerCase().trim() === normalizedSelectedColor
+        );
+        if (colorIndex >= 0 && colorIndex < mediaSlots) {
+          targetIndex = hasVideo ? colorIndex + 1 : colorIndex;
+        }
       }
     }
     
     if (targetIndex >= 0 && targetIndex < items.length && targetIndex !== selectedIndex) {
       setSelectedIndex(targetIndex);
     }
-    
-    prevColorImageRef.current = colorImage;
   }, [selectedColor, colorImageMap, items, selectedIndex, availableColors]);
 
   const [zoomOpen, setZoomOpen] = useState(false);
@@ -1272,9 +1295,10 @@ export default function ProductDetailsClient({
     if (!variantRows || variantRows.length === 0) return null;
     if (bothDims) {
       if (!selectedColor || !selectedSize) return null;
+      const normalizedSelectedColor = selectedColor.toLowerCase().trim();
       return variantRows.find(v => {
         const cs = splitColorSize(v.option_value || '');
-        return cs.color === selectedColor && cs.size === selectedSize;
+        return String(cs.color || '').toLowerCase().trim() === normalizedSelectedColor && cs.size === selectedSize;
       }) || null;
     }
     if (!selectedSize) return null;
@@ -1403,22 +1427,12 @@ export default function ProductDetailsClient({
         const mappedUrls = new Set(Object.values(map));
         const unmappedImages = images.filter(img => !mappedUrls.has(img));
         
-        // Only use positional matching if counts match exactly (high confidence)
+        // Only use positional matching when counts match exactly (high confidence).
         if (unmappedImages.length === unmappedColors.length && unmappedColors.length > 0) {
           for (let i = 0; i < unmappedColors.length; i++) {
             const color = unmappedColors[i];
             if (!map[color] && unmappedImages[i]) {
               map[color] = unmappedImages[i];
-            }
-          }
-        } else if (unmappedImages.length >= unmappedColors.length) {
-          // Strategy 3: Use the LAST N images for N unmapped colors
-          // CJ often puts color-specific images at the end, after hero shots
-          const colorSpecificImages = unmappedImages.slice(-unmappedColors.length);
-          for (let i = 0; i < unmappedColors.length; i++) {
-            const color = unmappedColors[i];
-            if (!map[color] && colorSpecificImages[i]) {
-              map[color] = colorSpecificImages[i];
             }
           }
         }
@@ -1645,6 +1659,11 @@ export default function ProductDetailsClient({
 
       <ProductTabs
         description={product.description}
+        overviewHtml={(product as any).overview || undefined}
+        productInfoHtml={(product as any).product_info || (product as any).productInfo || undefined}
+        sizeInfoHtml={(product as any).size_info || (product as any).sizeInfo || undefined}
+        productNoteHtml={(product as any).product_note || (product as any).productNote || undefined}
+        packingListHtml={(product as any).packing_list || (product as any).packingList || undefined}
         productTitle={product.title}
         highlights={(() => {
           // Extract highlights from product specifications or description
@@ -1652,8 +1671,12 @@ export default function ProductDetailsClient({
           const specs = (product as any).specifications;
           if (specs && typeof specs === 'object') {
             for (const [key, value] of Object.entries(specs)) {
-              if (value && typeof value === 'string' && value.trim()) {
-                highlights.push(`${key}: ${value}`);
+              const keyText = String(key || '').trim();
+              const normalizedKey = keyText.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (BLOCKED_SPEC_KEYS.has(normalizedKey)) continue;
+              const valueText = htmlToPlainText(value);
+              if (keyText && valueText) {
+                highlights.push(`${keyText}: ${valueText}`);
               }
             }
           }
@@ -1663,7 +1686,10 @@ export default function ProductDetailsClient({
           // Use real selling points from product if available
           const sp = (product as any).selling_points;
           if (Array.isArray(sp) && sp.length > 0) {
-            return sp.filter((p: any) => typeof p === 'string' && p.trim()).slice(0, 5);
+            return sp
+              .map((p: any) => htmlToPlainText(p))
+              .filter((p: string) => !!p)
+              .slice(0, 5);
           }
           // Fallback to generated selling points
           return [
@@ -1678,12 +1704,15 @@ export default function ProductDetailsClient({
           if (specs && typeof specs === 'object' && Object.keys(specs).length > 0) {
             const cleanSpecs: Record<string, string> = {};
             for (const [key, value] of Object.entries(specs)) {
-              if (value && typeof value === 'string' && value.trim()) {
-                // Clean HTML entities
-                cleanSpecs[key] = value.replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
-              }
+              const keyText = String(key || '').trim();
+              if (!keyText) continue;
+              const normalizedKey = keyText.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (BLOCKED_SPEC_KEYS.has(normalizedKey)) continue;
+              const cleanValue = htmlToPlainText(value);
+              if (!cleanValue) continue;
+              cleanSpecs[keyText] = cleanValue;
             }
-            return cleanSpecs;
+            if (Object.keys(cleanSpecs).length > 0) return cleanSpecs;
           }
           // Fallback
           return {

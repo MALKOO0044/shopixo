@@ -256,6 +256,69 @@ function calculateSellPriceWithMargin(landedCostSAR: number, profitMarginPercent
   return computeRetailFromLanded(landedCostSAR, { margin });
 }
 
+function normalizeVariantColorToken(value: unknown): string {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function resolveColorImageFromMap(
+  color: string | undefined,
+  colorImageMap: Record<string, string>,
+  fallback?: string
+): string | undefined {
+  if (fallback && typeof fallback === 'string' && fallback.startsWith('http')) return fallback;
+  if (!color || !colorImageMap || Object.keys(colorImageMap).length === 0) return fallback;
+
+  const exact = colorImageMap[color];
+  if (typeof exact === 'string' && exact.startsWith('http')) return exact;
+
+  const target = normalizeVariantColorToken(color);
+  if (!target) return fallback;
+
+  for (const [mapColor, imageUrl] of Object.entries(colorImageMap)) {
+    if (typeof imageUrl !== 'string' || !imageUrl.startsWith('http')) continue;
+    const key = normalizeVariantColorToken(mapColor);
+    if (!key) continue;
+    if (key === target || key.includes(target) || target.includes(key)) {
+      return imageUrl;
+    }
+  }
+
+  return fallback;
+}
+
+function extractVariantColorSize(variant: any, fallbackName?: string): { color?: string; size?: string } {
+  let size = variant?.size || variant?.sizeNameEn || variant?.sizeName || undefined;
+  let color = variant?.color || variant?.colour || variant?.colorNameEn || variant?.colorName || undefined;
+
+  const variantKeyRaw = String(
+    variant?.variantKey || variant?.variantNameEn || variant?.variantName || fallbackName || ''
+  ).replace(/[\u4e00-\u9fff]/g, '').trim();
+
+  if ((!color || !size) && variantKeyRaw.includes('-')) {
+    const parts = variantKeyRaw.split('-').map((p: string) => p.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const lastPart = parts[parts.length - 1];
+      const firstPart = parts.slice(0, -1).join('-').trim();
+      const sizePattern = /^(XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|6XL|One Size|Free Size|\d{2,3})$/i;
+      if (sizePattern.test(lastPart)) {
+        if (!size) size = lastPart;
+        if (!color) color = firstPart;
+      } else if (!color) {
+        color = variantKeyRaw;
+      }
+    }
+  }
+
+  if (!color && !size && variantKeyRaw) {
+    color = variantKeyRaw;
+  }
+
+  return {
+    color: typeof color === 'string' && color.trim() ? color.trim() : undefined,
+    size: typeof size === 'string' && size.trim() ? size.trim() : undefined,
+  };
+}
+
 function extractAllImages(item: any): string[] {
   if (!item) return [];
   
@@ -2071,81 +2134,70 @@ async function handleSearch(req: Request, isPost: boolean) {
           // Sort by shipping price descending and take the highest
           variantShippingQuotes.sort((a, b) => b.shippingPriceUSD - a.shippingPriceUSD);
           const highest = variantShippingQuotes[0];
-          const variant = highest.variant;
           
           console.log(`[Search&Price] Product ${pid}: Using HIGHEST shipping $${highest.shippingPriceUSD.toFixed(2)} from variant ${highest.variantIndex + 1} of ${variantShippingQuotes.length} checked`);
-          
-          const variantId = String(variant.vid || variant.variantId || variant.id || '');
-          const variantSku = String(variant.variantSku || variant.sku || variantId);
-          const variantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
-          const costSAR = usdToSar(variantPriceUSD);
-          const variantName = String(variant.variantNameEn || variant.variantName || '').replace(/[\u4e00-\u9fff]/g, '').trim() || undefined;
-          const variantImage = variant.variantImage || variant.whiteImage || variant.image || undefined;
-          
-          // Extract color and size - first try explicit fields, then parse from variantKey
-          let size = variant.size || variant.sizeNameEn || undefined;
-          let color = variant.color || variant.colorNameEn || undefined;
-          const variantKeyRaw = String(variant.variantKey || variant.variantNameEn || variantName || '');
-          
-          // If color/size not explicitly provided, parse from variantKey (format: "Color-Size" or "Model-Size")
-          if ((!color || !size) && variantKeyRaw.includes('-')) {
-            const parts = variantKeyRaw.split('-');
-            if (parts.length >= 2) {
-              // Last part is usually size (L, XL, XXL, M, S, etc.)
-              const lastPart = parts[parts.length - 1].trim();
-              const firstPart = parts.slice(0, -1).join('-').trim();
-              
-              // Check if last part looks like a size
-              const sizePattern = /^(XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|6XL|One Size|Free Size|\d{2,3})$/i;
-              if (sizePattern.test(lastPart)) {
-                if (!size) size = lastPart;
-                if (!color) color = firstPart;
-              } else {
-                // Fallback: use whole variantKey as display name
-                if (!color) color = variantKeyRaw;
-              }
+
+          // Keep per-variant product pricing while reusing the selected shipping baseline.
+          // This preserves color/size fidelity in queue/import and prevents one-variant collapse.
+          for (const variant of variants) {
+            const variantId = String(variant.vid || variant.variantId || variant.id || '');
+            const variantSku = String(variant.variantSku || variant.sku || variantId);
+            const rawVariantPriceUSD = Number(variant.variantSellPrice || variant.sellPrice || variant.price || 0);
+            const variantPriceUSD = Number.isFinite(rawVariantPriceUSD) && rawVariantPriceUSD > 0
+              ? rawVariantPriceUSD
+              : Number(item.sellPrice || item.price || 0);
+
+            if (!Number.isFinite(variantPriceUSD) || variantPriceUSD <= 0) {
+              continue;
             }
+
+            const costSAR = usdToSar(variantPriceUSD);
+            const variantName = String(variant.variantNameEn || variant.variantName || '').replace(/[\u4e00-\u9fff]/g, '').trim() || undefined;
+            const { size, color } = extractVariantColorSize(variant, variantName);
+            const variantImage = resolveColorImageFromMap(
+              color,
+              colorImageMap,
+              variant.variantImage || variant.whiteImage || variant.image || undefined
+            );
+
+            const totalCostSAR = costSAR + highest.shippingPriceSAR;
+            const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
+            const profitSAR = sellPriceSAR - totalCostSAR;
+
+            const variantKey = String(variant.variantKey || '');
+            const variantStock = getVariantStock({
+              vid: variantId,
+              variantId,
+              sku: variantSku,
+              variantKey,
+              variantName,
+            });
+
+            pricedVariants.push({
+              variantId,
+              variantSku,
+              variantPriceUSD,
+              shippingAvailable: true,
+              shippingPriceUSD: highest.shippingPriceUSD,
+              shippingPriceSAR: highest.shippingPriceSAR,
+              deliveryDays: highest.deliveryDays,
+              logisticName: highest.logisticName,
+              sellPriceSAR,
+              totalCostSAR,
+              profitSAR,
+              variantName,
+              variantImage,
+              size,
+              color,
+              stock: variantStock?.totalStock,
+              cjStock: variantStock?.cjStock,
+              factoryStock: variantStock?.factoryStock,
+            });
           }
-          
-          // If still no values, use variantKey as display name
-          if (!color && !size && variantKeyRaw) {
-            color = variantKeyRaw;
-          }
-          
-          const totalCostSAR = costSAR + highest.shippingPriceSAR;
-          const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
-          const profitSAR = sellPriceSAR - totalCostSAR;
-          
-          // Get variant stock from the inventory map using multiple key fallbacks
-          const variantKey = String(variant.variantKey || '');
-          const variantStock = getVariantStock({
-            vid: variantId,
-            variantId: variantId,
-            sku: variantSku,
-            variantKey: variantKey,
-            variantName: variantName,
-          });
-          
-          pricedVariants.push({
-            variantId,
-            variantSku,
-            variantPriceUSD,
-            shippingAvailable: true,
-            shippingPriceUSD: highest.shippingPriceUSD,
-            shippingPriceSAR: highest.shippingPriceSAR,
-            deliveryDays: highest.deliveryDays,
-            logisticName: highest.logisticName,
-            sellPriceSAR,
-            totalCostSAR,
-            profitSAR,
-            variantName,
-            variantImage,
-            size,
-            color,
-            stock: variantStock?.totalStock,
-            cjStock: variantStock?.cjStock,
-            factoryStock: variantStock?.factoryStock,
-          });
+
+          console.log(
+            `[Search&Price] Product ${pid}: Priced ${pricedVariants.length}/${variants.length} variants using shared shipping baseline ${highest.shippingPriceUSD.toFixed(2)} USD`
+          );
         }
       }
       

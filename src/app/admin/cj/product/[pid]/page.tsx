@@ -115,20 +115,47 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
     setAddingToQueue(true)
     setQueueMessage(null)
     try {
+      const htmlToPlain = (value: unknown): string => {
+        return String(value ?? '')
+          .replace(/<br\s*\/?>/gi, '\n')
+          .replace(/<\/p>/gi, '\n')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/gi, ' ')
+          .replace(/&amp;/gi, '&')
+          .replace(/\r/g, '')
+          .replace(/[ \t]+/g, ' ')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim()
+      }
+
       // Build variant_pricing array with all variant data for accurate import
-      const variantPricing = (product.variants || []).map(v => ({
-        variantId: v.variantId,
-        sku: v.variantSku,
-        color: v.color,
-        size: v.size,
-        colorImage: v.variantImage,
-        price: v.sellPriceSAR || 0,
-        costPrice: v.variantPriceUSD || 0,
-        shippingCost: v.shippingPriceUSD || 0,
-        stock: (v.cjStock || 0) + (v.factoryStock || 0),
-        cjStock: v.cjStock || 0,
-        factoryStock: v.factoryStock || 0,
-      }))
+      const variantPricing = (product.variants || [])
+        .map(v => ({
+          variantId: v.variantId,
+          sku: v.variantSku,
+          color: v.color,
+          size: v.size,
+          colorImage: v.variantImage,
+          price: v.sellPriceSAR || 0,
+          costPrice: v.variantPriceUSD || 0,
+          shippingCost: v.shippingPriceUSD || 0,
+          stock: (v.cjStock || 0) + (v.factoryStock || 0),
+          cjStock: v.cjStock || 0,
+          factoryStock: v.factoryStock || 0,
+        }))
+        .filter(v => Number(v.price) > 0)
+
+      const specifications: Record<string, string> = {}
+      if (product.material) specifications.Material = htmlToPlain(product.material)
+      if (product.productType) specifications['Product Type'] = htmlToPlain(product.productType)
+      if (product.originCountry) specifications['Origin Country'] = htmlToPlain(product.originCountry)
+      if (product.productWeight) specifications.Weight = `${product.productWeight} g`
+
+      const sellingPoints = htmlToPlain(product.overview || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 8)
 
       const res = await fetch('/api/admin/import/batch', {
         method: 'POST',
@@ -152,14 +179,8 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
             ratingConfidence: typeof product.ratingConfidence === 'number' ? product.ratingConfidence : undefined,
             availableColors: product.availableColors || [],
             availableSizes: product.availableSizes || [],
-            specifications: {
-              material: product.material,
-              weight: product.productWeight,
-              productType: product.productType,
-              originCountry: product.originCountry,
-              productInfo: product.productInfo,
-            },
-            sellingPoints: product.packingList ? [product.packingList] : [],
+            specifications,
+            sellingPoints,
             productWeight: product.productWeight,
             packLength: product.packLength,
             packWidth: product.packWidth,

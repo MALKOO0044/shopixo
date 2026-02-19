@@ -5,7 +5,7 @@ import { Star, ThumbsUp, Image as ImageIcon, Package, Ruler, Palette } from "luc
 import Image from "next/image";
 import Link from "next/link";
 import DescriptionGallery from "./DescriptionGallery";
-import { parseProductDescription } from "./SafeHtmlRenderer";
+import SafeHtmlRenderer, { parseProductDescription } from "./SafeHtmlRenderer";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
 interface Review {
@@ -33,6 +33,11 @@ interface RelatedProduct {
 
 interface ProductTabsProps {
   description?: string;
+  overviewHtml?: string;
+  productInfoHtml?: string;
+  sizeInfoHtml?: string;
+  productNoteHtml?: string;
+  packingListHtml?: string;
   highlights?: string[];
   sellingPoints?: string[];
   specifications?: Record<string, string>;
@@ -45,6 +50,11 @@ interface ProductTabsProps {
 
 export default function ProductTabs({
   description = "",
+  overviewHtml = "",
+  productInfoHtml = "",
+  sizeInfoHtml = "",
+  productNoteHtml = "",
+  packingListHtml = "",
   highlights = [],
   sellingPoints = [],
   specifications = {},
@@ -56,6 +66,19 @@ export default function ProductTabs({
 }: ProductTabsProps) {
   const [activeTab, setActiveTab] = useState<"overview" | "reviews" | "recommendations">("overview");
   const normalizedAverageRating = normalizeDisplayedRating(averageRating);
+
+  const richSections = useMemo(() => {
+    return [
+      { key: "overview", title: "Overview", html: overviewHtml },
+      { key: "productInfo", title: "Product Information", html: productInfoHtml },
+      { key: "sizeInfo", title: "Size Information", html: sizeInfoHtml },
+      { key: "productNote", title: "Product Notes", html: productNoteHtml },
+      { key: "packingList", title: "Packing List", html: packingListHtml },
+    ].filter((section) => {
+      const text = String(section.html || "").trim();
+      return text.length > 0;
+    });
+  }, [overviewHtml, productInfoHtml, sizeInfoHtml, productNoteHtml, packingListHtml]);
 
   const parsedDescription = useMemo(() => {
     return parseProductDescription(description);
@@ -163,6 +186,16 @@ export default function ProductTabs({
               </p>
             </div>
           )}
+
+          {richSections.map((section) => (
+            <div key={section.key} className="bg-white border rounded-xl p-6">
+              <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+                <Palette className="w-5 h-5 text-gray-600" />
+                {section.title}
+              </h3>
+              <SafeHtmlRenderer html={section.html} className="text-sm text-gray-700" />
+            </div>
+          ))}
 
           {hasDescriptionImages && (
             <div className="bg-white border rounded-xl p-6">

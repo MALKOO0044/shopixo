@@ -423,10 +423,67 @@ export default function ProductDiscoveryPage() {
           name: batchName || `Discovery ${new Date().toLocaleDateString()}`,
           category: category !== 'all' ? categories.find(c => c.categoryId === category)?.categoryName : undefined,
           products: selectedProducts.map(p => {
-            const availableVariants = p.variants.filter(v => v.shippingAvailable);
-            const avgProductCost = p.avgPriceSAR ? p.avgPriceSAR / 3.75 : 0;
-            const avgShippingCost = 0;
-            const totalCost = avgProductCost + avgShippingCost;
+            const pricedVariants = p.variants.filter(v => {
+              const sell = Number((v as any)?.sellPriceSAR);
+              return Number.isFinite(sell) && sell > 0;
+            });
+
+            const htmlToPlain = (value: unknown): string => {
+              return String(value ?? '')
+                .replace(/<br\s*\/?>/gi, '\n')
+                .replace(/<\/p>/gi, '\n')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/&nbsp;/gi, ' ')
+                .replace(/&amp;/gi, '&')
+                .replace(/\r/g, '')
+                .replace(/[ \t]+/g, ' ')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+            };
+
+            const htmlToLines = (value: unknown): string[] => {
+              return htmlToPlain(value)
+                .split('\n')
+                .map((line) => line.trim())
+                .filter(Boolean);
+            };
+
+            const sourceSpecs = (p as any).specifications && typeof (p as any).specifications === 'object'
+              ? (p as any).specifications
+              : {};
+            const plainSpecifications: Record<string, string> = {};
+            const blockedSpecKeys = new Set([
+              'productinfo',
+              'sizeinfo',
+              'overview',
+              'productnote',
+              'packinglist',
+              'description',
+            ]);
+
+            for (const [key, rawValue] of Object.entries(sourceSpecs)) {
+              const keyText = String(key || '').trim();
+              if (!keyText) continue;
+              const normalizedKey = keyText.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (blockedSpecKeys.has(normalizedKey)) continue;
+              const cleanValue = htmlToPlain(rawValue);
+              if (!cleanValue) continue;
+              plainSpecifications[keyText] = cleanValue.slice(0, 500);
+            }
+
+            if (p.material && !plainSpecifications.Material) {
+              plainSpecifications.Material = htmlToPlain(p.material);
+            }
+            if (p.productType && !plainSpecifications['Product Type']) {
+              plainSpecifications['Product Type'] = htmlToPlain(p.productType);
+            }
+
+            const sourceSellingPoints = Array.isArray((p as any).sellingPoints)
+              ? (p as any).sellingPoints.map((s: unknown) => htmlToPlain(s)).filter(Boolean)
+              : [];
+            const normalizedSellingPoints = sourceSellingPoints.length > 0
+              ? sourceSellingPoints
+              : htmlToLines(p.overview).slice(0, 8);
             
             return {
               cjProductId: p.pid,
@@ -467,7 +524,7 @@ export default function ProductDiscoveryPage() {
               processingDays: p.processingTimeHours,
               deliveryDaysMin: undefined,
               deliveryDaysMax: p.deliveryTimeHours,
-              variantPricing: availableVariants.map(v => ({
+              variantPricing: pricedVariants.map(v => ({
                 variantId: v.variantId,
                 sku: v.variantSku,
                 color: v.color,
@@ -480,13 +537,8 @@ export default function ProductDiscoveryPage() {
                 factoryStock: v.factoryStock ?? null,
                 colorImage: v.variantImage,
               })),
-              specifications: {
-                productInfo: p.productInfo,
-                sizeInfo: p.sizeInfo,
-                material: p.material,
-                productType: p.productType,
-              },
-              sellingPoints: p.overview ? p.overview.split('\n').filter((l: string) => l.trim()) : [],
+              specifications: plainSpecifications,
+              sellingPoints: normalizedSellingPoints,
               inventoryByWarehouse: p.inventory,
               inventoryStatus: p.inventoryStatus,
               inventoryErrorMessage: p.inventoryErrorMessage,
