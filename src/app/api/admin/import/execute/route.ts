@@ -4,6 +4,7 @@ import { slugify } from "@/lib/utils/slug";
 import { hasColumn, hasTable } from "@/lib/db-features";
 import { linkProductToMultipleCategories } from "@/lib/category-intelligence";
 import { computeRating, normalizeDisplayedRating } from "@/lib/rating/engine";
+import { sarToUsd } from "@/lib/pricing";
 
 // Helper to find category by name/slug/CJ-link and link product to category hierarchy
 async function linkProductToCategory(admin: any, productId: number, categoryName: string, cjCategoryId?: string, supabaseCategoryId?: number): Promise<boolean> {
@@ -570,6 +571,8 @@ export async function POST(req: NextRequest) {
         const rawVariants = rawVariantsRequired;
         const availableSizes = parseStringArrayOrNull(qp.available_sizes);
         const availableColors = parseStringArrayOrNull(qp.available_colors);
+        const storeCurrency = String(process.env.NEXT_PUBLIC_CURRENCY || 'USD').toUpperCase();
+        const storePricesInUsd = storeCurrency === 'USD';
         
         // Parse colorImageMap from queue payload - maps color names to their specific images
         const colorImageMap = parseColorImageMap(qp.color_image_map);
@@ -589,6 +592,18 @@ export async function POST(req: NextRequest) {
               return null;
             }
 
+            const resolvedRetailUsd = toPositiveNumberOrNull(
+              matchingPricing?.priceUsd ?? matchingPricing?.sellPriceUSD ?? matchingPricing?.sellPriceUsd
+            ) ?? sarToUsd(resolvedRetailSar);
+
+            const resolvedStorePrice = storePricesInUsd
+              ? resolvedRetailUsd
+              : resolvedRetailSar;
+
+            if (!resolvedStorePrice) {
+              return null;
+            }
+
             const mappedVariantImage = resolveColorImageForColor(resolvedColor, alignedColorImageMap);
             return {
               sku: v.storeSku || matchingPricing?.storeSku || null,
@@ -597,6 +612,8 @@ export async function POST(req: NextRequest) {
               size: resolvedSize,
               color: resolvedColor,
               price_sar: resolvedRetailSar,
+              price_usd: resolvedRetailUsd,
+              price_store: resolvedStorePrice,
               cost_usd: toPositiveNumberOrNull(matchingPricing?.costPrice) ?? toPositiveNumberOrNull(v.variantPriceUSD) ?? null,
               shipping_usd: toPositiveNumberOrNull(matchingPricing?.shippingCost) ?? toPositiveNumberOrNull(v.shippingPriceUSD) ?? null,
               stock: v.stock ?? null,
@@ -620,15 +637,22 @@ export async function POST(req: NextRequest) {
         const rawImages = parseArrayOrEmpty(qp.images);
         const baseSlug = queueStoreSku || await ensureUniqueSlug(admin, qp.name_en);
 
-        const variantPrices = variants
+        const variantPricesSar = variants
           .map((v: any) => Number(v.price_sar))
+          .filter((p: number) => Number.isFinite(p) && p > 0);
+        const variantStorePrices = variants
+          .map((v: any) => Number(v.price_store ?? v.price_sar))
           .filter((p: number) => Number.isFinite(p) && p > 0);
         const queueRetailSar = Number(qp.calculated_retail_sar);
         const fallbackRetailSar = Number.isFinite(queueRetailSar) && queueRetailSar > 0 ? queueRetailSar : null;
-        const resolvedMinPrice = variantPrices.length > 0 ? Math.min(...variantPrices) : fallbackRetailSar;
-        const resolvedMaxPrice = variantPrices.length > 0 ? Math.max(...variantPrices) : fallbackRetailSar;
+        const fallbackStorePrice = fallbackRetailSar
+          ? (storePricesInUsd ? sarToUsd(fallbackRetailSar) : fallbackRetailSar)
+          : null;
+        const resolvedMinPrice = variantStorePrices.length > 0 ? Math.min(...variantStorePrices) : fallbackStorePrice;
+        const resolvedMaxPrice = variantStorePrices.length > 0 ? Math.max(...variantStorePrices) : fallbackStorePrice;
+        const resolvedMinPriceSar = variantPricesSar.length > 0 ? Math.min(...variantPricesSar) : fallbackRetailSar;
         if (!Number.isFinite(resolvedMinPrice) || (resolvedMinPrice as number) <= 0) {
-          throw new Error('Unable to resolve a positive retail SAR price from approved queue data');
+          throw new Error('Unable to resolve a positive retail price from approved queue data');
         }
 
         const imgCount = Array.isArray(rawImages) ? rawImages.length : 0;
@@ -814,7 +838,7 @@ export async function POST(req: NextRequest) {
               cj_sku: v.cj_sku || null,
               store_sku: v.sku || null,
               cj_variant_id: v.cj_variant_id || null,
-              price: v.price_sar,
+              price: v.price_store ?? v.price_sar,
               cost_price: v.cost_usd || null,
               stock: v.stock,
               image_url: v.image_url || null,
@@ -860,7 +884,7 @@ export async function POST(req: NextRequest) {
             status: 'imported',
             shopixo_product_id: productId,
             imported_at: new Date().toISOString(),
-            calculated_retail_sar: resolvedMinPrice,
+            calculated_retail_sar: resolvedMinPriceSar,
             margin_applied: null
           })
           .eq('id', qp.id);
