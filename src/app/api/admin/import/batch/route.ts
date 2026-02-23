@@ -9,6 +9,7 @@ import {
   getBatches,
   checkProductQueueSchema
 } from "@/lib/db/import-db";
+import { extractCjProductVideoUrl, normalizeCjVideoUrl } from "@/lib/cj/video";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
     console.log('[Import Batch] Schema verified, processing batch...');
     
     const body = await req.json();
-    const { name, keywords, category, filters, products } = body;
+    const { name, keywords, category, filters, products, mediaMode } = body;
     
     if (!products || !Array.isArray(products) || products.length === 0) {
       return NextResponse.json({ ok: false, error: "No products provided" }, { status: 400 });
@@ -121,6 +122,10 @@ export async function POST(req: NextRequest) {
         images = [p.image];
       }
 
+      const extractedVideoUrl = extractCjProductVideoUrl(p);
+      const fallbackVideoUrl = normalizeCjVideoUrl(p?.videoUrl || p?.video || p?.productVideo);
+      const videoUrl = extractedVideoUrl || fallbackVideoUrl || undefined;
+
       const result = await addProductToQueue(batch.id, {
         productId,
         cjSku: p.cjSku || undefined,
@@ -134,8 +139,8 @@ export async function POST(req: NextRequest) {
         packingList: p.packingList || undefined,
         category: p.categoryName || category || "General",
         images,
-        videoUrl: p.videoUrl || undefined,
-        mediaMode: p.mediaMode || p.media || undefined,
+        videoUrl,
+        mediaMode: p.mediaMode || p.media || (typeof mediaMode === 'string' ? mediaMode : undefined),
         variants: p.variants || [],
         avgPrice,
         displayedRating: typeof p.displayedRating === 'number' ? p.displayedRating : undefined,
