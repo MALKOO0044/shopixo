@@ -260,14 +260,22 @@ export async function deleteProduct(prevState: { error: string | null; success: 
     if ((error as any).code === "23503") {
       // Preserve historical orders by archiving the product instead of hard-deleting.
       const archivePayload: Record<string, any> = { is_active: false, stock: 0 };
-      let archiveError = await supabaseAdmin.from("products").update(archivePayload).eq("id", id).error;
+      const { error: archiveAttemptError } = await supabaseAdmin
+        .from("products")
+        .update(archivePayload)
+        .eq("id", id);
+      let archiveError = archiveAttemptError;
 
       // Backward-compatible fallback for older schemas where is_active may not exist yet.
       if (
         archiveError &&
         ((archiveError as any).code === "42703" || String((archiveError as any)?.message || "").includes("is_active"))
       ) {
-        archiveError = await supabaseAdmin.from("products").update({ stock: 0 }).eq("id", id).error;
+        const { error: stockOnlyError } = await supabaseAdmin
+          .from("products")
+          .update({ stock: 0 })
+          .eq("id", id);
+        archiveError = stockOnlyError;
       }
 
       if (archiveError) {
