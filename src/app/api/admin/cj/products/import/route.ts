@@ -6,6 +6,7 @@ import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { hasTable, hasColumn } from '@/lib/db-features';
 import { loggerForRequest } from '@/lib/log';
 import { isKillSwitchOn } from '@/lib/settings';
+import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -100,6 +101,8 @@ export async function POST(req: Request) {
       'video_source_quality_hint',
       'media_mode',
       'has_video',
+      'available_sizes',
+      'available_colors',
     ] as const;
     const optionalColumnSet = new Set<string>();
     const optionalColumnResults = await Promise.all(
@@ -126,6 +129,21 @@ export async function POST(req: Request) {
         // Calculate totalStock from known values only, but keep ALL variants (even with unknown stock)
         // If ALL variants have unknown stock, product stock should be null (not 0)
         const variants = cj.variants || [];
+        const deduplicatedAvailableSizes = normalizeSizeList(
+          variants.flatMap((v: any) => [v?.size, v?.variantKey]),
+          { allowNumeric: false }
+        );
+        const availableColorMap = new Map<string, string>();
+        for (const v of variants as any[]) {
+          const rawColor = typeof v?.color === 'string' ? v.color.trim() : '';
+          if (!rawColor) continue;
+          const colorKey = rawColor.toLowerCase().replace(/\s+/g, ' ');
+          if (!availableColorMap.has(colorKey)) {
+            availableColorMap.set(colorKey, rawColor);
+          }
+        }
+        const deduplicatedAvailableColors = Array.from(availableColorMap.values());
+
         const variantsWithKnownStock = variants.filter((v) => {
           if (typeof v.stock === 'number' && v.stock >= 0) return true;
           if (typeof v.cjStock === 'number' && v.cjStock >= 0) return true;
@@ -160,6 +178,8 @@ export async function POST(req: Request) {
           video_source_quality_hint: cj.videoSourceQualityHint || null,
           media_mode: mediaMode || null,
           has_video: Boolean(cj.video4kUrl || cj.videoUrl),
+          available_sizes: deduplicatedAvailableSizes.length > 0 ? deduplicatedAvailableSizes : null,
+          available_colors: deduplicatedAvailableColors.length > 0 ? deduplicatedAvailableColors : null,
           processing_time_hours: null,
           delivery_time_hours: cj.deliveryTimeHours ?? null,
           origin_area: cj.originArea ?? null,
@@ -233,6 +253,12 @@ export async function POST(req: Request) {
           const variantsRows = (cj.variants || [])
             .filter((v) => v && (v.size || v.cjSku || v.variantKey))
             .map((v) => {
+              const normalizedSize =
+                normalizeSingleSize(v.size, { allowNumeric: true }) ||
+                (typeof v.size === 'string' ? v.size.trim() : null);
+              const normalizedVariantKeySize =
+                normalizeSingleSize(v.variantKey, { allowNumeric: true }) || null;
+
               // Handle stock values with 100% accuracy:
               // - null/undefined means unknown - skip this variant
               // - -1 is a sentinel for "per-variant unknown" - skip this variant  
@@ -270,7 +296,7 @@ export async function POST(req: Request) {
               return {
                 product_id: productId,
                 option_name: 'Size',
-                option_value: v.size || v.variantKey || '-',
+                option_value: normalizedSize || normalizedVariantKeySize || v.variantKey || '-',
                 cj_sku: v.cjSku || null,
                 cj_variant_id: v.vid || null,
                 variant_key: v.variantKey || null, // Short name like "Black And Silver-2XL"

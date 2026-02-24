@@ -11,6 +11,7 @@ import {
 } from "@/lib/db/import-db";
 import { extractCjProductVideoUrl, normalizeCjVideoUrl } from "@/lib/cj/video";
 import { build4kVideoDelivery, requiresVideoForMediaMode } from "@/lib/video/delivery";
+import { normalizeSizeList } from "@/lib/cj/size-normalization";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -154,6 +155,11 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      // Keep queue payload canonical so review/import steps see one normalized size set.
+      const normalizedAvailableSizes = Array.isArray(p.availableSizes)
+        ? normalizeSizeList(p.availableSizes, { allowNumeric: false })
+        : undefined;
+
       const result = await addProductToQueue(batch.id, {
         productId,
         cjSku: p.cjSku || undefined,
@@ -192,7 +198,7 @@ export async function POST(req: NextRequest) {
         originCountry: p.originCountry || undefined,
         hsCode: p.hsCode || undefined,
         sizeChartImages: p.sizeChartImages || undefined,
-        availableSizes: p.availableSizes || undefined,
+        availableSizes: normalizedAvailableSizes,
         availableColors: p.availableColors || undefined,
         availableModels: p.availableModels || undefined,
         categoryName: p.categoryName || undefined,

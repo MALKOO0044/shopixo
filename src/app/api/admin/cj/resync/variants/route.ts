@@ -99,6 +99,15 @@ function isSkuCode(str: string): boolean {
 
 function extractColorAndSize(variantKey: string): { color: string | null; size: string | null } {
   if (!variantKey) return { color: null, size: null };
+
+  const trimmedKey = variantKey.trim();
+  const isStandaloneSizeToken = /^(?:XS|S|M|L|XL|XXL|XXXL|[2-6]X(?:L)?|ONE\s*SIZE|FREE\s*SIZE|OS)$/i.test(trimmedKey);
+  if (isStandaloneSizeToken) {
+    const normalizedDirectSize = normalizeSingleSize(trimmedKey, { allowNumeric: false });
+    if (normalizedDirectSize) {
+      return { color: null, size: normalizedDirectSize };
+    }
+  }
   
   const separators = ['-', '/'];
   for (const sep of separators) {

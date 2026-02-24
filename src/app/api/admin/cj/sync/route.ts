@@ -6,6 +6,7 @@ import { hasTable, hasColumn } from '@/lib/db-features';
 import { loggerForRequest } from '@/lib/log';
 import { calculateRetailSar, usdToSar } from '@/lib/pricing';
 import { isKillSwitchOn } from '@/lib/settings';
+import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -74,6 +75,8 @@ export async function GET(req: Request) {
     for (const result of videoColumnResults) {
       if (result.exists) availableVideoColumns.add(result.col);
     }
+    const hasAvailableSizesColumn = await hasColumn('products', 'available_sizes').catch(() => false);
+    const hasAvailableColorsColumn = await hasColumn('products', 'available_colors').catch(() => false);
 
     let products: any[] = [];
     if (idsCsv) {
@@ -118,8 +121,14 @@ export async function GET(req: Request) {
         // Update variants if table exists
         if (hasVariants) {
           const rows = (cj.variants || [])
-            .filter((v: any) => v && (v.size || v.cjSku))
+            .filter((v: any) => v && (v.size || (v as any).variantKey || v.cjSku))
             .map((v: any) => {
+              const normalizedSize =
+                normalizeSingleSize(v.size, { allowNumeric: true }) ||
+                (typeof v.size === 'string' ? v.size.trim() : null);
+              const normalizedVariantKeySize =
+                normalizeSingleSize((v as any).variantKey, { allowNumeric: true }) || null;
+
               // Supplier cost (assume CJ in USD unless specified)
               const supplierCostRaw = typeof v.price === 'number' ? v.price : undefined;
               const supplierCostSar = typeof supplierCostRaw === 'number'
@@ -145,7 +154,7 @@ export async function GET(req: Request) {
               return {
                 product_id: p.id,
                 option_name: 'Size',
-                option_value: v.size || '-',
+                option_value: normalizedSize || normalizedVariantKeySize || '-',
                 cj_sku: v.cjSku || null,
                 price: (retailSansShip ?? (typeof v.price === 'number' ? (cjCurrency === 'USD' ? usdToSar(v.price) : v.price) : null)),
                 stock: typeof v.stock === 'number' ? v.stock : 0,
@@ -167,6 +176,28 @@ export async function GET(req: Request) {
         if (hasVariants) {
           const stockSum = (cj.variants || []).reduce((acc: number, v: any) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0);
           update.stock = stockSum;
+
+          if (hasAvailableSizesColumn) {
+            const deduplicatedSizes = normalizeSizeList(
+              (cj.variants || []).flatMap((v: any) => [v?.size, (v as any)?.variantKey]),
+              { allowNumeric: false }
+            );
+            update.available_sizes = deduplicatedSizes.length > 0 ? deduplicatedSizes : null;
+          }
+
+          if (hasAvailableColorsColumn) {
+            const colorMap = new Map<string, string>();
+            for (const v of (cj.variants || []) as any[]) {
+              const rawColor = typeof v?.color === 'string' ? v.color.trim() : '';
+              if (!rawColor) continue;
+              const colorKey = rawColor.toLowerCase().replace(/\s+/g, ' ');
+              if (!colorMap.has(colorKey)) {
+                colorMap.set(colorKey, rawColor);
+              }
+            }
+            const deduplicatedColors = Array.from(colorMap.values());
+            update.available_colors = deduplicatedColors.length > 0 ? deduplicatedColors : null;
+          }
         }
         if (updateRetail) {
           // Compute product-level price as min of variant retail

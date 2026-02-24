@@ -10,10 +10,10 @@ const SIZE_ALIAS_MAP: Record<string, string> = {
   M: 'M',
   L: 'L',
   XL: 'XL',
-  XXL: '2XL',
-  XXXL: '3XL',
-  '2XL': '2XL',
-  '3XL': '3XL',
+  XXL: 'XXL',
+  XXXL: 'XXXL',
+  '2XL': 'XXL',
+  '3XL': 'XXXL',
   '4XL': '4XL',
   '5XL': '5XL',
   '6XL': '6XL',
@@ -27,7 +27,7 @@ const SIZE_ALIAS_MAP: Record<string, string> = {
   LARGE: 'L',
 };
 
-const ORDERED_ALPHA_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL'];
+const ORDERED_ALPHA_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '4XL', '5XL', '6XL'];
 
 function parseNumericSize(
   raw: string,

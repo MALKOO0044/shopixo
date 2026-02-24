@@ -4,6 +4,7 @@ import { fetchJson } from '@/lib/http';
 import { getSetting } from '@/lib/settings';
 import { extractCjProductGalleryImages } from '@/lib/cj/image-gallery';
 import { extractCjProductVideoUrl } from '@/lib/cj/video';
+import { normalizeSingleSize } from '@/lib/cj/size-normalization';
 import { build4kVideoDelivery } from '@/lib/video/delivery';
 
 // CJ v2 client with token auth per official docs:
@@ -1855,14 +1856,19 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
         const mColor = s.match(/(?:color|colour)\s*[:=]\s*([^;|,\/]*)/i);
         if (mColor && mColor[1]) out.color = mColor[1].trim();
         const mSize = s.match(/size\s*[:=]\s*([^;|,\/]*)/i);
-        if (mSize && mSize[1]) out.size = mSize[1].trim();
+        if (mSize && mSize[1]) {
+          const parsed = mSize[1].trim();
+          out.size = normalizeSingleSize(parsed, { allowNumeric: true }) || parsed;
+        }
         // Hyphen or slash separated like "Black-L"
         if (!out.color || !out.size) {
           const parts = s.split(/[\-\/|]+/).map(x => x.trim()).filter(Boolean);
           const sizeTokens = new Set(['XS','S','M','L','XL','XXL','XXXL','2XL','3XL','4XL','5XL','One Size','Free Size']);
           const maybeSize = parts.find(p => sizeTokens.has(p.toUpperCase()) || /^\d{2}$/.test(p));
           const maybeColor = parts.find(p => p && p !== maybeSize);
-          if (!out.size && maybeSize) out.size = maybeSize;
+          if (!out.size && maybeSize) {
+            out.size = normalizeSingleSize(maybeSize, { allowNumeric: true }) || maybeSize;
+          }
           if (!out.color && maybeColor) out.color = maybeColor;
         }
         return out;
@@ -1929,13 +1935,17 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
           const sizeTokens = new Set(['XS','S','M','L','XL','XXL','XXXL','2XL','3XL','4XL','5XL','ONE SIZE','FREE SIZE','BOXED','OPP']);
           const maybeSize = parts.find(p => sizeTokens.has(p.toUpperCase()) || /^\d{2}$/.test(p));
           const maybeColor = parts.find(p => p && p !== maybeSize);
-          if (!finalSize && maybeSize) finalSize = maybeSize;
+          if (!finalSize && maybeSize) finalSize = normalizeSingleSize(maybeSize, { allowNumeric: true }) || maybeSize;
           if (!finalColor && maybeColor) finalColor = maybeColor;
         }
         // If we only have one part, treat the whole variantKey as color/type
         if (parts.length === 1 && !finalColor) {
           finalColor = parts[0];
         }
+      }
+
+      if (finalSize) {
+        finalSize = normalizeSingleSize(finalSize, { allowNumeric: true }) || finalSize;
       }
       
       // Extract CJ and Factory stock separately

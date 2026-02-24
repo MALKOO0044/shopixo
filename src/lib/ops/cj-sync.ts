@@ -5,6 +5,7 @@ import type { CjProductLike } from '@/lib/cj/v2'
 import { freightCalculate } from '@/lib/cj/v2'
 import { loadPricingPolicy } from '@/lib/pricing-policy'
 import { computeRetailFromLanded, convertToSar, maybeUsdToSar } from '@/lib/pricing'
+import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization'
 
 function getSupabaseAdmin(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined
@@ -57,6 +58,20 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
     }, null)
 
     const totalStock = (cj.variants || []).reduce((acc, v) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0)
+    const deduplicatedAvailableSizes = normalizeSizeList(
+      (cj.variants || []).flatMap((v: any) => [v?.size, v?.variantKey]),
+      { allowNumeric: false }
+    )
+    const availableColorMap = new Map<string, string>()
+    for (const v of (cj.variants || []) as any[]) {
+      const rawColor = typeof v?.color === 'string' ? v.color.trim() : ''
+      if (!rawColor) continue
+      const colorKey = rawColor.toLowerCase().replace(/\s+/g, ' ')
+      if (!availableColorMap.has(colorKey)) {
+        availableColorMap.set(colorKey, rawColor)
+      }
+    }
+    const deduplicatedAvailableColors = Array.from(availableColorMap.values())
 
     const productPayload: any = {
       title: cj.name,
@@ -85,6 +100,8 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
       origin_area: (cj as any).originArea ?? null,
       origin_country_code: (cj as any).originCountryCode ?? null,
       shipping_from: (cj as any).originArea ?? null,
+      available_sizes: deduplicatedAvailableSizes.length > 0 ? deduplicatedAvailableSizes : null,
+      available_colors: deduplicatedAvailableColors.length > 0 ? deduplicatedAvailableColors : null,
     }
 
     // Prune undefineds and columns that don't exist
@@ -189,25 +206,38 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
 
     // Variants table
     if (await productVariantsTableExists()) {
-      const variants = (cj.variants || []).filter((v) => v && (v.size || (v as any).color || v.cjSku))
-      const hasSize = variants.some((v) => !!(v as any).size)
+      const variants = (cj.variants || []).filter((v) => v && (v.size || (v as any).variantKey || (v as any).color || v.cjSku))
+      const hasSize = variants.some((v) => {
+        if ((v as any).size) return true
+        return Boolean(normalizeSingleSize((v as any).variantKey, { allowNumeric: true }))
+      })
       const hasColor = variants.some((v: any) => !!(v as any).color)
       const both = hasSize && hasColor
       const optionName = both ? 'Variant' : (hasSize ? 'Size' : (hasColor ? 'Color' : 'Variant'))
 
-      const rows = variants.map((v: any) => ({
-        product_id: productId,
-        option_name: optionName,
-        option_value: both ? `${(v.color as string) || '-'} / ${(v.size as string) || '-'}` : (hasSize ? (v.size || '-') : ((v.color as string) || '-')),
-        cj_sku: v.cjSku || null,
-        price: typeof v.price === 'number' ? v.price : null,
-        stock: typeof v.stock === 'number' ? v.stock : 0,
-        // Shipping metadata when available
-        weight_grams: typeof v.weightGrams === 'number' ? v.weightGrams : null,
-        length_cm: typeof v.lengthCm === 'number' ? v.lengthCm : null,
-        width_cm: typeof v.widthCm === 'number' ? v.widthCm : null,
-        height_cm: typeof v.heightCm === 'number' ? v.heightCm : null,
-      }))
+      const rows = variants.map((v: any) => {
+        const normalizedSize =
+          normalizeSingleSize(v.size, { allowNumeric: true }) ||
+          normalizeSingleSize(v.variantKey, { allowNumeric: true }) ||
+          (typeof v.size === 'string' ? v.size.trim() : null)
+        const normalizedColor = typeof v.color === 'string' ? v.color.trim() : ''
+
+        return {
+          product_id: productId,
+          option_name: optionName,
+          option_value: both
+            ? `${normalizedColor || '-'} / ${normalizedSize || '-'}`
+            : (hasSize ? (normalizedSize || '-') : (normalizedColor || '-')),
+          cj_sku: v.cjSku || null,
+          price: typeof v.price === 'number' ? v.price : null,
+          stock: typeof v.stock === 'number' ? v.stock : 0,
+          // Shipping metadata when available
+          weight_grams: typeof v.weightGrams === 'number' ? v.weightGrams : null,
+          length_cm: typeof v.lengthCm === 'number' ? v.lengthCm : null,
+          width_cm: typeof v.widthCm === 'number' ? v.widthCm : null,
+          height_cm: typeof v.heightCm === 'number' ? v.heightCm : null,
+        }
+      })
       await admin.from('product_variants').delete().eq('product_id', productId)
       if (rows.length > 0) await admin.from('product_variants').insert(rows)
       updated.push('variants')

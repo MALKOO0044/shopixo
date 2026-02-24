@@ -12,6 +12,7 @@ import YouMayAlsoLike from "@/components/product/YouMayAlsoLike";
 import MakeItAMatch from "@/components/product/MakeItAMatch";
 import { computeBilledWeightKg, resolveDdpShippingSar } from "@/lib/pricing";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
+import { normalizeSingleSize, normalizeSizeList as normalizeCjSizeList } from "@/lib/cj/size-normalization";
 import { extractImagesFromHtml, parseProductDescription } from "@/components/product/SafeHtmlRenderer";
 
 function isLikelyImageUrl(s: string): boolean {
@@ -180,26 +181,51 @@ interface MediaGalleryProps {
 }
 
 function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = {}, availableColors = [], descriptionImages = [] }: MediaGalleryProps) {
-  const baseMedia = (Array.isArray(images) ? images : [])
-    .map((s) => (typeof s === 'string' ? normalizeImageUrl(s) : s))
-    .filter((s) => typeof s === 'string') as string[];
-  
-  const extraImages = (Array.isArray(descriptionImages) ? descriptionImages : [])
-    .map((s) => (typeof s === 'string' ? normalizeImageUrl(s) : s))
-    .filter((s) => typeof s === 'string' && !baseMedia.includes(s))
-    .slice(0, 12) as string[];
-  
-  const media = [...baseMedia, ...extraImages];
-  
-  const items = (() => {
+  const baseMedia = useMemo(() => {
+    return (Array.isArray(images) ? images : [])
+      .map((s) => (typeof s === 'string' ? normalizeImageUrl(s) : s))
+      .filter((s) => typeof s === 'string' && !!String(s).trim()) as string[];
+  }, [images]);
+
+  const colorMedia = useMemo(() => {
+    const values = Object.values(colorImageMap || {});
+    return values
+      .map((s) => (typeof s === 'string' ? normalizeImageUrl(s) : s))
+      .filter((s) => typeof s === 'string' && !!String(s).trim() && !baseMedia.includes(s)) as string[];
+  }, [colorImageMap, baseMedia]);
+
+  const extraImages = useMemo(() => {
+    return (Array.isArray(descriptionImages) ? descriptionImages : [])
+      .map((s) => (typeof s === 'string' ? normalizeImageUrl(s) : s))
+      .filter(
+        (s) =>
+          typeof s === 'string' &&
+          !!String(s).trim() &&
+          !baseMedia.includes(s) &&
+          !colorMedia.includes(s)
+      )
+      .slice(0, 12) as string[];
+  }, [descriptionImages, baseMedia, colorMedia]);
+
+  const media = useMemo(() => {
+    return [...baseMedia, ...colorMedia, ...extraImages];
+  }, [baseMedia, colorMedia, extraImages]);
+
+  const items = useMemo(() => {
     const arr = [...media];
     if (videoUrl && typeof videoUrl === 'string' && videoUrl.trim()) arr.unshift(videoUrl.trim());
     return arr.length > 0 ? arr : ["/placeholder.svg"];
-  })();
+  }, [media, videoUrl]);
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const selected = items[selectedIndex] || items[0];
   const thumbnailContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (selectedIndex >= items.length) {
+      setSelectedIndex(0);
+    }
+  }, [items.length, selectedIndex]);
   
   // When selectedColor changes, update the main gallery image
   // Strategy: Find the color's image in the gallery by URL matching or positional fallback
@@ -242,10 +268,10 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
       }
     }
     
-    if (targetIndex >= 0 && targetIndex < items.length && targetIndex !== selectedIndex) {
-      setSelectedIndex(targetIndex);
+    if (targetIndex >= 0 && targetIndex < items.length) {
+      setSelectedIndex((prev) => (prev === targetIndex ? prev : targetIndex));
     }
-  }, [selectedColor, colorImageMap, items, selectedIndex, availableColors]);
+  }, [selectedColor, colorImageMap, items, availableColors]);
 
   const [zoomOpen, setZoomOpen] = useState(false);
   const [scale, setScale] = useState(1);
@@ -939,7 +965,8 @@ export default function ProductDetailsClient({
         const potentialColor = parts[0];
         const potentialSize = parts[1];
         const color = (potentialColor && !isSkuCode(potentialColor)) ? potentialColor : undefined;
-        return { color, size: potentialSize || undefined };
+        const normalizedSize = normalizeSingleSize(potentialSize, { allowNumeric: true });
+        return { color, size: normalizedSize || potentialSize || undefined };
       }
     }
     
@@ -954,7 +981,8 @@ export default function ProductDetailsClient({
       // Check if the right side looks like a size
       if (SIZE_TOKENS.has(potentialSize.toUpperCase()) || /^\d{1,2}$/.test(potentialSize)) {
         const color = isSkuCode(potentialColor) ? undefined : potentialColor;
-        return { color, size: potentialSize };
+        const normalizedSize = normalizeSingleSize(potentialSize, { allowNumeric: true });
+        return { color, size: normalizedSize || potentialSize || undefined };
       }
       
       // If right side doesn't look like a size, still try splitting (legacy behavior)
@@ -962,7 +990,8 @@ export default function ProductDetailsClient({
       const parts = str.split('-').map(s => s.trim()).filter(Boolean);
       if (parts.length === 2) {
         const color = isSkuCode(parts[0]) ? undefined : parts[0];
-        return { color, size: parts[1] || undefined };
+        const normalizedSize = normalizeSingleSize(parts[1], { allowNumeric: true });
+        return { color, size: normalizedSize || parts[1] || undefined };
       }
     }
     
@@ -972,7 +1001,43 @@ export default function ProductDetailsClient({
     }
     
     // No separator found - treat as size only
-    return { size: str };
+    const normalizedStandaloneSize = normalizeSingleSize(str, { allowNumeric: true });
+    return { size: normalizedStandaloneSize || str };
+  }
+
+  function normalizeAndDedupeSizes(values: unknown[]): string[] {
+    const canonicalCandidates: string[] = [];
+    const fallbackMap = new Map<string, string>();
+
+    for (const value of values) {
+      let raw = String(value ?? '').trim();
+      if (!raw) continue;
+
+      const lastHyphen = raw.lastIndexOf('-');
+      if (lastHyphen > 0 && lastHyphen < raw.length - 1) {
+        const leftPart = raw.slice(0, lastHyphen).trim();
+        const rightPart = raw.slice(lastHyphen + 1).trim();
+        if (isSkuCode(leftPart) && rightPart) {
+          raw = rightPart;
+        }
+      }
+
+      if (!raw || isSkuCode(raw)) continue;
+
+      const normalized = normalizeSingleSize(raw, { allowNumeric: true });
+      if (normalized) {
+        canonicalCandidates.push(normalized);
+        continue;
+      }
+
+      const fallbackKey = raw.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (!fallbackMap.has(fallbackKey)) {
+        fallbackMap.set(fallbackKey, raw);
+      }
+    }
+
+    const canonicalSizes = normalizeCjSizeList(canonicalCandidates, { allowNumeric: true });
+    return [...canonicalSizes, ...Array.from(fallbackMap.values())];
   }
 
   const hasRows = Array.isArray(variantRows) && variantRows.length > 0;
@@ -1008,14 +1073,14 @@ export default function ProductDetailsClient({
   const variantRowSizes = useMemo(() => {
     if (!hasRows) return [] as string[];
     if (bothDims) {
-      const set = new Set<string>();
+      const sizes: string[] = [];
       for (const r of variantRows!) {
         const cs = splitColorSize(r.option_value || '');
-        if (cs.size) set.add(cs.size);
+        if (cs.size) sizes.push(cs.size);
       }
-      return Array.from(set);
+      return normalizeAndDedupeSizes(sizes);
     }
-    return Array.from(new Set(variantRows!.map(v => v.option_value))).filter(Boolean);
+    return normalizeAndDedupeSizes(variantRows!.map(v => v.option_value));
   }, [hasRows, bothDims, variantRows]);
 
   // PRIMARY: Get available colors/sizes from product fields (available_colors, available_sizes arrays)
@@ -1057,60 +1122,24 @@ export default function ProductDetailsClient({
   }, [product, hasRows, bothDims, variantRowColors]);
 
   const productSizes = useMemo(() => {
-    // Helper to extract clean size from potentially SKU-prefixed strings like "XK0016TCFS4663-2XL" -> "2XL"
-    const extractCleanSize = (s: string): string | null => {
-      if (!s || typeof s !== 'string') return null;
-      const trimmed = s.trim();
-      if (!trimmed) return null;
-      
-      // If it contains a hyphen and the left part looks like a SKU, extract the right part
-      const lastHyphen = trimmed.lastIndexOf('-');
-      if (lastHyphen > 0 && lastHyphen < trimmed.length - 1) {
-        const leftPart = trimmed.slice(0, lastHyphen).trim();
-        const rightPart = trimmed.slice(lastHyphen + 1).trim();
-        // If left part is a SKU code, return only the right part (the actual size)
-        if (isSkuCode(leftPart)) {
-          return rightPart;
-        }
-      }
-      
-      // If the whole string is a SKU code, skip it
-      if (isSkuCode(trimmed)) return null;
-      
-      return trimmed;
-    };
-    
-    const deduplicateSizes = (sizes: string[]): string[] => {
-      const sizeMap = new Map<string, string>();
-      for (const s of sizes) {
-        const clean = extractCleanSize(s);
-        if (!clean) continue;
-        const normalizedKey = clean.toLowerCase().trim();
-        if (!sizeMap.has(normalizedKey)) {
-          sizeMap.set(normalizedKey, clean);
-        }
-      }
-      return Array.from(sizeMap.values());
-    };
-    
     // First try available_sizes array (most complete source from CJ import)
     const as = (product as any).available_sizes;
     if (Array.isArray(as) && as.length > 0) {
-      return deduplicateSizes(as);
+      return normalizeAndDedupeSizes(as);
     }
     // Fallback to variants JSONB field
     const variants = (product as any).variants;
     if (Array.isArray(variants)) {
       const sizes: string[] = [];
       variants.forEach((v: any) => { if (v.size && typeof v.size === 'string') sizes.push(v.size); });
-      if (sizes.length > 0) return deduplicateSizes(sizes);
+      if (sizes.length > 0) return normalizeAndDedupeSizes(sizes);
     }
     // Last resort: extract from variantRows if available
     if (hasRows) {
-      return variantRowSizes;
+      return normalizeAndDedupeSizes(variantRowSizes);
     }
     return [];
-  }, [product, hasRows, bothDims, variantRowSizes]);
+  }, [product, hasRows, variantRowSizes]);
 
   // Use variant rows as primary, fallback to product-level arrays
   const hasFallbackDims = productColors.length > 0 && productSizes.length > 0;
@@ -1132,21 +1161,6 @@ export default function ProductDetailsClient({
   // CJ PRODUCTS: ALL sizes are available for ALL colors
   // We use the UNION of all sizes across the entire product for every color
   const sizeOptionsByColor = useMemo(() => {
-    // Helper to deduplicate by normalized key
-    const deduplicateStrings = (items: string[]): string[] => {
-      const seen = new Map<string, string>();
-      for (const item of items) {
-        if (!item || typeof item !== 'string') continue;
-        const display = item.trim();
-        if (!display) continue;
-        const key = display.toLowerCase().replace(/\s+/g, ' ');
-        if (!seen.has(key)) {
-          seen.set(key, display);
-        }
-      }
-      return Array.from(seen.values());
-    };
-    
     // Step 1: Collect ALL unique sizes from all sources
     const rawSizes: string[] = [];
     
@@ -1170,8 +1184,8 @@ export default function ProductDetailsClient({
         if (v.size && typeof v.size === 'string') rawSizes.push(v.size.trim());
       }
     }
-    
-    const allSizes = deduplicateStrings(rawSizes);
+
+    const allSizes = normalizeAndDedupeSizes(rawSizes);
     
     // Step 2: Collect ALL colors from all sources (with deduplication)
     const rawColors: string[] = [];
@@ -1302,7 +1316,11 @@ export default function ProductDetailsClient({
       }) || null;
     }
     if (!selectedSize) return null;
-    return variantRows.find(v => v.option_value === selectedSize) || null;
+    return variantRows.find((v) => {
+      const normalizedOptionSize =
+        normalizeSingleSize(v.option_value, { allowNumeric: true }) || String(v.option_value || '').trim();
+      return normalizedOptionSize === selectedSize;
+    }) || null;
   }, [variantRows, selectedColor, selectedSize, bothDims]);
 
   // sizeStockMap: Maps size -> stock value
@@ -1326,7 +1344,10 @@ export default function ProductDetailsClient({
         }
       } else {
         for (const r of variantRows!) {
-          map[r.option_value] = r.stock ?? undefined;
+          const normalizedOptionSize =
+            normalizeSingleSize(r.option_value, { allowNumeric: true }) || String(r.option_value || '').trim();
+          if (!normalizedOptionSize) continue;
+          map[normalizedOptionSize] = r.stock ?? undefined;
         }
       }
       return map;
@@ -1339,14 +1360,16 @@ export default function ProductDetailsClient({
         for (const v of variants) {
           const normalizedVColor = (v.color || '').toLowerCase().trim();
           const normalizedSelectedColor = selectedColor.toLowerCase().trim();
-          if (normalizedVColor === normalizedSelectedColor && v.size) {
-            map[v.size] = v.stock ?? undefined;
+          const normalizedVSize = normalizeSingleSize(v.size, { allowNumeric: true }) || String(v.size || '').trim();
+          if (normalizedVColor === normalizedSelectedColor && normalizedVSize) {
+            map[normalizedVSize] = v.stock ?? undefined;
           }
         }
       } else {
         for (const v of variants) {
-          if (v.size) {
-            map[v.size] = v.stock ?? undefined;
+          const normalizedVSize = normalizeSingleSize(v.size, { allowNumeric: true }) || String(v.size || '').trim();
+          if (normalizedVSize) {
+            map[normalizedVSize] = v.stock ?? undefined;
           }
         }
       }

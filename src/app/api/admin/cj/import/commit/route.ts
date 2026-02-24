@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 import { mapCjItemToProductLike, queryProductByPidOrKeyword } from '@/lib/cj/v2'
 import { calculateRetailSar, usdToSar } from '@/lib/pricing'
 import { hasColumn, hasTable } from '@/lib/db-features'
+import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -46,6 +47,8 @@ export async function POST(req: Request) {
       'video_source_quality_hint',
       'media_mode',
       'has_video',
+      'available_sizes',
+      'available_colors',
     ] as const
     const optionalColumnSet = new Set<string>()
     const optionalColumnResults = await Promise.all(
@@ -91,6 +94,8 @@ export async function POST(req: Request) {
         const rows: any[] = []
         let stockSum = 0
         let minRetailSansShip: number | null = null
+        const availableSizeCandidates: string[] = []
+        const availableColorMap = new Map<string, string>()
         for (const v of variants) {
           // Filter by includeSkus if provided
           if (Array.isArray(it.includeSkus) && it.includeSkus.length > 0) {
@@ -122,7 +127,19 @@ export async function POST(req: Request) {
           stockSum += stock
 
           const color = (v as any).color || null
-          const size = (v as any).size || null
+          const normalizedSize =
+            normalizeSingleSize((v as any).size, { allowNumeric: true }) ||
+            (typeof (v as any).size === 'string' ? (v as any).size.trim() : null)
+          const normalizedVariantKeySize =
+            normalizeSingleSize((v as any).variantKey, { allowNumeric: true }) || null
+          const size = normalizedSize || normalizedVariantKeySize
+          if (size) availableSizeCandidates.push(size)
+          if (color) {
+            const colorKey = String(color).toLowerCase().replace(/\s+/g, ' ')
+            if (!availableColorMap.has(colorKey)) {
+              availableColorMap.set(colorKey, String(color))
+            }
+          }
           const optionValue = color ? (size ? `${color} / ${size}` : color) : (size || '-')
           rows.push({
             option_name: 'Variant',
@@ -142,6 +159,9 @@ export async function POST(req: Request) {
             retail_updated_at: new Date().toISOString(),
           })
         }
+
+        const deduplicatedAvailableSizes = normalizeSizeList(availableSizeCandidates, { allowNumeric: false })
+        const deduplicatedAvailableColors = Array.from(availableColorMap.values())
 
         // Upsert product
         const { data: existing } = await db.from('products').select('id, slug').eq('cj_product_id', cj.productId).maybeSingle()
@@ -173,6 +193,8 @@ export async function POST(req: Request) {
           video_source_quality_hint: cj.videoSourceQualityHint || null,
           media_mode: mediaMode,
           has_video: Boolean(cj.video4kUrl || cj.videoUrl),
+          available_sizes: deduplicatedAvailableSizes.length > 0 ? deduplicatedAvailableSizes : null,
+          available_colors: deduplicatedAvailableColors.length > 0 ? deduplicatedAvailableColors : null,
           processing_time_hours,
           delivery_time_hours,
           origin_area,

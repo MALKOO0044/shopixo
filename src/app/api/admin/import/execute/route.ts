@@ -5,7 +5,8 @@ import { hasColumn, hasTable } from "@/lib/db-features";
 import { linkProductToMultipleCategories } from "@/lib/category-intelligence";
 import { computeRating, normalizeDisplayedRating } from "@/lib/rating/engine";
 import { sarToUsd } from "@/lib/pricing";
-import { normalizeCjImageKey, prioritizeCjHeroImage } from "@/lib/cj/image-gallery";
+import { normalizeCjImageKey } from "@/lib/cj/image-gallery";
+import { normalizeSingleSize, normalizeSizeList } from "@/lib/cj/size-normalization";
 import { requiresVideoForMediaMode } from "@/lib/video/delivery";
 
 // Helper to find category by name/slug/CJ-link and link product to category hierarchy
@@ -352,9 +353,44 @@ function parseStringArrayOrNull(value: unknown): string[] | null {
   return Array.isArray(parsed) ? (parsed as string[]) : null;
 }
 
+function normalizeImportAvailableSizes(value: unknown): string[] | null {
+  const parsed = parseStringArrayOrNull(value);
+  if (!parsed || parsed.length === 0) return null;
+  const normalized = normalizeSizeList(parsed, { allowNumeric: false });
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeImportVariantSize(value: unknown): string | null {
+  const normalized = normalizeSingleSize(value, { allowNumeric: false });
+  if (normalized) return normalized;
+  const fallback = String(value ?? '').trim();
+  return fallback || null;
+}
+
 function parseArrayOrEmpty(value: unknown): any[] {
   const parsed = parseJsonMaybe(value);
   return Array.isArray(parsed) ? parsed : [];
+}
+
+function sanitizeQueueGalleryImages(candidates: unknown[], maxImages: number = 50): string[] {
+  const filtered: string[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const cleaned = candidate.trim();
+    if (!cleaned) continue;
+    if (!/^https?:\/\//i.test(cleaned)) continue;
+
+    const key = normalizeCjImageKey(cleaned);
+    if (!key || seen.has(key)) continue;
+
+    seen.add(key);
+    filtered.push(cleaned);
+    if (filtered.length >= maxImages) break;
+  }
+
+  return filtered;
 }
 
 function isLikelyTinyImportImage(url: string): boolean {
@@ -416,11 +452,11 @@ function sanitizeImportProductImages(candidates: unknown[], maxImages: number = 
 
   const strictFiltered = buildFiltered(false);
   if (strictFiltered.length > 0) {
-    return prioritizeCjHeroImage(strictFiltered).slice(0, maxImages);
+    return strictFiltered.slice(0, maxImages);
   }
 
   const fallbackFiltered = buildFiltered(true);
-  return prioritizeCjHeroImage(fallbackFiltered).slice(0, maxImages);
+  return fallbackFiltered.slice(0, maxImages);
 }
 
 function parseObjectOrEmpty(value: unknown): Record<string, any> {
@@ -679,7 +715,7 @@ export async function POST(req: NextRequest) {
         const rawVariantPricing = parseArrayOrEmpty(qp.variant_pricing);
         const hasCanonicalVariantPricing = rawVariantPricing.length > 0;
         const rawVariants = rawVariantsRequired;
-        const availableSizes = parseStringArrayOrNull(qp.available_sizes);
+        const availableSizes = normalizeImportAvailableSizes(qp.available_sizes);
         const availableColors = parseStringArrayOrNull(qp.available_colors);
         const storeCurrency = String(process.env.NEXT_PUBLIC_CURRENCY || 'USD').toUpperCase();
         const storePricesInUsd = storeCurrency === 'USD';
@@ -691,8 +727,9 @@ export async function POST(req: NextRequest) {
         const variants = rawVariants
           .map((v: any) => {
             const matchingPricing = rawVariantPricing.find((vp: any) => isVariantPricingMatch(v, vp));
-            const resolvedSize = v.size ?? matchingPricing?.size ?? null;
-            const resolvedColor = v.color ?? matchingPricing?.color ?? null;
+            const resolvedSize = normalizeImportVariantSize(v.size ?? matchingPricing?.size ?? null);
+            const rawResolvedColor = v.color ?? matchingPricing?.color ?? null;
+            const resolvedColor = typeof rawResolvedColor === 'string' ? rawResolvedColor.trim() || null : null;
             const resolvedRetailSar = toPositiveNumberOrNull(
               matchingPricing?.price ?? matchingPricing?.sellPriceSAR ?? matchingPricing?.sellPriceSar
             )
@@ -745,6 +782,7 @@ export async function POST(req: NextRequest) {
 
         const totalStock: number | null = qp.stock_total ?? null;
         const rawImages = parseArrayOrEmpty(qp.images);
+        const normalizedQueueImages = sanitizeQueueGalleryImages(rawImages, 50);
         const queueImageCandidates: unknown[] = [
           ...rawImages,
           ...Object.values(alignedColorImageMap),
@@ -759,11 +797,13 @@ export async function POST(req: NextRequest) {
             variant?.image_url,
           ]),
         ];
-        const normalizedImages = sanitizeImportProductImages(queueImageCandidates, 50);
+        const normalizedFallbackImages = sanitizeImportProductImages(queueImageCandidates, 50);
         const fallbackRawHttpImages = rawImages
           .filter((img): img is string => typeof img === 'string' && /^https?:\/\//i.test(img))
           .slice(0, 50);
-        const finalImages = normalizedImages.length > 0 ? normalizedImages : fallbackRawHttpImages;
+        const finalImages = normalizedQueueImages.length > 0
+          ? normalizedQueueImages
+          : (normalizedFallbackImages.length > 0 ? normalizedFallbackImages : fallbackRawHttpImages);
         if (finalImages.length === 0) {
           console.warn(`[Import] Product ${qp.cj_product_id}: no valid product gallery images found in queue payload`);
         }
@@ -957,21 +997,23 @@ export async function POST(req: NextRequest) {
         if (hasVariantsTable && variants.length > 0) {
           // Create proper variant rows with Color/Size format
           const variantRows = variants.map((v: any) => {
-            const hasColor = v.color && v.color.trim();
-            const hasSize = v.size && v.size.trim();
+            const normalizedColor = typeof v.color === 'string' ? v.color.trim() : '';
+            const normalizedSize = normalizeImportVariantSize(v.size) || '';
+            const hasColor = normalizedColor.length > 0;
+            const hasSize = normalizedSize.length > 0;
             
             let optionName = 'Default';
             let optionValue = 'Default';
             
             if (hasColor && hasSize) {
               optionName = 'Color / Size';
-              optionValue = `${v.color} / ${v.size}`;
+              optionValue = `${normalizedColor} / ${normalizedSize}`;
             } else if (hasColor) {
               optionName = 'Color';
-              optionValue = v.color;
+              optionValue = normalizedColor;
             } else if (hasSize) {
               optionName = 'Size';
-              optionValue = v.size;
+              optionValue = normalizedSize;
             }
             
             return {

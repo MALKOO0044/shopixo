@@ -3,6 +3,7 @@ import { computeRating, normalizeDisplayedRating } from '@/lib/rating/engine';
 import { hasTable } from '@/lib/db-features';
 import { sarToUsd } from '@/lib/pricing';
 import { normalizeCjVideoUrl } from '@/lib/cj/video';
+import { normalizeSizeList } from '@/lib/cj/size-normalization';
 
 let supabaseAdmin: SupabaseClient | null = null;
 
@@ -260,6 +261,19 @@ export async function addProductToQueue(batchId: number, product: {
 
   const productCode = await generateUniqueProductCode(admin);
   const storeSku = product.storeSku || productCode;
+  const normalizedAvailableSizes = Array.isArray(product.availableSizes)
+    ? normalizeSizeList(product.availableSizes, { allowNumeric: false })
+    : [];
+  const availableColorMap = new Map<string, string>();
+  for (const color of Array.isArray(product.availableColors) ? product.availableColors : []) {
+    const rawColor = typeof color === 'string' ? color.trim() : '';
+    if (!rawColor) continue;
+    const colorKey = rawColor.toLowerCase().replace(/\s+/g, ' ');
+    if (!availableColorMap.has(colorKey)) {
+      availableColorMap.set(colorKey, rawColor);
+    }
+  }
+  const deduplicatedAvailableColors = Array.from(availableColorMap.values());
 
   const imagesCount = Array.isArray(product.images) ? product.images.length : 0;
   const vpArray: any[] = Array.isArray(product.variantPricing) ? product.variantPricing : [];
@@ -346,8 +360,8 @@ export async function addProductToQueue(batchId: number, product: {
     hs_code: product.hsCode || null,
     category_name: product.categoryName || null,
     size_chart_images: product.sizeChartImages || null,
-    available_sizes: product.availableSizes || null,
-    available_colors: product.availableColors || null,
+    available_sizes: normalizedAvailableSizes.length > 0 ? normalizedAvailableSizes : null,
+    available_colors: deduplicatedAvailableColors.length > 0 ? deduplicatedAvailableColors : null,
     available_models: product.availableModels || null,
     cj_category_id: product.cjCategoryId || null,
     supabase_category_id: product.supabaseCategoryId || null,

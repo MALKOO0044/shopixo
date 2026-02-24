@@ -98,6 +98,51 @@ function extractDiscoverDescriptionImages(html: string): string[] {
   return results;
 }
 
+function buildDiscoverPreviewGallery(product: PricedProduct | null | undefined): string[] {
+  if (!product) return [];
+
+  const merged: string[] = [];
+  const seen = new Set<string>();
+  const pushImage = (raw: unknown) => {
+    if (typeof raw !== 'string') return;
+    const candidate = raw.replace(/&amp;/g, '&').trim();
+    if (!isValidDiscoverGalleryImageUrl(candidate)) return;
+
+    const key = normalizeDiscoverGalleryImageKey(candidate);
+    if (!key || seen.has(key)) return;
+
+    seen.add(key);
+    merged.push(candidate);
+  };
+
+  for (const imageUrl of product.images || []) {
+    pushImage(imageUrl);
+  }
+
+  const colorImageMap = product.colorImageMap;
+  if (colorImageMap && typeof colorImageMap === 'object') {
+    for (const imageUrl of Object.values(colorImageMap)) {
+      pushImage(imageUrl);
+    }
+  }
+
+  for (const variant of product.variants || []) {
+    const vAny = variant as any;
+    pushImage(vAny?.variantImage);
+    pushImage(vAny?.whiteImage);
+    pushImage(vAny?.image);
+    pushImage(vAny?.imageUrl);
+    pushImage(vAny?.imgUrl);
+  }
+
+  const descriptionImages = extractDiscoverDescriptionImages(String(product.description || ''));
+  for (const imageUrl of descriptionImages) {
+    pushImage(imageUrl);
+  }
+
+  return merged;
+}
+
 export default function ProductDiscoveryPage() {
   const [category, setCategory] = useState("all");
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
@@ -476,32 +521,7 @@ export default function ProductDiscoveryPage() {
   };
 
   const previewGalleryImages = useMemo(() => {
-    if (!previewProduct) return [];
-
-    const merged: string[] = [];
-    const seen = new Set<string>();
-    const pushImage = (raw: unknown) => {
-      if (typeof raw !== 'string') return;
-      const candidate = raw.trim();
-      if (!isValidDiscoverGalleryImageUrl(candidate)) return;
-
-      const key = normalizeDiscoverGalleryImageKey(candidate);
-      if (!key || seen.has(key)) return;
-
-      seen.add(key);
-      merged.push(candidate);
-    };
-
-    for (const imageUrl of previewProduct.images || []) {
-      pushImage(imageUrl);
-    }
-
-    const descriptionImages = extractDiscoverDescriptionImages(String(previewProduct.description || ''));
-    for (const imageUrl of descriptionImages) {
-      pushImage(imageUrl);
-    }
-
-    return merged;
+    return buildDiscoverPreviewGallery(previewProduct);
   }, [previewProduct]);
 
   const previewVideoUrl = useMemo(() => {
@@ -589,6 +609,7 @@ export default function ProductDiscoveryPage() {
               ? sourceSellingPoints
               : htmlToLines(p.overview).slice(0, 8);
             const appliedMargin = Number((p as any).profitMarginApplied ?? profitMargin);
+            const mergedGalleryImages = buildDiscoverPreviewGallery(p);
             
             return {
               cjProductId: p.pid,
@@ -601,7 +622,7 @@ export default function ProductDiscoveryPage() {
               sizeInfo: p.sizeInfo,
               productNote: p.productNote,
               packingList: p.packingList,
-              images: p.images,
+              images: mergedGalleryImages,
               videoUrl: p.videoUrl,
               videoSourceUrl: p.videoSourceUrl,
               video4kUrl: p.video4kUrl,

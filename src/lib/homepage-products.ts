@@ -30,6 +30,16 @@ export interface HomepageProduct {
 
 type HomepageProductRow = Pick<Product, "id" | "title" | "slug" | "price" | "images" | "displayed_rating">;
 
+const ACTIVE_PRODUCT_FILTER = "is_active.is.null,is_active.eq.true";
+
+function isMissingIsActiveError(error: any): boolean {
+  if (!error) return false;
+  const code = String((error as any).code || "").toLowerCase();
+  const message = String((error as any).message || "").toLowerCase();
+  const details = String((error as any).details || "").toLowerCase();
+  return code === "42703" || message.includes("is_active") || details.includes("is_active");
+}
+
 function mapProductToHomepage(product: HomepageProductRow, badge?: string): HomepageProduct {
   const primaryImage = Array.isArray(product.images) && product.images.length > 0
     ? product.images[0]
@@ -52,11 +62,22 @@ export async function getFlashSaleProducts(limit = 8): Promise<HomepageProduct[]
   if (!supabase) return [];
   
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("products")
       .select("id, title, slug, price, images, displayed_rating")
+      .or(ACTIVE_PRODUCT_FILTER)
       .order("displayed_rating", { ascending: false })
       .limit(limit);
+
+    if (isMissingIsActiveError(error)) {
+      const fallback = await supabase
+        .from("products")
+        .select("id, title, slug, price, images, displayed_rating")
+        .order("displayed_rating", { ascending: false })
+        .limit(limit);
+      data = fallback.data as any;
+      error = fallback.error as any;
+    }
 
     if (error) {
       console.error("Error fetching flash sale products:", error);
@@ -78,8 +99,19 @@ export async function getNewArrivals(limit = 6): Promise<HomepageProduct[]> {
     let { data, error } = await supabase
       .from("products")
       .select("id, title, slug, price, images, displayed_rating")
+      .or(ACTIVE_PRODUCT_FILTER)
       .order("created_at", { ascending: false })
       .limit(limit);
+
+    if (isMissingIsActiveError(error)) {
+      const activeFallback = await supabase
+        .from("products")
+        .select("id, title, slug, price, images, displayed_rating")
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      data = activeFallback.data as any;
+      error = activeFallback.error as any;
+    }
 
     if (error && (error as any).code === "42703") {
       const fallback = await supabase
@@ -111,8 +143,19 @@ export async function getBestSellers(limit = 6): Promise<HomepageProduct[]> {
     let { data, error } = await supabase
       .from("products")
       .select("id, title, slug, price, images, displayed_rating")
+      .or(ACTIVE_PRODUCT_FILTER)
       .order("displayed_rating", { ascending: false })
       .limit(limit);
+
+    if (isMissingIsActiveError(error)) {
+      const fallback = await supabase
+        .from("products")
+        .select("id, title, slug, price, images, displayed_rating")
+        .order("displayed_rating", { ascending: false })
+        .limit(limit);
+      data = fallback.data as any;
+      error = fallback.error as any;
+    }
 
     if (error) {
       console.error("Error fetching best sellers:", error);
@@ -131,11 +174,22 @@ export async function getProductsByCategory(category: string, limit = 6): Promis
   if (!supabase) return [];
   
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("products")
       .select("id, title, slug, price, images, displayed_rating")
       .ilike("category", `%${category}%`)
+      .or(ACTIVE_PRODUCT_FILTER)
       .limit(limit);
+
+    if (isMissingIsActiveError(error)) {
+      const fallback = await supabase
+        .from("products")
+        .select("id, title, slug, price, images, displayed_rating")
+        .ilike("category", `%${category}%`)
+        .limit(limit);
+      data = fallback.data as any;
+      error = fallback.error as any;
+    }
 
     if (error) {
       console.error(`Error fetching ${category} products:`, error);
@@ -154,11 +208,22 @@ export async function getRecommendedProducts(limit = 10): Promise<HomepageProduc
   if (!supabase) return [];
   
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("products")
       .select("id, title, slug, price, images, displayed_rating")
+      .or(ACTIVE_PRODUCT_FILTER)
       .order("displayed_rating", { ascending: false })
       .limit(limit);
+
+    if (isMissingIsActiveError(error)) {
+      const fallback = await supabase
+        .from("products")
+        .select("id, title, slug, price, images, displayed_rating")
+        .order("displayed_rating", { ascending: false })
+        .limit(limit);
+      data = fallback.data as any;
+      error = fallback.error as any;
+    }
 
     if (error) {
       console.error("Error fetching recommended products:", error);
@@ -179,10 +244,20 @@ export async function getAllProducts(limit = 20): Promise<HomepageProduct[]> {
   if (!supabase) return [];
   
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("products")
       .select("id, title, slug, price, images, displayed_rating")
+      .or(ACTIVE_PRODUCT_FILTER)
       .limit(limit);
+
+    if (isMissingIsActiveError(error)) {
+      const fallback = await supabase
+        .from("products")
+        .select("id, title, slug, price, images, displayed_rating")
+        .limit(limit);
+      data = fallback.data as any;
+      error = fallback.error as any;
+    }
 
     if (error) {
       console.error("Error fetching all products:", error);

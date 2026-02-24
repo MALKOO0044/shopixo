@@ -6,7 +6,8 @@ describe('normalizeSingleSize', () => {
   it('normalizes noisy prefixed values into canonical alpha sizes', () => {
     expect(normalizeSingleSize('Milk Tea Color-S', { allowNumeric: false })).toBe('S');
     expect(normalizeSingleSize('Milky-XL', { allowNumeric: false })).toBe('XL');
-    expect(normalizeSingleSize('WQZIP01SX6830-2XL', { allowNumeric: false })).toBe('2XL');
+    expect(normalizeSingleSize('WQZIP01SX6830-2XL', { allowNumeric: false })).toBe('XXL');
+    expect(normalizeSingleSize('WQZIP01SX6830-3XL', { allowNumeric: false })).toBe('XXXL');
   });
 
   it('maps aliases and strips unsupported numeric values when numeric sizes are disabled', () => {
@@ -24,6 +25,8 @@ describe('normalizeSizeList', () => {
         'large',
         'Milky-XL',
         'WQZIP01SX6830-2XL',
+        '3XL',
+        'xxxl',
         'xxl',
         'free size',
         'ONE SIZE',
@@ -31,6 +34,6 @@ describe('normalizeSizeList', () => {
       { allowNumeric: false }
     );
 
-    expect(sizes).toEqual(['S', 'L', 'XL', '2XL', 'ONE SIZE']);
+    expect(sizes).toEqual(['S', 'L', 'XL', 'XXL', 'XXXL', 'ONE SIZE']);
   });
 });

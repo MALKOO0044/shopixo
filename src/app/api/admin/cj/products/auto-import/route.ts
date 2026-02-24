@@ -6,6 +6,7 @@ import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { loggerForRequest } from '@/lib/log';
 import { hasColumn, hasTable } from '@/lib/db-features';
 import { isKillSwitchOn } from '@/lib/settings';
+import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -128,6 +129,8 @@ export async function GET(req: Request) {
       'video_source_quality_hint',
       'media_mode',
       'has_video',
+      'available_sizes',
+      'available_colors',
     ] as const;
     const optionalColumnSet = new Set<string>();
     const optionalColumnResults = await Promise.all(
@@ -150,6 +153,20 @@ export async function GET(req: Request) {
         const priceCandidates = (cj.variants || []).map((v) => (typeof v.price === 'number' ? v.price : NaN)).filter((n) => !isNaN(n));
         const defaultPrice = priceCandidates.length > 0 ? Math.min(...priceCandidates) : 0;
         const totalStock = (cj.variants || []).reduce((acc, v) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0);
+        const deduplicatedAvailableSizes = normalizeSizeList(
+          (cj.variants || []).flatMap((v: any) => [v?.size, (v as any)?.variantKey]),
+          { allowNumeric: false }
+        );
+        const availableColorMap = new Map<string, string>();
+        for (const v of (cj.variants || []) as any[]) {
+          const rawColor = typeof v?.color === 'string' ? v.color.trim() : '';
+          if (!rawColor) continue;
+          const colorKey = rawColor.toLowerCase().replace(/\s+/g, ' ');
+          if (!availableColorMap.has(colorKey)) {
+            availableColorMap.set(colorKey, rawColor);
+          }
+        }
+        const deduplicatedAvailableColors = Array.from(availableColorMap.values());
 
         let productPayload: any = {
           title: cj.name,
@@ -168,6 +185,8 @@ export async function GET(req: Request) {
           video_source_quality_hint: cj.videoSourceQualityHint || null,
           media_mode: mediaModeParam || null,
           has_video: Boolean(cj.video4kUrl || cj.videoUrl),
+          available_sizes: deduplicatedAvailableSizes.length > 0 ? deduplicatedAvailableSizes : null,
+          available_colors: deduplicatedAvailableColors.length > 0 ? deduplicatedAvailableColors : null,
           processing_time_hours: null,
           delivery_time_hours: cj.deliveryTimeHours ?? null,
           origin_area: cj.originArea ?? null,
@@ -222,10 +241,15 @@ export async function GET(req: Request) {
 
         if (hasVariantsTable) {
           const variantsRows = (cj.variants || [])
-            .filter((v) => v && ((v.size || v.color) || v.cjSku))
+            .filter((v) => v && ((v.size || (v as any).variantKey || v.color) || v.cjSku))
             .map((v) => {
               const color = (v as any).color || null;
-              const size = (v as any).size || null;
+              const normalizedSize =
+                normalizeSingleSize((v as any).size, { allowNumeric: true }) ||
+                (typeof (v as any).size === 'string' ? (v as any).size.trim() : null);
+              const normalizedVariantKeySize =
+                normalizeSingleSize((v as any).variantKey, { allowNumeric: true }) || null;
+              const size = normalizedSize || normalizedVariantKeySize;
               const optionValue = color ? (size ? `${color} / ${size}` : color) : (size || '-');
               return {
                 product_id: productId,

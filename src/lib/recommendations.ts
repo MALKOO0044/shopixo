@@ -22,6 +22,16 @@ export interface RecommendedProduct {
   displayed_rating?: number | null;
 }
 
+const ACTIVE_PRODUCT_FILTER = 'is_active.is.null,is_active.eq.true';
+
+function isMissingIsActiveError(error: any): boolean {
+  if (!error) return false;
+  const code = String((error as any).code || '').toLowerCase();
+  const message = String((error as any).message || '').toLowerCase();
+  const details = String((error as any).details || '').toLowerCase();
+  return code === '42703' || message.includes('is_active') || details.includes('is_active');
+}
+
 export async function getRelatedProducts(productId: number, limit: number = 8): Promise<RecommendedProduct[]> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return [];
@@ -42,26 +52,64 @@ export async function getRelatedProducts(productId: number, limit: number = 8): 
         .single();
 
       if (product?.category) {
-        const { data: similar } = await supabase
+        let { data: similar, error: similarError } = await supabase
           .from('products')
           .select('id, title, slug, price, images, category, displayed_rating')
           .eq('category', product.category)
+          .or(ACTIVE_PRODUCT_FILTER)
           .neq('id', productId)
           .limit(limit);
+
+        if (isMissingIsActiveError(similarError)) {
+          const fallback = await supabase
+            .from('products')
+            .select('id, title, slug, price, images, category, displayed_rating')
+            .eq('category', product.category)
+            .neq('id', productId)
+            .limit(limit);
+          similar = fallback.data as any;
+          similarError = fallback.error as any;
+        }
+
+        if (similarError) {
+          console.error("[Recommendations] Query error:", similarError);
+          return [];
+        }
+
         return similar || [];
       }
       return [];
     }
 
-    const { data: related } = await supabase
+    let { data: related, error: relatedError } = await supabase
       .from('products')
       .select(`
         id, title, slug, price, images, category, displayed_rating,
         product_categories!inner(category_id)
       `)
       .eq('product_categories.category_id', catLink.category_id)
+      .or(ACTIVE_PRODUCT_FILTER)
       .neq('id', productId)
       .limit(limit);
+
+    if (isMissingIsActiveError(relatedError)) {
+      const fallback = await supabase
+        .from('products')
+        .select(`
+          id, title, slug, price, images, category, displayed_rating,
+          product_categories!inner(category_id)
+        `)
+        .eq('product_categories.category_id', catLink.category_id)
+        .neq('id', productId)
+        .limit(limit);
+      related = fallback.data as any;
+      relatedError = fallback.error as any;
+    }
+
+    if (relatedError) {
+      console.error("[Recommendations] Query error:", relatedError);
+      return [];
+    }
 
     return (related || []).map((p: any) => ({
       id: p.id,
@@ -114,7 +162,7 @@ export async function getProductsByCategory(
             .select('id')
             .eq('parent_id', child.id);
           if (grandchildren) {
-            categoryIds.push(...grandchildren.map(g => g.id));
+            categoryIds.push(...grandchildren.map((g: { id: number }) => g.id));
           }
         }
       }
@@ -124,7 +172,7 @@ export async function getProductsByCategory(
         .select('id')
         .eq('parent_id', category.id);
       if (children) {
-        categoryIds.push(...children.map(c => c.id));
+        categoryIds.push(...children.map((c: { id: number }) => c.id));
       }
     }
 
@@ -137,31 +185,43 @@ export async function getProductsByCategory(
       return { products: [], total: 0, category };
     }
 
-    const productIds = [...new Set(productLinks.map(pl => pl.product_id))];
+    const productIds = [...new Set(productLinks.map((pl: { product_id: number }) => pl.product_id))];
 
-    let query = supabase
-      .from('products')
-      .select('id, title, slug, price, images, category, displayed_rating', { count: 'exact' })
-      .in('id', productIds);
+    const buildProductsQuery = (includeActiveFilter: boolean) => {
+      let query = supabase
+        .from('products')
+        .select('id, title, slug, price, images, category, displayed_rating', { count: 'exact' })
+        .in('id', productIds) as any;
 
-    if (typeof minPrice === 'number' && !isNaN(minPrice)) {
-      query = query.gte('price', minPrice);
+      if (includeActiveFilter) {
+        query = query.or(ACTIVE_PRODUCT_FILTER);
+      }
+
+      if (typeof minPrice === 'number' && !isNaN(minPrice)) {
+        query = query.gte('price', minPrice);
+      }
+      if (typeof maxPrice === 'number' && !isNaN(maxPrice)) {
+        query = query.lte('price', maxPrice);
+      }
+
+      if (sort === 'price-asc') {
+        query = query.order('price', { ascending: true });
+      } else if (sort === 'price-desc') {
+        query = query.order('price', { ascending: false });
+      } else {
+        query = query.order('id', { ascending: false });
+      }
+
+      return query.range(offset, offset + limit - 1);
+    };
+
+    let { data: products, count, error } = await buildProductsQuery(true);
+    if (isMissingIsActiveError(error)) {
+      const fallback = await buildProductsQuery(false);
+      products = fallback.data as any;
+      count = fallback.count as any;
+      error = fallback.error as any;
     }
-    if (typeof maxPrice === 'number' && !isNaN(maxPrice)) {
-      query = query.lte('price', maxPrice);
-    }
-
-    if (sort === 'price-asc') {
-      query = query.order('price', { ascending: true });
-    } else if (sort === 'price-desc') {
-      query = query.order('price', { ascending: false });
-    } else {
-      query = query.order('id', { ascending: false });
-    }
-
-    query = query.range(offset, offset + limit - 1);
-
-    const { data: products, count, error } = await query;
 
     if (error) {
       console.error("[Recommendations] Query error:", error);
@@ -210,7 +270,7 @@ export async function getComplementaryProducts(
 
     if (!siblings || siblings.length === 0) return [];
 
-    const siblingIds = siblings.map(s => s.id);
+    const siblingIds = siblings.map((s: { id: number }) => s.id);
 
     const { data: productLinks } = await supabase
       .from('product_categories')
@@ -219,13 +279,29 @@ export async function getComplementaryProducts(
 
     if (!productLinks || productLinks.length === 0) return [];
 
-    const productIds = [...new Set(productLinks.map(pl => pl.product_id))];
+    const productIds = [...new Set(productLinks.map((pl: { product_id: number }) => pl.product_id))];
 
-    const { data: products } = await supabase
+    let { data: products, error: productsError } = await supabase
       .from('products')
       .select('id, title, slug, price, images, category, displayed_rating')
       .in('id', productIds)
+      .or(ACTIVE_PRODUCT_FILTER)
       .limit(limit);
+
+    if (isMissingIsActiveError(productsError)) {
+      const fallback = await supabase
+        .from('products')
+        .select('id, title, slug, price, images, category, displayed_rating')
+        .in('id', productIds)
+        .limit(limit);
+      products = fallback.data as any;
+      productsError = fallback.error as any;
+    }
+
+    if (productsError) {
+      console.error("[Recommendations] Query error:", productsError);
+      return [];
+    }
 
     return products || [];
   } catch (error) {

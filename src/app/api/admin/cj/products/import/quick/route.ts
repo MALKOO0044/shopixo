@@ -6,6 +6,7 @@ import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { hasTable, hasColumn } from '@/lib/db-features';
 import { loggerForRequest } from '@/lib/log';
 import { isKillSwitchOn } from '@/lib/settings';
+import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -177,6 +178,20 @@ export async function GET(req: Request) {
           ? Math.round((baseCost + shippingSar) * (1 + marginPct))
           : baseCost;
         const totalStock = (cj.variants || []).reduce((acc, v) => acc + (typeof v.stock === 'number' ? v.stock : 0), 0);
+        const deduplicatedAvailableSizes = normalizeSizeList(
+          (cj.variants || []).flatMap((v: any) => [v?.size, (v as any)?.variantKey]),
+          { allowNumeric: false }
+        );
+        const availableColorMap = new Map<string, string>();
+        for (const v of (cj.variants || []) as any[]) {
+          const rawColor = typeof v?.color === 'string' ? v.color.trim() : '';
+          if (!rawColor) continue;
+          const colorKey = rawColor.toLowerCase().replace(/\s+/g, ' ');
+          if (!availableColorMap.has(colorKey)) {
+            availableColorMap.set(colorKey, rawColor);
+          }
+        }
+        const deduplicatedAvailableColors = Array.from(availableColorMap.values());
 
         let productPayload: any = {
           title: cj.name,
@@ -199,6 +214,8 @@ export async function GET(req: Request) {
           video_source_quality_hint: cj.videoSourceQualityHint || null,
           media_mode: mediaModeParam || null,
           has_video: Boolean(cj.video4kUrl || cj.videoUrl),
+          available_sizes: deduplicatedAvailableSizes.length > 0 ? deduplicatedAvailableSizes : null,
+          available_colors: deduplicatedAvailableColors.length > 0 ? deduplicatedAvailableColors : null,
           processing_time_hours: null,
           delivery_time_hours: cj.deliveryTimeHours ?? null,
           origin_area: cj.originArea ?? null,
@@ -215,7 +232,8 @@ export async function GET(req: Request) {
         await omitMissingProductColumns(supabase, optional, [
           'description','images','video_url','video_source_url','video_4k_url','video_delivery_mode','video_quality_gate_passed',
           'video_source_quality_hint','media_mode','has_video','processing_time_hours','delivery_time_hours','origin_area',
-          'origin_country_code','free_shipping','inventory_shipping_fee','last_mile_fee','shipping_from','cj_product_id','is_active'
+          'origin_country_code','free_shipping','inventory_shipping_fee','last_mile_fee','shipping_from','cj_product_id','is_active',
+          'available_sizes','available_colors'
         ]);
 
         let productId: number;
@@ -264,16 +282,24 @@ export async function GET(req: Request) {
         }
 
         const variantsRows = (cj.variants || [])
-          .filter((v) => v && (v.size || v.cjSku || (v as any).vid))
-          .map((v) => ({
-            product_id: productId,
-            option_name: 'Size',
-            option_value: v.size || '-',
-            cj_sku: v.cjSku || null,
-            cj_variant_id: (v as any).vid || (v as any).variantId || null,
-            price: typeof v.price === 'number' ? v.price : null,
-            stock: typeof v.stock === 'number' ? v.stock : 0,
-          }));
+          .filter((v) => v && (v.size || (v as any).variantKey || v.cjSku || (v as any).vid))
+          .map((v) => {
+            const normalizedSize =
+              normalizeSingleSize(v.size, { allowNumeric: true }) ||
+              (typeof v.size === 'string' ? v.size.trim() : null);
+            const normalizedVariantKeySize =
+              normalizeSingleSize((v as any).variantKey, { allowNumeric: true }) || null;
+
+            return {
+              product_id: productId,
+              option_name: 'Size',
+              option_value: normalizedSize || normalizedVariantKeySize || '-',
+              cj_sku: v.cjSku || null,
+              cj_variant_id: (v as any).vid || (v as any).variantId || null,
+              price: typeof v.price === 'number' ? v.price : null,
+              stock: typeof v.stock === 'number' ? v.stock : 0,
+            };
+          });
         if (variantsRows.length > 0) {
           const { error: vErr } = await supabase.from('product_variants').insert(variantsRows);
           if (vErr) {
