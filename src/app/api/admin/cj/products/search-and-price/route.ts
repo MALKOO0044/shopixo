@@ -15,6 +15,13 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const runtime = 'nodejs';
 
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+
 type ShippingOption = {
   name: string;
   code: string;
@@ -384,6 +391,9 @@ function extractVariantColorSize(variant: any, fallbackName?: string): { color?:
   let size = variant?.size || variant?.sizeNameEn || variant?.sizeName || undefined;
   let color = variant?.color || variant?.colour || variant?.colorNameEn || variant?.colorName || undefined;
 
+  const normalizedExplicitSize = extractCanonicalSize(size);
+  if (normalizedExplicitSize) size = normalizedExplicitSize;
+
   const variantKeyRaw = String(
     variant?.variantKey || variant?.variantNameEn || variant?.variantName || fallbackName || ''
   ).replace(/[\u4e00-\u9fff]/g, '').trim();
@@ -393,9 +403,9 @@ function extractVariantColorSize(variant: any, fallbackName?: string): { color?:
     if (parts.length >= 2) {
       const lastPart = parts[parts.length - 1];
       const firstPart = parts.slice(0, -1).join('-').trim();
-      const sizePattern = /^(XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|6XL|One Size|Free Size|\d{2,3})$/i;
-      if (sizePattern.test(lastPart)) {
-        if (!size) size = lastPart;
+      const normalizedFromKey = extractCanonicalSize(lastPart);
+      if (normalizedFromKey) {
+        if (!size) size = normalizedFromKey;
         if (!color) color = firstPart;
       } else if (!color) {
         color = variantKeyRaw;
@@ -407,9 +417,11 @@ function extractVariantColorSize(variant: any, fallbackName?: string): { color?:
     color = variantKeyRaw;
   }
 
+  const normalizedFinalSize = extractCanonicalSize(size);
+
   return {
     color: typeof color === 'string' && color.trim() ? color.trim() : undefined,
-    size: typeof size === 'string' && size.trim() ? size.trim() : undefined,
+    size: normalizedFinalSize || undefined,
   };
 }
 
@@ -561,7 +573,49 @@ async function handleSearch(req: Request, isPost: boolean) {
       return r;
     }
     
-    const requestedSizes = sizesParam ? sizesParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : [];
+    const requestedSizes = sizesParam
+      ? Array.from(
+          new Set(
+            sizesParam
+              .split(',')
+              .map((s) => extractCanonicalSize(s))
+              .filter((s): s is string => !!s)
+          )
+        )
+      : [];
+
+    const queueExcludedPids = new Set<string>();
+    const storeExcludedPids = new Set<string>();
+    try {
+      const supabaseAdmin = getSupabaseAdmin();
+      if (supabaseAdmin) {
+        const [queueRowsRes, storeRowsRes] = await Promise.all([
+          supabaseAdmin.from('product_queue').select('cj_product_id').not('cj_product_id', 'is', null),
+          supabaseAdmin.from('products').select('cj_product_id').not('cj_product_id', 'is', null),
+        ]);
+
+        if (queueRowsRes.error) {
+          console.error('[Search&Price] Failed to load queue exclusions:', queueRowsRes.error);
+        } else {
+          for (const row of queueRowsRes.data || []) {
+            const pid = normalizeCjProductId((row as any)?.cj_product_id);
+            if (pid) queueExcludedPids.add(pid);
+          }
+        }
+
+        if (storeRowsRes.error) {
+          console.error('[Search&Price] Failed to load store exclusions:', storeRowsRes.error);
+        } else {
+          for (const row of storeRowsRes.data || []) {
+            const pid = normalizeCjProductId((row as any)?.cj_product_id);
+            if (pid) storeExcludedPids.add(pid);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.error('[Search&Price] Failed to build exclusion sets:', e?.message || e);
+    }
+    const excludedPids = new Set<string>([...queueExcludedPids, ...storeExcludedPids]);
 
     console.log(`[Search&Price] ========================================`);
     console.log(`[Search&Price] Starting search with params:`);
@@ -578,6 +632,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   batchMode: ${isBatchMode}, batchSize: ${batchSize}`);
     console.log(`[Search&Price]   cursor: ${cursorParam} (cat=${cursorCatIdx}, page=${cursorPageNum}, offset=${cursorItemOffset})`);
     console.log(`[Search&Price]   seenPids: ${seenPidsFromClient.size} already processed`);
+    console.log(`[Search&Price]   excluded queue/store/total: ${queueExcludedPids.size}/${storeExcludedPids.size}/${excludedPids.size}`);
     console.log(`[Search&Price] ========================================`);
 
     const token = await getAccessToken();
@@ -596,6 +651,8 @@ async function handleSearch(req: Request, isPost: boolean) {
     const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
+    let skippedByQueueExclusion = 0;
+    let skippedByStoreExclusion = 0;
     const mediaFilterStats = {
       mode: mediaMode,
       checked: 0,
@@ -707,6 +764,8 @@ async function handleSearch(req: Request, isPost: boolean) {
 
           // Exclude products already added to queue and/or store.
           if (excludedCjProductIds.has(normalizedPid)) {
+            if (queueExcludedPids.has(normalizedPid)) skippedByQueueExclusion++;
+            if (storeExcludedPids.has(normalizedPid)) skippedByStoreExclusion++;
             totalFiltered.existing++;
             continue;
           }
@@ -735,6 +794,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   Filtered by popularity: ${totalFiltered.popularity}`);
     console.log(`[Search&Price]   Filtered by rating: ${totalFiltered.rating}`);
     console.log(`[Search&Price]   Filtered as existing (queue/store): ${totalFiltered.existing}`);
+    console.log(`[Search&Price]   Excluded by queue/store: ${skippedByQueueExclusion}/${skippedByStoreExclusion}`);
     console.log(`[Search&Price] ----------------------------------------`);
     
     if (candidateProducts.length === 0) {
@@ -749,6 +809,13 @@ async function handleSearch(req: Request, isPost: boolean) {
           categoriesSearched: categoryIds,
           totalSeen: seenPids.size,
           filtered: totalFiltered,
+          exclusion: {
+            excludedByQueue: queueExcludedPids.size,
+            excludedByStore: storeExcludedPids.size,
+            excludedTotal: excludedPids.size,
+            skippedByQueue: skippedByQueueExclusion,
+            skippedByStore: skippedByStoreExclusion,
+          },
           mediaFilter: mediaFilterStats,
         }
       }, { headers: { 'Cache-Control': 'no-store' } });
@@ -2486,7 +2553,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         // Products without sizes (e.g., electronics) pass through
         if (productSizes.length === 0) return true;
         // Check if any requested size matches product sizes
-        const normalizedProductSizes = productSizes.map((s: string) => s.toUpperCase());
+        const normalizedProductSizes = normalizeSizeList(productSizes);
         return requestedSizes.some(rs => normalizedProductSizes.includes(rs));
       });
       filteredBySizes = beforeCount - filteredProducts.length;
@@ -2580,6 +2647,9 @@ async function handleSearch(req: Request, isPost: boolean) {
       shortfallReason: quantityFulfilled ? undefined : shortfallReason,
       duration,
       quotaExhausted: hitRateLimit,
+      excludedByQueue: queueExcludedPids.size,
+      excludedByStore: storeExcludedPids.size,
+      excludedTotal: excludedPids.size,
       // Batch mode pagination info
       batch: isBatchMode ? {
         hasMore: hasMoreToProcess && !hitRateLimit,
@@ -2603,6 +2673,13 @@ async function handleSearch(req: Request, isPost: boolean) {
         hitTimeLimit,
         hitRateLimit,
         exhaustedCandidates,
+        exclusion: {
+          excludedByQueue: queueExcludedPids.size,
+          excludedByStore: storeExcludedPids.size,
+          excludedTotal: excludedPids.size,
+          skippedByQueue: skippedByQueueExclusion,
+          skippedByStore: skippedByStoreExclusion,
+        },
         mediaFilter: mediaFilterStats,
       }
     }, { headers: { 'Cache-Control': 'no-store' } });

@@ -297,6 +297,9 @@ export async function deleteProduct(prevState: { error: string | null; success: 
       revalidatePath("/");
       revalidatePath("/shop");
       revalidatePath("/search");
+      revalidatePath("/sale");
+      revalidatePath("/new-arrivals");
+      revalidatePath("/bestsellers");
       redirect("/admin/products");
     }
     return { error: "Database error: Could not delete product.", success: false };
@@ -305,4 +308,5 @@ export async function deleteProduct(prevState: { error: string | null; success: 
   revalidatePath("/admin");
   revalidatePath("/admin/products");
   redirect("/admin/products");
+  return { error: null, success: true };
 }
