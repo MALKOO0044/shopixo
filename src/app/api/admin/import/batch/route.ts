@@ -135,6 +135,7 @@ export async function POST(req: NextRequest) {
         category: p.categoryName || category || "General",
         images,
         videoUrl: p.videoUrl || undefined,
+        mediaMode: p.mediaMode || p.media || undefined,
         variants: p.variants || [],
         avgPrice,
         displayedRating: typeof p.displayedRating === 'number' ? p.displayedRating : undefined,

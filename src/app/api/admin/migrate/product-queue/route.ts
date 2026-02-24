@@ -6,6 +6,9 @@ import { createClient } from "@supabase/supabase-js";
 
 // All columns that the import system requires
 const REQUIRED_COLUMNS = [
+  { name: 'video_url', type: 'TEXT', default: 'NULL' },
+  { name: 'has_video', type: 'BOOLEAN', default: 'false' },
+  { name: 'media_mode', type: 'TEXT', default: 'NULL' },
   { name: 'weight_g', type: 'NUMERIC', default: 'NULL' },
   { name: 'pack_length', type: 'NUMERIC', default: 'NULL' },
   { name: 'pack_width', type: 'NUMERIC', default: 'NULL' },

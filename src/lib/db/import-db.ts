@@ -38,6 +38,7 @@ export async function checkProductQueueSchema(): Promise<{
   const requiredColumns = [
     { name: 'video_url', type: 'TEXT', default: 'NULL' },
     { name: 'has_video', type: 'BOOLEAN', default: 'false' },
+    { name: 'media_mode', type: 'TEXT', default: 'NULL' },
     { name: 'product_code', type: 'TEXT', default: 'NULL' },
     { name: 'weight_g', type: 'NUMERIC', default: 'NULL' },
     { name: 'pack_length', type: 'NUMERIC', default: 'NULL' },
@@ -171,6 +172,7 @@ export async function addProductToQueue(batchId: number, product: {
   category: string;
   images: string[];
   videoUrl?: string;
+  mediaMode?: string;
   variants: any[];
   avgPrice: number;
   supplierRating?: number;
@@ -355,6 +357,7 @@ export async function addProductToQueue(batchId: number, product: {
     product_code: productCode,
     video_url: product.videoUrl || null,
     has_video: hasVideo,
+    media_mode: product.mediaMode || null,
   };
   
   // Check which new columns exist in the schema
