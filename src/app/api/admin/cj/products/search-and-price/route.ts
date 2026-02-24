@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { getAccessToken, freightCalculate, fetchProductDetailsBatch, findCJPacketOrdinary, getInventoryByPid, queryVariantInventory } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 import { usdToSar, sarToUsd, computeRetailFromLanded } from '@/lib/pricing';
 import { computeRating } from '@/lib/rating/engine';
+import { dedupeLabelsCaseInsensitive, extractCanonicalSize, normalizeCjProductId, normalizeSizeList } from '@/lib/import/normalization';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -131,6 +133,57 @@ type PricedProduct = {
   availableModels?: string[];
   colorImageMap?: Record<string, string>;
 };
+
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+
+async function appendCjProductIdsFromTable(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  tableName: 'product_queue' | 'products',
+  target: Set<string>
+): Promise<void> {
+  if (!supabase) return;
+
+  const pageSize = 1000;
+  let offset = 0;
+
+  for (let page = 0; page < 200; page++) {
+    const { data, error } = await supabase
+      .from(tableName)
+      .select('cj_product_id')
+      .not('cj_product_id', 'is', null)
+      .order('cj_product_id', { ascending: true })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) {
+      console.warn(`[Search&Price] Could not load existing CJ IDs from ${tableName}: ${error.message}`);
+      break;
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    for (const row of rows) {
+      const normalized = normalizeCjProductId((row as any)?.cj_product_id);
+      if (normalized) target.add(normalized);
+    }
+
+    if (rows.length < pageSize) break;
+    offset += pageSize;
+  }
+}
+
+async function loadExcludedCjProductIds(): Promise<Set<string>> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return new Set<string>();
+
+  const excluded = new Set<string>();
+  await appendCjProductIdsFromTable(supabase, 'product_queue', excluded);
+  await appendCjProductIdsFromTable(supabase, 'products', excluded);
+  return excluded;
+}
 
 async function fetchCjProductPage(
   token: string, 
@@ -526,7 +579,11 @@ async function handleSearch(req: Request, isPost: boolean) {
     const seenPidsArray: string[] = isPost && bodyData.seenPids 
       ? bodyData.seenPids 
       : (searchParams.get('seenPids') || '').split(',').filter(Boolean);
-    const seenPidsFromClient = new Set(seenPidsArray);
+    const seenPidsFromClient = new Set(
+      seenPidsArray
+        .map((value) => normalizeCjProductId(value))
+        .filter(Boolean)
+    );
     
     // Short-circuit when client already has enough products
     if (isBatchMode && remainingNeeded === 0) {
@@ -580,6 +637,8 @@ async function handleSearch(req: Request, isPost: boolean) {
     }
     
     const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
+    const excludedCjProductIds = await loadExcludedCjProductIds();
+    console.log(`[Search&Price]   excluded existing queue/store products: ${excludedCjProductIds.size}`);
     
     const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
@@ -588,7 +647,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     // In non-batch mode: 5 minutes for legacy compatibility
     const maxDurationMs = isBatchMode ? 8000 : 300000;
     
-    let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0 };
+    let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0, existing: 0 };
     
     // For batch mode, use cursor-based pagination to resume from exact position
     // This avoids re-fetching pages that were already processed in previous batches
@@ -652,12 +711,19 @@ async function handleSearch(req: Request, isPost: boolean) {
           
           const item = pageResult.list[itemIdx];
           const pid = String(item.pid || item.productId || '');
-          if (!pid || seenPids.has(pid)) continue;
+          const normalizedPid = normalizeCjProductId(pid);
+          if (!normalizedPid || seenPids.has(normalizedPid)) continue;
           
           // Skip PIDs already processed by previous batches (backup deduplication)
-          if (isBatchMode && seenPidsFromClient.has(pid)) continue;
+          if (isBatchMode && seenPidsFromClient.has(normalizedPid)) continue;
+
+          // Exclude products already added to queue and/or store.
+          if (excludedCjProductIds.has(normalizedPid)) {
+            totalFiltered.existing++;
+            continue;
+          }
           
-          seenPids.add(pid);
+          seenPids.add(normalizedPid);
           attemptedPidsThisBatch.push(pid); // Track for returning to client
           
           const sellPrice = Number(item.sellPrice || item.price || 0);
@@ -680,6 +746,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   Filtered by stock: ${totalFiltered.stock}`);
     console.log(`[Search&Price]   Filtered by popularity: ${totalFiltered.popularity}`);
     console.log(`[Search&Price]   Filtered by rating: ${totalFiltered.rating}`);
+    console.log(`[Search&Price]   Filtered as existing (queue/store): ${totalFiltered.existing}`);
     console.log(`[Search&Price] ----------------------------------------`);
     
     if (candidateProducts.length === 0) {
@@ -1598,6 +1665,7 @@ async function handleSearch(req: Request, isPost: boolean) {
           }
         }
         if (extractedColors.length > 0) {
+          extractedColors = dedupeLabelsCaseInsensitive(extractedColors);
           console.log(`[Search&Price] Product ${pid}: Found ${extractedColors.length} colors from productPropertyList: ${extractedColors.join(', ')}`);
         }
       }
@@ -1653,10 +1721,6 @@ async function handleSearch(req: Request, isPost: boolean) {
         // Device model patterns (phones, tablets, etc.)
         const deviceModelPattern = /\b(iPhone\s*\d+\s*(?:Pro|Plus|Max|mini|SE)?(?:\s*Max)?|Samsung\s*(?:S|A|Note|Galaxy)\s*\d+(?:\s*(?:Plus|Ultra|FE))?|Xiaomi|Huawei|Redmi|OPPO|Vivo|OnePlus|Pixel|iPad|Galaxy\s*Tab)/i;
         
-        // Standard clothing/shoe size pattern
-        const clothingSizePattern = /^(XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|6XL|One Size|Free Size)$/i;
-        const shoeSizePattern = /^(EU\s*\d+|US\s*\d+|\d{2,3}(?:cm)?)$/i;
-        
         // Helper function to check if a string is a known color (use non-global regex to avoid lastIndex issues)
         const isColor = (s: string): boolean => {
           const lower = s.toLowerCase().trim();
@@ -1671,10 +1735,14 @@ async function handleSearch(req: Request, isPost: boolean) {
           const deviceTestPattern = /\b(iPhone\s*\d+\s*(?:Pro|Plus|Max|mini|SE)?(?:\s*Max)?|Samsung\s*(?:S|A|Note|Galaxy)\s*\d+(?:\s*(?:Plus|Ultra|FE))?|Xiaomi|Huawei|Redmi|OPPO|Vivo|OnePlus|Pixel|iPad|Galaxy\s*Tab)/i;
           return deviceTestPattern.test(s);
         };
-        
-        // Helper function to check if a string is a clothing/shoe size
-        const isClothingSize = (s: string): boolean => {
-          return clothingSizePattern.test(s.trim()) || shoeSizePattern.test(s.trim());
+
+        const tryAddCanonicalSize = (value: unknown): string | null => {
+          const canonicalSize = extractCanonicalSize(value);
+          if (canonicalSize) {
+            sizes.add(canonicalSize);
+            return canonicalSize;
+          }
+          return null;
         };
         
         // Helper to parse a combined value like "Violet-iPhone 11Pro Max"
@@ -1707,15 +1775,8 @@ async function handleSearch(req: Request, isPost: boolean) {
             if (remainder) {
               if (isDeviceModel(remainder)) {
                 models.add(remainder);
-              } else if (isClothingSize(remainder)) {
-                sizes.add(remainder.toUpperCase());
               } else {
-                // Could be a model or size - check further
-                if (/iPhone|Samsung|Xiaomi|Huawei|Redmi|OPPO|Vivo|OnePlus|Pixel|iPad|Galaxy/i.test(remainder)) {
-                  models.add(remainder);
-                } else {
-                  sizes.add(remainder);
-                }
+                tryAddCanonicalSize(remainder);
               }
             }
           } else if (parts.length === 1) {
@@ -1725,15 +1786,8 @@ async function handleSearch(req: Request, isPost: boolean) {
               colors.add(val.charAt(0).toUpperCase() + val.slice(1).toLowerCase());
             } else if (isDeviceModel(val)) {
               models.add(val);
-            } else if (isClothingSize(val)) {
-              sizes.add(val.toUpperCase());
             } else {
-              // Unknown - check if it looks like a device
-              if (/iPhone|Samsung|Xiaomi|Huawei|Redmi|OPPO|Vivo|OnePlus|Pixel|iPad|Galaxy/i.test(val)) {
-                models.add(val);
-              } else {
-                sizes.add(val);
-              }
+              tryAddCanonicalSize(val);
             }
           }
         };
@@ -1754,10 +1808,8 @@ async function handleSearch(req: Request, isPost: boolean) {
           if (explicitSize) {
             const cleanSize = String(explicitSize).replace(/[\u4e00-\u9fff]/g, '').trim();
             if (cleanSize && cleanSize.length > 0 && cleanSize.length < 50) {
-              if (isDeviceModel(cleanSize)) {
+              if (!tryAddCanonicalSize(cleanSize) && isDeviceModel(cleanSize)) {
                 models.add(cleanSize);
-              } else {
-                sizes.add(cleanSize);
               }
             }
           }
@@ -1786,10 +1838,11 @@ async function handleSearch(req: Request, isPost: boolean) {
                 } else if (propName.includes('model') || propName.includes('device') || propName.includes('phone')) {
                   models.add(cleanValue);
                 } else if (propName.includes('size') || propName.includes('type') || propName.includes('version')) {
-                  if (isDeviceModel(cleanValue)) {
+                  const canonicalSize = extractCanonicalSize(cleanValue);
+                  if (canonicalSize) {
+                    sizes.add(canonicalSize);
+                  } else if (isDeviceModel(cleanValue)) {
                     models.add(cleanValue);
-                  } else {
-                    sizes.add(cleanValue);
                   }
                 }
               }
@@ -1808,9 +1861,13 @@ async function handleSearch(req: Request, isPost: boolean) {
         
         // Sanitize values - strip any HTML/script tags
         const stripHtml = (s: string) => s.replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, ' ').trim();
-        const safeColors = [...colors].map(stripHtml).filter(c => c.length > 0 && c.length < 50);
-        const safeSizes = [...sizes].map(stripHtml).filter(s => s.length > 0 && s.length < 50);
-        const safeModels = [...models].map(stripHtml).filter(m => m.length > 0 && m.length < 50);
+        const safeColors = dedupeLabelsCaseInsensitive(
+          [...colors].map(stripHtml).filter(c => c.length > 0 && c.length < 50)
+        );
+        const safeSizes = normalizeSizeList([...sizes].map(stripHtml).filter(Boolean));
+        const safeModels = dedupeLabelsCaseInsensitive(
+          [...models].map(stripHtml).filter(m => m.length > 0 && m.length < 50)
+        );
         
         // Only add to specs if not already present (avoid duplicates)
         // Use extractedColors (from productPropertyList) if available, otherwise use variant-extracted colors
@@ -2414,7 +2471,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     // This ensures each product has inventory data before being pushed to pricedProducts
     
     const duration = Date.now() - startTime;
-    console.log(`[Search&Price] Complete: ${filteredProducts.length}/${quantity} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size) in ${duration}ms`);
+    console.log(`[Search&Price] Complete: ${filteredProducts.length}/${quantity} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size, ${totalFiltered.existing} excluded existing) in ${duration}ms`);
     console.log(`[Search&Price] Shipping error breakdown:`, shippingErrors);
     
     // Determine fulfillment status
@@ -2507,6 +2564,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         pricedSuccessfully: pricedProducts.length,
         skippedNoShipping,
         filteredBySizes,
+        filteredExisting: totalFiltered.existing,
         shippingErrors,
         hitTimeLimit,
         hitRateLimit,

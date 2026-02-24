@@ -258,7 +258,38 @@ export async function deleteProduct(prevState: { error: string | null; success: 
     console.error("Delete product failed:", error);
     // 23503 is foreign_key_violation in Postgres
     if ((error as any).code === "23503") {
-      return { error: "Cannot delete: product is referenced by existing orders. Consider setting stock to 0 instead.", success: false };
+      // Preserve historical orders by archiving the product instead of hard-deleting.
+      const archivePayload: Record<string, any> = { is_active: false, stock: 0 };
+      let archiveError = await supabaseAdmin.from("products").update(archivePayload).eq("id", id).error;
+
+      // Backward-compatible fallback for older schemas where is_active may not exist yet.
+      if (
+        archiveError &&
+        ((archiveError as any).code === "42703" || String((archiveError as any)?.message || "").includes("is_active"))
+      ) {
+        archiveError = await supabaseAdmin.from("products").update({ stock: 0 }).eq("id", id).error;
+      }
+
+      if (archiveError) {
+        console.error("Archive fallback failed:", archiveError);
+        return { error: "Cannot remove product from store due to order references. Archive fallback also failed.", success: false };
+      }
+
+      // Best effort: prevent archived variants from being sold.
+      const variantReset = await supabaseAdmin
+        .from("product_variants")
+        .update({ stock: 0 })
+        .eq("product_id", id);
+      if (variantReset.error) {
+        console.error("Failed to zero variant stock for archived product", id, variantReset.error);
+      }
+
+      revalidatePath("/admin");
+      revalidatePath("/admin/products");
+      revalidatePath("/");
+      revalidatePath("/shop");
+      revalidatePath("/search");
+      redirect("/admin/products");
     }
     return { error: "Database error: Could not delete product.", success: false };
   }
