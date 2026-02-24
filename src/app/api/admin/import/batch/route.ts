@@ -179,7 +179,7 @@ export async function POST(req: NextRequest) {
         videoDeliveryMode: videoDelivery.mode,
         videoQualityGatePassed: videoDelivery.qualityGatePassed,
         videoSourceQualityHint: videoDelivery.sourceQualityHint,
-        mediaMode: p.mediaMode || p.media || (typeof mediaMode === 'string' ? mediaMode : undefined),
+        mediaMode: typeof mediaMode === 'string' ? mediaMode : (p.mediaMode || p.media || undefined),
         variants: p.variants || [],
         avgPrice,
         displayedRating: typeof p.displayedRating === 'number' ? p.displayedRating : undefined,

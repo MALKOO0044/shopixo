@@ -46,6 +46,7 @@ export async function checkProductQueueSchema(): Promise<{
     { name: 'video_source_quality_hint', type: 'TEXT', default: 'NULL' },
     { name: 'media_mode', type: 'TEXT', default: 'NULL' },
     { name: 'has_video', type: 'BOOLEAN', default: 'false' },
+    { name: 'media_mode', type: 'TEXT', default: 'NULL' },
     { name: 'product_code', type: 'TEXT', default: 'NULL' },
     { name: 'weight_g', type: 'NUMERIC', default: 'NULL' },
     { name: 'pack_length', type: 'NUMERIC', default: 'NULL' },
