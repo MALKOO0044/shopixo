@@ -149,13 +149,6 @@ type PricedProduct = {
   colorImageMap?: Record<string, string>;
 };
 
-function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
-}
-
 async function appendCjProductIdsFromTable(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   tableName: 'product_queue' | 'products',
