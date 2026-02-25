@@ -890,6 +890,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         typeof storefrontVideoUrl === 'string' &&
         storefrontVideoUrl.length > 0 &&
         videoDelivery.qualityGatePassed;
+      const hasVideoForMediaFilter = hasVideo;
 
       mediaFilterStats.checked++;
       mediaFilterStats.videoSource[videoDiagnostics.videoSource]++;
@@ -910,16 +911,16 @@ async function handleSearch(req: Request, isPost: boolean) {
         `[Search&Price] Product ${pid} media diagnostics: source=${videoDiagnostics.videoSource}, detected=${videoDiagnostics.videoDetected}, deliverable4k=${hasDeliverableVideo}, hint=${videoDiagnostics.videoQualityHint}, candidates=${videoDiagnostics.candidatesChecked}, hasImages=${hasImages}`
       );
 
-      if (!matchesDiscoverMediaMode(mediaMode, hasDeliverableVideo, hasImages)) {
+      if (!matchesDiscoverMediaMode(mediaMode, hasVideoForMediaFilter, hasImages)) {
         mediaFilterStats.filteredOut++;
-        if (!hasDeliverableVideo) {
+        if (!hasVideoForMediaFilter) {
           mediaFilterStats.missingVideo++;
           if (mediaFilterStats.skippedMissingVideoPids.length < 25) {
             mediaFilterStats.skippedMissingVideoPids.push(pid);
           }
         }
         if (!hasImages) mediaFilterStats.missingImages++;
-        console.log(`[Search&Price] Product ${pid} skipped by media filter mode=${mediaMode} hasDeliverableVideo=${hasDeliverableVideo} hasImages=${hasImages}`);
+        console.log(`[Search&Price] Product ${pid} skipped by media filter mode=${mediaMode} hasVideo=${hasVideoForMediaFilter} hasDeliverableVideo=${hasDeliverableVideo} hasImages=${hasImages}`);
         continue;
       }
       mediaFilterStats.passed++;
