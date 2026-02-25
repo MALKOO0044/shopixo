@@ -1,33 +1,14 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Star, ThumbsUp, Image as ImageIcon, Package, Ruler, Palette } from "lucide-react";
+import { Star, ThumbsUp, Package, Ruler, Palette } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import DescriptionGallery from "./DescriptionGallery";
 import SafeHtmlRenderer, { parseProductDescription } from "./SafeHtmlRenderer";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
 const NON_PRODUCT_GALLERY_IMAGE_RE = /(sprite|icon|favicon|logo|placeholder|blank|loading|alipay|wechat|whatsapp|kefu|service|avatar|thumb|thumbnail|small|tiny|mini|sizechart|size\s*chart|chart|table|guide|tips|hot|badge|flag|promo|banner|sale|discount|qr)/i;
-const GALLERY_IMAGE_KEY_SIZE_TOKEN_RE = /[_-](\d{2,4})x(\d{2,4})(?=\.)/gi;
 const PRODUCT_IMAGE_LABEL_RE = /Product\s*Image\s*:?\s*/gi;
-
-function normalizeProductGalleryImageKey(url: string): string {
-  const normalizedUrl = String(url || "").trim().toLowerCase();
-  if (!normalizedUrl) return "";
-
-  try {
-    const parsed = new URL(normalizedUrl);
-    parsed.search = "";
-    parsed.hash = "";
-    parsed.pathname = parsed.pathname.replace(GALLERY_IMAGE_KEY_SIZE_TOKEN_RE, "");
-    return parsed.toString();
-  } catch {
-    return normalizedUrl
-      .replace(/[?#].*$/, "")
-      .replace(GALLERY_IMAGE_KEY_SIZE_TOKEN_RE, "");
-  }
-}
 
 function isValidProductGalleryImageUrl(url: string): boolean {
   const candidate = String(url || "").trim();
@@ -165,36 +146,6 @@ export default function ProductTabs({
     return parseProductDescription(description);
   }, [description]);
 
-  const galleryImages = useMemo(() => {
-    const merged: string[] = [];
-    const seen = new Set<string>();
-    const pushImage = (raw: unknown) => {
-      if (typeof raw !== "string") return;
-      const candidate = raw.trim();
-      if (!isValidProductGalleryImageUrl(candidate)) return;
-
-      const key = normalizeProductGalleryImageKey(candidate);
-      if (!key || seen.has(key)) return;
-
-      seen.add(key);
-      merged.push(candidate);
-    };
-
-    for (const imageUrl of parsedDescription.extractedImages) {
-      pushImage(imageUrl);
-    }
-
-    for (const section of richSections) {
-      for (const imageUrl of section.extractedImages) {
-        pushImage(imageUrl);
-      }
-    }
-
-    return merged;
-  }, [parsedDescription.extractedImages, richSections]);
-
-  const hasGalleryImages = galleryImages.length > 0;
-
   const tabs = [
     { id: "overview" as const, label: "Overview" },
     { id: "reviews" as const, label: `Reviews (${totalReviews})` },
@@ -306,18 +257,6 @@ export default function ProductTabs({
             </div>
           ))}
 
-          {hasGalleryImages && (
-            <div className="bg-white border rounded-xl p-6">
-              <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-                <ImageIcon className="w-5 h-5 text-gray-600" />
-                Product Gallery
-              </h3>
-              <DescriptionGallery 
-                images={galleryImages} 
-                title={productTitle}
-              />
-            </div>
-          )}
         </div>
       )}
 

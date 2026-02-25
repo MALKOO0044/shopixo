@@ -24,6 +24,49 @@ export function isImportDbConfigured(): boolean {
   return !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
+function buildSchemaErrorText(error: any): string {
+  return `${String(error?.message || '')} ${String(error?.details || '')} ${String(error?.hint || '')}`.toLowerCase();
+}
+
+function isSchemaMissingColumnError(error: any, columnName?: string): boolean {
+  const code = String(error?.code || '').toUpperCase();
+  const text = buildSchemaErrorText(error);
+
+  const isMissingColumn =
+    code === 'PGRST204' ||
+    code === '42703' ||
+    /could not find the ['"`][a-z0-9_]+['"`] column/i.test(text) ||
+    /column ['"`]?[a-z0-9_.]+['"`]? does not exist/i.test(text) ||
+    /column ['"`]?[a-z0-9_]+['"`]? of relation ['"`]?[a-z0-9_]+['"`]? does not exist/i.test(text);
+
+  if (!isMissingColumn) return false;
+  if (!columnName) return true;
+  return text.includes(columnName.toLowerCase());
+}
+
+function extractMissingColumnNames(error: any): string[] {
+  const text = `${String(error?.message || '')}\n${String(error?.details || '')}\n${String(error?.hint || '')}`.toLowerCase();
+  const found = new Set<string>();
+
+  const captureMatches = (pattern: RegExp) => {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+      const raw = String(match[1] || '').trim().replace(/["'`]/g, '');
+      if (!raw) continue;
+      const normalized = raw.includes('.') ? (raw.split('.').pop() || '') : raw;
+      if (/^[a-z0-9_]+$/.test(normalized)) {
+        found.add(normalized);
+      }
+    }
+  };
+
+  captureMatches(/could not find the ['"`]([a-z0-9_]+)['"`] column/gi);
+  captureMatches(/column ['"`]?([a-z0-9_.]+)['"`]? does not exist/gi);
+  captureMatches(/column ['"`]?([a-z0-9_]+)['"`]? of relation ['"`]?[a-z0-9_]+['"`]? does not exist/gi);
+
+  return Array.from(found);
+}
+
 // Check if all required columns exist in product_queue table
 // This covers ALL columns that addProductToQueue writes to
 export async function checkProductQueueSchema(): Promise<{
@@ -46,7 +89,6 @@ export async function checkProductQueueSchema(): Promise<{
     { name: 'video_source_quality_hint', type: 'TEXT', default: 'NULL' },
     { name: 'media_mode', type: 'TEXT', default: 'NULL' },
     { name: 'has_video', type: 'BOOLEAN', default: 'false' },
-    { name: 'media_mode', type: 'TEXT', default: 'NULL' },
     { name: 'product_code', type: 'TEXT', default: 'NULL' },
     { name: 'weight_g', type: 'NUMERIC', default: 'NULL' },
     { name: 'pack_length', type: 'NUMERIC', default: 'NULL' },
@@ -93,7 +135,7 @@ export async function checkProductQueueSchema(): Promise<{
         .select(col.name)
         .limit(1);
 
-      if (error?.code === 'PGRST204') {
+      if (error && isSchemaMissingColumnError(error, col.name)) {
         missingColumns.push(col.name);
       }
     } catch (err) {
@@ -409,31 +451,68 @@ export async function addProductToQueue(batchId: number, product: {
     }
   }
 
-  // First check if product already exists
-  const { data: existing } = await supabase
-    .from('product_queue')
-    .select('id')
-    .eq('cj_product_id', product.productId)
-    .maybeSingle();
+  const writeProductQueue = async (payload: Record<string, any>) => {
+    const { data: existing } = await supabase
+      .from('product_queue')
+      .select('id')
+      .eq('cj_product_id', product.productId)
+      .maybeSingle();
 
-  let error;
-  if (existing) {
-    const result = await supabase
+    if (existing) {
+      return await supabase
+        .from('product_queue')
+        .update(payload)
+        .eq('cj_product_id', product.productId);
+    }
+
+    return await supabase
       .from('product_queue')
-      .update(productData)
-      .eq('cj_product_id', product.productId);
-    error = result.error;
-  } else {
-    const result = await supabase
-      .from('product_queue')
-      .insert(productData);
-    error = result.error;
+      .insert(payload);
+  };
+
+  let payloadForWrite: Record<string, any> = { ...productData };
+  let { error } = await writeProductQueue(payloadForWrite);
+
+  if (error && isSchemaMissingColumnError(error)) {
+    const optionalColumns = new Set(Object.keys(newColumns));
+    const columnsFromError = extractMissingColumnNames(error);
+    const columnsToStrip = new Set<string>();
+
+    for (const column of columnsFromError) {
+      if (optionalColumns.has(column)) {
+        columnsToStrip.add(column);
+      }
+    }
+
+    if (columnsToStrip.size === 0) {
+      for (const column of optionalColumns) {
+        if (isSchemaMissingColumnError(error, column)) {
+          columnsToStrip.add(column);
+        }
+      }
+    }
+
+    if (columnsToStrip.size > 0) {
+      const retryPayload = { ...payloadForWrite };
+      for (const column of columnsToStrip) {
+        delete retryPayload[column];
+      }
+
+      console.warn('[Import DB] Retrying addProductToQueue without missing optional columns', {
+        productId: product.productId,
+        columns: Array.from(columnsToStrip),
+      });
+
+      payloadForWrite = retryPayload;
+      const retryResult = await writeProductQueue(payloadForWrite);
+      error = retryResult.error;
+    }
   }
 
   if (error) {
     // Provide clearer error message for schema cache issues
     let errorMsg = `${error.message} (code: ${error.code})`;
-    if (error.code === 'PGRST204') {
+    if (isSchemaMissingColumnError(error)) {
       errorMsg = `Database schema cache is outdated. Please go to Supabase Dashboard → Settings → API → click "Reload schema" to refresh. Original error: ${error.message}`;
     }
     if (error.details) {

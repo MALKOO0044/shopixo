@@ -119,25 +119,29 @@ function buildDiscoverPreviewGallery(product: PricedProduct | null | undefined):
     pushImage(imageUrl);
   }
 
-  const colorImageMap = product.colorImageMap;
-  if (colorImageMap && typeof colorImageMap === 'object') {
-    for (const imageUrl of Object.values(colorImageMap)) {
+  // Search API already returns a deterministic, deduplicated gallery in product.images.
+  // Only fall back to secondary sources when canonical images are missing.
+  if (merged.length === 0) {
+    const colorImageMap = product.colorImageMap;
+    if (colorImageMap && typeof colorImageMap === 'object') {
+      for (const imageUrl of Object.values(colorImageMap)) {
+        pushImage(imageUrl);
+      }
+    }
+
+    for (const variant of product.variants || []) {
+      const vAny = variant as any;
+      pushImage(vAny?.variantImage);
+      pushImage(vAny?.whiteImage);
+      pushImage(vAny?.image);
+      pushImage(vAny?.imageUrl);
+      pushImage(vAny?.imgUrl);
+    }
+
+    const descriptionImages = extractDiscoverDescriptionImages(String(product.description || ''));
+    for (const imageUrl of descriptionImages) {
       pushImage(imageUrl);
     }
-  }
-
-  for (const variant of product.variants || []) {
-    const vAny = variant as any;
-    pushImage(vAny?.variantImage);
-    pushImage(vAny?.whiteImage);
-    pushImage(vAny?.image);
-    pushImage(vAny?.imageUrl);
-    pushImage(vAny?.imgUrl);
-  }
-
-  const descriptionImages = extractDiscoverDescriptionImages(String(product.description || ''));
-  for (const imageUrl of descriptionImages) {
-    pushImage(imageUrl);
   }
 
   return merged;
