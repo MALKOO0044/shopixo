@@ -46,6 +46,8 @@ export type Product = {
   category: string;
   displayed_rating?: number | null;
   rating_confidence?: number | null;
+  supplier_rating?: number | null;
+  review_count?: number | null;
   stock: number | null; // null = all variants have unknown stock
   // UI-oriented variants selector (kept for backward compatibility)
   variants: ProductVariantJson[];

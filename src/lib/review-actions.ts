@@ -11,6 +11,32 @@ function parseIntOrNull(v: FormDataEntryValue | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+async function revalidateProductFromReviewId(
+  supabase: ReturnType<typeof createServerComponentClient>,
+  reviewId: number,
+  userId: string
+) {
+  const { data: reviewRow } = await supabase
+    .from("reviews")
+    .select("product_id")
+    .eq("id", reviewId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const productId = Number((reviewRow as any)?.product_id);
+  if (!Number.isFinite(productId) || productId <= 0) return;
+
+  const { data: productRow } = await supabase
+    .from("products")
+    .select("slug")
+    .eq("id", productId)
+    .maybeSingle();
+
+  const slug = String((productRow as any)?.slug || "").trim();
+  if (!slug) return;
+  revalidatePath(`/product/${slug}`);
+}
+
 export async function updateReview(formData: FormData) {
   const supabase = createServerComponentClient({ cookies });
   const { data: { user } } = await supabase.auth.getUser();
@@ -26,6 +52,8 @@ export async function updateReview(formData: FormData) {
 
   const title = titleRaw.length ? titleRaw : null;
   const body = bodyRaw.length ? bodyRaw : null;
+
+  await revalidateProductFromReviewId(supabase, id, user.id);
 
   const { error } = await supabase
     .from("reviews")
@@ -47,6 +75,8 @@ export async function deleteReview(formData: FormData) {
 
   const id = parseIntOrNull(formData.get("id"));
   if (!id) throw new Error("Invalid review id");
+
+  await revalidateProductFromReviewId(supabase, id, user.id);
 
   const { error } = await supabase
     .from("reviews")

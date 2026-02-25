@@ -484,7 +484,8 @@ interface DetailHeaderProps {
 }
 
 function DetailHeader({ title, storeSku, productCode, rating, reviewCount = 0 }: DetailHeaderProps) {
-  const displayRating = normalizeDisplayedRating(rating);
+  const hasRating = Number.isFinite(rating) && rating > 0;
+  const displayRating = hasRating ? normalizeDisplayedRating(rating) : 0;
   const fullStars = Math.floor(displayRating);
   const hasHalfStar = displayRating % 1 >= 0.5;
 
@@ -523,7 +524,7 @@ function DetailHeader({ title, storeSku, productCode, rating, reviewCount = 0 }:
           ))}
         </div>
         <span className="text-sm text-muted-foreground">
-          {displayRating > 0
+          {hasRating
             ? `${displayRating.toFixed(1)} (${reviewCount > 0 ? reviewCount.toLocaleString('en-US') : '0'} Reviewed)`
             : 'No reviews yet'}
         </span>
@@ -1587,7 +1588,7 @@ export default function ProductDetailsClient({
             title={product.title}
             storeSku={storeSku}
             productCode={product.product_code}
-            rating={product.displayed_rating || (product as any).supplier_rating || 0}
+            rating={product.displayed_rating ?? (product as any).supplier_rating ?? 0}
             reviewCount={(product as any).review_count || 0}
           />
 
@@ -1687,6 +1688,13 @@ export default function ProductDetailsClient({
         sizeInfoHtml={(product as any).size_info || (product as any).sizeInfo || undefined}
         productNoteHtml={(product as any).product_note || (product as any).productNote || undefined}
         packingListHtml={(product as any).packing_list || (product as any).packingList || undefined}
+        reviews={Array.isArray((product as any).reviews) ? (product as any).reviews : []}
+        averageRating={Number.isFinite(Number((product as any).average_rating))
+          ? Number((product as any).average_rating)
+          : (product.displayed_rating || 0)}
+        totalReviews={Number.isFinite(Number((product as any).review_count))
+          ? Math.max(0, Math.floor(Number((product as any).review_count)))
+          : 0}
         productTitle={product.title}
         highlights={(() => {
           // Extract highlights from product specifications or description

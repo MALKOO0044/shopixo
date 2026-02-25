@@ -508,6 +508,8 @@ const FIDELITY_PARITY_FIELDS = [
   'size_info',
   'product_note',
   'packing_list',
+  'supplier_rating',
+  'review_count',
   'available_colors',
   'available_sizes',
   'color_image_map',
@@ -596,6 +598,8 @@ export async function POST(req: NextRequest) {
       'video_quality_gate_passed',
       'video_source_quality_hint',
       'media_mode',
+      'supplier_rating',
+      'review_count',
       'available_colors',
       'available_sizes',
       'color_image_map',
@@ -628,6 +632,8 @@ export async function POST(req: NextRequest) {
       'video_quality_gate_passed',
       'video_source_quality_hint',
       'media_mode',
+      'supplier_rating',
+      'review_count',
       'available_colors',
       'available_sizes',
       'color_image_map',
@@ -699,6 +705,35 @@ export async function POST(req: NextRequest) {
         }
 
         if (existing) {
+          try {
+            const existingSupplierRatingRaw = Number(qp.supplier_rating);
+            const existingSupplierRating = Number.isFinite(existingSupplierRatingRaw) && existingSupplierRatingRaw > 0
+              ? normalizeDisplayedRating(existingSupplierRatingRaw)
+              : null;
+            const existingReviewCountRaw = Number(qp.review_count);
+            const existingReviewCount = Number.isFinite(existingReviewCountRaw) && existingReviewCountRaw >= 0
+              ? Math.floor(existingReviewCountRaw)
+              : 0;
+
+            const existingProductUpdate: Record<string, any> = {
+              supplier_rating: existingSupplierRating,
+              review_count: existingReviewCount,
+            };
+
+            await omitMissingColumns(existingProductUpdate, ['supplier_rating', 'review_count']);
+
+            const sanitizedExistingUpdate = Object.fromEntries(
+              Object.entries(existingProductUpdate).filter(([, value]) => value !== undefined)
+            );
+
+            if (Object.keys(sanitizedExistingUpdate).length > 0) {
+              await admin
+                .from('products')
+                .update(sanitizedExistingUpdate)
+                .eq('id', existing.id);
+            }
+          } catch {}
+
           await admin
             .from('product_queue')
             .update({
@@ -845,6 +880,28 @@ export async function POST(req: NextRequest) {
         };
         const ratingOut = computeRating(signals);
 
+        const queueSupplierRatingRaw = Number(qp.supplier_rating);
+        const queueSupplierRating = Number.isFinite(queueSupplierRatingRaw) && queueSupplierRatingRaw > 0
+          ? normalizeDisplayedRating(queueSupplierRatingRaw)
+          : null;
+        const queueReviewCountRaw = Number(qp.review_count);
+        const queueReviewCount = Number.isFinite(queueReviewCountRaw) && queueReviewCountRaw >= 0
+          ? Math.floor(queueReviewCountRaw)
+          : 0;
+        const queueDisplayedRatingRaw = Number(qp.displayed_rating);
+        const importedDisplayedRating = Number.isFinite(queueDisplayedRatingRaw) && queueDisplayedRatingRaw > 0
+          ? normalizeDisplayedRating(queueDisplayedRatingRaw)
+          : (queueSupplierRating ?? ratingOut.displayedRating);
+        const queueRatingConfidenceRaw = Number(qp.rating_confidence);
+        const reviewCountConfidence = queueReviewCount > 0
+          ? Math.min(1, 0.65 + (Math.log10(queueReviewCount + 1) / 4))
+          : null;
+        const importedRatingConfidence = Number.isFinite(queueRatingConfidenceRaw) && queueRatingConfidenceRaw > 0
+          ? Math.max(0.05, Math.min(1, Number(queueRatingConfidenceRaw)))
+          : (reviewCountConfidence
+            ? Math.max(ratingOut.ratingConfidence, Number(reviewCountConfidence.toFixed(2)))
+            : ratingOut.ratingConfidence);
+
         const productPayload: Record<string, any> = {
           title: qp.name_en,
           slug: baseSlug,
@@ -905,12 +962,10 @@ export async function POST(req: NextRequest) {
           specifications: rawSpecifications,
           selling_points: rawSellingPoints,
           cj_category_id: qp.cj_category_id || null,
-          displayed_rating: typeof qp.displayed_rating === 'number'
-            ? normalizeDisplayedRating(qp.displayed_rating)
-            : ratingOut.displayedRating,
-          rating_confidence: typeof qp.rating_confidence === 'number'
-            ? Math.max(0.05, Math.min(1, Number(qp.rating_confidence)))
-            : ratingOut.ratingConfidence,
+          supplier_rating: queueSupplierRating,
+          review_count: queueReviewCount,
+          displayed_rating: importedDisplayedRating,
+          rating_confidence: importedRatingConfidence,
           inventory_status: qp.inventory_status ?? null,
           inventory_error_message: qp.inventory_error_message ?? null,
           available_models: qp.available_models ?? null,
@@ -924,7 +979,7 @@ export async function POST(req: NextRequest) {
           'pack_height', 'material', 'product_type', 'origin_country', 'origin_country_code', 'hs_code',
           'size_chart_images', 'available_sizes', 'available_colors', 'has_variants',
           'min_price', 'max_price', 'specifications', 'selling_points',
-          'cj_category_id', 'displayed_rating', 'rating_confidence', 'overview', 'product_info', 'size_info',
+          'cj_category_id', 'supplier_rating', 'review_count', 'displayed_rating', 'rating_confidence', 'overview', 'product_info', 'size_info',
           'product_note', 'packing_list', 'store_sku', 'inventory_status', 'inventory_error_message',
           'available_models', 'product_type', 'color_image_map'
         ]);
@@ -967,6 +1022,8 @@ export async function POST(req: NextRequest) {
           size_info: qp.size_info ?? null,
           product_note: qp.product_note ?? null,
           packing_list: qp.packing_list ?? null,
+          supplier_rating: queueSupplierRating,
+          review_count: queueReviewCount,
           available_colors: availableColors,
           available_sizes: availableSizes,
           color_image_map: Object.keys(alignedColorImageMap).length > 0 ? alignedColorImageMap : null,

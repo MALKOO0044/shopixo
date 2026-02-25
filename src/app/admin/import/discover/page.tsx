@@ -642,6 +642,8 @@ export default function ProductDiscoveryPage() {
               avgPriceUSD: (p as any).avgPriceUSD,
               stock: p.stock,
               variants: p.variants,
+              supplierRating: Number.isFinite(Number((p as any).rating)) ? Number((p as any).rating) : undefined,
+              reviewCount: Number.isFinite(Number((p as any).reviewCount)) ? Number((p as any).reviewCount) : 0,
               categoryName: p.categoryName,
               cjCategoryId: category !== 'all' ? category : undefined,
               supabaseCategoryId: selectedFeaturesWithIds.length > 0 ? selectedFeaturesWithIds[0].supabaseCategoryId : undefined,
@@ -1317,6 +1319,25 @@ export default function ProductDiscoveryPage() {
                           {product.successfulVariants}/{product.totalVariants}
                         </span>
                       </div>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t pt-2 text-xs">
+                      <span className="inline-flex items-center gap-1 text-amber-600 font-semibold">
+                        <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                        {(() => {
+                          const ratingNum = Number((product as any).displayedRating ?? (product as any).rating);
+                          return Number.isFinite(ratingNum) && ratingNum > 0 ? ratingNum.toFixed(1) : "-";
+                        })()}
+                      </span>
+                      <span className="text-gray-600">
+                        {(() => {
+                          const reviewCountNum = Number((product as any).reviewCount);
+                          const normalizedCount = Number.isFinite(reviewCountNum) && reviewCountNum > 0
+                            ? Math.floor(reviewCountNum)
+                            : 0;
+                          return `${normalizedCount.toLocaleString('en-US')} Reviewed`;
+                        })()}
+                      </span>
                     </div>
                   </div>
                 </div>

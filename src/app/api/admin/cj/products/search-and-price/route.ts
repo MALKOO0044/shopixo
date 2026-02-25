@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getAccessToken, freightCalculate, fetchProductDetailsBatch, findCJPacketOrdinary, getInventoryByPid, queryVariantInventory } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsBatch, findCJPacketOrdinary, getInventoryByPid, getProductRating, queryVariantInventory } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 import { usdToSar, sarToUsd, computeRetailFromLanded } from '@/lib/pricing';
-import { computeRating } from '@/lib/rating/engine';
+import { computeRating, normalizeDisplayedRating } from '@/lib/rating/engine';
 import { dedupeLabelsCaseInsensitive, extractCanonicalSize, normalizeCjProductId, normalizeSizeList } from '@/lib/import/normalization';
 import { extractCjProductGalleryImages, normalizeCjImageKey, prioritizeCjHeroImage } from '@/lib/cj/image-gallery';
 import { extractCjProductVideoCandidates, inferCjVideoQualityHint } from '@/lib/cj/video';
@@ -201,6 +201,101 @@ function parseDiscoverMediaMode(value: string | null): DiscoverMediaMode {
     return normalized;
   }
   return 'any';
+}
+
+const SUPPLIER_RATING_KEYS = [
+  'rating',
+  'productRating',
+  'score',
+  'avgScore',
+  'averageRating',
+  'supplierRating',
+  'supplierScore',
+  'starCount',
+  'star_count',
+];
+
+const SUPPLIER_REVIEW_COUNT_KEYS = [
+  'reviewCount',
+  'ratingCount',
+  'reviews',
+  'commentCount',
+  'evaluateCount',
+  'totalReview',
+  'totalReviews',
+  'commentNum',
+];
+
+function pickFiniteNumber(source: any, keys: string[]): number | undefined {
+  if (!source || typeof source !== 'object') return undefined;
+
+  for (const key of keys) {
+    const raw = source?.[key];
+    if (raw === undefined || raw === null || raw === '') continue;
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function extractSupplierReviewMetrics(
+  primary: any,
+  fallback?: any
+): { rating?: number; reviewCount: number; source: 'primary' | 'fallback' | 'none' } {
+  const candidates: Array<{ label: 'primary' | 'fallback'; value: any }> = [
+    { label: 'primary', value: primary },
+    { label: 'fallback', value: fallback },
+  ];
+
+  let rating: number | undefined;
+  let reviewCount = 0;
+  let source: 'primary' | 'fallback' | 'none' = 'none';
+
+  for (const candidate of candidates) {
+    if (!candidate.value || typeof candidate.value !== 'object') continue;
+
+    const directRating = pickFiniteNumber(candidate.value, SUPPLIER_RATING_KEYS);
+    const nestedRating = candidate.value?.supplier && typeof candidate.value.supplier === 'object'
+      ? pickFiniteNumber(candidate.value.supplier, ['rating', 'score'])
+      : undefined;
+    const parsedRating = directRating ?? nestedRating;
+
+    if (
+      rating === undefined &&
+      typeof parsedRating === 'number' &&
+      Number.isFinite(parsedRating) &&
+      parsedRating > 0 &&
+      parsedRating <= 5
+    ) {
+      rating = parsedRating;
+      source = candidate.label;
+    }
+
+    const directReviewCount = pickFiniteNumber(candidate.value, SUPPLIER_REVIEW_COUNT_KEYS);
+    const nestedReviewCount = candidate.value?.supplier && typeof candidate.value.supplier === 'object'
+      ? pickFiniteNumber(candidate.value.supplier, ['reviewCount', 'ratingCount', 'commentCount'])
+      : undefined;
+    const parsedReviewCount = directReviewCount ?? nestedReviewCount;
+
+    if (
+      reviewCount === 0 &&
+      typeof parsedReviewCount === 'number' &&
+      Number.isFinite(parsedReviewCount) &&
+      parsedReviewCount > 0
+    ) {
+      reviewCount = Math.floor(parsedReviewCount);
+      if (source === 'none') source = candidate.label;
+    }
+
+    if (rating !== undefined && reviewCount > 0) {
+      break;
+    }
+  }
+
+  return { rating, reviewCount, source };
 }
 
 function hasDiscoverVideo(value: unknown): boolean {
@@ -1163,13 +1258,15 @@ async function handleSearch(req: Request, isPost: boolean) {
       // Extract additional product info from fullDetails or item
       const rawDescriptionHtml = String(source.description || source.productDescription || source.descriptionEn || source.productDescEn || source.desc || '').trim();
       
-      // Legacy display placeholders kept for compatibility with untouched UI paths.
-      const rating: number | undefined = undefined;
-      const reviewCount = 0;
-      const supplierName: string | undefined = undefined;
-      const itemAsDescribed: number | undefined = undefined;
-      const serviceRating: number | undefined = undefined;
-      const shippingSpeedRating: number | undefined = undefined;
+      let rating: number | undefined;
+      let reviewCount = 0;
+      let reviewMetricsSource: 'primary' | 'fallback' | 'productComments' | 'none' = 'none';
+      const supplierName = String(
+        source.supplierName || source.supplier?.name || source.vendorName || source.supplierNickName || ''
+      ).trim() || undefined;
+      const itemAsDescribed = pickFiniteNumber(source, ['itemAsDescribed', 'descriptionScore']);
+      const serviceRating = pickFiniteNumber(source, ['serviceRating', 'serviceScore']);
+      const shippingSpeedRating = pickFiniteNumber(source, ['shippingSpeedRating', 'shippingScore']);
       
       const categoryName = String(source.categoryName || source.categoryNameEn || source.category || '').trim() || undefined;
       
@@ -2398,6 +2495,32 @@ async function handleSearch(req: Request, isPost: boolean) {
         ? Number((usdPrices.reduce((sum, price) => sum + price, 0) / usdPrices.length).toFixed(2))
         : 0;
 
+      const supplierMetrics = extractSupplierReviewMetrics(source, source !== item ? item : undefined);
+      rating = supplierMetrics.rating;
+      reviewCount = supplierMetrics.reviewCount;
+      reviewMetricsSource = supplierMetrics.source;
+
+      if (reviewCount <= 0 || !(typeof rating === 'number' && rating > 0)) {
+        const commentsMetrics = await getProductRating(pid);
+        if (typeof commentsMetrics.rating === 'number' && Number.isFinite(commentsMetrics.rating) && commentsMetrics.rating > 0) {
+          rating = commentsMetrics.rating;
+        }
+        if (Number.isFinite(commentsMetrics.reviewCount) && commentsMetrics.reviewCount > 0) {
+          reviewCount = Math.floor(commentsMetrics.reviewCount);
+        }
+        if ((typeof commentsMetrics.rating === 'number' && commentsMetrics.rating > 0) || commentsMetrics.reviewCount > 0) {
+          reviewMetricsSource = 'productComments';
+        }
+      }
+
+      if (!Number.isFinite(reviewCount) || reviewCount < 0) {
+        reviewCount = 0;
+      }
+
+      console.log(
+        `[Search&Price] Product ${pid} review metrics: rating=${typeof rating === 'number' ? rating.toFixed(2) : 'n/a'} reviewCount=${reviewCount} source=${reviewMetricsSource}`
+      );
+
       let displayedRating: number | undefined;
       let ratingConfidence: number | undefined;
       try {
@@ -2415,8 +2538,21 @@ async function handleSearch(req: Request, isPost: boolean) {
           sentiment: 0,
           orderVolume: listedNum,
         });
-        displayedRating = out.displayedRating;
-        ratingConfidence = out.ratingConfidence;
+
+        const hasSupplierRating = typeof rating === 'number' && Number.isFinite(rating) && rating > 0;
+        if (hasSupplierRating) {
+          displayedRating = normalizeDisplayedRating(rating);
+          rating = displayedRating;
+        } else {
+          displayedRating = out.displayedRating;
+        }
+
+        if (hasSupplierRating && reviewCount > 0) {
+          const countBasedConfidence = Math.min(1, 0.65 + (Math.log10(reviewCount + 1) / 4));
+          ratingConfidence = Math.max(out.ratingConfidence, Number(countBasedConfidence.toFixed(2)));
+        } else {
+          ratingConfidence = out.ratingConfidence;
+        }
 
         const minRatingNum = minRating === 'any' ? 0 : Number(minRating);
         if (Number.isFinite(minRatingNum) && displayedRating < minRatingNum) {

@@ -169,6 +169,12 @@ export async function POST(req: NextRequest) {
         mediaMode: typeof mediaMode === 'string' ? mediaMode : (p.mediaMode || p.media || undefined),
         variants: p.variants || [],
         avgPrice,
+        supplierRating: Number.isFinite(Number(p.supplierRating ?? p.rating))
+          ? Number(p.supplierRating ?? p.rating)
+          : undefined,
+        reviewCount: Number.isFinite(Number(p.reviewCount))
+          ? Math.max(0, Math.floor(Number(p.reviewCount)))
+          : 0,
         displayedRating: typeof p.displayedRating === 'number' ? p.displayedRating : undefined,
         ratingConfidence: typeof p.ratingConfidence === 'number' ? p.ratingConfidence : undefined,
         totalStock,

@@ -124,6 +124,7 @@ export async function checkProductQueueSchema(): Promise<{
     { name: 'color_image_map', type: 'JSONB', default: 'NULL' },
     { name: 'displayed_rating', type: 'NUMERIC(3,1)', default: 'NULL' },
     { name: 'rating_confidence', type: 'NUMERIC(3,2)', default: 'NULL' },
+    { name: 'review_count', type: 'INTEGER', default: '0' },
   ];
 
   const missingColumns: string[] = [];
@@ -231,6 +232,7 @@ export async function addProductToQueue(batchId: number, product: {
   variants: any[];
   avgPrice: number;
   supplierRating?: number;
+  reviewCount?: number;
   totalSales?: number;
   totalStock: number;
   processingDays?: number;
@@ -415,6 +417,9 @@ export async function addProductToQueue(batchId: number, product: {
   
   // New columns that require migration - check if they exist first
   const newColumns: Record<string, any> = {
+    review_count: Number.isFinite(Number(product.reviewCount))
+      ? Math.max(0, Math.floor(Number(product.reviewCount)))
+      : 0,
     variant_pricing: product.variantPricing || [],
     size_chart_data: product.sizeChartData || null,
     specifications: product.specifications || {},

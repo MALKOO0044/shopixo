@@ -81,6 +81,9 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
   })();
   const displayedRating = normalizeDisplayedRating(product.displayedRating);
   const ratingConfidence = product.ratingConfidence ?? null;
+  const reviewCount = Number.isFinite(Number(product.reviewCount))
+    ? Math.max(0, Math.floor(Number(product.reviewCount)))
+    : 0;
 
   console.log(
     `[PreviewPageOne] Product ${product.cjSku}: listedNum=${product.listedNum}, displayedRating=${displayedRating}, confidence=${ratingConfidence}, colors=${uniqueColors.length}, sizes=${uniqueSizes.length}, models=${uniqueModels.length}`
@@ -141,6 +144,7 @@ export default function PreviewPageOne({ product }: PreviewPageOneProps) {
             <span className="text-2xl font-bold text-gray-800">{displayedRating.toFixed(1)}</span>
             <span className="text-sm text-gray-500">{confidenceLabel(ratingConfidence)} confidence</span>
           </div>
+          <p className="mt-2 text-sm text-gray-500">{reviewCount.toLocaleString('en-US')} Reviewed</p>
         </div>
 
         {/* Popularity */}

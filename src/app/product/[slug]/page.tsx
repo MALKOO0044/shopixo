@@ -47,10 +47,36 @@ import AdminProductActions from "@/components/admin-product-actions";
 import PriceComparison from "@/components/price-comparison";
 import type { Metadata } from 'next'
 import { getSiteUrl } from "@/lib/site";
+import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { headers } from "next/headers";
  
+
+type ProductReviewRow = {
+  id: number;
+  rating: number;
+  title: string | null;
+  body: string | null;
+  created_at: string;
+};
+
+type ProductTabReview = {
+  id: number;
+  author: string;
+  date: string;
+  rating: number;
+  content: string;
+  helpful: number;
+};
+
+function formatReviewDate(value: string | undefined): string {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 
 export const revalidate = 60; // fresher PDP data every minute
 export const dynamic = "force-dynamic"; // render per-request to include session-based admin controls
@@ -239,6 +265,67 @@ export default async function ProductPage({ params, searchParams }: { params: { 
     const opts = Array.from(new Set(variantRows.map((r) => r.option_value))).filter(Boolean);
     (product as any).variants = [{ name, options: opts }];
   }
+
+  // Combine imported supplier review baseline with real local reviews for accurate storefront totals.
+  let localReviews: ProductReviewRow[] = [];
+  try {
+    const { data } = await supabase
+      .from("reviews")
+      .select("id,rating,title,body,created_at")
+      .eq("product_id", (product as any).id)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    localReviews = Array.isArray(data) ? (data as ProductReviewRow[]) : [];
+  } catch {}
+
+  const localReviewCount = localReviews.length;
+  const localRatingSum = localReviews.reduce((sum, review) => {
+    const parsed = Number(review?.rating);
+    return sum + (Number.isFinite(parsed) ? parsed : 0);
+  }, 0);
+
+  const importedReviewCountRaw = Number((product as any).review_count);
+  const importedReviewCount = Number.isFinite(importedReviewCountRaw) && importedReviewCountRaw > 0
+    ? Math.floor(importedReviewCountRaw)
+    : 0;
+
+  const supplierRatingCandidate = Number((product as any).supplier_rating);
+  const displayedRatingCandidate = Number((product as any).displayed_rating);
+  const importedRating = Number.isFinite(supplierRatingCandidate) && supplierRatingCandidate > 0
+    ? normalizeDisplayedRating(supplierRatingCandidate)
+    : (Number.isFinite(displayedRatingCandidate) && displayedRatingCandidate > 0
+      ? normalizeDisplayedRating(displayedRatingCandidate)
+      : 0);
+
+  const effectiveReviewCount = importedReviewCount + localReviewCount;
+  let effectiveRating = 0;
+
+  if (effectiveReviewCount > 0) {
+    const baselineRatingForWeight = importedRating > 0
+      ? importedRating
+      : normalizeDisplayedRating(displayedRatingCandidate || 0);
+    const weightedAverage = ((baselineRatingForWeight * importedReviewCount) + localRatingSum) / effectiveReviewCount;
+    effectiveRating = normalizeDisplayedRating(weightedAverage);
+  }
+
+  const mappedReviews: ProductTabReview[] = localReviews.map((review) => {
+    const title = typeof review.title === "string" ? review.title.trim() : "";
+    const body = typeof review.body === "string" ? review.body.trim() : "";
+    const content = [title, body].filter(Boolean).join(title && body ? " — " : "");
+    return {
+      id: review.id,
+      author: "Customer",
+      date: formatReviewDate(review.created_at),
+      rating: Number.isFinite(Number(review.rating)) ? Number(review.rating) : 0,
+      content,
+      helpful: 0,
+    };
+  });
+
+  (product as any).review_count = effectiveReviewCount;
+  (product as any).displayed_rating = effectiveRating;
+  (product as any).average_rating = effectiveRating;
+  (product as any).reviews = mappedReviews;
 
   // Detect admin (show inline admin actions on PDP)
   let isAdmin = false;
