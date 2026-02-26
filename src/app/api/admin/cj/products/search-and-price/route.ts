@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getAccessToken, freightCalculate, fetchProductDetailsBatch, findCJPacketOrdinary, getInventoryByPid, getProductRating, queryVariantInventory } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsBatch, findCJPacketOrdinary, getInventoryByPid, queryVariantInventory } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 import { usdToSar, sarToUsd, computeRetailFromLanded } from '@/lib/pricing';
 import { computeRating, normalizeDisplayedRating } from '@/lib/rating/engine';
+import { buildSyntheticReviewProfile } from '@/lib/reviews/synthetic-feedback';
 import { dedupeLabelsCaseInsensitive, extractCanonicalSize, normalizeCjProductId, normalizeSizeList } from '@/lib/import/normalization';
 import { extractCjProductGalleryImages, normalizeCjImageKey, prioritizeCjHeroImage } from '@/lib/cj/image-gallery';
 import { extractCjProductVideoCandidates, inferCjVideoQualityHint } from '@/lib/cj/video';
@@ -1289,7 +1290,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       
       let rating: number | undefined;
       let reviewCount = 0;
-      let reviewMetricsSource: 'primary' | 'fallback' | 'productComments' | 'none' = 'none';
+      let reviewMetricsSource: 'synthetic' | 'none' = 'none';
       const supplierName = String(
         source.supplierName || source.supplier?.name || source.vendorName || source.supplierNickName || ''
       ).trim() || undefined;
@@ -2524,27 +2525,10 @@ async function handleSearch(req: Request, isPost: boolean) {
         ? Number((usdPrices.reduce((sum, price) => sum + price, 0) / usdPrices.length).toFixed(2))
         : 0;
 
-      const supplierMetrics = extractSupplierReviewMetrics(source, source !== item ? item : undefined);
-      rating = supplierMetrics.rating;
-      reviewCount = supplierMetrics.reviewCount;
-      reviewMetricsSource = supplierMetrics.source;
-
-      if (reviewCount <= 0 || !(typeof rating === 'number' && rating > 0)) {
-        const commentsMetrics = await getProductRating(pid);
-        if (typeof commentsMetrics.rating === 'number' && Number.isFinite(commentsMetrics.rating) && commentsMetrics.rating > 0) {
-          rating = commentsMetrics.rating;
-        }
-        if (Number.isFinite(commentsMetrics.reviewCount) && commentsMetrics.reviewCount > 0) {
-          reviewCount = Math.floor(commentsMetrics.reviewCount);
-        }
-        if ((typeof commentsMetrics.rating === 'number' && commentsMetrics.rating > 0) || commentsMetrics.reviewCount > 0) {
-          reviewMetricsSource = 'productComments';
-        }
-      }
-
-      if (!Number.isFinite(reviewCount) || reviewCount < 0) {
-        reviewCount = 0;
-      }
+      const syntheticReviewProfile = buildSyntheticReviewProfile(pid);
+      rating = syntheticReviewProfile.rating;
+      reviewCount = syntheticReviewProfile.reviewCount;
+      reviewMetricsSource = 'synthetic';
 
       console.log(
         `[Search&Price] Product ${pid} review metrics: rating=${typeof rating === 'number' ? rating.toFixed(2) : 'n/a'} reviewCount=${reviewCount} source=${reviewMetricsSource}`

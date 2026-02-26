@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
-import { getAccessToken, freightCalculate, fetchProductDetailsByPid, getInventoryByPid, queryVariantInventory, getProductRating, getProductVariants } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsByPid, getInventoryByPid, queryVariantInventory, getProductVariants } from '@/lib/cj/v2';
 import type { PricedProduct, PricedVariant, InventoryVariant, ProductInventory } from '@/components/admin/import/preview/types';
 import { computeRating, normalizeDisplayedRating } from '@/lib/rating/engine';
+import { buildSyntheticReviewProfile } from '@/lib/reviews/synthetic-feedback';
 import { createClient } from '@supabase/supabase-js';
 import { hasTable } from '@/lib/db-features';
 import { computeRetailFromLanded, sarToUsd, usdToSar } from '@/lib/pricing';
@@ -265,7 +266,7 @@ export async function GET(
 
     let rating: number | undefined;
     let reviewCount = 0;
-    let reviewMetricsSource: 'primary' | 'fallback' | 'productComments' | 'none' = 'none';
+    let reviewMetricsSource: 'synthetic' | 'none' = 'none';
     let displayedRating: number | undefined;
     let ratingConfidence: number | undefined;
 
@@ -914,27 +915,10 @@ export async function GET(
       videoDelivery.deliveryUrl.length > 0 &&
       videoDelivery.qualityGatePassed;
 
-    const supplierMetrics = extractSupplierReviewMetrics(source);
-    rating = supplierMetrics.rating;
-    reviewCount = supplierMetrics.reviewCount;
-    reviewMetricsSource = supplierMetrics.source;
-
-    if (reviewCount <= 0 || !(typeof rating === 'number' && rating > 0)) {
-      const commentsMetrics = await getProductRating(pid);
-      if (typeof commentsMetrics.rating === 'number' && Number.isFinite(commentsMetrics.rating) && commentsMetrics.rating > 0) {
-        rating = commentsMetrics.rating;
-      }
-      if (Number.isFinite(commentsMetrics.reviewCount) && commentsMetrics.reviewCount > 0) {
-        reviewCount = Math.floor(commentsMetrics.reviewCount);
-      }
-      if ((typeof commentsMetrics.rating === 'number' && commentsMetrics.rating > 0) || commentsMetrics.reviewCount > 0) {
-        reviewMetricsSource = 'productComments';
-      }
-    }
-
-    if (!Number.isFinite(reviewCount) || reviewCount < 0) {
-      reviewCount = 0;
-    }
+    const syntheticReviewProfile = buildSyntheticReviewProfile(pid);
+    rating = syntheticReviewProfile.rating;
+    reviewCount = syntheticReviewProfile.reviewCount;
+    reviewMetricsSource = 'synthetic';
 
     console.log(
       `[ProductDetails] Product ${pid} review metrics: rating=${typeof rating === 'number' ? rating.toFixed(2) : 'n/a'} reviewCount=${reviewCount} source=${reviewMetricsSource}`

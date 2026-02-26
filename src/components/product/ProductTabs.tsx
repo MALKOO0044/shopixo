@@ -70,6 +70,8 @@ interface Review {
   images?: string[];
   purchased?: string;
   fit?: string;
+  isFlashback?: boolean;
+  privacyNote?: string;
 }
 
 interface RelatedProduct {
@@ -293,20 +295,35 @@ export default function ProductTabs({
                     return (
                       <div key={review.id} className="bg-white border rounded-xl p-4">
                         <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-2">
-                            <div className="flex">
-                              {[...Array(5)].map((_, i) => (
-                                <Star
-                                  key={i}
-                                  className={`w-4 h-4 ${
-                                    i < reviewStars
-                                      ? "fill-amber-400 text-amber-400"
-                                      : "fill-gray-200 text-gray-200"
-                                  }`}
-                                />
-                              ))}
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <div className="flex">
+                                {[...Array(5)].map((_, i) => (
+                                  <Star
+                                    key={i}
+                                    className={`w-4 h-4 ${
+                                      i < reviewStars
+                                        ? "fill-amber-400 text-amber-400"
+                                        : "fill-gray-200 text-gray-200"
+                                    }`}
+                                  />
+                                ))}
+                              </div>
+                              <span className="text-sm font-medium">{reviewRating.toFixed(1)}</span>
                             </div>
-                            <span className="text-sm font-medium">{reviewRating.toFixed(1)}</span>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                              <span className="font-medium text-gray-700">{review.author || "Verified buyer"}</span>
+                              {review.isFlashback && (
+                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                                  Flashback
+                                </span>
+                              )}
+                              {review.privacyNote && (
+                                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600">
+                                  {review.privacyNote}
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <span className="text-xs text-gray-400">{review.date}</span>
                         </div>

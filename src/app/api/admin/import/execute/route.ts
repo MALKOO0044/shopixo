@@ -8,6 +8,7 @@ import { sarToUsd } from "@/lib/pricing";
 import { normalizeCjImageKey } from "@/lib/cj/image-gallery";
 import { normalizeSingleSize, normalizeSizeList } from "@/lib/cj/size-normalization";
 import { requiresVideoForMediaMode } from "@/lib/video/delivery";
+import { buildSyntheticReviewProfile } from "@/lib/reviews/synthetic-feedback";
 
 // Helper to find category by name/slug/CJ-link and link product to category hierarchy
 async function linkProductToCategory(admin: any, productId: number, categoryName: string, cjCategoryId?: string, supabaseCategoryId?: number): Promise<boolean> {
@@ -722,6 +723,9 @@ export async function POST(req: NextRequest) {
       try {
         requireField(qp.cj_product_id, 'pid');
         const queueStoreSku = qp.store_sku || qp.product_code || null;
+        const syntheticReviewProfile = buildSyntheticReviewProfile(
+          qp.cj_product_id || queueStoreSku || qp.name_en || qp.id
+        );
         requireField(queueStoreSku, 'storeSku');
         requireField(qp.name_en, 'name');
         const rawVariantsRequired = parseArrayOrEmpty(qp.variants);
@@ -771,11 +775,11 @@ export async function POST(req: NextRequest) {
             const existingSupplierRatingRaw = Number(qp.supplier_rating);
             const existingSupplierRating = Number.isFinite(existingSupplierRatingRaw) && existingSupplierRatingRaw > 0
               ? normalizeDisplayedRating(existingSupplierRatingRaw)
-              : undefined;
+              : syntheticReviewProfile.rating;
             const existingReviewCountRaw = Number(qp.review_count);
             const existingReviewCount = Number.isFinite(existingReviewCountRaw) && existingReviewCountRaw > 0
               ? Math.floor(existingReviewCountRaw)
-              : undefined;
+              : syntheticReviewProfile.reviewCount;
             const existingDisplayedRatingRaw = Number(qp.displayed_rating);
             const existingDisplayedRating = Number.isFinite(existingDisplayedRatingRaw) && existingDisplayedRatingRaw > 0
               ? normalizeDisplayedRating(existingDisplayedRatingRaw)
@@ -783,7 +787,7 @@ export async function POST(req: NextRequest) {
             const existingRatingConfidenceRaw = Number(qp.rating_confidence);
             const existingRatingConfidence = Number.isFinite(existingRatingConfidenceRaw) && existingRatingConfidenceRaw > 0
               ? Math.max(0.05, Math.min(1, existingRatingConfidenceRaw))
-              : undefined;
+              : syntheticReviewProfile.ratingConfidence;
 
             const existingProductUpdate: Record<string, any> = {
               supplier_rating: existingSupplierRating,
@@ -955,24 +959,26 @@ export async function POST(req: NextRequest) {
         const queueSupplierRatingRaw = Number(qp.supplier_rating);
         const queueSupplierRating = Number.isFinite(queueSupplierRatingRaw) && queueSupplierRatingRaw > 0
           ? normalizeDisplayedRating(queueSupplierRatingRaw)
-          : null;
+          : syntheticReviewProfile.rating;
         const queueReviewCountRaw = Number(qp.review_count);
-        const queueReviewCount = Number.isFinite(queueReviewCountRaw) && queueReviewCountRaw >= 0
+        const queueReviewCount = Number.isFinite(queueReviewCountRaw) && queueReviewCountRaw > 0
           ? Math.floor(queueReviewCountRaw)
-          : 0;
+          : syntheticReviewProfile.reviewCount;
         const queueDisplayedRatingRaw = Number(qp.displayed_rating);
         const importedDisplayedRating = Number.isFinite(queueDisplayedRatingRaw) && queueDisplayedRatingRaw > 0
           ? normalizeDisplayedRating(queueDisplayedRatingRaw)
-          : (queueSupplierRating ?? ratingOut.displayedRating);
+          : (queueSupplierRating ?? syntheticReviewProfile.displayedRating ?? ratingOut.displayedRating);
         const queueRatingConfidenceRaw = Number(qp.rating_confidence);
         const reviewCountConfidence = queueReviewCount > 0
           ? Math.min(1, 0.65 + (Math.log10(queueReviewCount + 1) / 4))
           : null;
         const importedRatingConfidence = Number.isFinite(queueRatingConfidenceRaw) && queueRatingConfidenceRaw > 0
           ? Math.max(0.05, Math.min(1, Number(queueRatingConfidenceRaw)))
-          : (reviewCountConfidence
-            ? Math.max(ratingOut.ratingConfidence, Number(reviewCountConfidence.toFixed(2)))
-            : ratingOut.ratingConfidence);
+          : Math.max(
+            ratingOut.ratingConfidence,
+            syntheticReviewProfile.ratingConfidence,
+            reviewCountConfidence ? Number(reviewCountConfidence.toFixed(2)) : 0
+          );
 
         const productPayload: Record<string, any> = {
           title: qp.name_en,

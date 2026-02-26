@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import { sarToUsd } from "@/lib/pricing";
+import { buildSyntheticReviewProfile } from "@/lib/reviews/synthetic-feedback";
 
 type QueueProduct = {
   id: number;
@@ -136,10 +137,34 @@ function getQueueVideoUrl(product: QueueProduct): string | null {
   return fallback || null;
 }
 
+function buildQueueSyntheticProfile(product: QueueProduct) {
+  return buildSyntheticReviewProfile(product.cj_product_id || resolveQueueStoreSku(product) || product.name_en);
+}
+
+function resolveQueueDisplayedRating(product: QueueProduct): number {
+  const supplierRatingRaw = Number(product.supplier_rating);
+  if (Number.isFinite(supplierRatingRaw) && supplierRatingRaw > 0) {
+    return Math.min(5, Math.max(0, supplierRatingRaw));
+  }
+
+  const displayedRatingRaw = Number(product.displayed_rating);
+  if (Number.isFinite(displayedRatingRaw) && displayedRatingRaw > 0) {
+    return normalizeDisplayedRating(displayedRatingRaw);
+  }
+
+  return buildQueueSyntheticProfile(product).rating;
+}
+
 function normalizeQueueReviewCount(value: unknown): number {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0) return 0;
   return Math.max(0, Math.floor(numeric));
+}
+
+function resolveQueueReviewCount(product: QueueProduct): number {
+  const normalized = normalizeQueueReviewCount(product.review_count);
+  if (normalized > 0) return normalized;
+  return buildQueueSyntheticProfile(product).reviewCount;
 }
 
 type Stats = {
@@ -510,8 +535,8 @@ export default function QueuePage() {
       p.cj_price_usd,
       resolveQueueMarginPercent(p)?.toFixed(1) ?? "",
       p.stock_total,
-      normalizeDisplayedRating(p.displayed_rating).toFixed(1),
-      normalizeQueueReviewCount(p.review_count),
+      resolveQueueDisplayedRating(p).toFixed(1),
+      resolveQueueReviewCount(p),
       p.status,
       new Date(p.created_at).toLocaleDateString(),
     ]);
@@ -998,12 +1023,8 @@ export default function QueuePage() {
                     <td className="px-4 py-3">
                       <div className="space-y-1">
                         {(() => {
-                          const supplierRatingRaw = Number(product.supplier_rating);
-                          const hasSupplierRating = Number.isFinite(supplierRatingRaw) && supplierRatingRaw > 0;
-                          const rating = hasSupplierRating
-                            ? Math.min(5, Math.max(0, supplierRatingRaw))
-                            : normalizeDisplayedRating(product.displayed_rating);
-                          const reviewedCount = normalizeQueueReviewCount(product.review_count);
+                          const rating = resolveQueueDisplayedRating(product);
+                          const reviewedCount = resolveQueueReviewCount(product);
                           const confidence =
                             typeof product.rating_confidence === "number"
                               ? product.rating_confidence >= 0.75

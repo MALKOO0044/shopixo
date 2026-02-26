@@ -48,6 +48,7 @@ import PriceComparison from "@/components/price-comparison";
 import type { Metadata } from 'next'
 import { getSiteUrl } from "@/lib/site";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
+import { buildSyntheticFlashbackReviews, buildSyntheticReviewProfile } from "@/lib/reviews/synthetic-feedback";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { headers } from "next/headers";
@@ -68,6 +69,8 @@ type ProductTabReview = {
   rating: number;
   content: string;
   helpful: number;
+  isFlashback?: boolean;
+  privacyNote?: string;
 };
 
 function formatReviewDate(value: string | undefined): string {
@@ -266,7 +269,7 @@ export default async function ProductPage({ params, searchParams }: { params: { 
     (product as any).variants = [{ name, options: opts }];
   }
 
-  // Combine imported supplier review baseline with real local reviews for accurate storefront totals.
+  // Combine deterministic synthetic baseline with real local reviews for storefront totals.
   let localReviews: ProductReviewRow[] = [];
   try {
     const { data } = await supabase
@@ -284,10 +287,13 @@ export default async function ProductPage({ params, searchParams }: { params: { 
     return sum + (Number.isFinite(parsed) ? parsed : 0);
   }, 0);
 
+  const syntheticSeed = (product as any).cj_product_id || (product as any).slug || (product as any).id;
+  const syntheticReviewProfile = buildSyntheticReviewProfile(syntheticSeed);
+
   const importedReviewCountRaw = Number((product as any).review_count);
   const importedReviewCount = Number.isFinite(importedReviewCountRaw) && importedReviewCountRaw > 0
     ? Math.floor(importedReviewCountRaw)
-    : 0;
+    : syntheticReviewProfile.reviewCount;
 
   const supplierRatingCandidate = Number((product as any).supplier_rating);
   const displayedRatingCandidate = Number((product as any).displayed_rating);
@@ -295,7 +301,7 @@ export default async function ProductPage({ params, searchParams }: { params: { 
     ? normalizeDisplayedRating(supplierRatingCandidate)
     : (Number.isFinite(displayedRatingCandidate) && displayedRatingCandidate > 0
       ? normalizeDisplayedRating(displayedRatingCandidate)
-      : 0);
+      : syntheticReviewProfile.rating);
 
   const effectiveReviewCount = importedReviewCount + localReviewCount;
   let effectiveRating = 0;
@@ -311,7 +317,7 @@ export default async function ProductPage({ params, searchParams }: { params: { 
     effectiveRating = importedRating;
   }
 
-  const mappedReviews: ProductTabReview[] = localReviews.map((review) => {
+  const mappedLocalReviews: ProductTabReview[] = localReviews.map((review) => {
     const title = typeof review.title === "string" ? review.title.trim() : "";
     const body = typeof review.body === "string" ? review.body.trim() : "";
     const content = [title, body].filter(Boolean).join(title && body ? " — " : "");
@@ -324,6 +330,19 @@ export default async function ProductPage({ params, searchParams }: { params: { 
       helpful: 0,
     };
   });
+
+  const flashbackReviews: ProductTabReview[] = buildSyntheticFlashbackReviews(syntheticSeed, importedReviewCount).map((review) => ({
+    id: review.id,
+    author: review.author,
+    date: formatReviewDate(review.dateIso),
+    rating: review.rating,
+    content: review.content,
+    helpful: review.helpful,
+    isFlashback: true,
+    privacyNote: review.privacyNote,
+  }));
+
+  const mappedReviews: ProductTabReview[] = [...mappedLocalReviews, ...flashbackReviews];
 
   (product as any).review_count = effectiveReviewCount;
   (product as any).displayed_rating = effectiveRating;

@@ -13,6 +13,7 @@ import PreviewPageSeven from "@/components/admin/import/preview/PreviewPageSeven
 import type { PricedProduct, PricedVariant } from "@/components/admin/import/preview/types";
 import { sarToUsd } from "@/lib/pricing";
 import { inferCjVideoQualityHint } from "@/lib/cj/video";
+import { buildSyntheticReviewProfile } from "@/lib/reviews/synthetic-feedback";
 
 type Category = {
   categoryId: string;
@@ -614,6 +615,23 @@ export default function ProductDiscoveryPage() {
               : htmlToLines(p.overview).slice(0, 8);
             const appliedMargin = Number((p as any).profitMarginApplied ?? profitMargin);
             const mergedGalleryImages = buildDiscoverPreviewGallery(p);
+            const syntheticReviewProfile = buildSyntheticReviewProfile(p.pid || p.cjSku || p.name);
+            const supplierRatingRaw = Number((p as any).rating);
+            const reviewCountRaw = Number((p as any).reviewCount);
+            const displayedRatingRaw = Number((p as any).displayedRating);
+            const ratingConfidenceRaw = Number((p as any).ratingConfidence);
+            const supplierRating = Number.isFinite(supplierRatingRaw) && supplierRatingRaw > 0
+              ? supplierRatingRaw
+              : syntheticReviewProfile.rating;
+            const reviewCount = Number.isFinite(reviewCountRaw) && reviewCountRaw > 0
+              ? Math.floor(reviewCountRaw)
+              : syntheticReviewProfile.reviewCount;
+            const displayedRating = Number.isFinite(displayedRatingRaw) && displayedRatingRaw > 0
+              ? displayedRatingRaw
+              : supplierRating;
+            const ratingConfidence = Number.isFinite(ratingConfidenceRaw) && ratingConfidenceRaw > 0
+              ? ratingConfidenceRaw
+              : syntheticReviewProfile.ratingConfidence;
             
             return {
               cjProductId: p.pid,
@@ -642,14 +660,14 @@ export default function ProductDiscoveryPage() {
               avgPriceUSD: (p as any).avgPriceUSD,
               stock: p.stock,
               variants: p.variants,
-              supplierRating: Number.isFinite(Number((p as any).rating)) ? Number((p as any).rating) : undefined,
-              reviewCount: Number.isFinite(Number((p as any).reviewCount)) ? Number((p as any).reviewCount) : 0,
+              supplierRating,
+              reviewCount,
               categoryName: p.categoryName,
               cjCategoryId: category !== 'all' ? category : undefined,
               supabaseCategoryId: selectedFeaturesWithIds.length > 0 ? selectedFeaturesWithIds[0].supabaseCategoryId : undefined,
               supabaseCategorySlug: selectedFeaturesWithIds.length > 0 ? selectedFeaturesWithIds[0].supabaseCategorySlug : undefined,
-              displayedRating: p.displayedRating,
-              ratingConfidence: p.ratingConfidence,
+              displayedRating,
+              ratingConfidence,
               productWeight: p.productWeight,
               packLength: p.packLength,
               packWidth: p.packWidth,

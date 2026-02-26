@@ -4,6 +4,7 @@ import { hasTable } from '@/lib/db-features';
 import { sarToUsd } from '@/lib/pricing';
 import { normalizeCjVideoUrl } from '@/lib/cj/video';
 import { normalizeSizeList } from '@/lib/cj/size-normalization';
+import { buildSyntheticReviewProfile } from '@/lib/reviews/synthetic-feedback';
 
 let supabaseAdmin: SupabaseClient | null = null;
 
@@ -353,10 +354,27 @@ export async function addProductToQueue(batchId: number, product: {
     orderVolume: 0,
   };
   const ratingOut = computeRating(ratingSignals);
+  const syntheticReviewProfile = buildSyntheticReviewProfile(product.productId || product.storeSku || product.name);
+  const supplierRatingRaw = Number(product.supplierRating);
+  const resolvedSupplierRating = Number.isFinite(supplierRatingRaw) && supplierRatingRaw > 0
+    ? normalizeDisplayedRating(supplierRatingRaw)
+    : syntheticReviewProfile.rating;
+  const reviewCountRaw = Number(product.reviewCount);
+  const resolvedReviewCount = Number.isFinite(reviewCountRaw) && reviewCountRaw > 0
+    ? Math.floor(reviewCountRaw)
+    : syntheticReviewProfile.reviewCount;
   const providedDisplayed = typeof product.displayedRating === 'number' ? normalizeDisplayedRating(product.displayedRating) : undefined;
   const providedConfidence = typeof product.ratingConfidence === 'number' && Number.isFinite(product.ratingConfidence)
     ? Math.max(0.05, Math.min(1, product.ratingConfidence))
     : undefined;
+  const resolvedDisplayedRating = providedDisplayed ?? resolvedSupplierRating ?? ratingOut.displayedRating;
+  const countBasedConfidence = Math.min(1, 0.65 + (Math.log10(resolvedReviewCount + 1) / 4));
+  const resolvedRatingConfidence = providedConfidence
+    ?? Math.max(
+      ratingOut.ratingConfidence,
+      syntheticReviewProfile.ratingConfidence,
+      Number(countBasedConfidence.toFixed(2))
+    );
 
   // Core fields that always exist
   const productData: Record<string, any> = {
@@ -386,8 +404,8 @@ export async function addProductToQueue(batchId: number, product: {
     delivery_days_min: product.deliveryDaysMin ?? null,
     delivery_days_max: product.deliveryDaysMax ?? null,
     quality_score: product.qualityScore ?? null,
-    displayed_rating: providedDisplayed ?? ratingOut.displayedRating,
-    rating_confidence: providedConfidence ?? ratingOut.ratingConfidence,
+    displayed_rating: resolvedDisplayedRating,
+    rating_confidence: resolvedRatingConfidence,
     status: 'pending',
     admin_notes: null,
     reviewed_by: null,
@@ -417,12 +435,8 @@ export async function addProductToQueue(batchId: number, product: {
   
   // New columns that require migration - check if they exist first
   const newColumns: Record<string, any> = {
-    supplier_rating: Number.isFinite(Number(product.supplierRating))
-      ? Number(product.supplierRating)
-      : null,
-    review_count: Number.isFinite(Number(product.reviewCount))
-      ? Math.max(0, Math.floor(Number(product.reviewCount)))
-      : 0,
+    supplier_rating: resolvedSupplierRating,
+    review_count: resolvedReviewCount,
     variant_pricing: product.variantPricing || [],
     size_chart_data: product.sizeChartData || null,
     specifications: product.specifications || {},
