@@ -21,7 +21,7 @@ import {
   Package,
   Sparkles,
 } from 'lucide-react'
-import type { PricedProduct } from '@/components/admin/import/preview/types'
+import type { PricedProduct, PricedVariant } from '@/components/admin/import/preview/types'
 import PreviewPageOne from '@/components/admin/import/preview/PreviewPageOne'
 import PreviewPageThree from '@/components/admin/import/preview/PreviewPageThree'
 import PreviewPageFour from '@/components/admin/import/preview/PreviewPageFour'
@@ -133,13 +133,13 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
 
       // Build variant_pricing array with all variant data for accurate import
       const variantPricing = (product.variants || [])
-        .map(v => {
+        .map((v: PricedVariant) => {
           const sellPriceSar = Number(v.sellPriceSAR || 0)
-          const directSellUsd = Number((v as any).sellPriceUSD)
+          const directSellUsd = Number(v.sellPriceUSD)
           const sellPriceUsd = Number.isFinite(directSellUsd) && directSellUsd > 0
             ? directSellUsd
             : (sellPriceSar > 0 ? sarToUsd(sellPriceSar) : 0)
-          const variantMarginPercent = Number((v as any).marginPercent)
+          const variantMarginPercent = Number(v.marginPercent)
 
           return {
             variantId: v.variantId,
@@ -157,7 +157,7 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
             factoryStock: v.factoryStock || 0,
           }
         })
-        .filter(v => Number(v.price) > 0)
+        .filter((v: { price: number }) => Number(v.price) > 0)
 
       const specifications: Record<string, string> = {}
       if (product.material) specifications.Material = htmlToPlain(product.material)
@@ -189,6 +189,14 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
             variants: product.variants,
             variantPricing,
             stock: product.stock,
+            supplierRating:
+              typeof product.rating === 'number' && Number.isFinite(product.rating)
+                ? product.rating
+                : undefined,
+            reviewCount:
+              Number.isFinite(Number(product.reviewCount))
+                ? Math.max(0, Math.floor(Number(product.reviewCount)))
+                : 0,
             displayedRating: typeof product.displayedRating === 'number' ? product.displayedRating : undefined,
             ratingConfidence: typeof product.ratingConfidence === 'number' ? product.ratingConfidence : undefined,
             availableColors: product.availableColors || [],
@@ -221,7 +229,7 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
     }
   }
 
-  const tabs: { id: TabType; label: string; icon: any }[] = [
+  const tabs: Array<{ id: TabType; label: string; icon: typeof Eye }> = [
     { id: 'overview', label: 'Overview', icon: Eye },
     { id: 'images', label: 'Images', icon: ImageIcon },
     { id: 'specs', label: 'Specifications', icon: FileText },

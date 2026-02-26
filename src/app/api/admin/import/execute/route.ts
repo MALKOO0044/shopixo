@@ -175,10 +175,16 @@ async function linkProductToCategory(admin: any, productId: number, categoryName
 }
 
 function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = readEnv('NEXT_PUBLIC_SUPABASE_URL');
+  const key = readEnv('SUPABASE_SERVICE_ROLE_KEY');
   if (!url || !key) return null;
   return createClient(url, key);
+}
+
+function readEnv(name: string): string | undefined {
+  const env = (globalThis as any)?.process?.env;
+  const value = env?.[name];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 const DEFAULT_SHIPPING_USD = 5;
@@ -614,6 +620,15 @@ export async function POST(req: NextRequest) {
         ok: false,
         error: `Products table is missing required fidelity columns: ${missingProductFidelityColumns.join(', ')}. Please run latest Supabase migrations before importing.`,
         missingColumns: missingProductFidelityColumns,
+        missingColumnsByTable: {
+          products: missingProductFidelityColumns,
+          product_queue: [],
+        },
+        remediation: {
+          endpoint: '/api/admin/migrate/product-queue',
+          method: 'GET',
+          message: 'Use this endpoint to generate SQL for missing columns and follow schema reload instructions.',
+        },
       }, { status: 400 });
     }
 
@@ -651,6 +666,15 @@ export async function POST(req: NextRequest) {
         ok: false,
         error: `Product queue table is missing required fidelity columns: ${missingQueueFidelityColumns.join(', ')}. Please run latest Supabase migrations before importing.`,
         missingColumns: missingQueueFidelityColumns,
+        missingColumnsByTable: {
+          products: [],
+          product_queue: missingQueueFidelityColumns,
+        },
+        remediation: {
+          endpoint: '/api/admin/migrate/product-queue',
+          method: 'GET',
+          message: 'Use this endpoint to generate SQL for missing columns and follow schema reload instructions.',
+        },
       }, { status: 400 });
     }
 
@@ -752,7 +776,7 @@ export async function POST(req: NextRequest) {
         const rawVariants = rawVariantsRequired;
         const availableSizes = normalizeImportAvailableSizes(qp.available_sizes);
         const availableColors = parseStringArrayOrNull(qp.available_colors);
-        const storeCurrency = String(process.env.NEXT_PUBLIC_CURRENCY || 'USD').toUpperCase();
+        const storeCurrency = String(readEnv('NEXT_PUBLIC_CURRENCY') || 'USD').toUpperCase();
         const storePricesInUsd = storeCurrency === 'USD';
         
         // Parse colorImageMap from queue payload - maps color names to their specific images

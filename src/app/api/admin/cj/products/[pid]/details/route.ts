@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
-import { getAccessToken, freightCalculate, fetchProductDetailsByPid, getInventoryByPid, queryVariantInventory, getProductVariants } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsByPid, getInventoryByPid, queryVariantInventory, getProductRating, getProductVariants } from '@/lib/cj/v2';
 import type { PricedProduct, PricedVariant, InventoryVariant, ProductInventory } from '@/components/admin/import/preview/types';
-import { computeRating } from '@/lib/rating/engine';
+import { computeRating, normalizeDisplayedRating } from '@/lib/rating/engine';
 import { createClient } from '@supabase/supabase-js';
 import { hasTable } from '@/lib/db-features';
 import { computeRetailFromLanded, sarToUsd, usdToSar } from '@/lib/pricing';
@@ -86,6 +86,108 @@ function extractVariantColorSize(variant: any, fallbackName?: string): { color?:
   };
 }
 
+const SUPPLIER_RATING_KEYS = [
+  'rating',
+  'productRating',
+  'score',
+  'avgScore',
+  'averageRating',
+  'supplierRating',
+  'supplierScore',
+  'starCount',
+  'star_count',
+];
+
+const SUPPLIER_REVIEW_COUNT_KEYS = [
+  'reviewCount',
+  'ratingCount',
+  'reviews',
+  'commentCount',
+  'evaluateCount',
+  'totalReview',
+  'totalReviews',
+  'commentNum',
+];
+
+function pickFiniteNumber(source: any, keys: string[]): number | undefined {
+  if (!source || typeof source !== 'object') return undefined;
+
+  for (const key of keys) {
+    const raw = source?.[key];
+    if (raw === undefined || raw === null || raw === '') continue;
+
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      return raw;
+    }
+
+    if (typeof raw === 'string') {
+      const cleaned = raw.replace(/,/g, '').trim();
+      if (!cleaned) continue;
+      const parsed = Number(cleaned);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function extractSupplierReviewMetrics(
+  primary: any,
+  fallback?: any
+): { rating?: number; reviewCount: number; source: 'primary' | 'fallback' | 'none' } {
+  const candidates: Array<{ label: 'primary' | 'fallback'; value: any }> = [
+    { label: 'primary', value: primary },
+    { label: 'fallback', value: fallback },
+  ];
+
+  let rating: number | undefined;
+  let reviewCount = 0;
+  let source: 'primary' | 'fallback' | 'none' = 'none';
+
+  for (const candidate of candidates) {
+    if (!candidate.value || typeof candidate.value !== 'object') continue;
+
+    const directRating = pickFiniteNumber(candidate.value, SUPPLIER_RATING_KEYS);
+    const nestedRating = candidate.value?.supplier && typeof candidate.value.supplier === 'object'
+      ? pickFiniteNumber(candidate.value.supplier, ['rating', 'score'])
+      : undefined;
+    const parsedRating = directRating ?? nestedRating;
+
+    if (
+      rating === undefined
+      && typeof parsedRating === 'number'
+      && Number.isFinite(parsedRating)
+      && parsedRating > 0
+      && parsedRating <= 5
+    ) {
+      rating = parsedRating;
+      source = candidate.label;
+    }
+
+    const directReviewCount = pickFiniteNumber(candidate.value, SUPPLIER_REVIEW_COUNT_KEYS);
+    const nestedReviewCount = candidate.value?.supplier && typeof candidate.value.supplier === 'object'
+      ? pickFiniteNumber(candidate.value.supplier, ['reviewCount', 'ratingCount', 'commentCount'])
+      : undefined;
+    const parsedReviewCount = directReviewCount ?? nestedReviewCount;
+
+    if (
+      reviewCount === 0
+      && typeof parsedReviewCount === 'number'
+      && Number.isFinite(parsedReviewCount)
+      && parsedReviewCount > 0
+    ) {
+      reviewCount = Math.floor(parsedReviewCount);
+      if (source === 'none') source = candidate.label;
+    }
+
+    if (rating !== undefined && reviewCount > 0) break;
+  }
+
+  return { rating, reviewCount, source };
+}
+
 /**
  * GET /api/admin/cj/products/[pid]/details
  * 
@@ -142,7 +244,9 @@ export async function GET(
     const name = String(source.productNameEn || source.name || source.productName || '');
     const cjSku = String(source.productSku || source.sku || `CJ-${pid}`);
 
-    // No external ratings: compute internal rating later from product signals.
+    let rating: number | undefined;
+    let reviewCount = 0;
+    let reviewMetricsSource: 'primary' | 'fallback' | 'productComments' | 'none' = 'none';
     let displayedRating: number | undefined;
     let ratingConfidence: number | undefined;
 
@@ -791,7 +895,33 @@ export async function GET(
       videoDelivery.deliveryUrl.length > 0 &&
       videoDelivery.qualityGatePassed;
 
-    // Compute internal rating from signals
+    const supplierMetrics = extractSupplierReviewMetrics(source);
+    rating = supplierMetrics.rating;
+    reviewCount = supplierMetrics.reviewCount;
+    reviewMetricsSource = supplierMetrics.source;
+
+    if (reviewCount <= 0 || !(typeof rating === 'number' && rating > 0)) {
+      const commentsMetrics = await getProductRating(pid);
+      if (typeof commentsMetrics.rating === 'number' && Number.isFinite(commentsMetrics.rating) && commentsMetrics.rating > 0) {
+        rating = commentsMetrics.rating;
+      }
+      if (Number.isFinite(commentsMetrics.reviewCount) && commentsMetrics.reviewCount > 0) {
+        reviewCount = Math.floor(commentsMetrics.reviewCount);
+      }
+      if ((typeof commentsMetrics.rating === 'number' && commentsMetrics.rating > 0) || commentsMetrics.reviewCount > 0) {
+        reviewMetricsSource = 'productComments';
+      }
+    }
+
+    if (!Number.isFinite(reviewCount) || reviewCount < 0) {
+      reviewCount = 0;
+    }
+
+    console.log(
+      `[ProductDetails] Product ${pid} review metrics: rating=${typeof rating === 'number' ? rating.toFixed(2) : 'n/a'} reviewCount=${reviewCount} source=${reviewMetricsSource}`
+    );
+
+    // Compute internal rating from signals with supplier/comment metrics override when available.
     try {
       const imagesCount = Array.isArray(images) ? images.length : 0;
       const variantCount = Array.isArray(variantsToProcess) ? variantsToProcess.length : 0;
@@ -811,8 +941,20 @@ export async function GET(
         orderVolume: 0,
       });
 
-      displayedRating = ratingOut.displayedRating;
-      ratingConfidence = ratingOut.ratingConfidence;
+      const hasSupplierRating = typeof rating === 'number' && Number.isFinite(rating) && rating > 0;
+      if (hasSupplierRating) {
+        displayedRating = normalizeDisplayedRating(rating);
+        rating = displayedRating;
+      } else {
+        displayedRating = ratingOut.displayedRating;
+      }
+
+      if (hasSupplierRating && reviewCount > 0) {
+        const countBasedConfidence = Math.min(1, 0.65 + (Math.log10(reviewCount + 1) / 4));
+        ratingConfidence = Math.max(ratingOut.ratingConfidence, Number(countBasedConfidence.toFixed(2)));
+      } else {
+        ratingConfidence = ratingOut.ratingConfidence;
+      }
 
       try {
         const admin = getSupabaseAdmin();
@@ -864,6 +1006,8 @@ export async function GET(
       packingList,
       displayedRating,
       ratingConfidence,
+      rating,
+      reviewCount,
       categoryName,
       productWeight,
       packLength,

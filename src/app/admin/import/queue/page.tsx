@@ -15,7 +15,6 @@ import {
   ChevronRight,
   Loader2,
   Filter,
-  MoreHorizontal,
   Eye,
   Play,
 } from "lucide-react";
@@ -39,6 +38,8 @@ type QueueProduct = {
   profit_margin?: number | null;
   displayed_rating?: number | null;
   rating_confidence?: number | null;
+  supplier_rating?: number | null;
+  review_count?: number | null;
   stock_total: number;
   quality_score: number;
   status: string;
@@ -135,11 +136,28 @@ function getQueueVideoUrl(product: QueueProduct): string | null {
   return fallback || null;
 }
 
+function normalizeQueueReviewCount(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return Math.max(0, Math.floor(numeric));
+}
+
 type Stats = {
   pending: number;
   approved: number;
   rejected: number;
   imported: number;
+};
+
+type SchemaRemediation = {
+  ready: boolean;
+  missingColumns: string[];
+  missingColumnsByTable?: {
+    product_queue?: string[];
+    products?: string[];
+  };
+  migrationSQL: string | null;
+  instructions: string[];
 };
 
 type LocalCategory = {
@@ -165,6 +183,8 @@ export default function QueuePage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [schemaRemediation, setSchemaRemediation] = useState<SchemaRemediation | null>(null);
+  const [copiedMigrationSql, setCopiedMigrationSql] = useState(false);
   const [localCategories, setLocalCategories] = useState<LocalCategory[]>([]);
   
   const [statusFilter, setStatusFilter] = useState("pending");
@@ -225,6 +245,69 @@ export default function QueuePage() {
     fetchLocalCategories();
   }, []);
 
+  const loadSchemaRemediation = useCallback(async (): Promise<SchemaRemediation | null> => {
+    try {
+      const res = await fetch("/api/admin/migrate/product-queue", { method: "GET" });
+      const data = await res.json();
+
+      if (!res.ok || !data || typeof data !== "object") return null;
+
+      const missingColumns = Array.isArray(data.missingColumns)
+        ? data.missingColumns.map((col: unknown) => String(col))
+        : [];
+
+      const missingByTableRaw = data.missingColumnsByTable;
+      const missingColumnsByTable: SchemaRemediation["missingColumnsByTable"] =
+        missingByTableRaw && typeof missingByTableRaw === "object"
+          ? {
+              product_queue: Array.isArray((missingByTableRaw as Record<string, unknown>).product_queue)
+                ? ((missingByTableRaw as Record<string, unknown>).product_queue as unknown[]).map((col) => String(col))
+                : [],
+              products: Array.isArray((missingByTableRaw as Record<string, unknown>).products)
+                ? ((missingByTableRaw as Record<string, unknown>).products as unknown[]).map((col) => String(col))
+                : [],
+            }
+          : undefined;
+
+      const instructions = Array.isArray(data.instructions)
+        ? data.instructions.map((step: unknown) => String(step))
+        : [];
+
+      const remediation: SchemaRemediation = {
+        ready: Boolean(data.ready),
+        missingColumns,
+        missingColumnsByTable,
+        migrationSQL: typeof data.migrationSQL === "string" && data.migrationSQL.trim().length > 0
+          ? data.migrationSQL
+          : null,
+        instructions,
+      };
+
+      if (remediation.ready || remediation.missingColumns.length === 0) {
+        setSchemaRemediation(null);
+        return null;
+      }
+
+      setSchemaRemediation(remediation);
+      return remediation;
+    } catch (schemaError) {
+      console.error("Failed to load schema remediation:", schemaError);
+      return null;
+    }
+  }, []);
+
+  const copyMigrationSql = useCallback(async () => {
+    const sql = schemaRemediation?.migrationSQL;
+    if (!sql) return;
+    try {
+      await navigator.clipboard.writeText(sql);
+      setCopiedMigrationSql(true);
+      setTimeout(() => setCopiedMigrationSql(false), 2000);
+    } catch {
+      setError("Unable to copy migration SQL automatically. Please copy it manually.");
+    }
+  }, [schemaRemediation]);
+
   const toggleSelect = (id: number) => {
     setSelected((prev: Set<number>) => {
       const next = new Set(prev);
@@ -282,6 +365,8 @@ export default function QueuePage() {
     if (!confirm(`Import ${approvedIds.length} products to your store?`)) return;
     
     setActionLoading(true);
+    setCopiedMigrationSql(false);
+    setSchemaRemediation(null);
     try {
       const res = await fetch("/api/admin/import/execute", {
         method: "POST",
@@ -291,10 +376,21 @@ export default function QueuePage() {
       
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Import failed");
+        const errorMessage = String(data?.error || "Import failed");
+        const missingColumns = Array.isArray(data?.missingColumns) ? data.missingColumns : [];
+        const isSchemaFidelityError =
+          missingColumns.length > 0 ||
+          /missing required fidelity columns|please run latest supabase migrations/i.test(errorMessage);
+
+        if (isSchemaFidelityError) {
+          await loadSchemaRemediation();
+        }
+
+        throw new Error(errorMessage);
       }
       
       setSelected(new Set());
+      setSchemaRemediation(null);
       fetchProducts();
       alert(`Successfully imported ${data.imported} products!`);
     } catch (e: any) {
@@ -400,6 +496,7 @@ export default function QueuePage() {
       "Margin %",
       "Stock",
       "Displayed Rating",
+      "Reviewed Count",
       "Status",
       "Created",
     ];
@@ -414,6 +511,7 @@ export default function QueuePage() {
       resolveQueueMarginPercent(p)?.toFixed(1) ?? "",
       p.stock_total,
       normalizeDisplayedRating(p.displayed_rating).toFixed(1),
+      normalizeQueueReviewCount(p.review_count),
       p.status,
       new Date(p.created_at).toLocaleDateString(),
     ]);
@@ -526,6 +624,72 @@ export default function QueuePage() {
       {error && (
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-800">
           {error}
+        </div>
+      )}
+
+      {schemaRemediation && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-amber-900">Database schema update required before import</p>
+              <p className="text-xs text-amber-800 mt-1">
+                Missing fidelity columns are blocking imports. Run the SQL below in Supabase SQL Editor,
+                then reload schema.
+              </p>
+            </div>
+            <button
+              onClick={loadSchemaRemediation}
+              className="text-xs px-2.5 py-1 border border-amber-400 text-amber-900 rounded hover:bg-amber-100"
+            >
+              Recheck
+            </button>
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-2">
+            <div className="rounded border border-amber-200 bg-white p-2">
+              <p className="text-xs font-medium text-gray-700">product_queue missing columns</p>
+              <p className="text-xs text-gray-600 mt-1">
+                {schemaRemediation.missingColumnsByTable?.product_queue?.length
+                  ? schemaRemediation.missingColumnsByTable.product_queue.join(", ")
+                  : "None"}
+              </p>
+            </div>
+            <div className="rounded border border-amber-200 bg-white p-2">
+              <p className="text-xs font-medium text-gray-700">products missing columns</p>
+              <p className="text-xs text-gray-600 mt-1">
+                {schemaRemediation.missingColumnsByTable?.products?.length
+                  ? schemaRemediation.missingColumnsByTable.products.join(", ")
+                  : "None"}
+              </p>
+            </div>
+          </div>
+
+          {schemaRemediation.instructions.length > 0 && (
+            <ol className="list-decimal list-inside space-y-1 text-xs text-amber-900">
+              {schemaRemediation.instructions.map((step, index) => (
+                <li key={`${step}-${index}`}>{step}</li>
+              ))}
+            </ol>
+          )}
+
+          {schemaRemediation.migrationSQL && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-gray-700">Migration SQL</p>
+                <button
+                  onClick={copyMigrationSql}
+                  className="text-xs px-2.5 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                >
+                  {copiedMigrationSql ? "Copied" : "Copy SQL"}
+                </button>
+              </div>
+              <textarea
+                readOnly
+                value={schemaRemediation.migrationSQL}
+                className="w-full min-h-[130px] resize-y rounded border border-amber-200 bg-white p-2 font-mono text-xs text-gray-800"
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -834,7 +998,12 @@ export default function QueuePage() {
                     <td className="px-4 py-3">
                       <div className="space-y-1">
                         {(() => {
-                          const rating = normalizeDisplayedRating(product.displayed_rating);
+                          const supplierRatingRaw = Number(product.supplier_rating);
+                          const hasSupplierRating = Number.isFinite(supplierRatingRaw) && supplierRatingRaw > 0;
+                          const rating = hasSupplierRating
+                            ? Math.min(5, Math.max(0, supplierRatingRaw))
+                            : normalizeDisplayedRating(product.displayed_rating);
+                          const reviewedCount = normalizeQueueReviewCount(product.review_count);
                           const confidence =
                             typeof product.rating_confidence === "number"
                               ? product.rating_confidence >= 0.75
@@ -859,6 +1028,7 @@ export default function QueuePage() {
                           ))}
                           <span className="text-xs font-medium ml-1">{rating.toFixed(1)}</span>
                         </div>
+                        <p className="text-xs text-gray-500">{reviewedCount.toLocaleString()} reviewed</p>
                         <p className="text-xs text-gray-500">{confidence} confidence</p>
                             </>
                           );

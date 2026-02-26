@@ -1224,9 +1224,37 @@ export async function getProductRating(pid: string): Promise<{ rating: number | 
       return null;
     };
     
+    const toFiniteInt = (value: unknown, fallback: number): number => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return Math.max(0, Math.floor(value));
+      }
+      if (typeof value === 'string') {
+        const cleaned = value.replace(/[^\d-]/g, '').trim();
+        if (cleaned) {
+          const parsed = Number(cleaned);
+          if (Number.isFinite(parsed)) return Math.max(0, Math.floor(parsed));
+        }
+      }
+      return fallback;
+    };
+
     // Helper function to parse API response
     const parseResponse = (res: any): { list: any[]; total: number; success: boolean } => {
-      const isSuccess = res?.success === true || res?.result === true || res?.code === 200 || res?.code === 0;
+      const codeRaw = res?.code;
+      const codeNum = typeof codeRaw === 'string' ? Number(codeRaw) : codeRaw;
+      const successRaw = res?.success;
+      const resultRaw = res?.result;
+      const isSuccess =
+        successRaw === true ||
+        successRaw === 'true' ||
+        resultRaw === true ||
+        resultRaw === 'true' ||
+        codeRaw === 200 ||
+        codeRaw === 0 ||
+        codeRaw === '200' ||
+        codeRaw === '0' ||
+        codeNum === 200 ||
+        codeNum === 0;
       if (!isSuccess && res?.message) {
         console.log(`[CJ Rating] API error for pid ${pid}: ${res.message}`);
         return { list: [], total: 0, success: false };
@@ -1238,13 +1266,13 @@ export async function getProductRating(pid: string): Promise<{ rating: number | 
       
       if (data?.list && Array.isArray(data.list)) {
         list = data.list;
-        total = parseInt(String(data?.total || data.list.length), 10) || 0;
+        total = toFiniteInt(data?.total, data.list.length);
       } else if (Array.isArray(data)) {
         list = data;
         total = data.length;
       } else if (Array.isArray(res?.list)) {
         list = res.list;
-        total = parseInt(String(res?.total || res.list.length), 10) || 0;
+        total = toFiniteInt(res?.total, res.list.length);
       } else if (Array.isArray(res)) {
         list = res;
         total = res.length;
