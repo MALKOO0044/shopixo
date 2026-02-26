@@ -306,6 +306,9 @@ export default async function ProductPage({ params, searchParams }: { params: { 
       : normalizeDisplayedRating(displayedRatingCandidate || 0);
     const weightedAverage = ((baselineRatingForWeight * importedReviewCount) + localRatingSum) / effectiveReviewCount;
     effectiveRating = normalizeDisplayedRating(weightedAverage);
+  } else if (importedRating > 0) {
+    // Keep supplier/imported rating visible even when reviewed count is currently zero.
+    effectiveRating = importedRating;
   }
 
   const mappedReviews: ProductTabReview[] = localReviews.map((review) => {

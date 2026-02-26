@@ -1242,42 +1242,88 @@ export async function getProductRating(pid: string): Promise<{ rating: number | 
     const parseResponse = (res: any): { list: any[]; total: number; success: boolean } => {
       const codeRaw = res?.code;
       const codeNum = typeof codeRaw === 'string' ? Number(codeRaw) : codeRaw;
+      const statusCodeRaw = res?.statusCode ?? res?.status;
+      const statusCodeNum = typeof statusCodeRaw === 'string' ? Number(statusCodeRaw) : statusCodeRaw;
       const successRaw = res?.success;
+      const successNum = typeof successRaw === 'string' ? Number(successRaw) : successRaw;
       const resultRaw = res?.result;
+      const resultNum = typeof resultRaw === 'string' ? Number(resultRaw) : resultRaw;
+
+      const data = res?.data ?? res?.resultData ?? null;
+      const payload =
+        (data && typeof data === 'object'
+          ? (data?.data ?? data?.result ?? data?.page ?? data)
+          : data) ?? null;
+      const list =
+        (Array.isArray(payload?.list) ? payload.list : null) ??
+        (Array.isArray(payload?.content) ? payload.content : null) ??
+        (Array.isArray(payload?.records) ? payload.records : null) ??
+        (Array.isArray(payload?.rows) ? payload.rows : null) ??
+        (Array.isArray(payload?.items) ? payload.items : null) ??
+        (Array.isArray(payload?.commentList) ? payload.commentList : null) ??
+        (Array.isArray(data?.list) ? data.list : null) ??
+        (Array.isArray(data?.content) ? data.content : null) ??
+        (Array.isArray(data?.records) ? data.records : null) ??
+        (Array.isArray(data?.rows) ? data.rows : null) ??
+        (Array.isArray(data?.items) ? data.items : null) ??
+        (Array.isArray(data?.commentList) ? data.commentList : null) ??
+        (Array.isArray(data) ? data : null) ??
+        (Array.isArray(res?.list) ? res.list : null) ??
+        (Array.isArray(res?.content) ? res.content : null) ??
+        (Array.isArray(res?.records) ? res.records : null) ??
+        (Array.isArray(res?.rows) ? res.rows : null) ??
+        (Array.isArray(res?.items) ? res.items : null) ??
+        (Array.isArray(res) ? res : []);
+
+      const total = toFiniteInt(
+        payload?.total ??
+          payload?.totalCount ??
+          payload?.count ??
+          payload?.totalNum ??
+          payload?.recordTotal ??
+          payload?.itemTotal ??
+          payload?.totalElements ??
+          data?.total ??
+          data?.totalCount ??
+          data?.count ??
+          data?.totalNum ??
+          res?.total ??
+          res?.totalCount ??
+          res?.count,
+        list.length
+      );
+
       const isSuccess =
         successRaw === true ||
         successRaw === 'true' ||
+        successRaw === 1 ||
+        successRaw === '1' ||
+        successNum === 1 ||
         resultRaw === true ||
         resultRaw === 'true' ||
+        resultRaw === 1 ||
+        resultRaw === '1' ||
+        resultNum === 1 ||
         codeRaw === 200 ||
         codeRaw === 0 ||
         codeRaw === '200' ||
         codeRaw === '0' ||
         codeNum === 200 ||
-        codeNum === 0;
-      if (!isSuccess && res?.message) {
-        console.log(`[CJ Rating] API error for pid ${pid}: ${res.message}`);
+        codeNum === 0 ||
+        statusCodeRaw === 200 ||
+        statusCodeRaw === '200' ||
+        statusCodeNum === 200 ||
+        res?.ok === true ||
+        list.length > 0;
+
+      if (!isSuccess && list.length === 0) {
+        const message = res?.message || res?.msg || res?.error;
+        if (message) {
+          console.log(`[CJ Rating] API error for pid ${pid}: ${message}`);
+        }
         return { list: [], total: 0, success: false };
       }
-      
-      const data = res?.data;
-      let list: any[] = [];
-      let total = 0;
-      
-      if (data?.list && Array.isArray(data.list)) {
-        list = data.list;
-        total = toFiniteInt(data?.total, data.list.length);
-      } else if (Array.isArray(data)) {
-        list = data;
-        total = data.length;
-      } else if (Array.isArray(res?.list)) {
-        list = res.list;
-        total = toFiniteInt(res?.total, res.list.length);
-      } else if (Array.isArray(res)) {
-        list = res;
-        total = res.length;
-      }
-      
+
       return { list, total, success: true };
     };
     
@@ -1296,7 +1342,7 @@ export async function getProductRating(pid: string): Promise<{ rating: number | 
     
     if (firstPage.list.length === 0) {
       console.log(`[CJ Rating] No reviews found for pid ${pid}`);
-      return { rating: null, reviewCount: 0 };
+      return { rating: null, reviewCount: total > 0 ? total : 0 };
     }
     
     // Collect all reviews - start with first page
@@ -1414,6 +1460,32 @@ function extractListV2Products(res: any): any[] {
 
 // Helper: Copy useful fields from listV2 match to product data
 function mergeListV2Fields(productData: any, match: any, source: string): void {
+  const parseFiniteMetric = (value: unknown): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const cleaned = value.replace(/,/g, '').trim();
+      if (!cleaned) return null;
+
+      const parsed = Number(cleaned);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+
+      const matchNum = cleaned.match(/-?\d+(?:\.\d+)?/);
+      if (matchNum) {
+        const extracted = Number(matchNum[0]);
+        if (Number.isFinite(extracted)) {
+          return extracted;
+        }
+      }
+    }
+
+    return null;
+  };
+
   if (match.description && !productData.description) {
     productData.description = match.description;
     console.log(`[CJ Details] Got description from listV2 (${source}): ${match.description.slice(0, 80)}...`);
@@ -1447,19 +1519,69 @@ function mergeListV2Fields(productData: any, match: any, source: string): void {
   }
   
   // Copy rating fields from listV2 (CJ products may have ratings in listing)
-  const ratingVal = match.rating ?? match.productRating ?? match.score ?? match.avgScore ?? match.averageRating;
+  const ratingVal =
+    match.rating ??
+    match.productRating ??
+    match.score ??
+    match.avgScore ??
+    match.avgRating ??
+    match.averageRating ??
+    match.supplier?.supplierRating ??
+    match.supplier?.supplierScore ??
+    match.supplier?.rating ??
+    match.supplier?.productRating ??
+    match.supplier?.score ??
+    match.supplier?.avgScore ??
+    match.supplier?.avgRating ??
+    match.supplier?.averageRating;
   if (ratingVal !== undefined && ratingVal !== null) {
-    const parsedRating = Number(ratingVal);
-    if (Number.isFinite(parsedRating) && parsedRating > 0 && parsedRating <= 5) {
+    const parsedRating = parseFiniteMetric(ratingVal);
+    if (typeof parsedRating === 'number' && parsedRating > 0 && parsedRating <= 5) {
       productData.rating = parsedRating;
       console.log(`[CJ Details] Got rating from listV2 (${source}): ${parsedRating}`);
     }
   }
   
-  const reviewVal = match.reviewCount ?? match.ratingCount ?? match.reviews ?? match.commentCount ?? match.evaluateCount;
+  const reviewVal =
+    match.reviewCount ??
+    match.reviewNum ??
+    match.review_count ??
+    match.ratingCount ??
+    match.rating_count ??
+    match.reviews ??
+    match.commentCount ??
+    match.comment_count ??
+    match.commentNum ??
+    match.comment_num ??
+    match.evaluateCount ??
+    match.evaluationCount ??
+    match.evaluateNum ??
+    match.totalReview ??
+    match.totalReviews ??
+    match.totalComment ??
+    match.totalComments ??
+    match.total_comment_num ??
+    match.supplier?.reviewCount ??
+    match.supplier?.reviewNum ??
+    match.supplier?.review_count ??
+    match.supplier?.ratingCount ??
+    match.supplier?.rating_count ??
+    match.supplier?.reviews ??
+    match.supplier?.commentCount ??
+    match.supplier?.comment_count ??
+    match.supplier?.commentNum ??
+    match.supplier?.comment_num ??
+    match.supplier?.evaluateCount ??
+    match.supplier?.evaluationCount ??
+    match.supplier?.evaluateNum ??
+    match.supplier?.totalReview ??
+    match.supplier?.totalReviews ??
+    match.supplier?.totalComment ??
+    match.supplier?.totalComments ??
+    match.supplier?.total_comment_num;
   if (reviewVal !== undefined && reviewVal !== null) {
-    const parsedCount = Number(reviewVal);
-    if (Number.isFinite(parsedCount) && parsedCount >= 0) {
+    const parsedCount = parseFiniteMetric(reviewVal);
+    if (typeof parsedCount === 'number' && parsedCount >= 0) {
       productData.reviewCount = parsedCount;
       console.log(`[CJ Details] Got reviewCount from listV2 (${source}): ${parsedCount}`);
     }
@@ -1497,17 +1619,92 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
       productData.productKeyParsed = productKeyArr.filter(k => k && k.length > 0).join(', ');
     }
     
-    // Also try to fetch description from listV2 with features parameter
-    // The /product/query endpoint does NOT return description, but listV2 with features=enable_description does
-    // Use features=enable_description,enable_category for maximum data
+    // Also enrich from listV2 with features parameter.
+    // /product/query often omits some fidelity metrics (rating/review/listed/inventory),
+    // so we fetch listV2 not only for description gaps but also when review signals are missing.
     const listV2Features = 'enable_description,enable_category';
-    
-    if (!productData.description) {
+    const ratingMetricKeys = ['rating', 'productRating', 'score', 'avgScore', 'avgRating', 'averageRating', 'supplierRating', 'supplierScore', 'starCount', 'star_count'];
+    const reviewMetricKeys = ['reviewCount', 'reviewNum', 'review_count', 'ratingCount', 'rating_count', 'reviews', 'commentCount', 'comment_count', 'commentNum', 'comment_num', 'evaluateCount', 'evaluationCount', 'evaluateNum', 'totalReview', 'totalReviews', 'totalComment', 'totalComments', 'total_comment_num'];
+
+    const parseMetric = (value: unknown): number | null => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value === 'string') {
+        const cleaned = value.replace(/,/g, '').trim();
+        if (!cleaned) return null;
+
+        const parsed = Number(cleaned);
+        if (Number.isFinite(parsed)) return parsed;
+
+        const matchNum = cleaned.match(/-?\d+(?:\.\d+)?/);
+        if (matchNum) {
+          const extracted = Number(matchNum[0]);
+          if (Number.isFinite(extracted)) return extracted;
+        }
+      }
+      return null;
+    };
+
+    const pickMetric = (candidate: any, keys: string[]): number | null => {
+      if (!candidate || typeof candidate !== 'object') return null;
+      for (const key of keys) {
+        const parsed = parseMetric(candidate?.[key]);
+        if (typeof parsed === 'number') return parsed;
+      }
+      return null;
+    };
+
+    const normalizeLookupToken = (value: unknown): string => String(value ?? '').trim().toLowerCase();
+    const targetPid = normalizeLookupToken(pid);
+    const targetSku = normalizeLookupToken(sku);
+    const matchesPid = (candidate: any): boolean => {
+      const candidatePid = normalizeLookupToken(candidate?.pid ?? candidate?.id ?? candidate?.productId);
+      return candidatePid.length > 0 && candidatePid === targetPid;
+    };
+    const matchesSku = (candidate: any): boolean => {
+      if (!targetSku) return false;
+      const candidateSku = normalizeLookupToken(candidate?.sku ?? candidate?.productSku ?? candidate?.cjSku);
+      return candidateSku.length > 0 && candidateSku === targetSku;
+    };
+
+    const hasRatingSignal = (candidate: any): boolean => {
+      const direct = pickMetric(candidate, ratingMetricKeys);
+      const nested = candidate?.supplier && typeof candidate.supplier === 'object'
+        ? pickMetric(candidate.supplier, ratingMetricKeys)
+        : null;
+      const value = direct ?? nested;
+      return typeof value === 'number' && value > 0 && value <= 5;
+    };
+
+    const hasReviewSignal = (candidate: any): boolean => {
+      const direct = pickMetric(candidate, reviewMetricKeys);
+      const nested = candidate?.supplier && typeof candidate.supplier === 'object'
+        ? pickMetric(candidate.supplier, reviewMetricKeys)
+        : null;
+      const value = direct ?? nested;
+      return typeof value === 'number' && value > 0;
+    };
+
+    const needsListV2Enrichment = (): boolean => {
+      const listedNum = Number(productData?.listedNum);
+      const warehouseInventoryNum = Number(productData?.warehouseInventoryNum);
+      const hasListedNum = Number.isFinite(listedNum) && listedNum > 0;
+      const hasInventoryNum = Number.isFinite(warehouseInventoryNum) && warehouseInventoryNum > 0;
+
+      return (
+        !productData?.description
+        || !hasRatingSignal(productData)
+        || !hasReviewSignal(productData)
+        || !hasListedNum
+        || !hasInventoryNum
+      );
+    };
+
+    if (needsListV2Enrichment()) {
       // Strategy 1: Direct search by PID (most reliable if CJ indexes by PID)
       try {
         const listV2Res = await cjFetch<any>(`/product/listV2?keyWord=${encodeURIComponent(pid)}&page=1&size=5&features=${listV2Features}`);
         const productList = extractListV2Products(listV2Res);
-        const match = productList.find((p: any) => p.id === pid || p.pid === pid);
+        const match = productList.find((p: any) => matchesPid(p));
         if (match) {
           mergeListV2Fields(productData, match, `PID search ${pid}`);
         }
@@ -1517,14 +1714,12 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
     }
     
     // Strategy 2: Search by exact SKU (reliable for products with unique SKUs)
-    if (!productData.description && sku) {
+    if (needsListV2Enrichment() && sku) {
       try {
         const listV2Res = await cjFetch<any>(`/product/listV2?keyWord=${encodeURIComponent(sku)}&page=1&size=10&features=${listV2Features}`);
         const productList = extractListV2Products(listV2Res);
         // Find exact match by PID or SKU
-        const match = productList.find((p: any) => 
-          p.id === pid || p.pid === pid || p.sku === sku || p.productSku === sku
-        );
+        const match = productList.find((p: any) => matchesPid(p) || matchesSku(p));
         if (match) {
           mergeListV2Fields(productData, match, `SKU search ${sku}`);
         }
@@ -1533,8 +1728,8 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
       }
     }
     
-    // Strategy 3: Search by product name if we still don't have description
-    if (!productData.description) {
+    // Strategy 3: Search by product name if we still have missing fidelity signals
+    if (needsListV2Enrichment()) {
       try {
         const productName = productData.productNameEn || productData.productName || productData.nameEn || '';
         if (productName && productName.length > 5) {
@@ -1544,11 +1739,11 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
           const productList = extractListV2Products(listV2Res);
           
           // Find exact match by PID first
-          let match = productList.find((p: any) => p.id === pid || p.pid === pid);
+          let match = productList.find((p: any) => matchesPid(p));
           
           // If no PID match, try SKU match
           if (!match && sku) {
-            match = productList.find((p: any) => p.sku === sku || p.productSku === sku);
+            match = productList.find((p: any) => matchesSku(p));
           }
           
           if (match) {
@@ -2036,14 +2231,65 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
   // Check multiple possible field names for supplier/product rating
   const rating = pickNum(
     item.supplierRating, item.supplierScore, item.starCount, item.star_count,
-    item.rating, item.productRating, item.score, item.avgScore, item.avgRating
+    item.rating, item.productRating, item.score, item.avgScore, item.avgRating, item.averageRating
   ) ?? null;
-  const reviewCount = pickNum(item.reviewCount, item.ratingCount, item.reviews, item.commentCount, item.evaluateCount) ?? null;
+  const reviewCount = pickNum(
+    item.reviewCount,
+    item.reviewNum,
+    item.review_count,
+    item.ratingCount,
+    item.rating_count,
+    item.reviews,
+    item.commentCount,
+    item.comment_count,
+    item.commentNum,
+    item.comment_num,
+    item.evaluateCount,
+    item.evaluationCount,
+    item.evaluateNum,
+    item.totalReview,
+    item.totalReviews,
+    item.totalComment,
+    item.totalComments,
+    item.total_comment_num
+  ) ?? null;
   
   // Also check for nested supplier object
   const supplierName = (item.supplierName || item.supplier?.name || item.vendorName || null) as string | null;
-  const supplierRatingFromNested = pickNum(item.supplier?.rating, item.supplier?.score, item.supplier?.starCount, item.supplier?.star_count) ?? null;
+  const supplierRatingFromNested = pickNum(
+    item.supplier?.supplierRating,
+    item.supplier?.supplierScore,
+    item.supplier?.rating,
+    item.supplier?.productRating,
+    item.supplier?.score,
+    item.supplier?.avgScore,
+    item.supplier?.avgRating,
+    item.supplier?.averageRating,
+    item.supplier?.starCount,
+    item.supplier?.star_count
+  ) ?? null;
+  const supplierReviewCountFromNested = pickNum(
+    item.supplier?.reviewCount,
+    item.supplier?.reviewNum,
+    item.supplier?.review_count,
+    item.supplier?.ratingCount,
+    item.supplier?.rating_count,
+    item.supplier?.reviews,
+    item.supplier?.commentCount,
+    item.supplier?.comment_count,
+    item.supplier?.commentNum,
+    item.supplier?.comment_num,
+    item.supplier?.evaluateCount,
+    item.supplier?.evaluationCount,
+    item.supplier?.evaluateNum,
+    item.supplier?.totalReview,
+    item.supplier?.totalReviews,
+    item.supplier?.totalComment,
+    item.supplier?.totalComments,
+    item.supplier?.total_comment_num
+  ) ?? null;
   const finalRating = rating ?? supplierRatingFromNested;
+  const finalReviewCount = reviewCount ?? supplierReviewCountFromNested;
 
   // Extract price range (use minimum variant price or product-level price)
   const variantPrices = variants.map(v => v.price).filter((p): p is number => typeof p === 'number' && p > 0);
@@ -2099,7 +2345,7 @@ export function mapCjItemToProductLike(item: any): CjProductLike | null {
     originCountryCode,
     // New fields for better product display
     rating: finalRating,  // Uses supplier rating if available
-    reviewCount,
+    reviewCount: finalReviewCount,
     supplierName,  // Supplier name from CJ API
     price: minPrice,
     categoryName,

@@ -523,6 +523,8 @@ const FIDELITY_PARITY_FIELDS = [
 
 type FidelityParityField = (typeof FIDELITY_PARITY_FIELDS)[number];
 
+const OPTIONAL_IMPORT_FIDELITY_COLUMNS = new Set<string>(['supplier_rating']);
+
 function sortJsonForParity(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => sortJsonForParity(item));
@@ -545,10 +547,11 @@ function toParitySignature(value: unknown): string {
 
 function findFidelityMismatches(
   expected: Record<FidelityParityField, unknown>,
-  actual: Record<string, unknown>
+  actual: Record<string, unknown>,
+  fields: readonly FidelityParityField[] = FIDELITY_PARITY_FIELDS
 ): FidelityParityField[] {
   const mismatches: FidelityParityField[] = [];
-  for (const field of FIDELITY_PARITY_FIELDS) {
+  for (const field of fields) {
     if (toParitySignature(expected[field]) !== toParitySignature(actual[field])) {
       mismatches.push(field);
     }
@@ -615,13 +618,22 @@ export async function POST(req: NextRequest) {
       const exists = await hasColumn('products', col).catch(() => false);
       if (!exists) missingProductFidelityColumns.push(col);
     }
-    if (missingProductFidelityColumns.length > 0) {
+
+    const optionalMissingProductFidelityColumns = missingProductFidelityColumns.filter((col) =>
+      OPTIONAL_IMPORT_FIDELITY_COLUMNS.has(col)
+    );
+    const blockingMissingProductFidelityColumns = missingProductFidelityColumns.filter((col) =>
+      !OPTIONAL_IMPORT_FIDELITY_COLUMNS.has(col)
+    );
+
+    if (blockingMissingProductFidelityColumns.length > 0) {
       return NextResponse.json({
         ok: false,
-        error: `Products table is missing required fidelity columns: ${missingProductFidelityColumns.join(', ')}. Please run latest Supabase migrations before importing.`,
-        missingColumns: missingProductFidelityColumns,
+        error: `Products table is missing required fidelity columns: ${blockingMissingProductFidelityColumns.join(', ')}. Please run latest Supabase migrations before importing.`,
+        missingColumns: blockingMissingProductFidelityColumns,
+        optionalMissingColumns: optionalMissingProductFidelityColumns,
         missingColumnsByTable: {
-          products: missingProductFidelityColumns,
+          products: blockingMissingProductFidelityColumns,
           product_queue: [],
         },
         remediation: {
@@ -630,6 +642,12 @@ export async function POST(req: NextRequest) {
           message: 'Use this endpoint to generate SQL for missing columns and follow schema reload instructions.',
         },
       }, { status: 400 });
+    }
+
+    if (optionalMissingProductFidelityColumns.length > 0) {
+      console.warn(
+        `[Import Execute] Continuing import with optional missing products columns: ${optionalMissingProductFidelityColumns.join(', ')}`
+      );
     }
 
     const queueFidelityRequiredColumns = [
@@ -661,14 +679,23 @@ export async function POST(req: NextRequest) {
       const exists = await hasColumn('product_queue', col).catch(() => false);
       if (!exists) missingQueueFidelityColumns.push(col);
     }
-    if (missingQueueFidelityColumns.length > 0) {
+
+    const optionalMissingQueueFidelityColumns = missingQueueFidelityColumns.filter((col) =>
+      OPTIONAL_IMPORT_FIDELITY_COLUMNS.has(col)
+    );
+    const blockingMissingQueueFidelityColumns = missingQueueFidelityColumns.filter((col) =>
+      !OPTIONAL_IMPORT_FIDELITY_COLUMNS.has(col)
+    );
+
+    if (blockingMissingQueueFidelityColumns.length > 0) {
       return NextResponse.json({
         ok: false,
-        error: `Product queue table is missing required fidelity columns: ${missingQueueFidelityColumns.join(', ')}. Please run latest Supabase migrations before importing.`,
-        missingColumns: missingQueueFidelityColumns,
+        error: `Product queue table is missing required fidelity columns: ${blockingMissingQueueFidelityColumns.join(', ')}. Please run latest Supabase migrations before importing.`,
+        missingColumns: blockingMissingQueueFidelityColumns,
+        optionalMissingColumns: optionalMissingQueueFidelityColumns,
         missingColumnsByTable: {
           products: [],
-          product_queue: missingQueueFidelityColumns,
+          product_queue: blockingMissingQueueFidelityColumns,
         },
         remediation: {
           endpoint: '/api/admin/migrate/product-queue',
@@ -677,6 +704,17 @@ export async function POST(req: NextRequest) {
         },
       }, { status: 400 });
     }
+
+    if (optionalMissingQueueFidelityColumns.length > 0) {
+      console.warn(
+        `[Import Execute] Continuing import with optional missing product_queue columns: ${optionalMissingQueueFidelityColumns.join(', ')}`
+      );
+    }
+
+    const fidelityParityFieldsToVerify: FidelityParityField[] = FIDELITY_PARITY_FIELDS.filter((field) => {
+      if (!OPTIONAL_IMPORT_FIDELITY_COLUMNS.has(field)) return true;
+      return !optionalMissingProductFidelityColumns.includes(field);
+    });
 
     const results: { id: number; success: boolean; shopixoId?: string; error?: string }[] = [];
 
@@ -733,18 +771,28 @@ export async function POST(req: NextRequest) {
             const existingSupplierRatingRaw = Number(qp.supplier_rating);
             const existingSupplierRating = Number.isFinite(existingSupplierRatingRaw) && existingSupplierRatingRaw > 0
               ? normalizeDisplayedRating(existingSupplierRatingRaw)
-              : null;
+              : undefined;
             const existingReviewCountRaw = Number(qp.review_count);
-            const existingReviewCount = Number.isFinite(existingReviewCountRaw) && existingReviewCountRaw >= 0
+            const existingReviewCount = Number.isFinite(existingReviewCountRaw) && existingReviewCountRaw > 0
               ? Math.floor(existingReviewCountRaw)
-              : 0;
+              : undefined;
+            const existingDisplayedRatingRaw = Number(qp.displayed_rating);
+            const existingDisplayedRating = Number.isFinite(existingDisplayedRatingRaw) && existingDisplayedRatingRaw > 0
+              ? normalizeDisplayedRating(existingDisplayedRatingRaw)
+              : existingSupplierRating;
+            const existingRatingConfidenceRaw = Number(qp.rating_confidence);
+            const existingRatingConfidence = Number.isFinite(existingRatingConfidenceRaw) && existingRatingConfidenceRaw > 0
+              ? Math.max(0.05, Math.min(1, existingRatingConfidenceRaw))
+              : undefined;
 
             const existingProductUpdate: Record<string, any> = {
               supplier_rating: existingSupplierRating,
               review_count: existingReviewCount,
+              displayed_rating: existingDisplayedRating,
+              rating_confidence: existingRatingConfidence,
             };
 
-            await omitMissingColumns(existingProductUpdate, ['supplier_rating', 'review_count']);
+            await omitMissingColumns(existingProductUpdate, ['supplier_rating', 'review_count', 'displayed_rating', 'rating_confidence']);
 
             const sanitizedExistingUpdate = Object.fromEntries(
               Object.entries(existingProductUpdate).filter(([, value]) => value !== undefined)
@@ -1053,26 +1101,29 @@ export async function POST(req: NextRequest) {
           color_image_map: Object.keys(alignedColorImageMap).length > 0 ? alignedColorImageMap : null,
         };
 
-        const { data: persistedFidelity, error: fidelityError } = await admin
-          .from('products')
-          .select(FIDELITY_PARITY_FIELDS.join(','))
-          .eq('id', productId)
-          .maybeSingle();
+        if (fidelityParityFieldsToVerify.length > 0) {
+          const { data: persistedFidelity, error: fidelityError } = await admin
+            .from('products')
+            .select(fidelityParityFieldsToVerify.join(','))
+            .eq('id', productId)
+            .maybeSingle();
 
-        if (fidelityError || !persistedFidelity) {
-          throw new Error(`Failed to verify persisted fidelity fields for product ${productId}`);
-        }
+          if (fidelityError || !persistedFidelity) {
+            throw new Error(`Failed to verify persisted fidelity fields for product ${productId}`);
+          }
 
-        const persistedFidelityRecord = persistedFidelity as unknown as Record<string, unknown>;
+          const persistedFidelityRecord = persistedFidelity as unknown as Record<string, unknown>;
 
-        const mismatchedFields = findFidelityMismatches(
-          expectedFidelity,
-          persistedFidelityRecord
-        );
+          const mismatchedFields = findFidelityMismatches(
+            expectedFidelity,
+            persistedFidelityRecord,
+            fidelityParityFieldsToVerify
+          );
 
-        if (mismatchedFields.length > 0) {
-          await admin.from('products').delete().eq('id', productId);
-          throw new Error(`Import fidelity check failed for fields: ${mismatchedFields.join(', ')}`);
+          if (mismatchedFields.length > 0) {
+            await admin.from('products').delete().eq('id', productId);
+            throw new Error(`Import fidelity check failed for fields: ${mismatchedFields.join(', ')}`);
+          }
         }
 
         if (hasVariantsTable && variants.length > 0) {

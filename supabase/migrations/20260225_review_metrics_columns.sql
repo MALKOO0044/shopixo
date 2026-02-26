@@ -2,6 +2,7 @@
 -- Adds imported supplier rating and reviewed-count columns used by PDP aggregation.
 
 ALTER TABLE IF EXISTS product_queue
+  ADD COLUMN IF NOT EXISTS supplier_rating NUMERIC(3,2),
   ADD COLUMN IF NOT EXISTS review_count INTEGER DEFAULT 0;
 
 ALTER TABLE IF EXISTS products

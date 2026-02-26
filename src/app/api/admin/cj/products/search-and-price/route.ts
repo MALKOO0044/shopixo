@@ -208,6 +208,7 @@ const SUPPLIER_RATING_KEYS = [
   'productRating',
   'score',
   'avgScore',
+  'avgRating',
   'averageRating',
   'supplierRating',
   'supplierScore',
@@ -217,13 +218,23 @@ const SUPPLIER_RATING_KEYS = [
 
 const SUPPLIER_REVIEW_COUNT_KEYS = [
   'reviewCount',
+  'reviewNum',
+  'review_count',
   'ratingCount',
+  'rating_count',
   'reviews',
   'commentCount',
+  'comment_count',
   'evaluateCount',
+  'evaluationCount',
+  'evaluateNum',
   'totalReview',
   'totalReviews',
+  'totalComment',
+  'totalComments',
+  'total_comment_num',
   'commentNum',
+  'comment_num',
 ];
 
 function pickFiniteNumber(source: any, keys: string[]): number | undefined {
@@ -232,9 +243,27 @@ function pickFiniteNumber(source: any, keys: string[]): number | undefined {
   for (const key of keys) {
     const raw = source?.[key];
     if (raw === undefined || raw === null || raw === '') continue;
-    const parsed = Number(raw);
-    if (Number.isFinite(parsed)) {
-      return parsed;
+
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      return raw;
+    }
+
+    if (typeof raw === 'string') {
+      const cleaned = raw.replace(/,/g, '').trim();
+      if (!cleaned) continue;
+
+      const parsed = Number(cleaned);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+
+      const match = cleaned.match(/-?\d+(?:\.\d+)?/);
+      if (match) {
+        const extracted = Number(match[0]);
+        if (Number.isFinite(extracted)) {
+          return extracted;
+        }
+      }
     }
   }
 
@@ -259,7 +288,7 @@ function extractSupplierReviewMetrics(
 
     const directRating = pickFiniteNumber(candidate.value, SUPPLIER_RATING_KEYS);
     const nestedRating = candidate.value?.supplier && typeof candidate.value.supplier === 'object'
-      ? pickFiniteNumber(candidate.value.supplier, ['rating', 'score'])
+      ? pickFiniteNumber(candidate.value.supplier, SUPPLIER_RATING_KEYS)
       : undefined;
     const parsedRating = directRating ?? nestedRating;
 
@@ -276,7 +305,7 @@ function extractSupplierReviewMetrics(
 
     const directReviewCount = pickFiniteNumber(candidate.value, SUPPLIER_REVIEW_COUNT_KEYS);
     const nestedReviewCount = candidate.value?.supplier && typeof candidate.value.supplier === 'object'
-      ? pickFiniteNumber(candidate.value.supplier, ['reviewCount', 'ratingCount', 'commentCount'])
+      ? pickFiniteNumber(candidate.value.supplier, SUPPLIER_REVIEW_COUNT_KEYS)
       : undefined;
     const parsedReviewCount = directReviewCount ?? nestedReviewCount;
 

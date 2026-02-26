@@ -122,6 +122,7 @@ export async function checkProductQueueSchema(): Promise<{
     { name: 'cj_product_cost', type: 'NUMERIC(10,2)', default: 'NULL' },
     { name: 'profit_margin', type: 'NUMERIC(5,2)', default: 'NULL' },
     { name: 'color_image_map', type: 'JSONB', default: 'NULL' },
+    { name: 'supplier_rating', type: 'NUMERIC(3,1)', default: 'NULL' },
     { name: 'displayed_rating', type: 'NUMERIC(3,1)', default: 'NULL' },
     { name: 'rating_confidence', type: 'NUMERIC(3,2)', default: 'NULL' },
     { name: 'review_count', type: 'INTEGER', default: '0' },
@@ -379,7 +380,6 @@ export async function addProductToQueue(batchId: number, product: {
     shipping_cost_usd: null,
     calculated_retail_sar: null,
     margin_applied: null,
-    supplier_rating: product.supplierRating ?? null,
     total_sales: product.totalSales ?? null,
     stock_total: product.totalStock,
     processing_days: product.processingDays ?? null,
@@ -417,6 +417,9 @@ export async function addProductToQueue(batchId: number, product: {
   
   // New columns that require migration - check if they exist first
   const newColumns: Record<string, any> = {
+    supplier_rating: Number.isFinite(Number(product.supplierRating))
+      ? Number(product.supplierRating)
+      : null,
     review_count: Number.isFinite(Number(product.reviewCount))
       ? Math.max(0, Math.floor(Number(product.reviewCount)))
       : 0,
