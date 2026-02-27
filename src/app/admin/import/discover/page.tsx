@@ -164,8 +164,8 @@ export default function ProductDiscoveryPage() {
   const [profitMargin, setProfitMargin] = useState(8);
   const [popularity, setPopularity] = useState("any");
   const [minRating, setMinRating] = useState("any");
-  // Always use CJPacket Ordinary - no filter option (100% accuracy requirement)
-  const shippingMethod = "cjpacket ordinary";
+  // Use configured shipping allowlist and select the cheapest matched option per variant quote.
+  const shippingMethod = "configured-cheapest";
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
   const [media, setMedia] = useState<"withVideo" | "imagesOnly" | "both">("both");
   
@@ -439,7 +439,7 @@ export default function ProductDiscoveryPage() {
       }
       
       if (allProducts.length === 0) {
-        setError("No products found with CJPacket Ordinary shipping. Try a different category.");
+        setError("No products found with configured shipping methods. Try a different category.");
       }
       
     } catch (e: any) {
@@ -1101,9 +1101,11 @@ export default function ProductDiscoveryPage() {
               Shipping Method
             </label>
             <div className="w-full px-3 py-2 border border-blue-300 rounded bg-blue-50 text-blue-800 font-medium">
-              CJPacket Ordinary (7-12 days)
+              Configured allowlist (auto-choose cheapest available)
             </div>
-            <p className="text-xs text-gray-500 mt-1">Fixed for 100% accuracy</p>
+            <p className="text-xs text-gray-500 mt-1">
+              LuWei Ordinary US, CJPacket Ordinary, YunExpress Ordinary, YunExpress Sensitive, CJPacket Sensitive, GOFO+, UniUni+, GOFO GC parcel+
+            </p>
           </div>
           
         </div>

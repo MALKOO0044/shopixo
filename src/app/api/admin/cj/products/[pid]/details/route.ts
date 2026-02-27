@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
-import { getAccessToken, freightCalculate, fetchProductDetailsByPid, getInventoryByPid, queryVariantInventory, getProductVariants } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsByPid, getInventoryByPid, queryVariantInventory, getProductVariants, findCheapestConfiguredShippingOption } from '@/lib/cj/v2';
 import type { PricedProduct, PricedVariant, InventoryVariant, ProductInventory } from '@/components/admin/import/preview/types';
 import { computeRating, normalizeDisplayedRating } from '@/lib/rating/engine';
 import { buildSyntheticReviewProfile } from '@/lib/reviews/synthetic-feedback';
@@ -781,14 +781,6 @@ export async function GET(
     // --- Build priced variants with shipping ---
     const pricedVariants: PricedVariant[] = [];
 
-    const findCJPacketOrdinary = (options: any[]) => {
-      return options.find((o: any) => 
-        /CJ\s*Packet\s*Ordinary/i.test(o.name || '') ||
-        o.code === 'CJPACKETORDINARY' ||
-        /ordinary/i.test(o.code || '')
-      ) || options[0];
-    };
-
     const calculateSellPriceWithMargin = (landedCostSar: number, marginPercent: number): number => {
       const margin = marginPercent / 100;
       return computeRetailFromLanded(landedCostSar, { margin });
@@ -827,17 +819,21 @@ export async function GET(
           });
           
           if (freight.ok && freight.options.length > 0) {
-            const cjPacket = findCJPacketOrdinary(freight.options);
-            if (cjPacket) {
-              shippingPriceUSD = cjPacket.price;
+            const selectedShippingOption = findCheapestConfiguredShippingOption(freight.options);
+            if (selectedShippingOption) {
+              shippingPriceUSD = selectedShippingOption.price;
               shippingPriceSAR = usdToSar(shippingPriceUSD);
               shippingAvailable = true;
-              logisticName = cjPacket.name;
-              if (cjPacket.logisticAgingDays) {
-                const { min, max } = cjPacket.logisticAgingDays;
+              logisticName = selectedShippingOption.name;
+              if (selectedShippingOption.logisticAgingDays) {
+                const { min, max } = selectedShippingOption.logisticAgingDays;
                 deliveryDays = max ? `${min}-${max} days` : `${min} days`;
               }
+            } else {
+              shippingError = 'No configured shipping methods available';
             }
+          } else if (freight.ok) {
+            shippingError = 'No shipping options to USA';
           } else if (!freight.ok) {
             shippingError = freight.message;
           }

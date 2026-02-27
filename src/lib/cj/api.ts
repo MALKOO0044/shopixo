@@ -186,7 +186,7 @@ export class CjApi {
       shippingCustomerName: payload.recipient?.name,
       shippingPhone: payload.recipient?.phone,
       remark: payload.remark || '',
-      logisticName: payload.logisticName || 'CJPacket Ordinary',
+      logisticName: payload.logisticName ? String(payload.logisticName) : undefined,
       fromCountryCode: 'CN',
       products: (payload.items || []).map((item: any) => ({
         vid: item.vid || item.cj_variant_id || '',

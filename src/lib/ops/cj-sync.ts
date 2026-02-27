@@ -2,7 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { slugify } from '@/lib/utils/slug'
 import { hasTable, hasColumn } from '@/lib/db-features'
 import type { CjProductLike } from '@/lib/cj/v2'
-import { freightCalculate } from '@/lib/cj/v2'
+import { freightCalculate, findCheapestConfiguredShippingOption } from '@/lib/cj/v2'
 import { loadPricingPolicy } from '@/lib/pricing-policy'
 import { computeRetailFromLanded, convertToSar, maybeUsdToSar } from '@/lib/pricing'
 import { normalizeCjImageKey } from '@/lib/cj/image-gallery'
@@ -177,6 +177,7 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
       try {
         const policy = await loadPricingPolicy()
         let shippingSar = 0
+        let shippingAvailable = false
         try {
           // Use variant vid for exact CJ "According to Shipping Method" data
           const variantVid = (minVariant as any)?.vid || minVariant?.sku || cj.productId;
@@ -187,16 +188,13 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
             quantity: 1
           })
           if (fc.ok) {
-            const cheapest = (fc.options || []).reduce<{ price: number; currency?: string; aging?: { min?: number; max?: number } } | null>((best: { price: number; currency?: string; aging?: { min?: number; max?: number } } | null, opt: any) => {
-              const p = Number(opt.price || 0)
-              if (!best || p < best.price) return { price: p, currency: opt.currency, aging: opt.logisticAgingDays }
-              return best
-            }, null)
-            if (cheapest) {
-              shippingSar = convertToSar(cheapest.price, cheapest.currency)
+            const selectedShippingOption = findCheapestConfiguredShippingOption(fc.options || [])
+            if (selectedShippingOption) {
+              shippingSar = convertToSar(selectedShippingOption.price, selectedShippingOption.currency)
+              shippingAvailable = true
               // If we have an aging estimate in days, persist to product
               try {
-                const aging = cheapest.aging
+                const aging = selectedShippingOption.logisticAgingDays
                 if (aging && (typeof aging.min === 'number' || typeof aging.max === 'number')) {
                   const avgDays = typeof aging.min === 'number' && typeof aging.max === 'number' ? (aging.min + aging.max) / 2
                     : (typeof aging.min === 'number' ? aging.min : (aging.max as number))
@@ -208,6 +206,10 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
             }
           }
         } catch {}
+
+        if (!shippingAvailable) {
+          console.log(`[CJ Sync] Product ${cj.productId}: no configured shipping quote available, recalculating price without shipping`)
+        }
 
         const baseCostSar = typeof minVariantPrice === 'number' ? maybeUsdToSar(minVariantPrice) : 0
         const landed = Math.max(0, baseCostSar) + Math.max(0, shippingSar)

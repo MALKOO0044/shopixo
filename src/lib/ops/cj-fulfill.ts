@@ -1,5 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { CjApi } from '@/lib/cj/api';
+import {
+  freightCalculate,
+  filterConfiguredShippingOptions,
+  resolveConfiguredShippingMethod,
+  type ConfiguredShippingMethodName,
+} from '@/lib/cj/v2';
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -171,6 +177,102 @@ interface ShippingInfo {
   postalCode: string;
   country: string;
   email?: string;
+}
+
+type FulfillmentShippingQuote = {
+  price: number;
+};
+
+async function resolveConfiguredLogisticNameForOrder(
+  items: Array<{ vid: string; quantity: number }>,
+  countryCode: string,
+): Promise<string | undefined> {
+  const normalizedCountryCode = /^[A-Z]{2,3}$/.test(countryCode) ? countryCode : 'US';
+  const perItemOptions: Array<Map<ConfiguredShippingMethodName, FulfillmentShippingQuote>> = [];
+
+  for (const item of items) {
+    if (!item.vid) continue;
+
+    try {
+      const freight = await freightCalculate({
+        countryCode: normalizedCountryCode,
+        vid: item.vid,
+        quantity: Math.max(1, Number(item.quantity) || 1),
+      });
+      if (!freight.ok || !Array.isArray(freight.options) || freight.options.length === 0) {
+        console.warn(`[CJ Fulfill] No shipping options for vid=${item.vid}; skipping explicit logisticName`);
+        return undefined;
+      }
+
+      const configuredOptions = filterConfiguredShippingOptions(freight.options);
+      if (configuredOptions.length === 0) {
+        console.warn(`[CJ Fulfill] No configured shipping options for vid=${item.vid}; skipping explicit logisticName`);
+        return undefined;
+      }
+
+      const optionsByMethod = new Map<ConfiguredShippingMethodName, FulfillmentShippingQuote>();
+      for (const option of configuredOptions) {
+        const method = resolveConfiguredShippingMethod(option);
+        if (!method) continue;
+
+        const previous = optionsByMethod.get(method);
+        if (!previous || option.price < previous.price) {
+          optionsByMethod.set(method, {
+            price: option.price,
+          });
+        }
+      }
+
+      if (optionsByMethod.size > 0) {
+        perItemOptions.push(optionsByMethod);
+      } else {
+        console.warn(`[CJ Fulfill] Failed to resolve configured shipping aliases for vid=${item.vid}; skipping explicit logisticName`);
+        return undefined;
+      }
+    } catch (e: any) {
+      console.warn(`[CJ Fulfill] Shipping lookup failed for vid=${item.vid}: ${e?.message || e}`);
+      return undefined;
+    }
+  }
+
+  if (perItemOptions.length === 0) {
+    return undefined;
+  }
+
+  let commonMethods = new Set<ConfiguredShippingMethodName>(perItemOptions[0].keys());
+  for (const optionsByMethod of perItemOptions.slice(1)) {
+    commonMethods = new Set(
+      Array.from(commonMethods).filter((method) => optionsByMethod.has(method)),
+    );
+  }
+
+  if (commonMethods.size > 0) {
+    let bestMethod: { method: ConfiguredShippingMethodName; totalPrice: number } | null = null;
+
+    for (const method of commonMethods) {
+      let totalPrice = 0;
+      for (const optionsByMethod of perItemOptions) {
+        const quote = optionsByMethod.get(method);
+        if (!quote) continue;
+        totalPrice += quote.price;
+      }
+
+      if (!bestMethod || totalPrice < bestMethod.totalPrice) {
+        bestMethod = {
+          method,
+          totalPrice,
+        };
+      }
+    }
+
+    if (bestMethod) {
+      console.log(`[CJ Fulfill] Selected configured shipping ${bestMethod.method} for order payload`);
+      return bestMethod.method;
+    }
+  }
+
+  console.warn('[CJ Fulfill] No configured shipping method common across all items; skipping explicit logisticName');
+  return undefined;
 }
 
 export async function maybeCreateCjOrderForOrderId(
@@ -526,20 +628,37 @@ export async function maybeCreateCjOrderForOrderId(
     });
   }
 
+  const shippingCountry = String(shippingInfo.country || 'US').trim();
+  const shippingCountryCode = /^[A-Za-z]{2,3}$/.test(shippingCountry)
+    ? shippingCountry.toUpperCase()
+    : undefined;
+  let logisticName: string | undefined;
+  if (shippingCountryCode) {
+    logisticName = await resolveConfiguredLogisticNameForOrder(
+      orderItems.map((item) => ({ vid: item.vid, quantity: item.quantity })),
+      shippingCountryCode,
+    );
+    if (!logisticName) {
+      console.warn(`[CJ Fulfill] No configured shipping method resolved for order ${order.id}; creating CJ order without explicit logisticName`);
+    }
+  } else {
+    console.warn(`[CJ Fulfill] Order ${order.id} has non-code country "${shippingCountry}"; skipping configured logisticName lookup`);
+  }
+
   const payload = {
     orderNo: `SHOPIXO-${order.id}-${Date.now()}`,
     recipient: {
       name: shippingInfo.name,
       phone: shippingInfo.phone,
-      country: shippingInfo.country || 'US',
+      country: shippingCountry || 'US',
       state: shippingInfo.state,
       city: shippingInfo.city,
       address1: shippingInfo.address1,
       address2: shippingInfo.address2,
       postalCode: shippingInfo.postalCode,
     },
-    shippingCountry: shippingInfo.country || 'US',
-    logisticName: 'CJPacket Ordinary',
+    shippingCountry: shippingCountry || 'US',
+    logisticName,
     packaging: {
       neutral: true,
       includePackingSlip: true,

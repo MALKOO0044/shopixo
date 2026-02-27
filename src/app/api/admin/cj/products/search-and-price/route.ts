@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getAccessToken, freightCalculate, fetchProductDetailsBatch, findCJPacketOrdinary, getInventoryByPid, queryVariantInventory } from '@/lib/cj/v2';
+import { getAccessToken, freightCalculate, fetchProductDetailsBatch, findCheapestConfiguredShippingOption, getInventoryByPid, queryVariantInventory } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
@@ -2249,18 +2249,18 @@ async function handleSearch(req: Request, isPost: boolean) {
               }
             } else if (freight.options.length > 0) {
               consecutiveRateLimitErrors = 0; // Reset on success
-              const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
-              if (cjPacketOrdinary) {
-                shippingPriceUSD = cjPacketOrdinary.price;
+              const selectedShippingOption = findCheapestConfiguredShippingOption(freight.options);
+              if (selectedShippingOption) {
+                shippingPriceUSD = selectedShippingOption.price;
                 shippingPriceSAR = usdToSar(shippingPriceUSD);
                 shippingAvailable = true;
-                logisticName = cjPacketOrdinary.name;
-                if (cjPacketOrdinary.logisticAgingDays) {
-                  const { min, max } = cjPacketOrdinary.logisticAgingDays;
+                logisticName = selectedShippingOption.name;
+                if (selectedShippingOption.logisticAgingDays) {
+                  const { min, max } = selectedShippingOption.logisticAgingDays;
                   deliveryDays = max ? `${min}-${max} days` : `${min} days`;
                 }
               } else {
-                shippingError = 'CJPacket Ordinary not available';
+                shippingError = 'No configured shipping methods available';
               }
             } else {
               shippingError = 'No shipping options to USA';
@@ -2414,18 +2414,18 @@ async function handleSearch(req: Request, isPost: boolean) {
                 }
               } else if (freight.options.length > 0) {
                 consecutiveRateLimitErrors = 0; // Reset on success
-                const cjPacketOrdinary = findCJPacketOrdinary(freight.options);
-                if (cjPacketOrdinary) {
-                  shippingPriceUSD = cjPacketOrdinary.price;
+                const selectedShippingOption = findCheapestConfiguredShippingOption(freight.options);
+                if (selectedShippingOption) {
+                  shippingPriceUSD = selectedShippingOption.price;
                   shippingPriceSAR = usdToSar(shippingPriceUSD);
                   shippingAvailable = true;
-                  logisticName = cjPacketOrdinary.name;
-                  if (cjPacketOrdinary.logisticAgingDays) {
-                    const { min, max } = cjPacketOrdinary.logisticAgingDays;
+                  logisticName = selectedShippingOption.name;
+                  if (selectedShippingOption.logisticAgingDays) {
+                    const { min, max } = selectedShippingOption.logisticAgingDays;
                     deliveryDays = max ? `${min}-${max} days` : `${min} days`;
                   }
                 } else {
-                  shippingError = 'CJPacket Ordinary not available';
+                  shippingError = 'No configured shipping methods available';
                   shippingErrors[shippingError] = (shippingErrors[shippingError] || 0) + 1;
                 }
               } else {
@@ -2459,7 +2459,7 @@ async function handleSearch(req: Request, isPost: boolean) {
               deliveryDays,
               logisticName,
             });
-            console.log(`[Search&Price] Product ${pid} variant ${i+1}: CJPacket Ordinary $${shippingPriceUSD.toFixed(2)}`);
+            console.log(`[Search&Price] Product ${pid} variant ${i + 1}: selected configured shipping ${logisticName} $${shippingPriceUSD.toFixed(2)}`);
           } else {
             console.log(`[Search&Price] Product ${pid} variant ${i+1}: ${shippingError}`);
           }
@@ -2554,8 +2554,8 @@ async function handleSearch(req: Request, isPost: boolean) {
       }
       
       if (pricedVariants.length === 0) {
-        // CJ confirmed ALL products support CJPacket Ordinary - likely a temporary API issue
-        console.log(`[Search&Price] Product ${pid} - shipping calc failed (API issue), skipping`);
+        // No allowed shipping method quote was available for this product
+        console.log(`[Search&Price] Product ${pid} - no configured shipping quote available, skipping`);
         skippedNoShipping++;
         continue;
       }

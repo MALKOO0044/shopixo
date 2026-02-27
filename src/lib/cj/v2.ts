@@ -173,6 +173,96 @@ export type CjShippingOption = {
   logisticAgingDays?: { min?: number; max?: number };
 };
 
+export const CJ_CONFIGURED_SHIPPING_METHODS = [
+  'LuWei Ordinary US',
+  'CJPacket Ordinary',
+  'YunExpress Ordinary',
+  'YunExpress Sensitive',
+  'CJPacket Sensitive',
+  'GOFO+',
+  'UniUni+',
+  'GOFO GC parcel+',
+] as const;
+
+export type ConfiguredShippingMethodName = (typeof CJ_CONFIGURED_SHIPPING_METHODS)[number];
+
+function normalizeShippingMethodToken(value: unknown): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\+/g, 'plus')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+const CONFIGURED_SHIPPING_METHOD_ALIASES: Record<ConfiguredShippingMethodName, string[]> = {
+  'LuWei Ordinary US': ['luweiordinaryus'],
+  'CJPacket Ordinary': ['cjpacketordinary'],
+  'YunExpress Ordinary': ['yunexpressordinary'],
+  'YunExpress Sensitive': ['yunexpresssensitive'],
+  'CJPacket Sensitive': ['cjpacketsensitive'],
+  'GOFO+': ['gofoplus', 'gofo'],
+  'UniUni+': ['uniuniplus', 'uniuni'],
+  'GOFO GC parcel+': ['gofogcparcelplus', 'gofogcparcel'],
+};
+
+const CONFIGURED_SHIPPING_METHOD_MATCHERS: Array<{
+  method: ConfiguredShippingMethodName;
+  aliases: string[];
+}> = CJ_CONFIGURED_SHIPPING_METHODS.map((method) => {
+  const aliases = CONFIGURED_SHIPPING_METHOD_ALIASES[method] || [method];
+  return {
+    method,
+    aliases: aliases.map(normalizeShippingMethodToken).filter(Boolean),
+  };
+});
+
+export function resolveConfiguredShippingMethod(option: CjShippingOption): ConfiguredShippingMethodName | undefined {
+  const normalizedName = normalizeShippingMethodToken(option.name);
+  const normalizedCode = normalizeShippingMethodToken(option.code);
+  if (!normalizedName && !normalizedCode) return undefined;
+
+  let matchedMethod: ConfiguredShippingMethodName | undefined;
+  let matchedAliasLength = 0;
+
+  for (const matcher of CONFIGURED_SHIPPING_METHOD_MATCHERS) {
+    for (const alias of matcher.aliases) {
+      if (!alias) continue;
+      if (normalizedName.includes(alias) || normalizedCode.includes(alias)) {
+        if (alias.length > matchedAliasLength) {
+          matchedAliasLength = alias.length;
+          matchedMethod = matcher.method;
+        }
+      }
+    }
+  }
+
+  return matchedMethod;
+}
+
+export function filterConfiguredShippingOptions(options: CjShippingOption[]): CjShippingOption[] {
+  return options.filter((option) => Boolean(resolveConfiguredShippingMethod(option)));
+}
+
+export function findCheapestConfiguredShippingOption(options: CjShippingOption[]): CjShippingOption | undefined {
+  const candidates = options
+    .map((option) => ({ option, method: resolveConfiguredShippingMethod(option) }))
+    .filter((entry): entry is { option: CjShippingOption; method: ConfiguredShippingMethodName } => Boolean(entry.method));
+
+  if (candidates.length === 0) {
+    console.log('[CJ Freight] No configured shipping methods matched. Available options:');
+    for (const o of options) {
+      console.log(`[CJ Freight]   - ${o.name} (code: ${o.code}): $${o.price.toFixed(2)}`);
+    }
+    return undefined;
+  }
+
+  candidates.sort((a, b) => a.option.price - b.option.price);
+  const selected = candidates[0];
+  console.log(
+    `[CJ Freight] Selected cheapest configured shipping: $${selected.option.price.toFixed(2)} USD (${selected.option.name} -> ${selected.method})`
+  );
+  return selected.option;
+}
+
 export type FreightResult = {
   ok: true;
   options: CjShippingOption[];
@@ -293,17 +383,14 @@ function parseFreightResponse(r: any): FreightResult {
 
 // Helper to find CJPacket Ordinary from shipping options
 export function findCJPacketOrdinary(options: CjShippingOption[]): CjShippingOption | undefined {
-  // Normalize function: lowercase, remove all non-letter characters
-  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
-  
   // We're looking for anything that contains "cjpacketordinary" when normalized
   // This handles: "CJPacket Ordinary", "CJ Packet Ordinary", "CJ Packet Ordinary USPS", 
   // "CJPacket Ordinary+", "CJ-Packet-Ordinary", etc.
-  const TARGET = 'cjpacketordinary';
+  const TARGET = normalizeShippingMethodToken('CJPacket Ordinary');
   
   for (const option of options) {
-    const normalizedName = normalize(option.name);
-    const normalizedCode = normalize(option.code);
+    const normalizedName = normalizeShippingMethodToken(option.name);
+    const normalizedCode = normalizeShippingMethodToken(option.code);
     
     if (normalizedName.includes(TARGET) || normalizedCode.includes(TARGET)) {
       console.log(`[CJ Freight] Selected CJPacket Ordinary: $${option.price.toFixed(2)} USD (${option.name})`);

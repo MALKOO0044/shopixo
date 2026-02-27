@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { loggerForRequest } from '@/lib/log'
 import { shippingLimiter, getClientIp } from '@/lib/ratelimit'
-import { queryProductByPidOrKeyword, mapCjItemToProductLike, freightCalculate } from '@/lib/cj/v2'
+import {
+  queryProductByPidOrKeyword,
+  mapCjItemToProductLike,
+  freightCalculate,
+  filterConfiguredShippingOptions,
+  findCheapestConfiguredShippingOption,
+} from '@/lib/cj/v2'
 import { loadPricingPolicy } from '@/lib/pricing-policy'
 import { computeRetailFromLanded, convertToSar } from '@/lib/pricing'
 
@@ -75,8 +81,10 @@ export async function POST(req: Request) {
     }
 
     // Freight calculation - use variant vid for exact CJ "According to Shipping Method" data
+    // and only allow configured shipping methods.
     let shippingSar = 0
     let options: any[] = []
+    let shippingError: string | null = null
     try {
       // Find the variant's vid (UUID) from the raw CJ data
       const chosenVariant = (itemRaw?.variants || []).find((v: any) => v.variantSku === chosenSku || v.vid === chosenSku);
@@ -87,16 +95,27 @@ export async function POST(req: Request) {
         vid: variantVid,
         quantity: parsed.quantity
       })
-      if (fc.ok) {
-        options = fc.options || []
-        const cheapest = options.reduce<{ price: number; currency?: string } | null>((best, opt: any) => {
-          const p = Number(opt.price || 0)
-          if (!best || p < best.price) return { price: p, currency: opt.currency }
-          return best
-        }, null)
-        if (cheapest) shippingSar = convertToSar(cheapest.price, cheapest.currency)
+      if (!fc.ok) {
+        shippingError = fc.message || 'Shipping failed'
+      } else {
+        const allOptions = fc.options || []
+        const selectedShippingOption = findCheapestConfiguredShippingOption(allOptions)
+        options = filterConfiguredShippingOptions(allOptions)
+        if (selectedShippingOption) {
+          shippingSar = convertToSar(selectedShippingOption.price, selectedShippingOption.currency)
+        } else {
+          shippingError = 'No configured shipping methods available'
+        }
       }
-    } catch {}
+    } catch (e: any) {
+      shippingError = e?.message || 'Shipping failed'
+    }
+
+    if (shippingError) {
+      const r = NextResponse.json({ ok: false, error: shippingError }, { status: 400 })
+      r.headers.set('x-request-id', log.requestId)
+      return r
+    }
 
     const policy = await loadPricingPolicy()
     const landed = Math.max(0, cost) + Math.max(0, shippingSar)
