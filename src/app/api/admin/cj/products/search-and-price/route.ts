@@ -1290,7 +1290,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       
       let rating: number | undefined;
       let reviewCount = 0;
-      let reviewMetricsSource: 'synthetic' | 'none' = 'none';
+      let reviewMetricsSource: 'supplier' | 'synthetic' | 'none' = 'none';
       const supplierName = String(
         source.supplierName || source.supplier?.name || source.vendorName || source.supplierNickName || ''
       ).trim() || undefined;
@@ -2525,10 +2525,16 @@ async function handleSearch(req: Request, isPost: boolean) {
         ? Number((usdPrices.reduce((sum, price) => sum + price, 0) / usdPrices.length).toFixed(2))
         : 0;
 
-      const syntheticReviewProfile = buildSyntheticReviewProfile(pid);
-      rating = syntheticReviewProfile.rating;
-      reviewCount = syntheticReviewProfile.reviewCount;
-      reviewMetricsSource = 'synthetic';
+      const supplierMetrics = extractSupplierReviewMetrics(source, source !== item ? item : undefined);
+      rating = supplierMetrics.rating;
+      reviewCount = supplierMetrics.reviewCount;
+      reviewMetricsSource = supplierMetrics.source === 'none' ? 'none' : 'supplier';
+
+      if (!(Number.isFinite(reviewCount) && reviewCount > 0)) {
+        const syntheticReviewProfile = buildSyntheticReviewProfile(pid);
+        reviewCount = syntheticReviewProfile.reviewCount;
+        reviewMetricsSource = 'synthetic';
+      }
 
       console.log(
         `[Search&Price] Product ${pid} review metrics: rating=${typeof rating === 'number' ? rating.toFixed(2) : 'n/a'} reviewCount=${reviewCount} source=${reviewMetricsSource}`

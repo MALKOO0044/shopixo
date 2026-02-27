@@ -266,7 +266,7 @@ export async function GET(
 
     let rating: number | undefined;
     let reviewCount = 0;
-    let reviewMetricsSource: 'synthetic' | 'none' = 'none';
+    let reviewMetricsSource: 'supplier' | 'synthetic' | 'none' = 'none';
     let displayedRating: number | undefined;
     let ratingConfidence: number | undefined;
 
@@ -915,10 +915,16 @@ export async function GET(
       videoDelivery.deliveryUrl.length > 0 &&
       videoDelivery.qualityGatePassed;
 
-    const syntheticReviewProfile = buildSyntheticReviewProfile(pid);
-    rating = syntheticReviewProfile.rating;
-    reviewCount = syntheticReviewProfile.reviewCount;
-    reviewMetricsSource = 'synthetic';
+    const supplierMetrics = extractSupplierReviewMetrics(source);
+    rating = supplierMetrics.rating;
+    reviewCount = supplierMetrics.reviewCount;
+    reviewMetricsSource = supplierMetrics.source === 'none' ? 'none' : 'supplier';
+
+    if (!(Number.isFinite(reviewCount) && reviewCount > 0)) {
+      const syntheticReviewProfile = buildSyntheticReviewProfile(pid);
+      reviewCount = syntheticReviewProfile.reviewCount;
+      reviewMetricsSource = 'synthetic';
+    }
 
     console.log(
       `[ProductDetails] Product ${pid} review metrics: rating=${typeof rating === 'number' ? rating.toFixed(2) : 'n/a'} reviewCount=${reviewCount} source=${reviewMetricsSource}`
