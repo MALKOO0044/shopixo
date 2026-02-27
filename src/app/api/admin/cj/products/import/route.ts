@@ -7,6 +7,8 @@ import { hasTable, hasColumn } from '@/lib/db-features';
 import { loggerForRequest } from '@/lib/log';
 import { isKillSwitchOn } from '@/lib/settings';
 import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization';
+import { normalizeCjImageKey } from '@/lib/cj/image-gallery';
+import { enhanceProductImageUrl } from '@/lib/media/image-quality';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -161,12 +163,24 @@ export async function POST(req: Request) {
               return acc + cjVal + factoryVal;
             }, 0);
 
+        const normalizedImages: string[] = [];
+        const seenImageKeys = new Set<string>();
+        for (const imageUrl of Array.isArray(cj.images) ? cj.images : []) {
+          if (typeof imageUrl !== 'string') continue;
+          const enhanced = enhanceProductImageUrl(imageUrl.trim(), 'gallery');
+          if (!/^https?:\/\//i.test(enhanced)) continue;
+          const key = normalizeCjImageKey(enhanced) || enhanced;
+          if (seenImageKeys.has(key)) continue;
+          seenImageKeys.add(key);
+          normalizedImages.push(enhanced);
+        }
+
         let productPayload: any = {
           title: cj.name,
           slug: existing?.slug || baseSlug,
           description: '',
           price: defaultPrice,
-          images: cj.images || [],
+          images: normalizedImages,
           category: categoryParam,
           stock: totalStock,
           video_url: cj.videoUrl || null,

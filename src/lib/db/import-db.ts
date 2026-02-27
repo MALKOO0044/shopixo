@@ -3,7 +3,9 @@ import { computeRating, normalizeDisplayedRating } from '@/lib/rating/engine';
 import { hasTable } from '@/lib/db-features';
 import { sarToUsd } from '@/lib/pricing';
 import { normalizeCjVideoUrl } from '@/lib/cj/video';
+import { normalizeCjImageKey } from '@/lib/cj/image-gallery';
 import { normalizeSizeList } from '@/lib/cj/size-normalization';
+import { enhanceProductImageUrl } from '@/lib/media/image-quality';
 import { buildSyntheticReviewProfile } from '@/lib/reviews/synthetic-feedback';
 
 let supabaseAdmin: SupabaseClient | null = null;
@@ -322,6 +324,32 @@ export async function addProductToQueue(batchId: number, product: {
   }
   const deduplicatedAvailableColors = Array.from(availableColorMap.values());
 
+  const normalizedQueueImages: string[] = [];
+  const seenImageKeys = new Set<string>();
+  for (const imageUrl of Array.isArray(product.images) ? product.images : []) {
+    if (typeof imageUrl !== 'string') continue;
+    const enhanced = enhanceProductImageUrl(imageUrl.trim(), 'gallery');
+    if (!/^https?:\/\//i.test(enhanced)) continue;
+    const key = normalizeCjImageKey(enhanced) || enhanced;
+    if (seenImageKeys.has(key)) continue;
+    seenImageKeys.add(key);
+    normalizedQueueImages.push(enhanced);
+  }
+
+  const normalizedColorImageMap = (() => {
+    if (!product.colorImageMap || typeof product.colorImageMap !== 'object') return null;
+
+    const entries: [string, string][] = [];
+    for (const [color, imageUrl] of Object.entries(product.colorImageMap)) {
+      if (typeof imageUrl !== 'string') continue;
+      const enhanced = enhanceProductImageUrl(imageUrl.trim(), 'gallery');
+      if (!/^https?:\/\//i.test(enhanced)) continue;
+      entries.push([color, enhanced]);
+    }
+
+    return entries.length > 0 ? Object.fromEntries(entries) : null;
+  })();
+
   const imagesCount = Array.isArray(product.images) ? product.images.length : 0;
   const vpArray: any[] = Array.isArray(product.variantPricing) ? product.variantPricing : [];
   const usdCandidates: number[] = [];
@@ -392,7 +420,7 @@ export async function addProductToQueue(batchId: number, product: {
     product_note: product.productNote || null,
     packing_list: product.packingList || null,
     category: product.category,
-    images: product.images,
+    images: normalizedQueueImages.length > 0 ? normalizedQueueImages : product.images,
     variants: product.variants,
     cj_price_usd: minVariantUsd,
     shipping_cost_usd: null,
@@ -447,7 +475,7 @@ export async function addProductToQueue(batchId: number, product: {
     cj_shipping_cost: product.cjShippingCost || null,
     cj_product_cost: product.cjProductCost || null,
     profit_margin: product.profitMargin || null,
-    color_image_map: product.colorImageMap || null,
+    color_image_map: normalizedColorImageMap,
     product_code: productCode,
     video_url: canonicalVideoUrl || null,
     video_source_url: normalizedVideoSourceUrl || null,

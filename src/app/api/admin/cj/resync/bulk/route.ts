@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { queryProductByPidOrKeyword } from "@/lib/cj/v2";
 import { ensureAdmin } from "@/lib/auth/admin-guard";
 import { normalizeSingleSize, normalizeSizeList } from "@/lib/cj/size-normalization";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -185,7 +186,10 @@ async function resyncProduct(supabase: any, product: any): Promise<{ ok: boolean
         cj_variant_id: v.vid || v.variantId || null,
         price: typeof v.sellPrice === 'number' ? v.sellPrice : (typeof v.price === 'number' ? v.price : null),
         stock: stock,
-        image_url: v.variantImage || v.imageUrl || null,
+        image_url:
+          typeof (v.variantImage || v.imageUrl) === 'string'
+            ? enhanceProductImageUrl(String(v.variantImage || v.imageUrl), 'gallery')
+            : null,
       };
     });
 

@@ -7,6 +7,8 @@ import { loggerForRequest } from '@/lib/log';
 import { calculateRetailSar, usdToSar } from '@/lib/pricing';
 import { isKillSwitchOn } from '@/lib/settings';
 import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization';
+import { normalizeCjImageKey } from '@/lib/cj/image-gallery';
+import { enhanceProductImageUrl } from '@/lib/media/image-quality';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -224,7 +226,21 @@ export async function GET(req: Request) {
           if (typeof base === 'number') update.price = base;
         }
         if (updateImages && Array.isArray(cj.images) && cj.images.length > 0) {
-          update.images = cj.images;
+          const normalizedImages: string[] = [];
+          const seenImageKeys = new Set<string>();
+          for (const imageUrl of cj.images) {
+            if (typeof imageUrl !== 'string') continue;
+            const enhanced = enhanceProductImageUrl(imageUrl.trim(), 'gallery');
+            if (!/^https?:\/\//i.test(enhanced)) continue;
+            const key = normalizeCjImageKey(enhanced) || enhanced;
+            if (seenImageKeys.has(key)) continue;
+            seenImageKeys.add(key);
+            normalizedImages.push(enhanced);
+          }
+
+          if (normalizedImages.length > 0) {
+            update.images = normalizedImages;
+          }
         }
         if (updateVideo) {
           if (availableVideoColumns.has('video_url')) {

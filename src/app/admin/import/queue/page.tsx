@@ -935,7 +935,7 @@ export default function QueuePage() {
                       <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
                         {product.images[0] ? (
                           <SmartImage
-                            src={enhanceProductImageUrl(product.images[0], "thumbnail")}
+                            src={enhanceProductImageUrl(product.images[0], "card")}
                             alt={product.name_en}
                             fill
                             quality={95}

@@ -5,7 +5,9 @@ import type { CjProductLike } from '@/lib/cj/v2'
 import { freightCalculate } from '@/lib/cj/v2'
 import { loadPricingPolicy } from '@/lib/pricing-policy'
 import { computeRetailFromLanded, convertToSar, maybeUsdToSar } from '@/lib/pricing'
+import { normalizeCjImageKey } from '@/lib/cj/image-gallery'
 import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization'
+import { enhanceProductImageUrl } from '@/lib/media/image-quality'
 
 function getSupabaseAdmin(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined
@@ -73,6 +75,18 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
     }
     const deduplicatedAvailableColors = Array.from(availableColorMap.values())
 
+    const normalizedSyncImages: string[] = []
+    const seenSyncImageKeys = new Set<string>()
+    for (const imageUrl of Array.isArray(cj.images) ? cj.images : []) {
+      if (typeof imageUrl !== 'string') continue
+      const enhanced = enhanceProductImageUrl(imageUrl.trim(), 'gallery')
+      if (!/^https?:\/\//i.test(enhanced)) continue
+      const key = normalizeCjImageKey(enhanced) || enhanced
+      if (seenSyncImageKeys.has(key)) continue
+      seenSyncImageKeys.add(key)
+      normalizedSyncImages.push(enhanced)
+    }
+
     const productPayload: any = {
       title: cj.name,
       slug: existing?.slug || baseSlug,
@@ -82,7 +96,7 @@ export async function upsertProductFromCj(cj: CjProductLike, options: UpsertOpti
     }
 
     const optional: Record<string, any> = {
-      images: options.updateImages ? (cj.images || []) : undefined,
+      images: options.updateImages ? normalizedSyncImages : undefined,
       video_url: options.updateVideo ? (cj.videoUrl || null) : undefined,
       video_source_url: options.updateVideo ? (cj.videoSourceUrl || null) : undefined,
       video_4k_url: options.updateVideo ? (cj.video4kUrl || null) : undefined,

@@ -111,11 +111,13 @@ function buildDiscoverPreviewGallery(product: PricedProduct | null | undefined):
     const candidate = raw.replace(/&amp;/g, '&').trim();
     if (!isValidDiscoverGalleryImageUrl(candidate)) return;
 
-    const key = normalizeDiscoverGalleryImageKey(candidate);
+    const enhancedCandidate = enhanceProductImageUrl(candidate, 'gallery');
+
+    const key = normalizeDiscoverGalleryImageKey(enhancedCandidate);
     if (!key || seen.has(key)) return;
 
     seen.add(key);
-    merged.push(candidate);
+    merged.push(enhancedCandidate);
   };
 
   for (const imageUrl of product.images || []) {

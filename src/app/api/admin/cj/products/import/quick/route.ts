@@ -7,6 +7,8 @@ import { hasTable, hasColumn } from '@/lib/db-features';
 import { loggerForRequest } from '@/lib/log';
 import { isKillSwitchOn } from '@/lib/settings';
 import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization';
+import { normalizeCjImageKey } from '@/lib/cj/image-gallery';
+import { enhanceProductImageUrl } from '@/lib/media/image-quality';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -193,6 +195,18 @@ export async function GET(req: Request) {
         }
         const deduplicatedAvailableColors = Array.from(availableColorMap.values());
 
+        const normalizedImages: string[] = [];
+        const seenImageKeys = new Set<string>();
+        for (const imageUrl of Array.isArray(cj.images) ? cj.images : []) {
+          if (typeof imageUrl !== 'string') continue;
+          const enhanced = enhanceProductImageUrl(imageUrl.trim(), 'gallery');
+          if (!/^https?:\/\//i.test(enhanced)) continue;
+          const key = normalizeCjImageKey(enhanced) || enhanced;
+          if (seenImageKeys.has(key)) continue;
+          seenImageKeys.add(key);
+          normalizedImages.push(enhanced);
+        }
+
         let productPayload: any = {
           title: cj.name,
           slug: existing?.slug || baseSlug,
@@ -204,7 +218,7 @@ export async function GET(req: Request) {
         // optional fields
         const optional: Record<string, any> = {
           description: '',
-          images: cj.images || [],
+          images: normalizedImages,
           video_url: cj.videoUrl || null,
           video_source_url: cj.videoSourceUrl || null,
           video_4k_url: cj.video4kUrl || null,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchProductDetailsBatch } from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { createClient } from '@supabase/supabase-js';
+import { enhanceProductImageUrl } from '@/lib/media/image-quality';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -37,7 +38,7 @@ function extractColorImageMap(source: any): ColorImageMap {
           
           if (cleanColor && cleanColor.length > 0 && cleanColor.length < 50 && /[a-zA-Z]/.test(cleanColor)) {
             if (typeof colorImg === 'string' && colorImg.startsWith('http')) {
-              colorImageMap[cleanColor] = colorImg;
+              colorImageMap[cleanColor] = enhanceProductImageUrl(colorImg, 'gallery');
             }
           }
         }

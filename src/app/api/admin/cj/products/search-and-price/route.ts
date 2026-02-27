@@ -506,25 +506,32 @@ function resolveColorImageFromMap(
   colorImageMap: Record<string, string>,
   fallback?: string
 ): string | undefined {
-  if (fallback && typeof fallback === 'string' && fallback.startsWith('http')) return fallback;
-  if (!color || !colorImageMap || Object.keys(colorImageMap).length === 0) return fallback;
+  const normalizedFallback =
+    typeof fallback === 'string' && fallback.startsWith('http')
+      ? enhanceProductImageUrl(fallback.trim(), 'gallery')
+      : fallback;
+
+  if (typeof normalizedFallback === 'string' && normalizedFallback.startsWith('http')) return normalizedFallback;
+  if (!color || !colorImageMap || Object.keys(colorImageMap).length === 0) return normalizedFallback;
 
   const exact = colorImageMap[color];
-  if (typeof exact === 'string' && exact.startsWith('http')) return exact;
+  if (typeof exact === 'string' && exact.startsWith('http')) {
+    return enhanceProductImageUrl(exact.trim(), 'gallery');
+  }
 
   const target = normalizeVariantColorToken(color);
-  if (!target) return fallback;
+  if (!target) return normalizedFallback;
 
   for (const [mapColor, imageUrl] of Object.entries(colorImageMap)) {
     if (typeof imageUrl !== 'string' || !imageUrl.startsWith('http')) continue;
     const key = normalizeVariantColorToken(mapColor);
     if (!key) continue;
     if (key === target || key.includes(target) || target.includes(key)) {
-      return imageUrl;
+      return enhanceProductImageUrl(imageUrl.trim(), 'gallery');
     }
   }
 
-  return fallback;
+  return normalizedFallback;
 }
 
 function extractVariantColorSize(variant: any, fallbackName?: string): { color?: string; size?: string } {
@@ -1844,7 +1851,7 @@ async function handleSearch(req: Request, isPost: boolean) {
                 const colorImg = pv.image || pv.imageUrl || pv.propImage || pv.bigImage || pv.pic || '';
                 if (cleanColor && cleanColor.length > 0 && cleanColor.length < 50 && /[a-zA-Z]/.test(cleanColor)) {
                   if (typeof colorImg === 'string' && colorImg.startsWith('http')) {
-                    const normalizedColorImage = colorImg.trim();
+                    const normalizedColorImage = enhanceProductImageUrl(colorImg.trim(), 'gallery');
                     colorImageMap[cleanColor] = normalizedColorImage;
                     // Also add to variantImages list
                     pushVariantImage(normalizedColorImage);

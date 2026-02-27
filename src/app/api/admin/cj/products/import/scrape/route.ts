@@ -7,6 +7,7 @@ import { slugify } from '@/lib/utils/slug';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { isKillSwitchOn } from '@/lib/settings';
 import { build4kVideoDelivery } from '@/lib/video/delivery';
+import { enhanceProductImageUrl } from '@/lib/media/image-quality';
 
 // Ensure this route is always dynamic and not cached at the edge
 export const dynamic = 'force-dynamic';
@@ -39,13 +40,20 @@ async function productVariantsTableExists(_admin: any): Promise<boolean> {
 }
 
 function normalizeUrl(u: string): string {
+  const raw = String(u || '').trim();
+  if (!raw) return '';
+  const httpsNormalized = raw.startsWith('http://') ? `https://${raw.slice('http://'.length)}` : raw;
   try {
-    const url = new URL(u);
+    const url = new URL(httpsNormalized);
     url.hash = '';
-    url.search = '';
-    url.protocol = 'https:';
     return url.toString();
-  } catch { return u; }
+  } catch {
+    return httpsNormalized;
+  }
+}
+
+function normalizeImageUrl(u: string): string {
+  return enhanceProductImageUrl(normalizeUrl(u), 'gallery');
 }
 
 function sanitizeTitle(t: string): string {
@@ -76,11 +84,11 @@ function extractFromHtml(html: string, pageUrl: string) {
   const imgs: string[] = [];
   const attrImgs = html.matchAll(/<img[^>]+(?:data-src|src)=["']([^"']+\.(?:jpg|jpeg|png|webp))(?:\?[^"']*)?["'][^>]*>/ig);
   for (const m of attrImgs) {
-    if (typeof m[1] === 'string') imgs.push(normalizeUrl(m[1]));
+    if (typeof m[1] === 'string') imgs.push(normalizeImageUrl(m[1]));
   }
   // Also catch direct URLs
   const directImgs = html.matchAll(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"'<>]*)?/ig);
-  for (const m of directImgs) { if (typeof m[0] === 'string') imgs.push(normalizeUrl(m[0])); }
+  for (const m of directImgs) { if (typeof m[0] === 'string') imgs.push(normalizeImageUrl(m[0])); }
 
   // Filter out icons/logos/ui/badges/flags/size-charts/etc.
   const deny = /(sprite|icon|favicon|logo|placeholder|blank|loading|alipay|wechat|whatsapp|kefu|service|avatar|thumb|thumbnail|small|tiny|mini|sizechart|size\s*chart|chart|table|guide|tips|hot|badge|flag|promo|banner|sale|discount|qr|cm|inch)/i;

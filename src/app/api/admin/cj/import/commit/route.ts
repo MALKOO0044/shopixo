@@ -7,6 +7,8 @@ import { mapCjItemToProductLike, queryProductByPidOrKeyword } from '@/lib/cj/v2'
 import { calculateRetailSar, usdToSar } from '@/lib/pricing'
 import { hasColumn, hasTable } from '@/lib/db-features'
 import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization'
+import { normalizeCjImageKey } from '@/lib/cj/image-gallery'
+import { enhanceProductImageUrl } from '@/lib/media/image-quality'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -67,7 +69,17 @@ export async function POST(req: Request) {
         if (!cj) throw new Error('CJ map failed')
 
         // Collect product payload
-        const images = cj.images || []
+        const images: string[] = []
+        const seenImageKeys = new Set<string>()
+        for (const imageUrl of Array.isArray(cj.images) ? cj.images : []) {
+          if (typeof imageUrl !== 'string') continue
+          const enhanced = enhanceProductImageUrl(imageUrl.trim(), 'gallery')
+          if (!/^https?:\/\//i.test(enhanced)) continue
+          const key = normalizeCjImageKey(enhanced) || enhanced
+          if (seenImageKeys.has(key)) continue
+          seenImageKeys.add(key)
+          images.push(enhanced)
+        }
         const video = cj.videoUrl || null
         const mediaMode = typeof it.mediaMode === 'string' ? it.mediaMode : mediaModeFromBody
         const category = it.category || 'General'

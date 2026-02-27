@@ -9,6 +9,7 @@ import { normalizeCjImageKey } from "@/lib/cj/image-gallery";
 import { normalizeSingleSize, normalizeSizeList } from "@/lib/cj/size-normalization";
 import { requiresVideoForMediaMode } from "@/lib/video/delivery";
 import { buildSyntheticReviewProfile } from "@/lib/reviews/synthetic-feedback";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 
 // Helper to find category by name/slug/CJ-link and link product to category hierarchy
 async function linkProductToCategory(admin: any, productId: number, categoryName: string, cjCategoryId?: string, supabaseCategoryId?: number): Promise<boolean> {
@@ -387,13 +388,15 @@ function sanitizeQueueGalleryImages(candidates: unknown[], maxImages: number = 5
     if (typeof candidate !== 'string') continue;
     const cleaned = candidate.trim();
     if (!cleaned) continue;
-    if (!/^https?:\/\//i.test(cleaned)) continue;
 
-    const key = normalizeCjImageKey(cleaned);
+    const enhanced = enhanceProductImageUrl(cleaned, 'gallery');
+    if (!/^https?:\/\//i.test(enhanced)) continue;
+
+    const key = normalizeCjImageKey(enhanced);
     if (!key || seen.has(key)) continue;
 
     seen.add(key);
-    filtered.push(cleaned);
+    filtered.push(enhanced);
     if (filtered.length >= maxImages) break;
   }
 
@@ -431,9 +434,9 @@ function sanitizeImportProductImages(candidates: unknown[], maxImages: number = 
     try {
       const parsed = new URL(cleaned);
       parsed.hash = '';
-      normalizedCandidates.push(parsed.toString());
+      normalizedCandidates.push(enhanceProductImageUrl(parsed.toString(), 'gallery'));
     } catch {
-      normalizedCandidates.push(cleaned);
+      normalizedCandidates.push(enhanceProductImageUrl(cleaned, 'gallery'));
     }
   }
 
@@ -479,7 +482,10 @@ function parseColorImageMap(value: unknown): Record<string, string> {
   const normalized: Record<string, string> = {};
   for (const [key, url] of Object.entries(parsed as Record<string, unknown>)) {
     if (typeof url === 'string' && url) {
-      normalized[key] = url;
+      const enhanced = enhanceProductImageUrl(url, 'gallery');
+      if (/^https?:\/\//i.test(enhanced)) {
+        normalized[key] = enhanced;
+      }
     }
   }
   return normalized;
@@ -796,7 +802,18 @@ export async function POST(req: NextRequest) {
               rating_confidence: existingRatingConfidence,
             };
 
-            await omitMissingColumns(existingProductUpdate, ['supplier_rating', 'review_count', 'displayed_rating', 'rating_confidence']);
+            const existingRawImages = parseArrayOrEmpty(qp.images);
+            const existingEnhancedImages = sanitizeQueueGalleryImages(existingRawImages, 50);
+            if (existingEnhancedImages.length > 0) {
+              existingProductUpdate.images = existingEnhancedImages;
+            }
+
+            const existingColorImageMap = parseColorImageMap(qp.color_image_map);
+            if (Object.keys(existingColorImageMap).length > 0) {
+              existingProductUpdate.color_image_map = existingColorImageMap;
+            }
+
+            await omitMissingColumns(existingProductUpdate, ['supplier_rating', 'review_count', 'displayed_rating', 'rating_confidence', 'images', 'color_image_map']);
 
             const sanitizedExistingUpdate = Object.fromEntries(
               Object.entries(existingProductUpdate).filter(([, value]) => value !== undefined)
@@ -863,6 +880,7 @@ export async function POST(req: NextRequest) {
             }
 
             const mappedVariantImage = resolveColorImageForColor(resolvedColor, alignedColorImageMap);
+            const variantImageSource = mappedVariantImage || matchingPricing?.colorImage || v.variantImage || v.whiteImage || v.image || null;
             return {
               sku: v.storeSku || matchingPricing?.storeSku || null,
               cj_sku: v.variantSku || v.cjSku || v.vid || null,
@@ -878,7 +896,9 @@ export async function POST(req: NextRequest) {
               cj_stock: v.cjStock ?? matchingPricing?.cjStock ?? null,
               factory_stock: v.factoryStock ?? matchingPricing?.factoryStock ?? null,
               weight_g: v.weight ?? v.weightGrams ?? null,
-              image_url: mappedVariantImage || matchingPricing?.colorImage || v.variantImage || v.whiteImage || v.image || null,
+              image_url: typeof variantImageSource === 'string' && variantImageSource.trim()
+                ? enhanceProductImageUrl(variantImageSource.trim(), 'gallery')
+                : null,
             };
           })
           .filter((variant): variant is NonNullable<typeof variant> => Boolean(variant));
@@ -911,6 +931,7 @@ export async function POST(req: NextRequest) {
         const normalizedFallbackImages = sanitizeImportProductImages(queueImageCandidates, 50);
         const fallbackRawHttpImages = rawImages
           .filter((img): img is string => typeof img === 'string' && /^https?:\/\//i.test(img))
+          .map((img) => enhanceProductImageUrl(img, 'gallery'))
           .slice(0, 50);
         const finalImages = normalizedQueueImages.length > 0
           ? normalizedQueueImages
@@ -1164,7 +1185,10 @@ export async function POST(req: NextRequest) {
               price: v.price_store ?? v.price_sar,
               cost_price: v.cost_usd || null,
               stock: v.stock,
-              image_url: v.image_url || null,
+              image_url:
+                typeof v.image_url === 'string' && v.image_url.trim()
+                  ? enhanceProductImageUrl(v.image_url.trim(), 'gallery')
+                  : null,
               shipping_usd: v.shipping_usd || null,
             };
           });

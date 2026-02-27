@@ -9,6 +9,7 @@ import { loggerForRequest } from '@/lib/log';
 import { isKillSwitchOn } from '@/lib/settings';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { getSupabaseAdmin } from '@/app/admin/products/actions';
+import { enhanceProductImageUrl } from '@/lib/media/image-quality';
 
 export const runtime = 'nodejs';
 
@@ -138,7 +139,19 @@ export async function POST(req: NextRequest) {
       });
       continue;
     }
-    const images = it.imagesCsv;
+    const normalizedImages = it.imagesCsv
+      .split(',')
+      .map((value) => enhanceProductImageUrl(value.trim(), 'gallery'))
+      .filter((value) => /^https?:\/\//i.test(value));
+    if (normalizedImages.length === 0) {
+      results.push({
+        title,
+        ok: false,
+        errors: { images: ['Images are required. Provide at least one image URL from your source (e.g., CJ).'] },
+      });
+      continue;
+    }
+    const images = normalizedImages.join(',');
     let desc = `${title} — auto-imported. Landed SAR: ${retailCalc.landedCostSar}.`;
     try {
       const gen = await generateDescription(title);
@@ -211,7 +224,7 @@ export async function POST(req: NextRequest) {
       category: finalCategory || 'General',
       description: desc,
       description_ar: descAr,
-      images: images.split(',').map((s) => s.trim()).filter(Boolean),
+      images: normalizedImages,
       ...(it.videoUrl ? { videoUrl: it.videoUrl } : {}),
     });
   }

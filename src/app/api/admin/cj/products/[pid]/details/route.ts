@@ -618,7 +618,7 @@ export async function GET(
             && typeof colorImg === 'string'
             && colorImg.startsWith('http')
           ) {
-            const normalizedColorImage = colorImg.trim();
+            const normalizedColorImage = enhanceProductImageUrl(colorImg.trim(), 'gallery');
             colorImageMap[cleanColor] = normalizedColorImage;
             pushVariantImage(normalizedColorImage);
           }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { calculateRetailSar, usdToSar } from "@/lib/pricing";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,6 +15,27 @@ function getSupabaseAdmin() {
 
 function isDbConfigured(): boolean {
   return !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function normalizeQueueImages(value: unknown): string[] {
+  let source: unknown[] = [];
+
+  if (Array.isArray(value)) {
+    source = value;
+  } else if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) source = parsed;
+      } catch {}
+    }
+  }
+
+  return source
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .map((url) => enhanceProductImageUrl(url, "gallery"))
+    .filter((url) => /^https?:\/\//i.test(url));
 }
 
 export async function GET(req: NextRequest) {
@@ -82,9 +104,14 @@ export async function GET(req: NextRequest) {
       imported: importedRes.count || 0,
     };
 
+    const normalizedProducts = (products || []).map((product: any) => ({
+      ...product,
+      images: normalizeQueueImages(product?.images),
+    }));
+
     return NextResponse.json({
       ok: true,
-      products: products || [],
+      products: normalizedProducts,
       total: totalCount || 0,
       stats,
     });
