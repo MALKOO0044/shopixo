@@ -18,6 +18,8 @@ import {
   Eye,
   Play,
 } from "lucide-react";
+import SmartImage from "@/components/smart-image";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import { sarToUsd } from "@/lib/pricing";
 import { buildSyntheticReviewProfile } from "@/lib/reviews/synthetic-feedback";
@@ -932,10 +934,14 @@ export default function QueuePage() {
                     <td className="px-4 py-3">
                       <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
                         {product.images[0] ? (
-                          <img
-                            src={product.images[0]}
+                          <SmartImage
+                            src={enhanceProductImageUrl(product.images[0], "thumbnail")}
                             alt={product.name_en}
+                            fill
+                            quality={95}
+                            sizes="56px"
                             className="w-full h-full object-cover"
+                            loading="lazy"
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-gray-400">

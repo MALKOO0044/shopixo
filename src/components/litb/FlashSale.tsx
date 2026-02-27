@@ -1,10 +1,11 @@
 ﻿"use client";
 
 import { useState, useEffect, useRef } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Star } from "lucide-react";
 import type { HomepageProduct } from "@/lib/homepage-products";
+import SmartImage from "@/components/smart-image";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
 function safeImageUrl(img: string | undefined | null): string {
@@ -14,12 +15,12 @@ function safeImageUrl(img: string | undefined | null): string {
     try {
       const parsed = JSON.parse(s);
       if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
-        return parsed[0];
+        return enhanceProductImageUrl(parsed[0], 'card');
       }
     } catch {}
   }
   if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) {
-    return s;
+    return enhanceProductImageUrl(s, 'card');
   }
   return '/placeholder.svg';
 }
@@ -117,10 +118,12 @@ export default function FlashSale({ products }: FlashSaleProps) {
                   className="shrink-0 w-[220px] group/card"
                 >
                   <div className="relative aspect-[3/4] rounded-lg overflow-hidden bg-gray-100 mb-2">
-                    <Image
+                    <SmartImage
                       src={safeImageUrl(product.image)}
                       alt={product.name}
                       fill
+                      loading="lazy"
+                      quality={95}
                       sizes="220px"
                       className="object-cover group-hover/card:scale-105 transition-transform"
                     />

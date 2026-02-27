@@ -1,7 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
+import SmartImage from "@/components/smart-image";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 
 interface MatchProduct {
   id: number;
@@ -13,6 +14,23 @@ interface MatchProduct {
 
 interface MakeItAMatchProps {
   products: MatchProduct[];
+}
+
+function safeImageUrl(img: string | undefined | null): string {
+  if (!img) return '/placeholder.svg';
+  const s = img.trim();
+  if (s.startsWith('[') && s.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
+        return enhanceProductImageUrl(parsed[0], 'card');
+      }
+    } catch {}
+  }
+  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) {
+    return enhanceProductImageUrl(s, 'card');
+  }
+  return '/placeholder.svg';
 }
 
 export default function MakeItAMatch({ products }: MakeItAMatchProps) {
@@ -29,10 +47,12 @@ export default function MakeItAMatch({ products }: MakeItAMatchProps) {
             className="shrink-0 group"
           >
             <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-gray-100 mb-2">
-              <Image
-                src={product.image}
+              <SmartImage
+                src={safeImageUrl(product.image)}
                 alt=""
                 fill
+                quality={95}
+                loading="lazy"
                 sizes="96px"
                 className="object-cover group-hover:scale-105 transition-transform"
               />

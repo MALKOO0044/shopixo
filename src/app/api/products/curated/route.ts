@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,14 +16,26 @@ function extractFirstImage(images: any): string {
   if (!images) return "";
   
   if (Array.isArray(images) && images.length > 0) {
-    return images[0];
+    const first = images.find((img: unknown) => typeof img === "string" && img.trim().length > 0);
+    return typeof first === "string" ? enhanceProductImageUrl(first, "card") : "";
   }
   
   if (typeof images === 'string') {
+    const trimmed = images.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          const first = parsed.find((img: unknown) => typeof img === "string" && img.trim().length > 0);
+          if (typeof first === "string") return enhanceProductImageUrl(first, "card");
+        }
+      } catch {}
+    }
+
     const cleaned = images.replace(/^\{|\}$/g, '');
     const urls = cleaned.split(',').filter(u => u.startsWith('http'));
     if (urls.length > 0) {
-      return urls[0].trim();
+      return enhanceProductImageUrl(urls[0].trim(), "card");
     }
   }
   

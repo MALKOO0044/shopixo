@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { formatCurrency } from "@/lib/utils";
 import SmartImage from "@/components/smart-image";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 
 export type VariantOption = {
   id: number;
@@ -124,9 +125,11 @@ export default function VariantSelector({
                 >
                   {colorImg ? (
                     <SmartImage
-                      src={colorImg}
+                      src={enhanceProductImageUrl(colorImg, "thumbnail")}
                       alt={color}
                       fill
+                      quality={95}
+                      loading="lazy"
                       className="object-cover"
                     />
                   ) : (

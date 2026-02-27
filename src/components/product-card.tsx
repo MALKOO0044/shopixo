@@ -5,6 +5,7 @@ import type { Product } from "@/lib/types";
 import SmartImage from "@/components/smart-image";
 import { PlayCircle } from "lucide-react";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 
 function isLikelyImageUrl(s: string): boolean {
   if (!s) return false;
@@ -141,18 +142,18 @@ function normalizeImageUrl(url: string): string {
 
 function transformCardImage(url: string): string {
   try {
-    url = normalizeImageUrl(url);
+    const normalizedUrl = normalizeImageUrl(url);
     // Video -> choose a poster
-    if (isLikelyVideoUrl(url)) {
+    if (isLikelyVideoUrl(normalizedUrl)) {
       // If it's a Cloudinary video, derive a poster from first frame
-      if (url.includes('res.cloudinary.com') && url.includes('/video/')) {
-        const marker = url.includes('/video/upload/') ? '/video/upload/' : (url.includes('/video/fetch/') ? '/video/fetch/' : null);
+      if (normalizedUrl.includes('res.cloudinary.com') && normalizedUrl.includes('/video/')) {
+        const marker = normalizedUrl.includes('/video/upload/') ? '/video/upload/' : (normalizedUrl.includes('/video/fetch/') ? '/video/fetch/' : null);
         if (!marker) return '/placeholder.svg';
-        const idx = url.indexOf(marker);
+        const idx = normalizedUrl.indexOf(marker);
         if (idx !== -1) {
-          const before = url.slice(0, idx + marker.length);
-          const after = url.slice(idx + marker.length);
-          const inject = 'so_0/';
+          const before = normalizedUrl.slice(0, idx + marker.length);
+          const after = normalizedUrl.slice(idx + marker.length);
+          const inject = 'so_0,q_auto:best,w_1280,c_limit/';
           const core = after.replace(/\.(mp4|webm|ogg|m3u8|mov)(\?.*)?$/i, '');
           return `${before}${inject}${core}.jpg`;
         }
@@ -160,28 +161,16 @@ function transformCardImage(url: string): string {
       // Non-Cloudinary video: if Cloudinary cloud is available, use fetch to generate first-frame jpg
       const cloud = (process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME) as string | undefined;
       if (cloud) {
-        const abs = url; // url is normalized above; should be absolute for supabase paths
+        const abs = normalizedUrl; // url is normalized above; should be absolute for supabase paths
         if (/^https?:\/\//i.test(abs)) {
-          return `https://res.cloudinary.com/${cloud}/video/fetch/so_0/${encodeURIComponent(abs)}.jpg`;
+          return `https://res.cloudinary.com/${cloud}/video/fetch/so_0,q_auto:best,w_1280,c_limit/${encodeURIComponent(abs)}.jpg`;
         }
       }
       return '/placeholder.svg';
     }
-    if (typeof url === 'string' && url.includes('res.cloudinary.com') && url.includes('/image/')) {
-      const isUpload = url.includes('/image/upload/');
-      const isFetch = url.includes('/image/fetch/');
-      const marker = isUpload ? '/image/upload/' : (isFetch ? '/image/fetch/' : null);
-      if (!marker) return url;
-      const idx = url.indexOf(marker);
-      const after = url.slice(idx + marker.length);
-      const hasTransforms = after && !after.startsWith('v');
-      if (hasTransforms) return url;
-      // 4:3 aspect for grid thumbnails
-      const inject = 'f_auto,q_auto,c_fill,g_auto,w_640,h_480/';
-      return url.replace(marker, marker + inject);
-    }
+    return enhanceProductImageUrl(normalizedUrl, 'card');
   } catch {}
-  return url || '/placeholder.svg';
+  return enhanceProductImageUrl(url || '/placeholder.svg', 'card');
 }
 
 function getImageField(p: Pick<Product, "images" | "image">): Product["images"] | Product["image"] | null {
@@ -208,6 +197,7 @@ export default function ProductCard({ product }: { product: Product }) {
               src={thumb}
               alt={`Product image: ${product.title}`}
               loading="lazy"
+              quality={95}
               className="h-full w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03]"
               fill
               sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 20vw"

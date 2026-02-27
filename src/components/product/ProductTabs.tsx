@@ -4,6 +4,8 @@ import { useState, useMemo } from "react";
 import { Star, ThumbsUp, Package, Ruler, Palette } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import SmartImage from "@/components/smart-image";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 import SafeHtmlRenderer, { parseProductDescription } from "./SafeHtmlRenderer";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
@@ -100,6 +102,23 @@ interface ProductTabsProps {
   totalReviews?: number;
   recommendations?: RelatedProduct[];
   productTitle?: string;
+}
+
+function safeProductImageUrl(img: string | undefined | null): string {
+  if (!img) return "/placeholder.svg";
+  const s = img.trim();
+  if (s.startsWith("[") && s.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === "string") {
+        return enhanceProductImageUrl(parsed[0], "card");
+      }
+    } catch {}
+  }
+  if (s.startsWith("http://") || s.startsWith("https://") || s.startsWith("/")) {
+    return enhanceProductImageUrl(s, "card");
+  }
+  return "/placeholder.svg";
 }
 
 export default function ProductTabs({
@@ -375,10 +394,12 @@ export default function ProductTabs({
                   className="group"
                 >
                   <div className="relative aspect-[3/4] rounded-lg overflow-hidden bg-gray-100 mb-2">
-                    <Image
-                      src={product.image}
+                    <SmartImage
+                      src={safeProductImageUrl(product.image)}
                       alt={product.title}
                       fill
+                      loading="lazy"
+                      quality={95}
                       className="object-cover group-hover:scale-105 transition-transform"
                     />
                     {product.badge && (

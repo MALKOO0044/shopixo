@@ -1,9 +1,10 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { Star, ShoppingCart } from "lucide-react";
 import { useState } from "react";
+import SmartImage from "@/components/smart-image";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 
 interface CategoryProduct {
   id: number;
@@ -39,12 +40,12 @@ function safeImageUrl(img: string | string[] | undefined | null): string {
     try {
       const parsed = JSON.parse(s);
       if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
-        return parsed[0];
+        return enhanceProductImageUrl(parsed[0], 'card');
       }
     } catch {}
   }
   if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) {
-    return s;
+    return enhanceProductImageUrl(s, 'card');
   }
   return '/placeholder-product.png';
 }
@@ -119,10 +120,12 @@ export default function CategoryProductCard({ product, onAddToCart }: CategoryPr
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="relative aspect-[3/4] bg-gray-50">
-        <Image
+        <SmartImage
           src={imageUrl}
           alt={productName}
           fill
+          loading="lazy"
+          quality={95}
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
           className="object-cover group-hover:scale-105 transition-transform duration-300"
         />

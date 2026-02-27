@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { Star } from "lucide-react";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import type { HomepageProduct } from "@/lib/homepage-products";
+import SmartImage from "@/components/smart-image";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 
 function safeImageUrl(img: string | undefined | null): string {
   if (!img) return '/placeholder-product.png';
@@ -14,12 +15,12 @@ function safeImageUrl(img: string | undefined | null): string {
     try {
       const parsed = JSON.parse(s);
       if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
-        return parsed[0];
+        return enhanceProductImageUrl(parsed[0], 'card');
       }
     } catch {}
   }
   if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) {
-    return s;
+    return enhanceProductImageUrl(s, 'card');
   }
   return '/placeholder-product.png';
 }
@@ -50,10 +51,12 @@ export default function RecommendedProducts({ products }: RecommendedProductsPro
               className="group bg-white rounded-lg overflow-hidden border hover:shadow-lg transition-shadow"
             >
               <div className="relative aspect-[3/4] bg-gray-100">
-                <Image
+                <SmartImage
                   src={safeImageUrl(product.image)}
                   alt={product.name}
                   fill
+                  loading="lazy"
+                  quality={95}
                   sizes="(max-width: 640px) 50vw, (max-width: 1024px) 25vw, 20vw"
                   className="object-cover group-hover:scale-105 transition-transform"
                 />

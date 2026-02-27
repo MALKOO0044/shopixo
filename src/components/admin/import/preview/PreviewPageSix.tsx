@@ -1,6 +1,8 @@
 "use client";
 
 import { DollarSign, TrendingUp, AlertCircle, Truck, Package } from "lucide-react";
+import SmartImage from "@/components/smart-image";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 import type { PricedProduct } from "./types";
 import { sarToUsd } from "@/lib/pricing";
 
@@ -134,10 +136,15 @@ export default function PreviewPageSix({ product }: PreviewPageSixProps) {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           {variant.variantImage && (
-                            <img 
-                              src={variant.variantImage} 
+                            <SmartImage 
+                              src={enhanceProductImageUrl(variant.variantImage, "thumbnail")}
                               alt={variantLabel}
+                              width={64}
+                              height={64}
+                              quality={95}
+                              sizes="32px"
                               className="w-8 h-8 object-cover rounded"
+                              loading="lazy"
                             />
                           )}
                           <span className="text-gray-700 font-medium truncate max-w-[120px]" title={variantLabel}>

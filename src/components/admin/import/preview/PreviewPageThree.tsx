@@ -1,7 +1,17 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { FileText, Ruler, Package, AlertCircle, Info, BookOpen, List } from "lucide-react";
+import { 
+  AlertCircle,
+  BookOpen,
+  FileText,
+  Info,
+  List,
+  Package,
+  Ruler,
+} from "lucide-react";
+import SmartImage from "@/components/smart-image";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 import type { PricedProduct } from "./types";
 
 type PreviewPageThreeProps = {
@@ -177,9 +187,13 @@ export default function PreviewPageThree({ product }: PreviewPageThreeProps) {
               <div className={`grid gap-3 ${(product.sizeChartImages?.length ?? 0) > 1 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
                 {product.sizeChartImages!.map((imgUrl, index) => (
                   <div key={index} className="rounded-lg overflow-hidden border border-gray-100 bg-gray-50">
-                    <img
-                      src={imgUrl}
+                    <SmartImage
+                      src={enhanceProductImageUrl(imgUrl, "gallery")}
                       alt={`Size Chart ${index + 1}`}
+                      width={1600}
+                      height={1600}
+                      quality={95}
+                      sizes="(max-width: 1024px) 100vw, 50vw"
                       className="w-full h-auto object-contain"
                       loading="lazy"
                     />

@@ -10,9 +10,11 @@ import PreviewPageFour from "@/components/admin/import/preview/PreviewPageFour";
 import PreviewPageFive from "@/components/admin/import/preview/PreviewPageFive";
 import PreviewPageSix from "@/components/admin/import/preview/PreviewPageSix";
 import PreviewPageSeven from "@/components/admin/import/preview/PreviewPageSeven";
+import SmartImage from "@/components/smart-image";
 import type { PricedProduct, PricedVariant } from "@/components/admin/import/preview/types";
 import { sarToUsd } from "@/lib/pricing";
 import { inferCjVideoQualityHint } from "@/lib/cj/video";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 import { buildSyntheticReviewProfile } from "@/lib/reviews/synthetic-feedback";
 
 type Category = {
@@ -1224,13 +1226,14 @@ export default function ProductDiscoveryPage() {
                 >
                   <div className="relative aspect-square bg-gray-100">
                     {product.images?.[0] ? (
-                      <img
-                        src={product.images[0]}
+                      <SmartImage
+                        src={enhanceProductImageUrl(product.images[0], "gallery")}
                         alt={product.name}
+                        fill
+                        quality={95}
+                        sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 25vw"
                         className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
+                        loading="lazy"
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-gray-400">
@@ -1524,13 +1527,14 @@ export default function ProductDiscoveryPage() {
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                       {previewGalleryImages.map((img, index) => (
                         <div key={index} className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden group">
-                          <img 
-                            src={img} 
+                          <SmartImage 
+                            src={enhanceProductImageUrl(img, "gallery")}
                             alt={`${previewProduct.name} - Image ${index + 1}`}
+                            fill
+                            quality={95}
+                            sizes="(max-width: 768px) 50vw, (max-width: 1280px) 33vw, 25vw"
                             className="w-full h-full object-cover transition-transform group-hover:scale-105"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
+                            loading="lazy"
                           />
                           <div className="absolute bottom-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
                             {index + 1}

@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
+import SmartImage from "@/components/smart-image";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 
 interface CuratedProduct {
   id: number;
@@ -42,6 +44,23 @@ const CENTER_BANNERS = [
     cta: "EXPLORE >",
   },
 ];
+
+function safeProductImageUrl(img: string | undefined | null): string {
+  if (!img) return "/placeholder.svg";
+  const s = img.trim();
+  if (s.startsWith("[") && s.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === "string") {
+        return enhanceProductImageUrl(parsed[0], "card");
+      }
+    } catch {}
+  }
+  if (s.startsWith("http://") || s.startsWith("https://") || s.startsWith("/")) {
+    return enhanceProductImageUrl(s, "card");
+  }
+  return "/placeholder.svg";
+}
 
 export default function HeroBanners() {
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -170,10 +189,12 @@ export default function HeroBanners() {
                       className="bg-white rounded-lg p-1.5 shadow-sm hover:shadow-md transition group"
                     >
                       <div className="aspect-square bg-gray-100 rounded mb-1 overflow-hidden relative">
-                        <Image
-                          src={product.image}
+                        <SmartImage
+                          src={safeProductImageUrl(product.image)}
                           alt={product.name}
                           fill
+                          quality={95}
+                          loading="lazy"
                           sizes="80px"
                           className="object-cover group-hover:scale-105 transition-transform"
                         />

@@ -10,6 +10,7 @@ import SizeGuideModal from "@/components/product/SizeGuideModal";
 import ProductTabs from "@/components/product/ProductTabs";
 import YouMayAlsoLike from "@/components/product/YouMayAlsoLike";
 import MakeItAMatch from "@/components/product/MakeItAMatch";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 import { computeBilledWeightKg, resolveDdpShippingSar } from "@/lib/pricing";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import { normalizeSingleSize, normalizeSizeList as normalizeCjSizeList } from "@/lib/cj/size-normalization";
@@ -166,8 +167,8 @@ function getCloudinaryVideoPoster(url: string): string | null {
   return null;
 }
 
-function transformImage(url: string): string {
-  return normalizeImageUrl(url);
+function transformImage(url: string, preset: 'gallery' | 'zoom' = 'gallery'): string {
+  return enhanceProductImageUrl(normalizeImageUrl(url), preset);
 }
 
 interface MediaGalleryProps {
@@ -357,6 +358,7 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
                   src={transformImage(item)}
                   alt={`Image ${index + 1}`}
                   fill
+                  quality={95}
                   className="object-cover"
                   loading="lazy"
                   onError={(e: any) => {
@@ -398,6 +400,7 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
               src={transformImage(selected)}
               alt={title}
               fill
+              quality={95}
               className="object-cover"
               loading="eager"
               onError={(e: any) => {
@@ -460,7 +463,7 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={transformImage(selected)}
+              src={transformImage(selected, 'zoom')}
               alt={title}
               className="pointer-events-none select-none max-w-[90vw] max-h-[90vh]"
               style={{
@@ -666,9 +669,11 @@ function ColorSelector({ colors, selectedColor, onColorChange, colorImages = {},
               title={color}
             >
               {colorImageUrl ? (
-                <img 
-                  src={normalizeImageUrl(colorImageUrl)} 
+                <SmartImage
+                  src={enhanceProductImageUrl(normalizeImageUrl(colorImageUrl), 'thumbnail')}
                   alt={color}
+                  fill
+                  quality={95}
                   className="w-full h-full object-cover"
                   loading="lazy"
                 />

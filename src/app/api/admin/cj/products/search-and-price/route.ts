@@ -4,6 +4,7 @@ import { getAccessToken, freightCalculate, fetchProductDetailsBatch, findCJPacke
 import { ensureAdmin } from '@/lib/auth/admin-guard';
 import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
+import { enhanceProductImageUrl } from '@/lib/media/image-quality';
 import { usdToSar, sarToUsd, computeRetailFromLanded } from '@/lib/pricing';
 import { computeRating, normalizeDisplayedRating } from '@/lib/rating/engine';
 import { buildSyntheticReviewProfile } from '@/lib/reviews/synthetic-feedback';
@@ -341,6 +342,27 @@ function matchesDiscoverMediaMode(mode: DiscoverMediaMode, hasVideo: boolean, ha
   if (mode === 'imagesOnly') return hasImages && !hasVideo;
   if (mode === 'both') return hasImages && hasVideo;
   return true;
+}
+
+function scoreMergedImageCandidate(url: string, index: number): number {
+  const lower = String(url || '').toLowerCase();
+  let score = 50 - Math.min(15, index * 0.35);
+
+  if (/(\/original\/|\/big\/|\/large\/|highres|master)/i.test(lower)) score += 18;
+  if (/(?:^|[^\d])(4096|3840|3200|2560|2048|1920|1600|1500|1440|1280|1200|1080|1000|900|800)x(?:4096|3840|3200|2560|2048|1920|1600|1500|1440|1280|1200|1080|1000|900|800)(?:[^\d]|$)/i.test(lower)) score += 16;
+  if (/_3200|_2560|_2048|_1920|_1600|_1500|_1400|_1200|_1080|_1000|_900|_800|3200x|2560x|2048x|1920x|1600x|1500x|1400x|1200x|1080x|1000x|900x|800x/i.test(lower)) score += 14;
+  if (/(thumb|thumbnail|tiny|mini)/i.test(lower)) score -= 30;
+
+  const querySizes = Array.from(lower.matchAll(/[?&](?:w|width|h|height)=(\d{2,5})/gi))
+    .map((match) => Number(match[1]))
+    .filter((value) => Number.isFinite(value));
+  if (querySizes.length > 0) {
+    const maxQuerySize = Math.max(...querySizes);
+    if (maxQuerySize >= 1800) score += 8;
+    else if (maxQuerySize < 500) score -= 24;
+  }
+
+  return score;
 }
 
 async function fetchCjProductPage(
@@ -1794,7 +1816,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       const seenVariantImageKeys = new Set<string>();
       const pushVariantImage = (url: unknown, preferFront: boolean = false) => {
         if (typeof url !== 'string') return;
-        const cleaned = url.trim();
+        const cleaned = enhanceProductImageUrl(url.trim(), 'gallery');
         if (!cleaned.startsWith('http')) return;
         const key = normalizeCjImageKey(cleaned);
         if (!key || seenVariantImageKeys.has(key)) return;
@@ -2130,16 +2152,32 @@ async function handleSearch(req: Request, isPost: boolean) {
       
       // Merge with deterministic source ordering:
       // 1) full-details extraction (already hero-ranked), 2) color map, 3) variant media, 4) list item fallback.
-      const allImages: string[] = [];
-      const finalSeenImageKeys = new Set<string>();
+      const byCanonicalKey = new Map<string, { url: string; score: number; firstSeenAt: number }>();
+      let imageSequence = 0;
       const pushFinalImage = (url: unknown) => {
         if (typeof url !== 'string') return;
-        const cleaned = url.trim();
+        const cleaned = enhanceProductImageUrl(url.trim(), 'gallery');
         if (!cleaned.startsWith('http')) return;
         const key = normalizeCjImageKey(cleaned);
-        if (!key || finalSeenImageKeys.has(key)) return;
-        finalSeenImageKeys.add(key);
-        allImages.push(cleaned);
+        if (!key) return;
+
+        const score = scoreMergedImageCandidate(cleaned, imageSequence);
+        const existing = byCanonicalKey.get(key);
+        if (!existing) {
+          byCanonicalKey.set(key, { url: cleaned, score, firstSeenAt: imageSequence });
+          imageSequence += 1;
+          return;
+        }
+
+        if (score > existing.score) {
+          byCanonicalKey.set(key, {
+            url: cleaned,
+            score,
+            firstSeenAt: existing.firstSeenAt,
+          });
+        }
+
+        imageSequence += 1;
       };
 
       for (const img of images) pushFinalImage(img);
@@ -2150,6 +2188,10 @@ async function handleSearch(req: Request, isPost: boolean) {
           pushFinalImage(fallbackImg);
         }
       }
+
+      const allImages = Array.from(byCanonicalKey.values())
+        .sort((a, b) => a.firstSeenAt - b.firstSeenAt)
+        .map((entry) => entry.url);
 
       images = prioritizeCjHeroImage(allImages).slice(0, 50);
       console.log(`[Search&Price] Product ${pid}: Final ${images.length} images (deterministic merge)`);

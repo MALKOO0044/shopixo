@@ -1,3 +1,5 @@
+import { enhanceProductImageUrl } from '@/lib/media/image-quality';
+
 const NON_PRODUCT_IMAGE_RE = /(sprite|icon|favicon|logo|placeholder|blank|loading|alipay|wechat|whatsapp|kefu|service|avatar|thumb|thumbnail|small|tiny|mini|sizechart|size\s*chart|chart|table|guide|tips|hot|badge|flag|promo|banner|sale|discount|qr)/i;
 const IMAGE_KEY_SIZE_TOKEN_RE = /[_-](\d{2,4})x(\d{2,4})(?=\.)/gi;
 const INLINE_SIZE_TOKEN_RE = /[_-](\d{2,4})x(\d{2,4})(?=(?:\.|[_?&#]))/i;
@@ -9,9 +11,9 @@ function normalizeImageUrl(url: string): string {
   try {
     const parsed = new URL(raw);
     parsed.hash = '';
-    return parsed.toString();
+    return enhanceProductImageUrl(parsed.toString(), 'gallery');
   } catch {
-    return raw;
+    return enhanceProductImageUrl(raw, 'gallery');
   }
 }
 
@@ -265,32 +267,79 @@ export function extractCjProductGalleryImages(item: any, maxImages: number = 50)
 
   deepScan(item);
 
-  const filtered: string[] = [];
-  const seen = new Set<string>();
+  const byCanonicalKey = new Map<string, { url: string; score: number; firstSeenAt: number }>();
+  let sequence = 0;
+
+  const upsertBestCandidate = (candidate: string) => {
+    const key = normalizeCjImageKey(candidate);
+    if (!key) return;
+
+    const qualityScore = scoreImageQuality(candidate, sequence);
+    const existing = byCanonicalKey.get(key);
+    if (!existing) {
+      byCanonicalKey.set(key, { url: candidate, score: qualityScore, firstSeenAt: sequence });
+      sequence += 1;
+      return;
+    }
+
+    if (qualityScore > existing.score) {
+      byCanonicalKey.set(key, {
+        url: candidate,
+        score: qualityScore,
+        firstSeenAt: existing.firstSeenAt,
+      });
+    }
+
+    sequence += 1;
+  };
 
   for (const candidate of candidates) {
     if (!candidate || !/^https?:\/\//i.test(candidate)) continue;
     if (NON_PRODUCT_IMAGE_RE.test(candidate)) continue;
     if (isLikelySmallImage(candidate)) continue;
 
-    const key = normalizeCjImageKey(candidate);
-    if (!key || seen.has(key)) continue;
-
-    seen.add(key);
-    filtered.push(candidate);
+    upsertBestCandidate(candidate);
   }
 
+  const filtered = Array.from(byCanonicalKey.values())
+    .sort((a, b) => a.firstSeenAt - b.firstSeenAt)
+    .map((entry) => entry.url);
+
   if (filtered.length === 0) {
+    const fallbackByKey = new Map<string, { url: string; score: number; firstSeenAt: number }>();
+    let fallbackSequence = 0;
+
     for (const candidate of candidates) {
       if (!candidate || !/^https?:\/\//i.test(candidate)) continue;
       if (NON_PRODUCT_IMAGE_RE.test(candidate)) continue;
 
       const key = normalizeCjImageKey(candidate);
-      if (!key || seen.has(key)) continue;
+      if (!key) continue;
 
-      seen.add(key);
-      filtered.push(candidate);
-      if (filtered.length >= maxImages) break;
+      const score = scoreImageQuality(candidate, fallbackSequence);
+      const existing = fallbackByKey.get(key);
+      if (!existing) {
+        fallbackByKey.set(key, { url: candidate, score, firstSeenAt: fallbackSequence });
+      } else if (score > existing.score) {
+        fallbackByKey.set(key, {
+          url: candidate,
+          score,
+          firstSeenAt: existing.firstSeenAt,
+        });
+      }
+
+      fallbackSequence += 1;
+      if (fallbackByKey.size >= maxImages) break;
+    }
+
+    filtered.push(
+      ...Array.from(fallbackByKey.values())
+        .sort((a, b) => a.firstSeenAt - b.firstSeenAt)
+        .map((entry) => entry.url)
+    );
+
+    if (filtered.length > maxImages) {
+      filtered.splice(maxImages);
     }
   }
 

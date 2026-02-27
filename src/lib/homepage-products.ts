@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Product } from "./types";
 import { normalizeDisplayedRating } from "./rating/engine";
+import { enhanceProductImageUrl } from "./media/image-quality";
 
 function getServerSupabase() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -44,6 +45,7 @@ function mapProductToHomepage(product: HomepageProductRow, badge?: string): Home
   const primaryImage = Array.isArray(product.images) && product.images.length > 0
     ? product.images[0]
     : "https://images.unsplash.com/photo-1560393464-5c69a73c5770?w=200&h=200&fit=crop";
+  const enhancedPrimaryImage = enhanceProductImageUrl(primaryImage, "card");
   
   return {
     id: product.id,
@@ -51,7 +53,7 @@ function mapProductToHomepage(product: HomepageProductRow, badge?: string): Home
     price: product.price,
     originalPrice: undefined,
     displayed_rating: normalizeDisplayedRating(product.displayed_rating),
-    image: primaryImage,
+    image: enhancedPrimaryImage,
     badge,
     slug: product.slug,
   };

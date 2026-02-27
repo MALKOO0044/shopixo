@@ -1,9 +1,10 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { Star, ChevronLeft, ChevronRight } from "lucide-react";
 import { useRef } from "react";
+import SmartImage from "@/components/smart-image";
+import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 import { normalizeDisplayedRating } from "@/lib/rating/engine";
 
 interface Product {
@@ -20,6 +21,23 @@ interface Product {
 interface YouMayAlsoLikeProps {
   products: Product[];
   title?: string;
+}
+
+function safeImageUrl(img: string | undefined | null): string {
+  if (!img) return '/placeholder.svg';
+  const s = img.trim();
+  if (s.startsWith('[') && s.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
+        return enhanceProductImageUrl(parsed[0], 'card');
+      }
+    } catch {}
+  }
+  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) {
+    return enhanceProductImageUrl(s, 'card');
+  }
+  return '/placeholder.svg';
 }
 
 export default function YouMayAlsoLike({ products, title = "You May Also Like" }: YouMayAlsoLikeProps) {
@@ -70,10 +88,12 @@ export default function YouMayAlsoLike({ products, title = "You May Also Like" }
             className="shrink-0 w-[180px] group"
           >
             <div className="relative aspect-[3/4] rounded-lg overflow-hidden bg-gray-100 mb-2">
-              <Image
-                src={product.image}
+              <SmartImage
+                src={safeImageUrl(product.image)}
                 alt={product.title}
                 fill
+                quality={95}
+                loading="lazy"
                 sizes="180px"
                 className="object-cover group-hover:scale-105 transition-transform"
               />
