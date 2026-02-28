@@ -100,6 +100,21 @@ export function enhanceProductImageUrl(rawUrl: string, preset: ImageQualityPrese
 
     parsed.hash = '';
 
+    const host = parsed.hostname.toLowerCase();
+    const isCloudinaryHost = host === 'res.cloudinary.com' || host.endsWith('.res.cloudinary.com');
+
+    // Keep third-party source URLs intact (except protocol/hash normalization).
+    // Some CJ/OSS URLs rely on query params for access or image delivery.
+    if (!isCloudinaryHost) {
+      return parsed.toString();
+    }
+
+    // Cloudinary fetch URLs can be malformed by transform injection when the source URL
+    // is embedded directly after /image/fetch/. Keep them unchanged.
+    if (parsed.pathname.includes('/image/fetch/')) {
+      return parsed.toString();
+    }
+
     if (!shouldSkipQueryRewrite(parsed.searchParams)) {
       cleanLowResQueryParams(parsed, minWidth);
     }

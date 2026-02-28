@@ -41,6 +41,17 @@ function extractUrlsFromUnknown(value: unknown): string[] {
       return parsedArray.flatMap((entry) => extractUrlsFromUnknown(entry));
     }
 
+    const httpMarkers = text.match(/https?:\/\//gi);
+    if (httpMarkers && httpMarkers.length > 1) {
+      // Some CJ fields come as a single concatenated string like:
+      // "https://...jpg,https://...jpg". Split at each URL boundary.
+      return text
+        .split(/(?=https?:\/\/)/gi)
+        .map((part) => part.replace(/^[\s,;|]+|[\s,;|]+$/g, '').trim())
+        .map((part) => part.replace(/^['"]+|['"]+$/g, '').trim())
+        .filter((part) => /^https?:\/\//i.test(part));
+    }
+
     if (/[;,|\n\r\t]+/.test(text) && text.includes('http')) {
       return text
         .split(/[;,|\n\r\t]+/)
