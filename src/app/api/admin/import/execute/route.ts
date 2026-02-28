@@ -3,12 +3,11 @@ import { createClient } from "@supabase/supabase-js";
 import { slugify } from "@/lib/utils/slug";
 import { hasColumn, hasTable } from "@/lib/db-features";
 import { linkProductToMultipleCategories } from "@/lib/category-intelligence";
-import { computeRating, normalizeDisplayedRating } from "@/lib/rating/engine";
+import { computeRating } from "@/lib/rating/engine";
 import { sarToUsd } from "@/lib/pricing";
 import { normalizeCjImageKey } from "@/lib/cj/image-gallery";
 import { normalizeSingleSize, normalizeSizeList } from "@/lib/cj/size-normalization";
 import { requiresVideoForMediaMode } from "@/lib/video/delivery";
-import { buildSyntheticReviewProfile } from "@/lib/reviews/synthetic-feedback";
 import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 
 // Helper to find category by name/slug/CJ-link and link product to category hierarchy
@@ -497,6 +496,24 @@ function toPositiveNumberOrNull(value: unknown): number | null {
   return n;
 }
 
+function normalizeImportedRatingValue(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(0, Math.min(5, n));
+}
+
+function normalizeImportedReviewCount(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.floor(n);
+}
+
+function normalizeImportedRatingConfidence(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(0.05, Math.min(1, n));
+}
+
 function normalizeVariantToken(value: unknown): string {
   return String(value ?? '').trim().toLowerCase();
 }
@@ -729,9 +746,6 @@ export async function POST(req: NextRequest) {
       try {
         requireField(qp.cj_product_id, 'pid');
         const queueStoreSku = qp.store_sku || qp.product_code || null;
-        const syntheticReviewProfile = buildSyntheticReviewProfile(
-          qp.cj_product_id || queueStoreSku || qp.name_en || qp.id
-        );
         requireField(queueStoreSku, 'storeSku');
         requireField(qp.name_en, 'name');
         const rawVariantsRequired = parseArrayOrEmpty(qp.variants);
@@ -778,22 +792,10 @@ export async function POST(req: NextRequest) {
 
         if (existing) {
           try {
-            const existingSupplierRatingRaw = Number(qp.supplier_rating);
-            const existingSupplierRating = Number.isFinite(existingSupplierRatingRaw) && existingSupplierRatingRaw > 0
-              ? normalizeDisplayedRating(existingSupplierRatingRaw)
-              : syntheticReviewProfile.rating;
-            const existingReviewCountRaw = Number(qp.review_count);
-            const existingReviewCount = Number.isFinite(existingReviewCountRaw) && existingReviewCountRaw > 0
-              ? Math.floor(existingReviewCountRaw)
-              : syntheticReviewProfile.reviewCount;
-            const existingDisplayedRatingRaw = Number(qp.displayed_rating);
-            const existingDisplayedRating = Number.isFinite(existingDisplayedRatingRaw) && existingDisplayedRatingRaw > 0
-              ? normalizeDisplayedRating(existingDisplayedRatingRaw)
-              : existingSupplierRating;
-            const existingRatingConfidenceRaw = Number(qp.rating_confidence);
-            const existingRatingConfidence = Number.isFinite(existingRatingConfidenceRaw) && existingRatingConfidenceRaw > 0
-              ? Math.max(0.05, Math.min(1, existingRatingConfidenceRaw))
-              : syntheticReviewProfile.ratingConfidence;
+            const existingSupplierRating = normalizeImportedRatingValue(qp.supplier_rating);
+            const existingReviewCount = normalizeImportedReviewCount(qp.review_count);
+            const existingDisplayedRating = normalizeImportedRatingValue(qp.displayed_rating);
+            const existingRatingConfidence = normalizeImportedRatingConfidence(qp.rating_confidence);
 
             const existingProductUpdate: Record<string, any> = {
               supplier_rating: existingSupplierRating,
@@ -977,29 +979,10 @@ export async function POST(req: NextRequest) {
         };
         const ratingOut = computeRating(signals);
 
-        const queueSupplierRatingRaw = Number(qp.supplier_rating);
-        const queueSupplierRating = Number.isFinite(queueSupplierRatingRaw) && queueSupplierRatingRaw > 0
-          ? normalizeDisplayedRating(queueSupplierRatingRaw)
-          : syntheticReviewProfile.rating;
-        const queueReviewCountRaw = Number(qp.review_count);
-        const queueReviewCount = Number.isFinite(queueReviewCountRaw) && queueReviewCountRaw > 0
-          ? Math.floor(queueReviewCountRaw)
-          : syntheticReviewProfile.reviewCount;
-        const queueDisplayedRatingRaw = Number(qp.displayed_rating);
-        const importedDisplayedRating = Number.isFinite(queueDisplayedRatingRaw) && queueDisplayedRatingRaw > 0
-          ? normalizeDisplayedRating(queueDisplayedRatingRaw)
-          : (queueSupplierRating ?? syntheticReviewProfile.displayedRating ?? ratingOut.displayedRating);
-        const queueRatingConfidenceRaw = Number(qp.rating_confidence);
-        const reviewCountConfidence = queueReviewCount > 0
-          ? Math.min(1, 0.65 + (Math.log10(queueReviewCount + 1) / 4))
-          : null;
-        const importedRatingConfidence = Number.isFinite(queueRatingConfidenceRaw) && queueRatingConfidenceRaw > 0
-          ? Math.max(0.05, Math.min(1, Number(queueRatingConfidenceRaw)))
-          : Math.max(
-            ratingOut.ratingConfidence,
-            syntheticReviewProfile.ratingConfidence,
-            reviewCountConfidence ? Number(reviewCountConfidence.toFixed(2)) : 0
-          );
+        const queueSupplierRating = normalizeImportedRatingValue(qp.supplier_rating);
+        const queueReviewCount = normalizeImportedReviewCount(qp.review_count);
+        const importedDisplayedRating = normalizeImportedRatingValue(qp.displayed_rating);
+        const importedRatingConfidence = normalizeImportedRatingConfidence(qp.rating_confidence);
 
         const productPayload: Record<string, any> = {
           title: qp.name_en,
@@ -1149,7 +1132,9 @@ export async function POST(req: NextRequest) {
 
           if (mismatchedFields.length > 0) {
             await admin.from('products').delete().eq('id', productId);
-            throw new Error(`Import fidelity check failed for fields: ${mismatchedFields.join(', ')}`);
+            throw new Error(
+              `Import fidelity check failed for queue product ${qp.id} (${qp.cj_product_id}): mismatched fields ${mismatchedFields.join(', ')}`
+            );
           }
         }
 
@@ -1262,6 +1247,7 @@ export async function POST(req: NextRequest) {
 
     const successCount = results.filter(r => r.success).length;
     const failCount = results.filter(r => !r.success).length;
+    const firstFailure = results.find((result) => !result.success) || null;
 
     try {
       await admin.from('import_logs').insert({
@@ -1278,10 +1264,24 @@ export async function POST(req: NextRequest) {
       console.error("Failed to log import:", logErr);
     }
 
+    if (successCount === 0 && failCount > 0) {
+      return NextResponse.json({
+        ok: false,
+        error: firstFailure?.error
+          ? `Import failed: ${firstFailure.error}`
+          : "Import failed: no approved products were imported.",
+        imported: 0,
+        failed: failCount,
+        firstFailure,
+        results,
+      }, { status: 400 });
+    }
+
     return NextResponse.json({
       ok: true,
       imported: successCount,
       failed: failCount,
+      firstFailure,
       results,
     });
   } catch (e: any) {

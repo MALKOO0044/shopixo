@@ -1,12 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { computeRating, normalizeDisplayedRating } from '@/lib/rating/engine';
+import { computeRating } from '@/lib/rating/engine';
 import { hasTable } from '@/lib/db-features';
 import { sarToUsd } from '@/lib/pricing';
 import { normalizeCjVideoUrl } from '@/lib/cj/video';
 import { normalizeCjImageKey } from '@/lib/cj/image-gallery';
 import { normalizeSizeList } from '@/lib/cj/size-normalization';
 import { enhanceProductImageUrl } from '@/lib/media/image-quality';
-import { buildSyntheticReviewProfile } from '@/lib/reviews/synthetic-feedback';
 
 let supabaseAdmin: SupabaseClient | null = null;
 
@@ -32,6 +31,7 @@ function buildSchemaErrorText(error: any): string {
 }
 
 function isSchemaMissingColumnError(error: any, columnName?: string): boolean {
+  if (!error) return false;
   const code = String(error?.code || '').toUpperCase();
   const text = buildSchemaErrorText(error);
 
@@ -42,9 +42,19 @@ function isSchemaMissingColumnError(error: any, columnName?: string): boolean {
     /column ['"`]?[a-z0-9_.]+['"`]? does not exist/i.test(text) ||
     /column ['"`]?[a-z0-9_]+['"`]? of relation ['"`]?[a-z0-9_]+['"`]? does not exist/i.test(text);
 
-  if (!isMissingColumn) return false;
-  if (!columnName) return true;
-  return text.includes(columnName.toLowerCase());
+  if (!columnName) return isMissingColumn;
+
+  const normalizedColumn = String(columnName).trim().toLowerCase();
+  if (!normalizedColumn) return isMissingColumn;
+  const mentionsColumn = text.includes(normalizedColumn);
+
+  return isMissingColumn && mentionsColumn;
+}
+
+function normalizeQueueRatingValue(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(0, Math.min(5, n));
 }
 
 function extractMissingColumnNames(error: any): string[] {
@@ -382,27 +392,15 @@ export async function addProductToQueue(batchId: number, product: {
     orderVolume: 0,
   };
   const ratingOut = computeRating(ratingSignals);
-  const syntheticReviewProfile = buildSyntheticReviewProfile(product.productId || product.storeSku || product.name);
-  const supplierRatingRaw = Number(product.supplierRating);
-  const resolvedSupplierRating = Number.isFinite(supplierRatingRaw) && supplierRatingRaw > 0
-    ? normalizeDisplayedRating(supplierRatingRaw)
-    : syntheticReviewProfile.rating;
+  const resolvedSupplierRating = normalizeQueueRatingValue(product.supplierRating);
   const reviewCountRaw = Number(product.reviewCount);
-  const resolvedReviewCount = Number.isFinite(reviewCountRaw) && reviewCountRaw > 0
+  const resolvedReviewCount = Number.isFinite(reviewCountRaw) && reviewCountRaw >= 0
     ? Math.floor(reviewCountRaw)
-    : syntheticReviewProfile.reviewCount;
-  const providedDisplayed = typeof product.displayedRating === 'number' ? normalizeDisplayedRating(product.displayedRating) : undefined;
-  const providedConfidence = typeof product.ratingConfidence === 'number' && Number.isFinite(product.ratingConfidence)
+    : null;
+  const resolvedDisplayedRating = normalizeQueueRatingValue(product.displayedRating);
+  const resolvedRatingConfidence = typeof product.ratingConfidence === 'number' && Number.isFinite(product.ratingConfidence) && product.ratingConfidence > 0
     ? Math.max(0.05, Math.min(1, product.ratingConfidence))
-    : undefined;
-  const resolvedDisplayedRating = providedDisplayed ?? resolvedSupplierRating ?? ratingOut.displayedRating;
-  const countBasedConfidence = Math.min(1, 0.65 + (Math.log10(resolvedReviewCount + 1) / 4));
-  const resolvedRatingConfidence = providedConfidence
-    ?? Math.max(
-      ratingOut.ratingConfidence,
-      syntheticReviewProfile.ratingConfidence,
-      Number(countBasedConfidence.toFixed(2))
-    );
+    : null;
 
   // Core fields that always exist
   const productData: Record<string, any> = {

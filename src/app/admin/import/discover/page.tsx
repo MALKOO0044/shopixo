@@ -15,7 +15,6 @@ import type { PricedProduct, PricedVariant } from "@/components/admin/import/pre
 import { sarToUsd } from "@/lib/pricing";
 import { inferCjVideoQualityHint } from "@/lib/cj/video";
 import { enhanceProductImageUrl } from "@/lib/media/image-quality";
-import { buildSyntheticReviewProfile } from "@/lib/reviews/synthetic-feedback";
 
 type Category = {
   categoryId: string;
@@ -619,23 +618,22 @@ export default function ProductDiscoveryPage() {
               : htmlToLines(p.overview).slice(0, 8);
             const appliedMargin = Number((p as any).profitMarginApplied ?? profitMargin);
             const mergedGalleryImages = buildDiscoverPreviewGallery(p);
-            const syntheticReviewProfile = buildSyntheticReviewProfile(p.pid || p.cjSku || p.name);
             const supplierRatingRaw = Number((p as any).rating);
             const reviewCountRaw = Number((p as any).reviewCount);
             const displayedRatingRaw = Number((p as any).displayedRating);
             const ratingConfidenceRaw = Number((p as any).ratingConfidence);
             const supplierRating = Number.isFinite(supplierRatingRaw) && supplierRatingRaw > 0
               ? supplierRatingRaw
-              : syntheticReviewProfile.rating;
-            const reviewCount = Number.isFinite(reviewCountRaw) && reviewCountRaw > 0
+              : undefined;
+            const reviewCount = Number.isFinite(reviewCountRaw) && reviewCountRaw >= 0
               ? Math.floor(reviewCountRaw)
-              : syntheticReviewProfile.reviewCount;
+              : undefined;
             const displayedRating = Number.isFinite(displayedRatingRaw) && displayedRatingRaw > 0
               ? displayedRatingRaw
-              : supplierRating;
+              : undefined;
             const ratingConfidence = Number.isFinite(ratingConfidenceRaw) && ratingConfidenceRaw > 0
               ? ratingConfidenceRaw
-              : syntheticReviewProfile.ratingConfidence;
+              : undefined;
             
             return {
               cjProductId: p.pid,

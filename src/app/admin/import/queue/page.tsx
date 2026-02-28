@@ -20,9 +20,7 @@ import {
 } from "lucide-react";
 import SmartImage from "@/components/smart-image";
 import { enhanceProductImageUrl } from "@/lib/media/image-quality";
-import { normalizeDisplayedRating } from "@/lib/rating/engine";
 import { sarToUsd } from "@/lib/pricing";
-import { buildSyntheticReviewProfile } from "@/lib/reviews/synthetic-feedback";
 
 type QueueProduct = {
   id: number;
@@ -139,22 +137,18 @@ function getQueueVideoUrl(product: QueueProduct): string | null {
   return fallback || null;
 }
 
-function buildQueueSyntheticProfile(product: QueueProduct) {
-  return buildSyntheticReviewProfile(product.cj_product_id || resolveQueueStoreSku(product) || product.name_en);
-}
-
 function resolveQueueDisplayedRating(product: QueueProduct): number {
+  const displayedRatingRaw = Number(product.displayed_rating);
+  if (Number.isFinite(displayedRatingRaw) && displayedRatingRaw > 0) {
+    return Math.min(5, Math.max(0, displayedRatingRaw));
+  }
+
   const supplierRatingRaw = Number(product.supplier_rating);
   if (Number.isFinite(supplierRatingRaw) && supplierRatingRaw > 0) {
     return Math.min(5, Math.max(0, supplierRatingRaw));
   }
 
-  const displayedRatingRaw = Number(product.displayed_rating);
-  if (Number.isFinite(displayedRatingRaw) && displayedRatingRaw > 0) {
-    return normalizeDisplayedRating(displayedRatingRaw);
-  }
-
-  return buildQueueSyntheticProfile(product).rating;
+  return 0;
 }
 
 function normalizeQueueReviewCount(value: unknown): number {
@@ -164,9 +158,7 @@ function normalizeQueueReviewCount(value: unknown): number {
 }
 
 function resolveQueueReviewCount(product: QueueProduct): number {
-  const normalized = normalizeQueueReviewCount(product.review_count);
-  if (normalized > 0) return normalized;
-  return buildQueueSyntheticProfile(product).reviewCount;
+  return normalizeQueueReviewCount(product.review_count);
 }
 
 type Stats = {
@@ -415,11 +407,20 @@ export default function QueuePage() {
 
         throw new Error(errorMessage);
       }
+
+      const importedCount = Number(data?.imported ?? 0);
+      if (!Number.isFinite(importedCount) || importedCount <= 0) {
+        const firstFailure = Array.isArray(data?.results)
+          ? data.results.find((result: any) => result && result.success === false)
+          : null;
+        const firstFailureMessage = typeof firstFailure?.error === "string" ? firstFailure.error : "";
+        throw new Error(firstFailureMessage || String(data?.error || "Import finished with zero imported products."));
+      }
       
       setSelected(new Set());
       setSchemaRemediation(null);
       fetchProducts();
-      alert(`Successfully imported ${data.imported} products!`);
+      alert(`Successfully imported ${importedCount} products!`);
     } catch (e: any) {
       setError(e?.message || "Import failed");
     } finally {

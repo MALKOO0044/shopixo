@@ -174,7 +174,7 @@ export async function POST(req: NextRequest) {
           : undefined,
         reviewCount: Number.isFinite(Number(p.reviewCount))
           ? Math.max(0, Math.floor(Number(p.reviewCount)))
-          : 0,
+          : undefined,
         displayedRating: typeof p.displayedRating === 'number' ? p.displayedRating : undefined,
         ratingConfidence: typeof p.ratingConfidence === 'number' ? p.ratingConfidence : undefined,
         totalStock,

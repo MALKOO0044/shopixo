@@ -188,14 +188,20 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
       .filter((s) => typeof s === 'string' && !!String(s).trim()) as string[];
   }, [images]);
 
+  const hasCanonicalBaseGallery = baseMedia.length > 0;
+
   const colorMedia = useMemo(() => {
+    if (hasCanonicalBaseGallery) return [];
+
     const values = Object.values(colorImageMap || {});
     return values
       .map((s) => (typeof s === 'string' ? normalizeImageUrl(s) : s))
       .filter((s) => typeof s === 'string' && !!String(s).trim() && !baseMedia.includes(s)) as string[];
-  }, [colorImageMap, baseMedia]);
+  }, [colorImageMap, baseMedia, hasCanonicalBaseGallery]);
 
   const extraImages = useMemo(() => {
+    if (hasCanonicalBaseGallery) return [];
+
     return (Array.isArray(descriptionImages) ? descriptionImages : [])
       .map((s) => (typeof s === 'string' ? normalizeImageUrl(s) : s))
       .filter(
@@ -206,11 +212,12 @@ function MediaGallery({ images, title, videoUrl, selectedColor, colorImageMap = 
           !colorMedia.includes(s)
       )
       .slice(0, 12) as string[];
-  }, [descriptionImages, baseMedia, colorMedia]);
+  }, [descriptionImages, baseMedia, colorMedia, hasCanonicalBaseGallery]);
 
   const media = useMemo(() => {
-    return [...baseMedia, ...colorMedia, ...extraImages];
-  }, [baseMedia, colorMedia, extraImages]);
+    if (hasCanonicalBaseGallery) return baseMedia;
+    return [...colorMedia, ...extraImages];
+  }, [baseMedia, colorMedia, extraImages, hasCanonicalBaseGallery]);
 
   const items = useMemo(() => {
     const arr = [...media];
