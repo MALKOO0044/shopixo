@@ -76,6 +76,27 @@ type DiscoverSearchSession = {
 const DISCOVER_NON_PRODUCT_IMAGE_RE = /(sprite|icon|favicon|logo|placeholder|blank|loading|badge|flag|promo|banner|sale|discount|qr|sizechart|size\s*chart|chart|table|guide|thumb|thumbnail|small|tiny|mini)/i;
 const DISCOVER_IMAGE_KEY_SIZE_TOKEN_RE = /[_-](\d{2,4})x(\d{2,4})(?=\.)/gi;
 
+function isValidDiscoverSearchCategoryId(value: unknown): boolean {
+  const normalized = String(value || "").trim();
+  if (!normalized) return false;
+
+  const lower = normalized.toLowerCase();
+  if (lower === "all") return true;
+  if (lower.startsWith("supabase-")) return false;
+  if (/^first-\d+$/i.test(lower)) return true;
+  if (/^second-\d+-\d+$/i.test(lower)) return true;
+
+  return /^[a-z0-9][a-z0-9_-]{0,63}$/i.test(normalized);
+}
+
+function isValidDiscoverFeatureCategoryId(value: unknown): boolean {
+  const normalized = String(value || "").trim();
+  if (!isValidDiscoverSearchCategoryId(normalized)) return false;
+
+  const lower = normalized.toLowerCase();
+  return lower !== "all" && !lower.startsWith("first-") && !lower.startsWith("second-");
+}
+
 function normalizeDiscoverGalleryImageKey(url: string): string {
   const normalizedUrl = String(url || '').trim().toLowerCase();
   if (!normalizedUrl) return '';
@@ -544,12 +565,26 @@ export default function ProductDiscoveryPage() {
   };
 
   const searchProducts = async () => {
-    if (category === "all" && selectedFeatures.length === 0) {
-      setError("Please select a category or feature to search");
+    const validFeatureCategoryIds = selectedFeatures.filter((featureId: string) =>
+      isValidDiscoverFeatureCategoryId(featureId)
+    );
+    const fallbackCategoryId =
+      category !== "all" && isValidDiscoverSearchCategoryId(category) ? category : null;
+    const categoryIds = validFeatureCategoryIds.length > 0
+      ? validFeatureCategoryIds
+      : (fallbackCategoryId ? [fallbackCategoryId] : []);
+
+    if (categoryIds.length === 0) {
+      setError("Please select a category or a CJ-mapped feature to search");
       return;
     }
 
-    const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
+    if (selectedFeatures.length > 0 && validFeatureCategoryIds.length === 0 && fallbackCategoryId) {
+      console.warn(
+        `[Discovery] Selected features are not CJ-mapped. Falling back to parent category ${fallbackCategoryId}.`
+      );
+    }
+
     const requestedCount = Math.max(1, Math.floor(Number(quantity) || 0));
 
     const session: DiscoverSearchSession = {
@@ -1124,16 +1159,25 @@ export default function ProductDiscoveryPage() {
                     // Parse the value: "cjId:supabaseId:name"
                     const [cjId, supabaseId, ...nameParts] = e.target.value.split(':');
                     const name = nameParts.join(':');
+                    const normalizedCjId = String(cjId || "").trim();
+
+                    if (!isValidDiscoverFeatureCategoryId(normalizedCjId)) {
+                      console.warn(
+                        `[Discovery] Ignored feature with no CJ category mapping: ${name} (${normalizedCjId || 'unmapped'})`
+                      );
+                      e.target.value = "";
+                      return;
+                    }
                     
                     // Toggle the CJ feature ID
-                    toggleFeature(cjId);
+                    toggleFeature(normalizedCjId);
                     
                     // Track the Supabase category ID if available
                     if (supabaseId && parseInt(supabaseId) > 0) {
-                      const existing = selectedFeaturesWithIds.find((sf: SelectedFeature) => sf.cjCategoryId === cjId);
+                      const existing = selectedFeaturesWithIds.find((sf: SelectedFeature) => sf.cjCategoryId === normalizedCjId);
                       if (!existing) {
                         setSelectedFeaturesWithIds((prev: SelectedFeature[]) => [...prev, {
-                          cjCategoryId: cjId,
+                          cjCategoryId: normalizedCjId,
                           cjCategoryName: name,
                           supabaseCategoryId: parseInt(supabaseId),
                           supabaseCategorySlug: '',
@@ -1155,15 +1199,20 @@ export default function ProductDiscoveryPage() {
                       const matchingCjCat = selectedCategory?.children
                         ?.flatMap(c => c.children || [])
                         ?.find(cj => cj?.categoryName?.toLowerCase() === item.name.toLowerCase());
-                      const cjId = matchingCjCat?.categoryId || `supabase-${item.id}`;
+                      const cjId = matchingCjCat?.categoryId ? String(matchingCjCat.categoryId) : "";
+                      const hasValidCjMapping = isValidDiscoverFeatureCategoryId(cjId);
+                      const optionValue = hasValidCjMapping
+                        ? `${cjId}:${item.id}:${item.name}`
+                        : `unmapped:${item.id}:${item.name}`;
+                      const optionDisabled = !hasValidCjMapping || selectedFeatures.includes(cjId);
                       
                       return (
                         <option 
                           key={item.id} 
-                          value={`${cjId}:${item.id}:${item.name}`}
-                          disabled={selectedFeatures.includes(cjId)}
+                          value={optionValue}
+                          disabled={optionDisabled}
                         >
-                          {item.name}
+                          {item.name}{hasValidCjMapping ? "" : " (No CJ match)"}
                         </option>
                       );
                     })}

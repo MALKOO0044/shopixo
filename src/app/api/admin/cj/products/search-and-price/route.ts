@@ -253,6 +253,56 @@ function parseDiscoverMediaMode(value: string | null): DiscoverMediaMode {
   return 'any';
 }
 
+function isValidDiscoverSearchCategoryId(value: unknown): boolean {
+  const normalized = String(value || '').trim();
+  if (!normalized) return false;
+
+  const lower = normalized.toLowerCase();
+  if (lower === 'all') return true;
+  if (lower.startsWith('supabase-')) return false;
+  if (/^first-\d+$/i.test(lower)) return true;
+  if (/^second-\d+-\d+$/i.test(lower)) return true;
+
+  return /^[a-z0-9][a-z0-9_-]{0,63}$/i.test(normalized);
+}
+
+function sanitizeDiscoverCategoryIds(rawCategoryIds: string[]): {
+  validCategoryIds: string[];
+  invalidCategoryIds: string[];
+} {
+  const validSet = new Set<string>();
+  const invalidSet = new Set<string>();
+
+  for (const rawId of rawCategoryIds) {
+    const categoryId = String(rawId || '').trim();
+    if (!categoryId) continue;
+
+    if (!isValidDiscoverSearchCategoryId(categoryId)) {
+      invalidSet.add(categoryId);
+      continue;
+    }
+
+    const lower = categoryId.toLowerCase();
+    if (lower === 'all') {
+      validSet.clear();
+      validSet.add('all');
+      continue;
+    }
+
+    if (validSet.has('all')) continue;
+    validSet.add(categoryId);
+  }
+
+  if (validSet.size === 0) {
+    validSet.add('all');
+  }
+
+  return {
+    validCategoryIds: Array.from(validSet),
+    invalidCategoryIds: Array.from(invalidSet),
+  };
+}
+
 const SUPPLIER_RATING_KEYS = [
   'rating',
   'productRating',
@@ -712,7 +762,14 @@ async function handleSearch(req: Request, isPost: boolean) {
     }
     
     const categoryIdsParam = searchParams.get('categoryIds') || 'all';
-    const categoryIds = categoryIdsParam.split(',').filter(Boolean);
+    const requestedCategoryIds = categoryIdsParam
+      .split(',')
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+    const {
+      validCategoryIds: categoryIds,
+      invalidCategoryIds,
+    } = sanitizeDiscoverCategoryIds(requestedCategoryIds);
     const quantity = Math.max(1, Math.min(5000, Number(searchParams.get('quantity') || 50)));
     const minPrice = Number(searchParams.get('minPrice') || 0);
     const maxPrice = Number(searchParams.get('maxPrice') || 1000);
@@ -740,6 +797,51 @@ async function handleSearch(req: Request, isPost: boolean) {
     // If not provided, defaults to quantity (full request)
     // Allow 0 to short-circuit when client is already satisfied
     const remainingNeeded = Math.max(0, Number(searchParams.get('remainingNeeded') || quantity));
+
+    if (invalidCategoryIds.length > 0) {
+      console.warn(`[Search&Price] Ignoring invalid category IDs: ${invalidCategoryIds.join(',')}`);
+    }
+
+    const hadCategoryInput = requestedCategoryIds.length > 0;
+    const hadExplicitAllCategory = requestedCategoryIds.some((categoryId) => categoryId.toLowerCase() === 'all');
+    const allCategoriesWereInvalid =
+      hadCategoryInput &&
+      !hadExplicitAllCategory &&
+      categoryIds.length === 1 &&
+      categoryIds[0] === 'all' &&
+      invalidCategoryIds.length > 0;
+
+    if (allCategoriesWereInvalid) {
+      const shortfallReason = 'No valid CJ category IDs were provided. Select a CJ-mapped category or feature.';
+      console.warn(`[Search&Price] ${shortfallReason}`);
+
+      const r = NextResponse.json({
+        ok: true,
+        products: [],
+        count: 0,
+        requestedQuantity: quantity,
+        remainingNeeded: isBatchMode ? remainingNeeded : undefined,
+        quantityFulfilled: false,
+        mediaMode,
+        shortfallReason,
+        duration: 0,
+        batch: isBatchMode ? {
+          hasMore: false,
+          cursor: cursorParam,
+          attemptedPids: [],
+          processedPids: [],
+          totalCandidates: 0,
+          productsThisBatch: 0,
+          batchSize,
+        } : undefined,
+        debug: {
+          requestedCategoryIds,
+          invalidCategoryIds,
+        },
+      }, { headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
     
     // seenPids: already-processed product IDs from previous batches
     // For POST, get from body (supports large lists); for GET, get from query (limited)
