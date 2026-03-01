@@ -396,12 +396,21 @@ export default function ProductDiscoveryPage() {
         });
 
         const contentType = res.headers.get("content-type") || "";
-        if (!contentType.includes("application/json")) {
-          const text = await res.text();
-          throw new Error(`Server error: ${text.slice(0, 100)}...`);
+        const rawBody = await res.text();
+        let data: any;
+        try {
+          data = rawBody ? JSON.parse(rawBody) : null;
+        } catch {
+          const compactBody = rawBody.replace(/\s+/g, " ").trim();
+          const snippet = compactBody ? compactBody.slice(0, 160) : "Empty response body";
+          throw new Error(
+            `Search API returned invalid JSON (${res.status}${contentType ? `, ${contentType}` : ""}): ${snippet}`
+          );
         }
 
-        const data = await res.json();
+        if (!data || typeof data !== "object") {
+          throw new Error(`Search API returned an invalid response (${res.status}).`);
+        }
 
         if (!res.ok || !data.ok) {
           if (data.quotaExhausted || res.status === 429) {
@@ -592,8 +601,8 @@ export default function ProductDiscoveryPage() {
       if (shortfallNotice) {
         setError(`Notice: ${shortfallNotice}`);
       }
-      if (foundCount === 0) {
-        setError("No products found with configured shipping methods. Try a different category.");
+      if (foundCount === 0 && !shortfallNotice) {
+        setError("No products were returned for the selected filters. Try a different category or relax filters.");
       }
     } finally {
       if (runId === searchRunIdRef.current) {

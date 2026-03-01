@@ -424,7 +424,8 @@ async function fetchCjProductPage(
   token: string, 
   base: string, 
   categoryId: string | null,
-  pageNum: number
+  pageNum: number,
+  requestTimeoutMs: number = 30000
 ): Promise<CjProductPageResult> {
   // Use /product/list for category filtering (stable and reliable)
   const params = new URLSearchParams();
@@ -444,7 +445,7 @@ async function fetchCjProductPage(
         'Content-Type': 'application/json',
       },
       cache: 'no-store',
-      timeoutMs: 30000,
+      timeoutMs: requestTimeoutMs,
     });
     
     const list = res?.data?.list || [];
@@ -806,6 +807,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   sizes filter: ${requestedSizes.length > 0 ? requestedSizes.join(',') : 'none'}`);
     console.log(`[Search&Price]   mediaMode: ${mediaMode}`);
     console.log(`[Search&Price]   batchMode: ${isBatchMode}, batchSize: ${batchSize}`);
+    console.log(`[Search&Price]   candidateCollectionBudgetMs: ${candidateCollectionBudgetMs}, cjPageFetchTimeoutMs: ${cjPageFetchTimeoutMs}`);
     console.log(`[Search&Price]   cursor: ${cursorParam} (cat=${cursorCatIdx}, page=${cursorPageNum}, offset=${cursorItemOffset})`);
     console.log(`[Search&Price]   seenPids: ${seenPidsFromClient.size} already processed`);
     console.log(`[Search&Price]   excluded queue/store/total: ${queueExcludedPids.size}/${storeExcludedPids.size}/${excludedCjProductIds.size}`);
@@ -867,6 +869,12 @@ async function handleSearch(req: Request, isPost: boolean) {
     // In batch mode: 8 seconds max (Vercel has 10s limit, need buffer)
     // In non-batch mode: 5 minutes for legacy compatibility
     const maxDurationMs = isBatchMode ? 8000 : 300000;
+    // Reserve a slice of the batch runtime for pricing/shipping so we don't
+    // spend the entire batch scanning candidates and return 0 products forever.
+    const candidateCollectionBudgetMs = isBatchMode
+      ? Math.max(2500, Math.min(5500, maxDurationMs - 2500))
+      : maxDurationMs;
+    const cjPageFetchTimeoutMs = isBatchMode ? Math.min(5000, candidateCollectionBudgetMs) : 30000;
     
     let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0, existing: 0 };
     
@@ -900,7 +908,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     for (let catIdx = currentCatIdx; catIdx < categoryIds.length; catIdx++) {
       const catId = categoryIds[catIdx];
       if (candidateProducts.length >= neededCandidates) break;
-      if (Date.now() - startTime > maxDurationMs) {
+      if (Date.now() - startTime > candidateCollectionBudgetMs) {
         candidateCollectionTimedOut = true;
         console.log(`[Search&Price] Timeout reached during candidate collection`);
         break;
@@ -913,7 +921,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       let categoryPageUpperBound = ABSOLUTE_MAX_PAGES_PER_CATEGORY;
 
       for (let page = startPage; page <= ABSOLUTE_MAX_PAGES_PER_CATEGORY; page++) {
-        if (Date.now() - startTime > maxDurationMs) {
+        if (Date.now() - startTime > candidateCollectionBudgetMs) {
           candidateCollectionTimedOut = true;
           break;
         }
@@ -931,7 +939,7 @@ async function handleSearch(req: Request, isPost: boolean) {
           break;
         }
         
-        const pageResult = await fetchCjProductPage(token, base, catId, page);
+        const pageResult = await fetchCjProductPage(token, base, catId, page, cjPageFetchTimeoutMs);
 
         if (!pageResult.ok) {
           candidateCollectionHadFetchError = true;
@@ -2484,8 +2492,8 @@ async function handleSearch(req: Request, isPost: boolean) {
         for (let i = 0; i < Math.min(sortedVariants.length, MAX_VARIANTS_TO_CHECK); i++) {
           // Stop checking if we hit rate limit or time budget exceeded
           if (consecutiveRateLimitErrors >= 3) break;
-          if (Date.now() - startTime > 50000) {
-            console.log(`[Search&Price] Time budget exceeded (50s), stopping variant checks`);
+          if (Date.now() - startTime > maxDurationMs) {
+            console.log(`[Search&Price] Time budget exceeded (${maxDurationMs}ms), stopping variant checks`);
             break;
           }
           
