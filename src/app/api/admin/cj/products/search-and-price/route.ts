@@ -807,7 +807,6 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   sizes filter: ${requestedSizes.length > 0 ? requestedSizes.join(',') : 'none'}`);
     console.log(`[Search&Price]   mediaMode: ${mediaMode}`);
     console.log(`[Search&Price]   batchMode: ${isBatchMode}, batchSize: ${batchSize}`);
-    console.log(`[Search&Price]   candidateCollectionBudgetMs: ${candidateCollectionBudgetMs}, cjPageFetchTimeoutMs: ${cjPageFetchTimeoutMs}`);
     console.log(`[Search&Price]   cursor: ${cursorParam} (cat=${cursorCatIdx}, page=${cursorPageNum}, offset=${cursorItemOffset})`);
     console.log(`[Search&Price]   seenPids: ${seenPidsFromClient.size} already processed`);
     console.log(`[Search&Price]   excluded queue/store/total: ${queueExcludedPids.size}/${storeExcludedPids.size}/${excludedCjProductIds.size}`);
@@ -875,6 +874,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       ? Math.max(2500, Math.min(5500, maxDurationMs - 2500))
       : maxDurationMs;
     const cjPageFetchTimeoutMs = isBatchMode ? Math.min(5000, candidateCollectionBudgetMs) : 30000;
+    console.log(`[Search&Price]   candidateCollectionBudgetMs: ${candidateCollectionBudgetMs}, cjPageFetchTimeoutMs: ${cjPageFetchTimeoutMs}`);
     
     let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0, existing: 0 };
     
