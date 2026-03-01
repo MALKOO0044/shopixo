@@ -185,14 +185,62 @@ async function appendCjProductIdsFromTable(
   }
 }
 
-async function loadExcludedCjProductIds(): Promise<Set<string>> {
-  const supabase = getSupabaseAdmin();
-  if (!supabase) return new Set<string>();
+type ExcludedProductIdsSnapshot = {
+  queueExcludedPids: Set<string>;
+  storeExcludedPids: Set<string>;
+  excludedPids: Set<string>;
+};
 
-  const excluded = new Set<string>();
-  await appendCjProductIdsFromTable(supabase, 'product_queue', excluded);
-  await appendCjProductIdsFromTable(supabase, 'products', excluded);
-  return excluded;
+let excludedProductIdsCache:
+  | {
+      expiresAt: number;
+      snapshot: ExcludedProductIdsSnapshot;
+    }
+  | null = null;
+
+const EXCLUDED_PRODUCT_IDS_CACHE_TTL_MS = 60_000;
+
+function cloneExcludedProductIdsSnapshot(snapshot: ExcludedProductIdsSnapshot): ExcludedProductIdsSnapshot {
+  return {
+    queueExcludedPids: new Set<string>(snapshot.queueExcludedPids),
+    storeExcludedPids: new Set<string>(snapshot.storeExcludedPids),
+    excludedPids: new Set<string>(snapshot.excludedPids),
+  };
+}
+
+async function loadExcludedCjProductIdsSnapshot(): Promise<ExcludedProductIdsSnapshot> {
+  if (excludedProductIdsCache && excludedProductIdsCache.expiresAt > Date.now()) {
+    return cloneExcludedProductIdsSnapshot(excludedProductIdsCache.snapshot);
+  }
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return {
+      queueExcludedPids: new Set<string>(),
+      storeExcludedPids: new Set<string>(),
+      excludedPids: new Set<string>(),
+    };
+  }
+
+  const queueExcludedPids = new Set<string>();
+  const storeExcludedPids = new Set<string>();
+
+  await appendCjProductIdsFromTable(supabase, 'product_queue', queueExcludedPids);
+  await appendCjProductIdsFromTable(supabase, 'products', storeExcludedPids);
+
+  const excludedPids = new Set<string>([...queueExcludedPids, ...storeExcludedPids]);
+  const snapshot: ExcludedProductIdsSnapshot = {
+    queueExcludedPids,
+    storeExcludedPids,
+    excludedPids,
+  };
+
+  excludedProductIdsCache = {
+    expiresAt: Date.now() + EXCLUDED_PRODUCT_IDS_CACHE_TTL_MS,
+    snapshot,
+  };
+
+  return cloneExcludedProductIdsSnapshot(snapshot);
 }
 
 type DiscoverMediaMode = 'any' | 'withVideo' | 'imagesOnly' | 'both';
@@ -365,12 +413,19 @@ function scoreMergedImageCandidate(url: string, index: number): number {
   return score;
 }
 
+type CjProductPageResult = {
+  ok: boolean;
+  list: any[];
+  total: number;
+  error?: string;
+};
+
 async function fetchCjProductPage(
   token: string, 
   base: string, 
   categoryId: string | null,
   pageNum: number
-): Promise<{ list: any[]; total: number }> {
+): Promise<CjProductPageResult> {
   // Use /product/list for category filtering (stable and reliable)
   const params = new URLSearchParams();
   params.set('pageNum', String(pageNum));
@@ -396,10 +451,11 @@ async function fetchCjProductPage(
     const total = res?.data?.total || 0;
     console.log(`[Search&Price] Page ${pageNum} returned ${list.length} items (total: ${total})`);
     
-    return { list, total };
+    return { ok: true, list, total };
   } catch (e: any) {
-    console.error(`[Search&Price] Fetch error:`, e?.message);
-    return { list: [], total: 0 };
+    const message = e?.message || 'Unknown CJ page fetch error';
+    console.error(`[Search&Price] Fetch error:`, message);
+    return { ok: false, list: [], total: 0, error: message };
   }
 }
 
@@ -731,38 +787,11 @@ async function handleSearch(req: Request, isPost: boolean) {
         )
       : [];
 
-    const queueExcludedPids = new Set<string>();
-    const storeExcludedPids = new Set<string>();
-    try {
-      const supabaseAdmin = getSupabaseAdmin();
-      if (supabaseAdmin) {
-        const [queueRowsRes, storeRowsRes] = await Promise.all([
-          supabaseAdmin.from('product_queue').select('cj_product_id').not('cj_product_id', 'is', null),
-          supabaseAdmin.from('products').select('cj_product_id').not('cj_product_id', 'is', null),
-        ]);
-
-        if (queueRowsRes.error) {
-          console.error('[Search&Price] Failed to load queue exclusions:', queueRowsRes.error);
-        } else {
-          for (const row of queueRowsRes.data || []) {
-            const pid = normalizeCjProductId((row as any)?.cj_product_id);
-            if (pid) queueExcludedPids.add(pid);
-          }
-        }
-
-        if (storeRowsRes.error) {
-          console.error('[Search&Price] Failed to load store exclusions:', storeRowsRes.error);
-        } else {
-          for (const row of storeRowsRes.data || []) {
-            const pid = normalizeCjProductId((row as any)?.cj_product_id);
-            if (pid) storeExcludedPids.add(pid);
-          }
-        }
-      }
-    } catch (e: any) {
-      console.error('[Search&Price] Failed to build exclusion sets:', e?.message || e);
-    }
-    const excludedPids = new Set<string>([...queueExcludedPids, ...storeExcludedPids]);
+    const {
+      queueExcludedPids,
+      storeExcludedPids,
+      excludedPids: excludedCjProductIds,
+    } = await loadExcludedCjProductIdsSnapshot();
 
     console.log(`[Search&Price] ========================================`);
     console.log(`[Search&Price] Starting search with params:`);
@@ -779,7 +808,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   batchMode: ${isBatchMode}, batchSize: ${batchSize}`);
     console.log(`[Search&Price]   cursor: ${cursorParam} (cat=${cursorCatIdx}, page=${cursorPageNum}, offset=${cursorItemOffset})`);
     console.log(`[Search&Price]   seenPids: ${seenPidsFromClient.size} already processed`);
-    console.log(`[Search&Price]   excluded queue/store/total: ${queueExcludedPids.size}/${storeExcludedPids.size}/${excludedPids.size}`);
+    console.log(`[Search&Price]   excluded queue/store/total: ${queueExcludedPids.size}/${storeExcludedPids.size}/${excludedCjProductIds.size}`);
     console.log(`[Search&Price] ========================================`);
 
     const token = await getAccessToken();
@@ -792,12 +821,17 @@ async function handleSearch(req: Request, isPost: boolean) {
     }
     
     const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
-    const excludedCjProductIds = await loadExcludedCjProductIds();
     console.log(`[Search&Price]   excluded existing queue/store products: ${excludedCjProductIds.size}`);
     
     const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
+    let candidateCollectionTimedOut = false;
+    let candidateCollectionHadFetchError = false;
+    let candidateCollectionFetchErrorMessage: string | null = null;
+    let consecutivePageFetchErrors = 0;
+    const MAX_CONSECUTIVE_PAGE_FETCH_ERRORS = 3;
+    const ABSOLUTE_MAX_PAGES_PER_CATEGORY = 5000;
     let skippedByQueueExclusion = 0;
     let skippedByStoreExclusion = 0;
     const mediaFilterStats = {
@@ -862,6 +896,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       const catId = categoryIds[catIdx];
       if (candidateProducts.length >= neededCandidates) break;
       if (Date.now() - startTime > maxDurationMs) {
+        candidateCollectionTimedOut = true;
         console.log(`[Search&Price] Timeout reached during candidate collection`);
         break;
       }
@@ -869,14 +904,58 @@ async function handleSearch(req: Request, isPost: boolean) {
       // For first category, start from cursor page; for subsequent categories, start from page 1
       const startPage = (catIdx === cursorCatIdx && isBatchMode) ? cursorPageNum : 1;
       console.log(`[Search&Price] Searching category: ${catId}, starting from page ${startPage}`);
-      
-      const maxPages = 100; // Increased for large quantity requests
-      
-      for (let page = startPage; page <= maxPages; page++) {
-        if (Date.now() - startTime > maxDurationMs) break;
+
+      let categoryPageUpperBound = ABSOLUTE_MAX_PAGES_PER_CATEGORY;
+
+      for (let page = startPage; page <= ABSOLUTE_MAX_PAGES_PER_CATEGORY; page++) {
+        if (Date.now() - startTime > maxDurationMs) {
+          candidateCollectionTimedOut = true;
+          break;
+        }
         if (candidateProducts.length >= neededCandidates) break;
+
+        if (page > categoryPageUpperBound) {
+          console.log(`[Search&Price] Reached category page upper bound at page ${page - 1} (category ${catId})`);
+          if (catIdx < categoryIds.length - 1) {
+            currentCatIdx = catIdx + 1;
+            currentPage = 1;
+            currentItemOffset = 0;
+          } else {
+            exhaustedAllPages = true;
+          }
+          break;
+        }
         
         const pageResult = await fetchCjProductPage(token, base, catId, page);
+
+        if (!pageResult.ok) {
+          candidateCollectionHadFetchError = true;
+          candidateCollectionFetchErrorMessage = pageResult.error || 'Unknown CJ product page fetch error';
+          consecutivePageFetchErrors += 1;
+          console.warn(
+            `[Search&Price] Fetch failure for category ${catId}, page ${page} (${consecutivePageFetchErrors}/${MAX_CONSECUTIVE_PAGE_FETCH_ERRORS}): ${candidateCollectionFetchErrorMessage}`
+          );
+
+          // Advance cursor to next page so we don't get stuck retrying the same failing page forever.
+          currentCatIdx = catIdx;
+          currentPage = page + 1;
+          currentItemOffset = 0;
+
+          if (consecutivePageFetchErrors >= MAX_CONSECUTIVE_PAGE_FETCH_ERRORS) {
+            console.log(`[Search&Price] Stopping category scan after repeated page fetch errors for ${catId}`);
+            break;
+          }
+          continue;
+        }
+
+        consecutivePageFetchErrors = 0;
+
+        const inferredPageSize = pageResult.list.length > 0 ? pageResult.list.length : 20;
+        const totalCandidatesInCategory = Number(pageResult.total);
+        if (Number.isFinite(totalCandidatesInCategory) && totalCandidatesInCategory > 0) {
+          const derivedPageCount = Math.max(1, Math.ceil(totalCandidatesInCategory / Math.max(1, inferredPageSize)));
+          categoryPageUpperBound = Math.min(ABSOLUTE_MAX_PAGES_PER_CATEGORY, Math.max(startPage, derivedPageCount));
+        }
         
         if (pageResult.list.length === 0) {
           console.log(`[Search&Price] No more products at page ${page} in category ${catId}`);
@@ -945,13 +1024,36 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price] ----------------------------------------`);
     
     if (candidateProducts.length === 0) {
+      const duration = Date.now() - startTime;
+      const hasMoreSourcePages = !exhaustedAllPages;
+      const hasMoreAfterEmptyBatch = hasMoreSourcePages || candidateCollectionTimedOut || candidateCollectionHadFetchError;
+      const batchTargetQuantity = isBatchMode ? remainingNeeded : quantity;
+      const shortfallReason = !hasMoreAfterEmptyBatch
+        ? mediaMode === 'any'
+          ? `Not enough matching products found. Got 0/${batchTargetQuantity} products.`
+          : `Not enough products matching media filter "${mediaMode}". Got 0/${batchTargetQuantity} products.`
+        : undefined;
+
       console.log(`[Search&Price] No candidates found! Returning empty result.`);
       const r = NextResponse.json({
         ok: true,
         products: [],
         count: 0,
+        requestedQuantity: quantity,
+        remainingNeeded: isBatchMode ? remainingNeeded : undefined,
+        quantityFulfilled: false,
         mediaMode,
-        duration: Date.now() - startTime,
+        shortfallReason,
+        duration,
+        batch: isBatchMode ? {
+          hasMore: hasMoreAfterEmptyBatch,
+          cursor: `${currentCatIdx}.${currentPage}.${currentItemOffset}`,
+          attemptedPids: attemptedPidsThisBatch,
+          processedPids: [],
+          totalCandidates: 0,
+          productsThisBatch: 0,
+          batchSize,
+        } : undefined,
         debug: {
           categoriesSearched: categoryIds,
           totalSeen: seenPids.size,
@@ -959,10 +1061,13 @@ async function handleSearch(req: Request, isPost: boolean) {
           exclusion: {
             excludedByQueue: queueExcludedPids.size,
             excludedByStore: storeExcludedPids.size,
-            excludedTotal: excludedPids.size,
+            excludedTotal: excludedCjProductIds.size,
             skippedByQueue: skippedByQueueExclusion,
             skippedByStore: skippedByStoreExclusion,
           },
+          candidateCollectionTimedOut,
+          candidateCollectionHadFetchError,
+          candidateCollectionFetchErrorMessage,
           mediaFilter: mediaFilterStats,
         }
       }, { headers: { 'Cache-Control': 'no-store' } });
@@ -2767,28 +2872,41 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price] Shipping error breakdown:`, shippingErrors);
     
     // Determine fulfillment status
-    const quantityFulfilled = filteredProducts.length >= quantity;
+    const batchTargetQuantity = isBatchMode ? remainingNeeded : quantity;
+    const quantityFulfilled = filteredProducts.length >= batchTargetQuantity;
     const hitRateLimit = consecutiveRateLimitErrors >= 3;
-    const hitTimeLimit = Date.now() - startTime > maxDurationMs;
+    const hitTimeLimit = duration > maxDurationMs;
     const exhaustedCandidates = candidateIndex >= candidateProducts.length;
+    const hasMoreCandidatesInBatch = candidateIndex < candidateProducts.length;
+    const moreSourcePagesExist = !exhaustedAllPages;
+    const hasMoreToProcess = (
+      moreSourcePagesExist ||
+      hasMoreCandidatesInBatch ||
+      hitTimeLimit ||
+      candidateCollectionHadFetchError
+    ) && !hitRateLimit;
     
     // Determine shortfall reason
     let shortfallReason: string | undefined;
     if (!quantityFulfilled) {
-      if (hitRateLimit) {
+      if (isBatchMode && hasMoreToProcess) {
+        shortfallReason = undefined;
+      } else if (hitRateLimit) {
         shortfallReason = 'CJ API rate limit reached. Try again in a few minutes.';
       } else if (hitTimeLimit) {
-        shortfallReason = `Processing time exceeded. Got ${filteredProducts.length}/${quantity} products.`;
+        shortfallReason = `Processing time exceeded. Got ${filteredProducts.length}/${batchTargetQuantity} products.`;
       } else if (mediaMode !== 'any' && mediaFilterStats.passed === 0) {
         shortfallReason = `No products matched media filter "${mediaMode}". Checked ${mediaFilterStats.checked} candidates and filtered out ${mediaFilterStats.filteredOut}.`;
-      } else if (exhaustedCandidates) {
+      } else if (exhaustedCandidates && !moreSourcePagesExist) {
         shortfallReason = mediaMode === 'any'
-          ? `Not enough matching products found. Got ${filteredProducts.length}/${quantity} products.`
-          : `Not enough products matching media filter "${mediaMode}". Got ${filteredProducts.length}/${quantity} products.`;
+          ? `Not enough matching products found. Got ${filteredProducts.length}/${batchTargetQuantity} products.`
+          : `Not enough products matching media filter "${mediaMode}". Got ${filteredProducts.length}/${batchTargetQuantity} products.`;
       } else {
-        shortfallReason = `Shipping calculation failed for some products. Got ${filteredProducts.length}/${quantity} products.`;
+        shortfallReason = `Shipping calculation failed for some products. Got ${filteredProducts.length}/${batchTargetQuantity} products.`;
       }
-      console.log(`[Search&Price] Quantity shortfall: ${shortfallReason}`);
+      if (shortfallReason) {
+        console.log(`[Search&Price] Quantity shortfall: ${shortfallReason}`);
+      }
     }
     
     // Return error if no products at all and rate limited
@@ -2818,15 +2936,6 @@ async function handleSearch(req: Request, isPost: boolean) {
       return r;
     }
     
-    // In batch mode, calculate pagination info
-    // hasMore is true when EITHER:
-    // 1. There are more pages to fetch (not exhaustedAllPages), OR
-    // 2. There are unprocessed candidates remaining from this batch
-    // AND we're not rate limited
-    const hasMoreCandidatesInBatch = candidateIndex < candidateProducts.length;
-    const moreSourcePagesExist = !exhaustedAllPages;
-    const hasMoreToProcess = (moreSourcePagesExist || hasMoreCandidatesInBatch) && !hitRateLimit;
-    
     // Return ALL attempted PIDs (including filtered/failed) so client can skip them in next batch
     // This is simpler and more reliable than complex cursor tracking
     
@@ -2840,6 +2949,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       products: productsToReturn,
       count: productsToReturn.length,
       requestedQuantity: quantity,
+      remainingNeeded: isBatchMode ? remainingNeeded : undefined,
       mediaMode,
       quantityFulfilled,
       shortfallReason: quantityFulfilled ? undefined : shortfallReason,
@@ -2847,7 +2957,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       quotaExhausted: hitRateLimit,
       excludedByQueue: queueExcludedPids.size,
       excludedByStore: storeExcludedPids.size,
-      excludedTotal: excludedPids.size,
+      excludedTotal: excludedCjProductIds.size,
       // Batch mode pagination info
       batch: isBatchMode ? {
         hasMore: hasMoreToProcess && !hitRateLimit,
@@ -2874,10 +2984,13 @@ async function handleSearch(req: Request, isPost: boolean) {
         exclusion: {
           excludedByQueue: queueExcludedPids.size,
           excludedByStore: storeExcludedPids.size,
-          excludedTotal: excludedPids.size,
+          excludedTotal: excludedCjProductIds.size,
           skippedByQueue: skippedByQueueExclusion,
           skippedByStore: skippedByStoreExclusion,
         },
+        candidateCollectionTimedOut,
+        candidateCollectionHadFetchError,
+        candidateCollectionFetchErrorMessage,
         mediaFilter: mediaFilterStats,
       }
     }, { headers: { 'Cache-Control': 'no-store' } });

@@ -180,6 +180,8 @@ function buildDiscoverPreviewGallery(product: PricedProduct | null | undefined):
 
 export default function ProductDiscoveryPage() {
   const DISCOVER_PAGE_SIZE = 100;
+  const DISCOVER_BATCH_SIZE = 10;
+  const MAX_IDLE_BATCHES = 12;
   const [category, setCategory] = useState("all");
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
   const [selectedFeaturesWithIds, setSelectedFeaturesWithIds] = useState<SelectedFeature[]>([]);
@@ -346,6 +348,7 @@ export default function ProductDiscoveryPage() {
 
     let workingProducts = [...productsRef.current];
     const knownPids = new Set(workingProducts.map((product) => product.pid));
+    const maxBatchIterations = Math.max(1000, session.query.quantity);
 
     try {
       while (session.hasMore && workingProducts.length < clampedTarget) {
@@ -353,6 +356,7 @@ export default function ProductDiscoveryPage() {
           break;
         }
 
+        const cursorBeforeBatch = session.cursor;
         session.batchNumber += 1;
         const remainingNeeded = Math.max(0, session.query.quantity - workingProducts.length);
         if (remainingNeeded === 0) break;
@@ -374,7 +378,7 @@ export default function ProductDiscoveryPage() {
           freeShippingOnly: session.query.freeShippingOnly ? "1" : "0",
           mediaMode: session.query.mediaMode,
           batchMode: "1",
-          batchSize: "3",
+          batchSize: DISCOVER_BATCH_SIZE.toString(),
           cursor: session.cursor,
           remainingNeeded: remainingNeeded.toString(),
         });
@@ -403,9 +407,10 @@ export default function ProductDiscoveryPage() {
         }
 
         const batchProducts: PricedProduct[] = Array.isArray(data.products) ? data.products : [];
-        if (typeof data.shortfallReason === "string" && data.shortfallReason.trim()) {
-          session.lastShortfallReason = data.shortfallReason.trim();
-        }
+        const incomingShortfallReason =
+          typeof data.shortfallReason === "string" && data.shortfallReason.trim()
+            ? data.shortfallReason.trim()
+            : null;
 
         let addedInBatch = 0;
         for (const product of batchProducts) {
@@ -439,22 +444,36 @@ export default function ProductDiscoveryPage() {
           session.hasMore = false;
         }
 
+        if (incomingShortfallReason) {
+          session.lastShortfallReason = incomingShortfallReason;
+        } else if (session.hasMore || workingProducts.length >= session.query.quantity) {
+          session.lastShortfallReason = null;
+        }
+
         const attemptedCount = Array.isArray(data.batch?.attemptedPids)
           ? data.batch.attemptedPids.length
           : 0;
 
-        if (addedInBatch === 0 && attemptedCount === 0) {
+        const cursorAdvanced = session.cursor !== cursorBeforeBatch;
+        const madeProgress = addedInBatch > 0 || attemptedCount > 0 || cursorAdvanced;
+
+        if (!madeProgress) {
           session.consecutiveIdleBatches += 1;
         } else {
           session.consecutiveIdleBatches = 0;
         }
 
-        if (!session.hasMore || session.consecutiveIdleBatches >= 4) {
+        if (!session.hasMore) {
+          break;
+        }
+
+        if (session.consecutiveIdleBatches >= MAX_IDLE_BATCHES) {
+          session.lastError = "Search stopped after repeated idle batches. Try refining filters or retrying.";
           session.hasMore = false;
           break;
         }
 
-        if (session.batchNumber >= 1000) {
+        if (session.batchNumber >= maxBatchIterations) {
           session.lastError = "Search safety limit reached. Showing products found so far.";
           session.hasMore = false;
           break;
@@ -488,7 +507,7 @@ export default function ProductDiscoveryPage() {
     if (!session) return null;
     if (foundCount >= session.query.quantity) return null;
     if (session.lastError) return session.lastError;
-    if (session.lastShortfallReason) return session.lastShortfallReason;
+    if (session.lastShortfallReason && !session.hasMore) return session.lastShortfallReason;
     if (!session.hasMore) {
       return `Found ${foundCount}/${session.query.quantity} products. Not enough matching products in this category.`;
     }
