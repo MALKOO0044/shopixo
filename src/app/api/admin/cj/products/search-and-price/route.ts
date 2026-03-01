@@ -878,8 +878,13 @@ async function handleSearch(req: Request, isPost: boolean) {
       : mediaMode === 'imagesOnly'
         ? 6
         : 3;
-    const neededCandidates = isBatchMode 
-      ? batchSize * mediaCandidateMultiplier
+    const batchCandidateMultiplier = mediaMode === 'withVideo' || mediaMode === 'both'
+      ? 4
+      : mediaMode === 'imagesOnly'
+        ? 3
+        : 2;
+    const neededCandidates = isBatchMode
+      ? Math.max(batchSize, Math.min(40, batchSize * batchCandidateMultiplier))
       : quantity * mediaCandidateMultiplier;
     
     // Track ALL PIDs attempted in this batch (for returning to client)
@@ -1012,6 +1017,10 @@ async function handleSearch(req: Request, isPost: boolean) {
       }
     }
     
+    const cursorAdvancedInBatch = isBatchMode
+      ? currentCatIdx !== cursorCatIdx || currentPage !== cursorPageNum || currentItemOffset !== cursorItemOffset
+      : false;
+
     console.log(`[Search&Price] ----------------------------------------`);
     console.log(`[Search&Price] Search complete:`);
     console.log(`[Search&Price]   Total candidates: ${candidateProducts.length}`);
@@ -1026,7 +1035,10 @@ async function handleSearch(req: Request, isPost: boolean) {
     if (candidateProducts.length === 0) {
       const duration = Date.now() - startTime;
       const hasMoreSourcePages = !exhaustedAllPages;
-      const hasMoreAfterEmptyBatch = hasMoreSourcePages || candidateCollectionTimedOut || candidateCollectionHadFetchError;
+      const hasMoreAfterEmptyBatch =
+        hasMoreSourcePages ||
+        (candidateCollectionTimedOut && cursorAdvancedInBatch) ||
+        candidateCollectionHadFetchError;
       const batchTargetQuantity = isBatchMode ? remainingNeeded : quantity;
       const shortfallReason = !hasMoreAfterEmptyBatch
         ? mediaMode === 'any'
@@ -2882,7 +2894,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     const hasMoreToProcess = (
       moreSourcePagesExist ||
       hasMoreCandidatesInBatch ||
-      hitTimeLimit ||
+      (candidateCollectionTimedOut && cursorAdvancedInBatch) ||
       candidateCollectionHadFetchError
     ) && !hitRateLimit;
     

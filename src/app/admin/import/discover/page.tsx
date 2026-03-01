@@ -68,6 +68,7 @@ type DiscoverSearchSession = {
   hasMore: boolean;
   batchNumber: number;
   consecutiveIdleBatches: number;
+  consecutiveZeroProductBatches: number;
   lastError: string | null;
   lastShortfallReason: string | null;
 };
@@ -180,8 +181,10 @@ function buildDiscoverPreviewGallery(product: PricedProduct | null | undefined):
 
 export default function ProductDiscoveryPage() {
   const DISCOVER_PAGE_SIZE = 100;
-  const DISCOVER_BATCH_SIZE = 10;
+  const INITIAL_DISCOVER_BATCH_SIZE = 3;
+  const DISCOVER_BATCH_SIZE = 6;
   const MAX_IDLE_BATCHES = 12;
+  const MAX_ZERO_PRODUCT_BATCHES = 10;
   const [category, setCategory] = useState("all");
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
   const [selectedFeaturesWithIds, setSelectedFeaturesWithIds] = useState<SelectedFeature[]>([]);
@@ -360,6 +363,9 @@ export default function ProductDiscoveryPage() {
         session.batchNumber += 1;
         const remainingNeeded = Math.max(0, session.query.quantity - workingProducts.length);
         if (remainingNeeded === 0) break;
+        const requestBatchSize = workingProducts.length === 0
+          ? INITIAL_DISCOVER_BATCH_SIZE
+          : DISCOVER_BATCH_SIZE;
 
         setSearchProgress(
           `Finding products... (batch ${session.batchNumber}, found ${workingProducts.length}/${session.query.quantity})`
@@ -378,7 +384,7 @@ export default function ProductDiscoveryPage() {
           freeShippingOnly: session.query.freeShippingOnly ? "1" : "0",
           mediaMode: session.query.mediaMode,
           batchMode: "1",
-          batchSize: DISCOVER_BATCH_SIZE.toString(),
+          batchSize: requestBatchSize.toString(),
           cursor: session.cursor,
           remainingNeeded: remainingNeeded.toString(),
         });
@@ -450,6 +456,12 @@ export default function ProductDiscoveryPage() {
           session.lastShortfallReason = null;
         }
 
+        if (addedInBatch === 0) {
+          session.consecutiveZeroProductBatches += 1;
+        } else {
+          session.consecutiveZeroProductBatches = 0;
+        }
+
         const attemptedCount = Array.isArray(data.batch?.attemptedPids)
           ? data.batch.attemptedPids.length
           : 0;
@@ -464,6 +476,14 @@ export default function ProductDiscoveryPage() {
         }
 
         if (!session.hasMore) {
+          break;
+        }
+
+        if (session.consecutiveZeroProductBatches >= MAX_ZERO_PRODUCT_BATCHES) {
+          session.lastError = workingProducts.length === 0
+            ? "Search returned no displayable products after multiple batches. Try adjusting filters and retry."
+            : "Search stopped after multiple batches with no new products. Showing products found so far.";
+          session.hasMore = false;
           break;
         }
 
@@ -542,6 +562,7 @@ export default function ProductDiscoveryPage() {
       hasMore: true,
       batchNumber: 0,
       consecutiveIdleBatches: 0,
+      consecutiveZeroProductBatches: 0,
       lastError: null,
       lastShortfallReason: null,
     };
