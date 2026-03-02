@@ -302,6 +302,19 @@ export default function ProductDiscoveryPage() {
 
   const quantityPresets = [2000, 1500, 1000, 500, 250, 100, 50, 25, 10];
   const profitPresets = [100, 50, 25, 15, 8];
+
+  const getAdaptiveBatchSize = (remainingNeeded: number, currentBatch: number): number => {
+    if (remainingNeeded <= 1) return 1;
+
+    // Warm up with medium batches, then scale up for larger remaining targets.
+    if (currentBatch <= 2) return Math.min(5, remainingNeeded);
+    if (remainingNeeded >= 500) return 10;
+    if (remainingNeeded >= 250) return 9;
+    if (remainingNeeded >= 120) return 8;
+    if (remainingNeeded >= 60) return 7;
+    if (remainingNeeded >= 20) return 6;
+    return Math.min(5, remainingNeeded);
+  };
   
 
   const testConnection = async () => {
@@ -432,14 +445,15 @@ export default function ProductDiscoveryPage() {
         session.batchNumber += 1;
         const remainingNeeded = Math.max(0, session.query.quantity - workingProducts.length);
         if (remainingNeeded === 0) break;
-        const requestBatchSize = workingProducts.length === 0
-          ? INITIAL_DISCOVER_BATCH_SIZE
-          : DISCOVER_BATCH_SIZE;
+        const adaptiveBatchSize = getAdaptiveBatchSize(remainingNeeded, session.batchNumber);
+        const requestBatchSize = Math.max(
+          workingProducts.length === 0 ? INITIAL_DISCOVER_BATCH_SIZE : DISCOVER_BATCH_SIZE,
+          adaptiveBatchSize
+        );
 
         setSearchProgress(
           `Finding products... (batch ${session.batchNumber}, found ${workingProducts.length}/${session.query.quantity})`
         );
-
         const params = new URLSearchParams({
           categoryIds: session.query.categoryIds.join(","),
           quantity: session.query.quantity.toString(),
@@ -457,7 +471,6 @@ export default function ProductDiscoveryPage() {
           cursor: session.cursor,
           remainingNeeded: remainingNeeded.toString(),
         });
-
         const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -528,7 +541,7 @@ export default function ProductDiscoveryPage() {
           session.hasMore = false;
         }
 
-        if (incomingShortfallReason) {
+        if (incomingShortfallReason && (data.quotaExhausted || !session.hasMore)) {
           session.lastShortfallReason = incomingShortfallReason;
         } else if (session.hasMore || workingProducts.length >= session.query.quantity) {
           session.lastShortfallReason = null;

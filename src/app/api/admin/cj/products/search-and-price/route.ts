@@ -1212,35 +1212,38 @@ async function handleSearch(req: Request, isPost: boolean) {
         (candidateCollectionTimedOut && cursorAdvancedInBatch) ||
         candidateCollectionHadFetchError;
       const batchTargetQuantity = isBatchMode ? remainingNeeded : quantity;
-      const shortfallReason = !hasMoreAfterEmptyBatch
+      const baseEmptyShortfallReason = !hasMoreAfterEmptyBatch
         ? mediaMode === 'any'
           ? `Not enough matching products found. Got 0/${batchTargetQuantity} products.`
           : `Not enough products matching media filter "${mediaMode}". Got 0/${batchTargetQuantity} products.`
         : undefined;
 
       console.log(`[Search&Price] No candidates found! Returning empty result.`);
+      const emptyBatchHasMore = isBatchMode ? hasMoreAfterEmptyBatch : false;
       const emptyShortfallReason = sourceFetchError
         ? (isCjRateLimitMessage(sourceFetchError)
             ? 'CJ API rate limit reached. Try again in a few minutes.'
             : `CJ product listing temporarily failed: ${sourceFetchError}`)
-        : 'No products matched the selected category/feature filters.';
+        : baseEmptyShortfallReason;
       const r = NextResponse.json({
         ok: true,
         products: [],
         count: 0,
         requestedQuantity: quantity,
+        remainingNeeded: isBatchMode ? remainingNeeded : undefined,
         quantityFulfilled: false,
         mediaMode,
         shortfallReason: emptyShortfallReason,
         invalidCategoryIds,
         duration: Date.now() - startTime,
         batch: isBatchMode ? {
-          hasMore: false,
+          hasMore: emptyBatchHasMore,
           cursor: `${currentCatIdx}.${currentPage}.${currentItemOffset}`,
           attemptedPids: attemptedPidsThisBatch,
           processedPids: [],
           totalCandidates: 0,
           productsThisBatch: 0,
+          requestedThisBatch: remainingNeeded,
           batchSize,
         } : undefined,
         debug: {
@@ -3057,14 +3060,13 @@ async function handleSearch(req: Request, isPost: boolean) {
     // This ensures each product has inventory data before being pushed to pricedProducts
     
     const duration = Date.now() - startTime;
-    console.log(`[Search&Price] Complete: ${filteredProducts.length}/${quantity} products returned (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size, ${totalFiltered.existing} excluded existing) in ${duration}ms`);
+    const fulfillmentTarget = isBatchMode ? remainingNeeded : quantity;
+    console.log(`[Search&Price] Complete: ${filteredProducts.length}/${fulfillmentTarget} products returned for this request (${pricedProducts.length} priced, ${skippedNoShipping} skipped no shipping, ${filteredBySizes} filtered by size, ${totalFiltered.existing} excluded existing) in ${duration}ms`);
     console.log(`[Search&Price] Media filter stats:`, mediaFilterStats);
     console.log(`[Search&Price] Shipping error breakdown:`, shippingErrors);
     
     // Determine fulfillment status
-    const quantityFulfilled = isBatchMode
-      ? filteredProducts.length >= remainingNeeded
-      : filteredProducts.length >= quantity;
+    const quantityFulfilled = filteredProducts.length >= fulfillmentTarget;
     const hitRateLimit = consecutiveRateLimitErrors >= 3;
     const hitTimeLimit = duration > maxDurationMs;
     const exhaustedCandidates = candidateIndex >= candidateProducts.length;
@@ -3085,8 +3087,8 @@ async function handleSearch(req: Request, isPost: boolean) {
     if (shouldEmitShortfallReason) {
       if (hitRateLimit) {
         shortfallReason = 'CJ API rate limit reached. Try again in a few minutes.';
-      } else if (!isBatchMode && hitTimeLimit) {
-        shortfallReason = `Processing time exceeded. Got ${filteredProducts.length}/${quantity} products.`;
+      } else if (hitTimeLimit) {
+        shortfallReason = `Processing time exceeded. Got ${filteredProducts.length}/${fulfillmentTarget} products.`;
       } else if (sourceFetchError && !isCjRateLimitMessage(sourceFetchError)) {
         shortfallReason = `CJ product listing temporarily failed: ${sourceFetchError}`;
       } else if (mediaMode !== 'any' && mediaFilterStats.passed === 0 && !hasMoreToProcess) {
@@ -3095,10 +3097,10 @@ async function handleSearch(req: Request, isPost: boolean) {
         shortfallReason = 'No displayable products passed configured shipping checks for the selected filters.';
       } else if (exhaustedCandidates || !hasMoreToProcess) {
         shortfallReason = mediaMode === 'any'
-          ? `Not enough matching products found. Got ${filteredProducts.length}/${batchTargetQuantity} products.`
-          : `Not enough products matching media filter "${mediaMode}". Got ${filteredProducts.length}/${batchTargetQuantity} products.`;
+          ? `Not enough matching products found. Got ${filteredProducts.length}/${fulfillmentTarget} products.`
+          : `Not enough products matching media filter "${mediaMode}". Got ${filteredProducts.length}/${fulfillmentTarget} products.`;
       } else {
-        shortfallReason = `Not enough matching products found. Got ${filteredProducts.length}/${quantity} products.`;
+        shortfallReason = `Not enough matching products found. Got ${filteredProducts.length}/${fulfillmentTarget} products.`;
       }
     }
     
@@ -3162,6 +3164,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         processedPids: productsToReturn.map(p => p.pid),
         totalCandidates: candidateProducts.length,
         productsThisBatch: productsProcessedThisBatch,
+        requestedThisBatch: remainingNeeded,
         batchSize,
       } : undefined,
       debug: {
