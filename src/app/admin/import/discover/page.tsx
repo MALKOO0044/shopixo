@@ -51,11 +51,35 @@ type ToggleFeatureMeta = {
   supabaseCategorySlug?: string;
 };
 
+type DiscoverMediaMode = "withVideo" | "imagesOnly" | "both";
+
+type DiscoverSearchQuery = {
+  categoryIds: string[];
+  quantity: number;
+  minPrice: number;
+  maxPrice: number;
+  minStock: number;
+  profitMargin: number;
+  popularity: string;
+  minRating: string;
+  shippingMethod: string;
+  freeShippingOnly: boolean;
+  mediaMode: DiscoverMediaMode;
+};
+
+type DiscoverSearchSession = {
+  query: DiscoverSearchQuery;
+  cursor: string;
+  seenPids: string[];
+  hasMore: boolean;
+  batchNumber: number;
+  consecutiveIdleBatches: number;
+  consecutiveZeroProductBatches: number;
+  lastError: string | null;
+  lastShortfallReason: string | null;
+};
+
 const DISCOVER_NUMERIC_CATEGORY_ID_RE = /^\d{2,30}$/;
-const INITIAL_DISCOVER_BATCH_SIZE = 3;
-const STEADY_DISCOVER_BATCH_SIZE = 10;
-const MAX_IDLE_BATCHES = 12;
-const MAX_ZERO_PRODUCT_BATCHES = 10;
 
 const DISCOVER_NON_PRODUCT_IMAGE_RE = /(sprite|icon|favicon|logo|placeholder|blank|loading|badge|flag|promo|banner|sale|discount|qr|sizechart|size\s*chart|chart|table|guide|thumb|thumbnail|small|tiny|mini)/i;
 const DISCOVER_IMAGE_KEY_SIZE_TOKEN_RE = /[_-](\d{2,4})x(\d{2,4})(?=\.)/gi;
@@ -378,62 +402,44 @@ export default function ProductDiscoveryPage() {
     }
   };
 
-  const searchProducts = async () => {
-    const validFeatureCategoryIds = sanitizeDiscoverFeatureCategoryIds(selectedFeatures);
-    const normalizedCategory = normalizeDiscoverCategoryId(category);
-    const hasValidParentCategory =
-      isValidDiscoverSearchCategoryId(normalizedCategory) && normalizedCategory !== "all";
-    const canSearchAll = normalizedCategory === "all" && validFeatureCategoryIds.length > 0;
+  const fetchUntilCount = async (
+    targetCount: number,
+    options: { mode: "initial" | "page"; runId: number }
+  ): Promise<void> => {
+    const session = searchSessionRef.current;
+    if (!session) return;
 
-    if (!canSearchAll && !hasValidParentCategory && validFeatureCategoryIds.length === 0) {
-      setError("Please select a category or feature to search");
-      return;
+    const clampedTarget = Math.max(0, Math.min(targetCount, session.query.quantity));
+    if (clampedTarget === 0) return;
+    if (productsRef.current.length >= clampedTarget) return;
+    if (!session.hasMore) return;
+
+    if (options.mode === "page") {
+      setIsPageLoading(true);
     }
 
-    if (selectedFeatures.length > 0 && validFeatureCategoryIds.length === 0) {
-      setError("Selected features are not mapped to valid CJ categories. Please choose a CJ-mapped feature.");
-      return;
-    }
-    
-    setLoading(true);
-    setError(null);
-    setProducts([]);
-    setSelected(new Set());
-    setSavedBatchId(null);
-    
-    const leafCategoryIdsFromSelection =
-      hasValidParentCategory && (normalizedCategory.startsWith("first-") || normalizedCategory.startsWith("second-"))
-        ? collectDiscoverLeafCategoryIds(selectedCategory?.children)
-        : [];
+    let workingProducts = [...productsRef.current];
+    const knownPids = new Set(workingProducts.map((product) => product.pid));
+    const maxBatchIterations = Math.max(1000, session.query.quantity);
 
-    const categoryIds = validFeatureCategoryIds.length > 0
-      ? validFeatureCategoryIds
-      : leafCategoryIdsFromSelection.length > 0
-        ? leafCategoryIdsFromSelection
-        : [normalizedCategory];
-
-    const allProducts: PricedProduct[] = [];
-    const seenPidSet = new Set<string>();
-    let hasMore = true;
-    let cursor = "0.1.0"; // Initial cursor: categoryIndex.pageNum.itemOffset
-    let batchNumber = 0;
-    let lastError: string | null = null;
-    let lastShortfallReason: string | null = null;
-    let consecutiveIdleBatches = 0;
-    let consecutiveZeroProductBatches = 0;
-    let previousCursor = cursor;
-    
     try {
-      // Use batch mode to avoid Vercel timeout (10s limit)
-      // Start conservatively, then increase batch size to speed up large quantity fulfillment.
-      while (hasMore && allProducts.length < quantity) {
-        batchNumber++;
-        setSearchProgress(`Finding products... (batch ${batchNumber}, found ${allProducts.length}/${quantity})`);
-        
-        // Use POST to handle large seenPids arrays (URL length limits)
-        // Cursor stays in URL (small), seenPids goes in body (can be large)
-        const remainingNeeded = quantity - allProducts.length;
-        const batchSize = batchNumber === 1 ? INITIAL_DISCOVER_BATCH_SIZE : STEADY_DISCOVER_BATCH_SIZE;
+      while (session.hasMore && workingProducts.length < clampedTarget) {
+        if (options.runId !== searchRunIdRef.current) {
+          break;
+        }
+
+        const cursorBeforeBatch = session.cursor;
+        session.batchNumber += 1;
+        const remainingNeeded = Math.max(0, session.query.quantity - workingProducts.length);
+        if (remainingNeeded === 0) break;
+        const requestBatchSize = workingProducts.length === 0
+          ? INITIAL_DISCOVER_BATCH_SIZE
+          : DISCOVER_BATCH_SIZE;
+
+        setSearchProgress(
+          `Finding products... (batch ${session.batchNumber}, found ${workingProducts.length}/${session.query.quantity})`
+        );
+
         const params = new URLSearchParams({
           categoryIds: session.query.categoryIds.join(","),
           quantity: session.query.quantity.toString(),
@@ -447,15 +453,15 @@ export default function ProductDiscoveryPage() {
           freeShippingOnly: session.query.freeShippingOnly ? "1" : "0",
           mediaMode: session.query.mediaMode,
           batchMode: "1",
-          batchSize: String(batchSize),
-          cursor: cursor,
+          batchSize: requestBatchSize.toString(),
+          cursor: session.cursor,
           remainingNeeded: remainingNeeded.toString(),
         });
 
         const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ seenPids: Array.from(seenPidSet) }),
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seenPids: session.seenPids }),
         });
 
         const contentType = res.headers.get("content-type") || "";
@@ -483,104 +489,71 @@ export default function ProductDiscoveryPage() {
           }
           throw new Error(data.error || `Search failed: ${res.status}`);
         }
-        
-        // Add products from this batch, but stop at exactly the requested quantity
+
         const batchProducts: PricedProduct[] = Array.isArray(data.products) ? data.products : [];
-        if (typeof data.shortfallReason === 'string' && data.shortfallReason.trim()) {
-          lastShortfallReason = data.shortfallReason.trim();
+        const incomingShortfallReason =
+          typeof data.shortfallReason === "string" && data.shortfallReason.trim()
+            ? data.shortfallReason.trim()
+            : null;
+
+        let addedInBatch = 0;
+        for (const product of batchProducts) {
+          if (!product?.pid) continue;
+          if (workingProducts.length >= session.query.quantity) break;
+          if (knownPids.has(product.pid)) continue;
+
+          knownPids.add(product.pid);
+          workingProducts.push(product);
+          addedInBatch += 1;
         }
-        const beforeBatchCount = allProducts.length;
-        for (const p of batchProducts) {
-          // Stop if we've reached the requested quantity
-          if (allProducts.length >= quantity) break;
-          // Avoid duplicates
-          if (!allProducts.some(existing => existing.pid === p.pid)) {
-            allProducts.push(p);
-          }
+
+        if (addedInBatch > 0) {
+          productsRef.current = [...workingProducts];
+          setProducts([...workingProducts]);
         }
-        const addedThisBatch = allProducts.length - beforeBatchCount;
-        
-        // If we've reached the requested quantity, stop batching
-        if (allProducts.length >= quantity) {
-          console.log(`Reached requested quantity: ${allProducts.length}/${quantity}`);
-          break;
-        }
-        
-        // Update products in real-time so user sees progress
-        setProducts([...allProducts]);
-        
-        // Check batch pagination info
+
         if (data.batch) {
-          hasMore = data.batch.hasMore;
-          // Update cursor for next batch (resume from where we left off)
-          const nextCursor = typeof data.batch.cursor === 'string' && data.batch.cursor.trim()
-            ? data.batch.cursor.trim()
-            : cursor;
-          // Accumulate ALL attempted PIDs (backup deduplication)
-          const attemptedPids: string[] = Array.isArray(data.batch.attemptedPids)
-            ? data.batch.attemptedPids
-                .map((pid: unknown) => String(pid || '').trim())
-                .filter(Boolean)
-            : [];
-          for (const pid of attemptedPids) {
-            seenPidSet.add(pid);
+          session.hasMore = Boolean(data.batch.hasMore);
+          if (typeof data.batch.cursor === "string" && data.batch.cursor.trim()) {
+            session.cursor = data.batch.cursor;
           }
-
-          const cursorUnchanged = nextCursor === previousCursor;
-          cursor = nextCursor;
-          previousCursor = nextCursor;
-
-          if (addedThisBatch === 0) {
-            consecutiveZeroProductBatches++;
-            if (cursorUnchanged || attemptedPids.length === 0) {
-              consecutiveIdleBatches++;
-            } else {
-              consecutiveIdleBatches = 0;
-            }
-          } else {
-            consecutiveZeroProductBatches = 0;
-            consecutiveIdleBatches = 0;
+          if (Array.isArray(data.batch.attemptedPids) && data.batch.attemptedPids.length > 0) {
+            const mergedSeen = new Set<string>([
+              ...session.seenPids,
+              ...data.batch.attemptedPids.map((pid: unknown) => String(pid)),
+            ]);
+            session.seenPids = Array.from(mergedSeen);
           }
-
-          console.log(
-            `Batch ${batchNumber}: got ${batchProducts.length} products (added=${addedThisBatch}), hasMore=${hasMore}, cursor=${cursor}, attempted=${attemptedPids.length}, totalSeen=${seenPidSet.size}, idle=${consecutiveIdleBatches}, zero=${consecutiveZeroProductBatches}`
-          );
         } else {
-          // Non-batch response (fallback)
-          hasMore = false;
-          if (addedThisBatch === 0) {
-            consecutiveZeroProductBatches++;
-            consecutiveIdleBatches++;
-          } else {
-            consecutiveZeroProductBatches = 0;
-            consecutiveIdleBatches = 0;
-          }
-        }
-        
-        if (consecutiveZeroProductBatches >= MAX_ZERO_PRODUCT_BATCHES && allProducts.length === 0) {
-          if (!lastShortfallReason) {
-            lastShortfallReason = 'Search returned no displayable products after multiple batches. Try selecting a different CJ feature or relaxing filters.';
-          }
-          console.warn(
-            `[Discovery] Stopping search after ${consecutiveZeroProductBatches} zero-product batches (no displayable products found)`
-          );
-          break;
+          session.hasMore = false;
         }
 
-        if (consecutiveIdleBatches >= MAX_IDLE_BATCHES) {
-          if (!lastShortfallReason) {
-            lastShortfallReason = 'Search progress stalled across multiple batches. Try reducing filters or selecting a different category/feature.';
-          }
-          console.warn(`[Discovery] Stopping search after ${consecutiveIdleBatches} idle batches`);
-          break;
+        if (incomingShortfallReason) {
+          session.lastShortfallReason = incomingShortfallReason;
+        } else if (session.hasMore || workingProducts.length >= session.query.quantity) {
+          session.lastShortfallReason = null;
         }
-        
-        // Safety: limit total batches to prevent infinite loops
-        if (batchNumber >= 150) {
-          console.log('Max batch limit reached');
-          if (!lastShortfallReason) {
-            lastShortfallReason = 'Search reached the maximum batch limit before fulfilling the requested quantity.';
-          }
+
+        if (addedInBatch === 0) {
+          session.consecutiveZeroProductBatches += 1;
+        } else {
+          session.consecutiveZeroProductBatches = 0;
+        }
+
+        const attemptedCount = Array.isArray(data.batch?.attemptedPids)
+          ? data.batch.attemptedPids.length
+          : 0;
+
+        const cursorAdvanced = session.cursor !== cursorBeforeBatch;
+        const madeProgress = addedInBatch > 0 || attemptedCount > 0 || cursorAdvanced;
+
+        if (!madeProgress) {
+          session.consecutiveIdleBatches += 1;
+        } else {
+          session.consecutiveIdleBatches = 0;
+        }
+
+        if (!session.hasMore) {
           break;
         }
 
@@ -606,16 +579,6 @@ export default function ProductDiscoveryPage() {
 
         setSessionHasMore(session.hasMore);
       }
-      
-      // Set final products
-      setProducts(allProducts);
-      
-      // Check if we got the requested quantity
-      if (allProducts.length < quantity) {
-        const reason = lastError || lastShortfallReason || `Found ${allProducts.length}/${quantity} products. Not enough matching products in this category.`;
-        setError(`Notice: ${reason}`);
-      }
-
     } catch (e: any) {
       session.lastError = e?.message || "Search failed";
       if (workingProducts.length > 0) {

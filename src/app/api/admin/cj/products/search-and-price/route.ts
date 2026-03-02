@@ -993,8 +993,6 @@ async function handleSearch(req: Request, isPost: boolean) {
     }
     
     const base = readEnv('CJ_API_BASE') || 'https://developers.cjdropshipping.com/api2.0/v1';
-    const excludedCjProductIds = await loadExcludedCjProductIds();
-    console.log(`[Search&Price]   excluded existing queue/store products: ${excludedCjProductIds.size}`);
     
     const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
