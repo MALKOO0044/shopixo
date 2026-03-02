@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, type MouseEvent as ReactMouseEvent } from "react";
+import { useState, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, TrendingUp, ChevronLeft, ChevronRight, Image as ImageIcon, BarChart3, DollarSign, Grid3X3, FileText, Truck, Sparkles } from "lucide-react";
@@ -225,6 +225,11 @@ function buildDiscoverPreviewGallery(product: PricedProduct | null | undefined):
 }
 
 export default function ProductDiscoveryPage() {
+  const DISCOVER_PAGE_SIZE = 100;
+  const INITIAL_DISCOVER_BATCH_SIZE = 3;
+  const DISCOVER_BATCH_SIZE = 6;
+  const MAX_IDLE_BATCHES = 12;
+  const MAX_ZERO_PRODUCT_BATCHES = 10;
   const [category, setCategory] = useState("all");
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
   const [selectedFeaturesWithIds, setSelectedFeaturesWithIds] = useState<SelectedFeature[]>([]);
@@ -239,13 +244,17 @@ export default function ProductDiscoveryPage() {
   // Use configured shipping allowlist and select the cheapest matched option per variant quote.
   const shippingMethod = "configured-cheapest";
   const [freeShippingOnly, setFreeShippingOnly] = useState(false);
-  const [media, setMedia] = useState<"withVideo" | "imagesOnly" | "both">("both");
+  const [media, setMedia] = useState<DiscoverMediaMode>("both");
   
   const [loading, setLoading] = useState(false);
+  const [isPageLoading, setIsPageLoading] = useState(false);
   const [searchProgress, setSearchProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<PricedProduct[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [requestedQuantity, setRequestedQuantity] = useState(50);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sessionHasMore, setSessionHasMore] = useState(false);
   
   const [categories, setCategories] = useState<Category[]>([]);
   const [features, setFeatures] = useState<FeatureOption[]>([]);
@@ -263,6 +272,9 @@ export default function ProductDiscoveryPage() {
   const [previewProduct, setPreviewProduct] = useState<PricedProduct | null>(null);
   const [previewPage, setPreviewPage] = useState(1);
   const TOTAL_PREVIEW_PAGES = 7;
+  const searchSessionRef = useRef<DiscoverSearchSession | null>(null);
+  const productsRef = useRef<PricedProduct[]>([]);
+  const searchRunIdRef = useRef(0);
 
   const quantityPresets = [2000, 1500, 1000, 500, 250, 100, 50, 25, 10];
   const profitPresets = [100, 50, 25, 15, 8];
@@ -335,6 +347,10 @@ export default function ProductDiscoveryPage() {
     testConnection();
     loadSupabaseCategories();
   }, []);
+
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
 
   const loadFeatures = async (categoryId: string) => {
     if (categoryId === "all") {
@@ -419,42 +435,50 @@ export default function ProductDiscoveryPage() {
         const remainingNeeded = quantity - allProducts.length;
         const batchSize = batchNumber === 1 ? INITIAL_DISCOVER_BATCH_SIZE : STEADY_DISCOVER_BATCH_SIZE;
         const params = new URLSearchParams({
-          categoryIds: categoryIds.join(","),
-          quantity: quantity.toString(),
-          minPrice: minPrice.toString(),
-          maxPrice: maxPrice.toString(),
-          minStock: minStock.toString(),
-          profitMargin: profitMargin.toString(),
-          popularity: popularity,
-          minRating: minRating,
-          shippingMethod: shippingMethod,
-          freeShippingOnly: freeShippingOnly ? "1" : "0",
-          mediaMode: media,
-          // Batch mode params - cursor-based pagination
+          categoryIds: session.query.categoryIds.join(","),
+          quantity: session.query.quantity.toString(),
+          minPrice: session.query.minPrice.toString(),
+          maxPrice: session.query.maxPrice.toString(),
+          minStock: session.query.minStock.toString(),
+          profitMargin: session.query.profitMargin.toString(),
+          popularity: session.query.popularity,
+          minRating: session.query.minRating,
+          shippingMethod: session.query.shippingMethod,
+          freeShippingOnly: session.query.freeShippingOnly ? "1" : "0",
+          mediaMode: session.query.mediaMode,
           batchMode: "1",
           batchSize: String(batchSize),
           cursor: cursor,
           remainingNeeded: remainingNeeded.toString(),
         });
-        
+
         const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ seenPids: Array.from(seenPidSet) }),
         });
-        
-        // Check content-type before parsing JSON to avoid parse errors on timeouts/errors
-        const contentType = res.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          const text = await res.text();
-          throw new Error(`Server error: ${text.slice(0, 100)}...`);
+
+        const contentType = res.headers.get("content-type") || "";
+        const rawBody = await res.text();
+        let data: any;
+        try {
+          data = rawBody ? JSON.parse(rawBody) : null;
+        } catch {
+          const compactBody = rawBody.replace(/\s+/g, " ").trim();
+          const snippet = compactBody ? compactBody.slice(0, 160) : "Empty response body";
+          throw new Error(
+            `Search API returned invalid JSON (${res.status}${contentType ? `, ${contentType}` : ""}): ${snippet}`
+          );
         }
-        
-        const data = await res.json();
-        
+
+        if (!data || typeof data !== "object") {
+          throw new Error(`Search API returned an invalid response (${res.status}).`);
+        }
+
         if (!res.ok || !data.ok) {
           if (data.quotaExhausted || res.status === 429) {
-            lastError = "CJ Dropshipping API limit reached. Showing products found so far.";
+            session.lastError = "CJ Dropshipping API limit reached. Showing products found so far.";
+            session.hasMore = false;
             break;
           }
           throw new Error(data.error || `Search failed: ${res.status}`);
@@ -559,6 +583,28 @@ export default function ProductDiscoveryPage() {
           }
           break;
         }
+
+        if (session.consecutiveZeroProductBatches >= MAX_ZERO_PRODUCT_BATCHES) {
+          session.lastError = workingProducts.length === 0
+            ? "Search returned no displayable products after multiple batches. Try adjusting filters and retry."
+            : "Search stopped after multiple batches with no new products. Showing products found so far.";
+          session.hasMore = false;
+          break;
+        }
+
+        if (session.consecutiveIdleBatches >= MAX_IDLE_BATCHES) {
+          session.lastError = "Search stopped after repeated idle batches. Try refining filters or retrying.";
+          session.hasMore = false;
+          break;
+        }
+
+        if (session.batchNumber >= maxBatchIterations) {
+          session.lastError = "Search safety limit reached. Showing products found so far.";
+          session.hasMore = false;
+          break;
+        }
+
+        setSessionHasMore(session.hasMore);
       }
       
       // Set final products
@@ -571,14 +617,118 @@ export default function ProductDiscoveryPage() {
       }
 
     } catch (e: any) {
-      setError(e?.message || "Search failed");
-      // Keep any products we found before the error
-      if (allProducts.length > 0) {
-        setProducts(allProducts);
+      session.lastError = e?.message || "Search failed";
+      if (workingProducts.length > 0) {
+        setError(`Notice: ${session.lastError}`);
+      } else {
+        setError(session.lastError);
       }
     } finally {
-      setLoading(false);
+      if (options.mode === "page") {
+        setIsPageLoading(false);
+      }
+
+      if (options.runId === searchRunIdRef.current) {
+        productsRef.current = [...workingProducts];
+        setProducts([...workingProducts]);
+        setSessionHasMore(session.hasMore);
+      }
+
       setSearchProgress("");
+    }
+  };
+
+  const getShortfallNotice = (session: DiscoverSearchSession | null, foundCount: number): string | null => {
+    if (!session) return null;
+    if (foundCount >= session.query.quantity) return null;
+    if (session.lastError) return session.lastError;
+    if (session.lastShortfallReason && !session.hasMore) return session.lastShortfallReason;
+    if (!session.hasMore) {
+      return `Found ${foundCount}/${session.query.quantity} products. Not enough matching products in this category.`;
+    }
+    return null;
+  };
+
+  const searchProducts = async () => {
+    const validFeatureCategoryIds = selectedFeatures.filter((featureId: string) =>
+      isValidDiscoverFeatureCategoryId(featureId)
+    );
+    const fallbackCategoryId =
+      category !== "all" && isValidDiscoverSearchCategoryId(category) ? category : null;
+    const categoryIds = validFeatureCategoryIds.length > 0
+      ? validFeatureCategoryIds
+      : (fallbackCategoryId ? [fallbackCategoryId] : []);
+
+    if (categoryIds.length === 0) {
+      setError("Please select a category or a CJ-mapped feature to search");
+      return;
+    }
+
+    if (selectedFeatures.length > 0 && validFeatureCategoryIds.length === 0 && fallbackCategoryId) {
+      console.warn(
+        `[Discovery] Selected features are not CJ-mapped. Falling back to parent category ${fallbackCategoryId}.`
+      );
+    }
+
+    const requestedCount = Math.max(1, Math.floor(Number(quantity) || 0));
+
+    const session: DiscoverSearchSession = {
+      query: {
+        categoryIds,
+        quantity: requestedCount,
+        minPrice,
+        maxPrice,
+        minStock,
+        profitMargin,
+        popularity,
+        minRating,
+        shippingMethod,
+        freeShippingOnly,
+        mediaMode: media,
+      },
+      cursor: "0.1.0",
+      seenPids: [],
+      hasMore: true,
+      batchNumber: 0,
+      consecutiveIdleBatches: 0,
+      consecutiveZeroProductBatches: 0,
+      lastError: null,
+      lastShortfallReason: null,
+    };
+
+    const runId = searchRunIdRef.current + 1;
+    searchRunIdRef.current = runId;
+    searchSessionRef.current = session;
+
+    setLoading(true);
+    setIsPageLoading(false);
+    setError(null);
+    setProducts([]);
+    productsRef.current = [];
+    setSelected(new Set());
+    setSavedBatchId(null);
+    setCurrentPage(1);
+    setRequestedQuantity(requestedCount);
+    setSessionHasMore(true);
+
+    try {
+      await fetchUntilCount(Math.min(DISCOVER_PAGE_SIZE, requestedCount), { mode: "initial", runId });
+
+      if (runId !== searchRunIdRef.current) return;
+
+      const foundCount = productsRef.current.length;
+      const shortfallNotice = getShortfallNotice(searchSessionRef.current, foundCount);
+      if (shortfallNotice) {
+        setError(`Notice: ${shortfallNotice}`);
+      }
+      if (foundCount === 0 && !shortfallNotice) {
+        setError("No products were returned for the selected filters. Try a different category or relax filters.");
+      }
+    } finally {
+      if (runId === searchRunIdRef.current) {
+        setLoading(false);
+        setSearchProgress("");
+      }
     }
   };
 
@@ -595,7 +745,19 @@ export default function ProductDiscoveryPage() {
     });
   };
 
-  const selectAll = (): void => {
+  const selectCurrentPage = (): void => {
+    const start = Math.max(0, (currentPage - 1) * DISCOVER_PAGE_SIZE);
+    const pageProducts = products.slice(start, start + DISCOVER_PAGE_SIZE);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const product of pageProducts) {
+        next.add(product.pid);
+      }
+      return next;
+    });
+  };
+
+  const selectAllLoaded = (): void => {
     setSelected(new Set<string>(products.map((p: PricedProduct) => p.pid)));
   };
 
@@ -603,9 +765,40 @@ export default function ProductDiscoveryPage() {
     setSelected(new Set());
   };
 
+  const ensurePageLoaded = async (pageNumber: number): Promise<void> => {
+    const session = searchSessionRef.current;
+    if (!session) return;
+    if (!session.hasMore) return;
+
+    const runId = searchRunIdRef.current;
+    const targetCount = Math.min(session.query.quantity, pageNumber * DISCOVER_PAGE_SIZE);
+    if (productsRef.current.length >= targetCount) return;
+
+    await fetchUntilCount(targetCount, { mode: "page", runId });
+
+    const shortfallNotice = getShortfallNotice(searchSessionRef.current, productsRef.current.length);
+    if (shortfallNotice) {
+      setError(`Notice: ${shortfallNotice}`);
+    }
+  };
+
+  const handleDiscoverPageChange = async (nextPage: number): Promise<void> => {
+    if (loading || isPageLoading) return;
+
+    const totalRequestedPages = Math.max(1, Math.ceil(Math.max(requestedQuantity, 1) / DISCOVER_PAGE_SIZE));
+    const clampedPage = Math.max(1, Math.min(nextPage, totalRequestedPages));
+
+    setCurrentPage(clampedPage);
+    await ensurePageLoaded(clampedPage);
+  };
+
   const removeProduct = (productId: string, e: ReactMouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    setProducts((prev: PricedProduct[]) => prev.filter((p: PricedProduct) => p.pid !== productId));
+    setProducts((prev: PricedProduct[]) => {
+      const next = prev.filter((p: PricedProduct) => p.pid !== productId);
+      productsRef.current = next;
+      return next;
+    });
     setSelected((prev: Set<string>) => {
       const next = new Set<string>(prev);
       next.delete(productId);
@@ -979,11 +1172,25 @@ export default function ProductDiscoveryPage() {
     return features.filter((f: FeatureOption) => f.parentId === parentId);
   };
 
+  useEffect(() => {
+    const requestedPages = Math.max(1, Math.ceil(Math.max(requestedQuantity, 1) / DISCOVER_PAGE_SIZE));
+    const loadedPages = Math.max(1, Math.ceil(Math.max(products.length, 1) / DISCOVER_PAGE_SIZE));
+    const maxPage = sessionHasMore ? requestedPages : loadedPages;
+    if (currentPage > maxPage) {
+      setCurrentPage(maxPage);
+    }
+  }, [currentPage, products.length, requestedQuantity, sessionHasMore]);
+
   const selectedCategory = categories.find((c: Category) => c.categoryId === category);
 
-  // Backend search-and-price route is authoritative for media filtering.
-  // Keep rendering aligned with backend results to avoid client/backend divergence.
-  const displayedProducts = products;
+  const totalRequestedPages = Math.max(1, Math.ceil(Math.max(requestedQuantity, 1) / DISCOVER_PAGE_SIZE));
+  const totalLoadedPages = Math.max(1, Math.ceil(Math.max(products.length, 1) / DISCOVER_PAGE_SIZE));
+  const totalDiscoverPages = sessionHasMore ? totalRequestedPages : totalLoadedPages;
+  const clampedCurrentPage = Math.min(currentPage, totalDiscoverPages);
+  const pageStartIndex = (clampedCurrentPage - 1) * DISCOVER_PAGE_SIZE;
+  const displayedProducts = products.slice(pageStartIndex, pageStartIndex + DISCOVER_PAGE_SIZE);
+  const pageFirstItemNumber = products.length > 0 ? pageStartIndex + 1 : 0;
+  const pageLastItemNumber = products.length > 0 ? pageStartIndex + displayedProducts.length : 0;
   
   // Find matching Supabase main category based on CJ category name
   const getMatchingSupabaseMainCategory = (): SupabaseCategory | null => {
@@ -1318,7 +1525,7 @@ export default function ProductDiscoveryPage() {
           </Link>
           <button
             onClick={searchProducts}
-            disabled={loading}
+            disabled={loading || isPageLoading}
             className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -1327,7 +1534,7 @@ export default function ProductDiscoveryPage() {
         </div>
       </div>
 
-      {loading && searchProgress && (
+      {(loading || isPageLoading) && searchProgress && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
           <div className="flex items-center gap-3">
             <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
@@ -1355,10 +1562,14 @@ export default function ProductDiscoveryPage() {
 
       {products.length > 0 && (
         <>
-          <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-gray-200 rounded-lg p-4">
             <div className="flex items-center gap-4">
               <span className="text-sm text-gray-900">
-                Found <strong>{displayedProducts.length}</strong> products (server-filtered)
+                Loaded <strong>{products.length}</strong> / <strong>{requestedQuantity}</strong> requested
+              </span>
+              <span className="text-sm text-gray-400">|</span>
+              <span className="text-sm text-gray-600">
+                Showing <strong>{displayedProducts.length}</strong> on this page
               </span>
               <span className="text-sm text-gray-400">|</span>
               <span className="text-sm text-gray-600">
@@ -1366,8 +1577,50 @@ export default function ProductDiscoveryPage() {
               </span>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={selectAll} className="text-sm text-blue-600 hover:underline">Select All</button>
+              <button onClick={selectCurrentPage} className="text-sm text-blue-600 hover:underline">Select Page</button>
+              <button onClick={selectAllLoaded} className="text-sm text-blue-600 hover:underline">Select Loaded</button>
               <button onClick={deselectAll} className="text-sm text-gray-500 hover:underline">Clear</button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-gray-200 rounded-lg p-3">
+            <p className="text-sm text-gray-600">
+              Page <strong>{clampedCurrentPage}</strong> of <strong>{totalDiscoverPages}</strong>
+              {" · "}
+              Showing <strong>{pageFirstItemNumber}</strong>-<strong>{pageLastItemNumber}</strong> of <strong>{products.length}</strong> loaded products
+            </p>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { void handleDiscoverPageChange(clampedCurrentPage - 1); }}
+                disabled={clampedCurrentPage <= 1 || loading || isPageLoading}
+                className="p-1.5 border rounded hover:bg-gray-50 disabled:opacity-30"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+
+              <select
+                value={clampedCurrentPage}
+                onChange={(e) => { void handleDiscoverPageChange(Number(e.target.value)); }}
+                disabled={loading || isPageLoading}
+                className="h-9 rounded border border-gray-300 px-2 text-sm"
+              >
+                {Array.from({ length: totalDiscoverPages }, (_, index) => index + 1).map((pageNumber) => (
+                  <option key={pageNumber} value={pageNumber}>
+                    Page {pageNumber}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                onClick={() => { void handleDiscoverPageChange(clampedCurrentPage + 1); }}
+                disabled={clampedCurrentPage >= totalDiscoverPages || loading || isPageLoading}
+                className="p-1.5 border rounded hover:bg-gray-50 disabled:opacity-30"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+
+              {isPageLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
             </div>
           </div>
 
