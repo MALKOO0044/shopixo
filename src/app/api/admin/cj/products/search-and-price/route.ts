@@ -525,7 +525,7 @@ async function fetchCjProductPage(
   categoryId: string | null,
   pageNum: number,
   requestTimeoutMs: number = 30000
-): Promise<CjProductPageResult> {
+): Promise<{ list: any[]; total: number }> {
   // Use /product/list for category filtering (stable and reliable)
   const params = new URLSearchParams();
   params.set('pageNum', String(pageNum));
