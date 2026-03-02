@@ -45,8 +45,81 @@ type SelectedFeature = {
   supabaseCategorySlug: string;
 };
 
+type ToggleFeatureMeta = {
+  cjCategoryName?: string;
+  supabaseCategoryId?: number;
+  supabaseCategorySlug?: string;
+};
+
+const DISCOVER_NUMERIC_CATEGORY_ID_RE = /^\d{2,30}$/;
+const INITIAL_DISCOVER_BATCH_SIZE = 3;
+const STEADY_DISCOVER_BATCH_SIZE = 10;
+const MAX_IDLE_BATCHES = 12;
+const MAX_ZERO_PRODUCT_BATCHES = 10;
+
 const DISCOVER_NON_PRODUCT_IMAGE_RE = /(sprite|icon|favicon|logo|placeholder|blank|loading|badge|flag|promo|banner|sale|discount|qr|sizechart|size\s*chart|chart|table|guide|thumb|thumbnail|small|tiny|mini)/i;
 const DISCOVER_IMAGE_KEY_SIZE_TOKEN_RE = /[_-](\d{2,4})x(\d{2,4})(?=\.)/gi;
+
+function normalizeDiscoverCategoryId(value: unknown): string {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return "";
+  if (normalized.toLowerCase() === "all") return "all";
+  return normalized;
+}
+
+function isValidDiscoverSearchCategoryId(value: unknown): boolean {
+  const normalized = normalizeDiscoverCategoryId(value);
+  if (!normalized) return false;
+  if (normalized === "all") return true;
+  if (normalized.startsWith("first-") || normalized.startsWith("second-")) return true;
+  return DISCOVER_NUMERIC_CATEGORY_ID_RE.test(normalized);
+}
+
+function isValidDiscoverFeatureCategoryId(value: unknown): boolean {
+  const normalized = normalizeDiscoverCategoryId(value);
+  return DISCOVER_NUMERIC_CATEGORY_ID_RE.test(normalized);
+}
+
+function sanitizeDiscoverFeatureCategoryIds(values: string[]): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const sanitized: string[] = [];
+
+  for (const rawValue of values) {
+    const normalized = normalizeDiscoverCategoryId(rawValue);
+    if (!isValidDiscoverFeatureCategoryId(normalized)) continue;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    sanitized.push(normalized);
+  }
+
+  return sanitized;
+}
+
+function collectDiscoverLeafCategoryIds(nodes: Category[] | undefined): string[] {
+  if (!Array.isArray(nodes) || nodes.length === 0) return [];
+
+  const leafIds: string[] = [];
+  const stack: Category[] = [...nodes];
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+
+    const children = Array.isArray(node.children) ? node.children : [];
+    if (children.length > 0) {
+      stack.push(...children);
+      continue;
+    }
+
+    const normalizedId = normalizeDiscoverCategoryId(node.categoryId);
+    if (isValidDiscoverFeatureCategoryId(normalizedId)) {
+      leafIds.push(normalizedId);
+    }
+  }
+
+  return Array.from(new Set(leafIds));
+}
 
 function normalizeDiscoverGalleryImageKey(url: string): string {
   const normalizedUrl = String(url || '').trim().toLowerCase();
@@ -290,8 +363,19 @@ export default function ProductDiscoveryPage() {
   };
 
   const searchProducts = async () => {
-    if (category === "all" && selectedFeatures.length === 0) {
+    const validFeatureCategoryIds = sanitizeDiscoverFeatureCategoryIds(selectedFeatures);
+    const normalizedCategory = normalizeDiscoverCategoryId(category);
+    const hasValidParentCategory =
+      isValidDiscoverSearchCategoryId(normalizedCategory) && normalizedCategory !== "all";
+    const canSearchAll = normalizedCategory === "all" && validFeatureCategoryIds.length > 0;
+
+    if (!canSearchAll && !hasValidParentCategory && validFeatureCategoryIds.length === 0) {
       setError("Please select a category or feature to search");
+      return;
+    }
+
+    if (selectedFeatures.length > 0 && validFeatureCategoryIds.length === 0) {
+      setError("Selected features are not mapped to valid CJ categories. Please choose a CJ-mapped feature.");
       return;
     }
     
@@ -301,19 +385,31 @@ export default function ProductDiscoveryPage() {
     setSelected(new Set());
     setSavedBatchId(null);
     
-    const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
+    const leafCategoryIdsFromSelection =
+      hasValidParentCategory && (normalizedCategory.startsWith("first-") || normalizedCategory.startsWith("second-"))
+        ? collectDiscoverLeafCategoryIds(selectedCategory?.children)
+        : [];
+
+    const categoryIds = validFeatureCategoryIds.length > 0
+      ? validFeatureCategoryIds
+      : leafCategoryIdsFromSelection.length > 0
+        ? leafCategoryIdsFromSelection
+        : [normalizedCategory];
+
     const allProducts: PricedProduct[] = [];
+    const seenPidSet = new Set<string>();
     let hasMore = true;
     let cursor = "0.1.0"; // Initial cursor: categoryIndex.pageNum.itemOffset
-    let seenPids: string[] = []; // Track processed PIDs across batches
     let batchNumber = 0;
     let lastError: string | null = null;
     let lastShortfallReason: string | null = null;
-    let consecutiveEmptyBatches = 0; // Track stalls
+    let consecutiveIdleBatches = 0;
+    let consecutiveZeroProductBatches = 0;
+    let previousCursor = cursor;
     
     try {
       // Use batch mode to avoid Vercel timeout (10s limit)
-      // Each request processes 3 products max, then we accumulate results
+      // Start conservatively, then increase batch size to speed up large quantity fulfillment.
       while (hasMore && allProducts.length < quantity) {
         batchNumber++;
         setSearchProgress(`Finding products... (batch ${batchNumber}, found ${allProducts.length}/${quantity})`);
@@ -321,6 +417,7 @@ export default function ProductDiscoveryPage() {
         // Use POST to handle large seenPids arrays (URL length limits)
         // Cursor stays in URL (small), seenPids goes in body (can be large)
         const remainingNeeded = quantity - allProducts.length;
+        const batchSize = batchNumber === 1 ? INITIAL_DISCOVER_BATCH_SIZE : STEADY_DISCOVER_BATCH_SIZE;
         const params = new URLSearchParams({
           categoryIds: categoryIds.join(","),
           quantity: quantity.toString(),
@@ -335,7 +432,7 @@ export default function ProductDiscoveryPage() {
           mediaMode: media,
           // Batch mode params - cursor-based pagination
           batchMode: "1",
-          batchSize: "3",
+          batchSize: String(batchSize),
           cursor: cursor,
           remainingNeeded: remainingNeeded.toString(),
         });
@@ -343,7 +440,7 @@ export default function ProductDiscoveryPage() {
         const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ seenPids }),
+          body: JSON.stringify({ seenPids: Array.from(seenPidSet) }),
         });
         
         // Check content-type before parsing JSON to avoid parse errors on timeouts/errors
@@ -364,10 +461,11 @@ export default function ProductDiscoveryPage() {
         }
         
         // Add products from this batch, but stop at exactly the requested quantity
-        const batchProducts: PricedProduct[] = data.products || [];
+        const batchProducts: PricedProduct[] = Array.isArray(data.products) ? data.products : [];
         if (typeof data.shortfallReason === 'string' && data.shortfallReason.trim()) {
           lastShortfallReason = data.shortfallReason.trim();
         }
+        const beforeBatchCount = allProducts.length;
         for (const p of batchProducts) {
           // Stop if we've reached the requested quantity
           if (allProducts.length >= quantity) break;
@@ -376,6 +474,7 @@ export default function ProductDiscoveryPage() {
             allProducts.push(p);
           }
         }
+        const addedThisBatch = allProducts.length - beforeBatchCount;
         
         // If we've reached the requested quantity, stop batching
         if (allProducts.length >= quantity) {
@@ -390,40 +489,74 @@ export default function ProductDiscoveryPage() {
         if (data.batch) {
           hasMore = data.batch.hasMore;
           // Update cursor for next batch (resume from where we left off)
-          if (data.batch.cursor) {
-            cursor = data.batch.cursor;
-          }
+          const nextCursor = typeof data.batch.cursor === 'string' && data.batch.cursor.trim()
+            ? data.batch.cursor.trim()
+            : cursor;
           // Accumulate ALL attempted PIDs (backup deduplication)
-          if (data.batch.attemptedPids) {
-            seenPids = [...seenPids, ...data.batch.attemptedPids];
+          const attemptedPids: string[] = Array.isArray(data.batch.attemptedPids)
+            ? data.batch.attemptedPids
+                .map((pid: unknown) => String(pid || '').trim())
+                .filter(Boolean)
+            : [];
+          for (const pid of attemptedPids) {
+            seenPidSet.add(pid);
           }
-          console.log(`Batch ${batchNumber}: got ${batchProducts.length} products, hasMore=${hasMore}, cursor=${cursor}, totalSeen=${seenPids.length}`);
+
+          const cursorUnchanged = nextCursor === previousCursor;
+          cursor = nextCursor;
+          previousCursor = nextCursor;
+
+          if (addedThisBatch === 0) {
+            consecutiveZeroProductBatches++;
+            if (cursorUnchanged || attemptedPids.length === 0) {
+              consecutiveIdleBatches++;
+            } else {
+              consecutiveIdleBatches = 0;
+            }
+          } else {
+            consecutiveZeroProductBatches = 0;
+            consecutiveIdleBatches = 0;
+          }
+
+          console.log(
+            `Batch ${batchNumber}: got ${batchProducts.length} products (added=${addedThisBatch}), hasMore=${hasMore}, cursor=${cursor}, attempted=${attemptedPids.length}, totalSeen=${seenPidSet.size}, idle=${consecutiveIdleBatches}, zero=${consecutiveZeroProductBatches}`
+          );
         } else {
           // Non-batch response (fallback)
           hasMore = false;
+          if (addedThisBatch === 0) {
+            consecutiveZeroProductBatches++;
+            consecutiveIdleBatches++;
+          } else {
+            consecutiveZeroProductBatches = 0;
+            consecutiveIdleBatches = 0;
+          }
         }
         
-        // Trust the server's hasMore flag - it knows when categories are exhausted
-        // Only use client-side guards as last-resort safety nets
-        const newAttempts = data.batch?.attemptedPids?.length || 0;
-        if (batchProducts.length === 0) {
-          consecutiveEmptyBatches++;
-          console.log(`Batch returned 0 products (${newAttempts} attempts filtered), consecutiveEmpty=${consecutiveEmptyBatches}`);
-          
-          // Only stop if BOTH: no new attempts AND server says no more
-          // This means cursor is exhausted and nothing left to try
-          if (newAttempts === 0 && !hasMore) {
-            console.log('No new attempts and server says no more - stopping');
-            break;
+        if (consecutiveZeroProductBatches >= MAX_ZERO_PRODUCT_BATCHES && allProducts.length === 0) {
+          if (!lastShortfallReason) {
+            lastShortfallReason = 'Search returned no displayable products after multiple batches. Try selecting a different CJ feature or relaxing filters.';
           }
-        } else {
-          // Reset counter on successful batch
-          consecutiveEmptyBatches = 0;
+          console.warn(
+            `[Discovery] Stopping search after ${consecutiveZeroProductBatches} zero-product batches (no displayable products found)`
+          );
+          break;
+        }
+
+        if (consecutiveIdleBatches >= MAX_IDLE_BATCHES) {
+          if (!lastShortfallReason) {
+            lastShortfallReason = 'Search progress stalled across multiple batches. Try reducing filters or selecting a different category/feature.';
+          }
+          console.warn(`[Discovery] Stopping search after ${consecutiveIdleBatches} idle batches`);
+          break;
         }
         
         // Safety: limit total batches to prevent infinite loops
-        if (batchNumber >= 100) {
+        if (batchNumber >= 150) {
           console.log('Max batch limit reached');
+          if (!lastShortfallReason) {
+            lastShortfallReason = 'Search reached the maximum batch limit before fulfilling the requested quantity.';
+          }
           break;
         }
       }
@@ -436,11 +569,7 @@ export default function ProductDiscoveryPage() {
         const reason = lastError || lastShortfallReason || `Found ${allProducts.length}/${quantity} products. Not enough matching products in this category.`;
         setError(`Notice: ${reason}`);
       }
-      
-      if (allProducts.length === 0) {
-        setError("No products found with configured shipping methods. Try a different category.");
-      }
-      
+
     } catch (e: any) {
       setError(e?.message || "Search failed");
       // Keep any products we found before the error
@@ -783,7 +912,12 @@ export default function ProductDiscoveryPage() {
     return null;
   };
 
-  const toggleFeature = (featureId: string) => {
+  const toggleFeature = (featureId: string, meta?: ToggleFeatureMeta) => {
+    if (!isValidDiscoverFeatureCategoryId(featureId)) {
+      console.warn(`[Discovery] Ignoring invalid feature category id: ${featureId}`);
+      return;
+    }
+
     const isRemoving = selectedFeatures.includes(featureId);
     
     setSelectedFeatures((prev: string[]) => {
@@ -802,24 +936,41 @@ export default function ProductDiscoveryPage() {
     
     // Adding new feature - try to find matching Supabase category
     const feature = features.find((f: FeatureOption) => f.id === featureId);
-    if (feature) {
-      const matchingSupabase = findMatchingSupabaseCategory(feature.name);
-      const newFeature: SelectedFeature = {
-        cjCategoryId: featureId,
-        cjCategoryName: feature.name,
-        supabaseCategoryId: matchingSupabase?.id || 0,
-        supabaseCategorySlug: matchingSupabase?.slug || '',
-      };
-      setSelectedFeaturesWithIds((prev: SelectedFeature[]) => [...prev, newFeature]);
-      if (matchingSupabase) {
-        console.log(`[Discovery] Matched CJ "${feature.name}" to Supabase category ${matchingSupabase.id} (${matchingSupabase.slug})`);
-      } else {
-        console.warn(`[Discovery] No Supabase match found for CJ category "${feature.name}"`);
+    const fallbackSupabaseMatch = feature ? findMatchingSupabaseCategory(feature.name) : null;
+    const resolvedName = meta?.cjCategoryName || feature?.name || featureId;
+    const resolvedSupabaseCategoryId = Number(meta?.supabaseCategoryId ?? fallbackSupabaseMatch?.id ?? 0);
+    const resolvedSupabaseCategorySlug = String(meta?.supabaseCategorySlug || fallbackSupabaseMatch?.slug || '');
+
+    const newFeature: SelectedFeature = {
+      cjCategoryId: featureId,
+      cjCategoryName: resolvedName,
+      supabaseCategoryId: Number.isFinite(resolvedSupabaseCategoryId) ? resolvedSupabaseCategoryId : 0,
+      supabaseCategorySlug: resolvedSupabaseCategorySlug,
+    };
+
+    setSelectedFeaturesWithIds((prev: SelectedFeature[]) => {
+      const existingIndex = prev.findIndex((sf: SelectedFeature) => sf.cjCategoryId === featureId);
+      if (existingIndex === -1) {
+        return [...prev, newFeature];
       }
+
+      const next = [...prev];
+      next[existingIndex] = newFeature;
+      return next;
+    });
+
+    if (newFeature.supabaseCategoryId > 0) {
+      console.log(
+        `[Discovery] Matched CJ "${newFeature.cjCategoryName}" to Supabase category ${newFeature.supabaseCategoryId}${newFeature.supabaseCategorySlug ? ` (${newFeature.supabaseCategorySlug})` : ''}`
+      );
+    } else {
+      console.warn(`[Discovery] No Supabase match found for CJ category "${newFeature.cjCategoryName}"`);
     }
   };
 
   const getFeatureName = (id: string) => {
+    const trackedFeature = selectedFeaturesWithIds.find((sf: SelectedFeature) => sf.cjCategoryId === id);
+    if (trackedFeature?.cjCategoryName) return trackedFeature.cjCategoryName;
     const feature = features.find((f: FeatureOption) => f.id === id);
     return feature?.name || id;
   };
@@ -905,26 +1056,16 @@ export default function ProductDiscoveryPage() {
               <select
                 onChange={(e) => {
                   if (e.target.value) {
-                    // Parse the value: "cjId:supabaseId:name"
-                    const [cjId, supabaseId, ...nameParts] = e.target.value.split(':');
+                    // Parse the value: "cjId:supabaseId:supabaseSlug:name"
+                    const [cjId, supabaseIdRaw, supabaseSlug, ...nameParts] = e.target.value.split(':');
                     const name = nameParts.join(':');
-                    
-                    // Toggle the CJ feature ID
-                    toggleFeature(cjId);
-                    
-                    // Track the Supabase category ID if available
-                    if (supabaseId && parseInt(supabaseId) > 0) {
-                      const existing = selectedFeaturesWithIds.find((sf: SelectedFeature) => sf.cjCategoryId === cjId);
-                      if (!existing) {
-                        setSelectedFeaturesWithIds((prev: SelectedFeature[]) => [...prev, {
-                          cjCategoryId: cjId,
-                          cjCategoryName: name,
-                          supabaseCategoryId: parseInt(supabaseId),
-                          supabaseCategorySlug: '',
-                        }]);
-                        console.log(`[Discovery] Selected Feature: ${name} (CJ: ${cjId}, Supabase: ${supabaseId})`);
-                      }
-                    }
+
+                    const supabaseCategoryId = Number.parseInt(supabaseIdRaw || '0', 10);
+                    toggleFeature(cjId, {
+                      cjCategoryName: name,
+                      supabaseCategoryId: Number.isFinite(supabaseCategoryId) ? supabaseCategoryId : 0,
+                      supabaseCategorySlug: supabaseSlug || '',
+                    });
                   }
                   e.target.value = "";
                 }}
@@ -939,15 +1080,22 @@ export default function ProductDiscoveryPage() {
                       const matchingCjCat = selectedCategory?.children
                         ?.flatMap(c => c.children || [])
                         ?.find(cj => cj?.categoryName?.toLowerCase() === item.name.toLowerCase());
-                      const cjId = matchingCjCat?.categoryId || `supabase-${item.id}`;
+                      const cjId = matchingCjCat?.categoryId;
+                      const validCjFeatureId = typeof cjId === 'string' && isValidDiscoverFeatureCategoryId(cjId)
+                        ? cjId
+                        : '';
+                      const hasMappedCjCategory = validCjFeatureId.length > 0;
+                      const optionValue = hasMappedCjCategory
+                        ? `${validCjFeatureId}:${item.id}:${item.slug}:${item.name}`
+                        : `disabled:${item.id}:${item.slug}:${item.name}`;
                       
                       return (
                         <option 
                           key={item.id} 
-                          value={`${cjId}:${item.id}:${item.name}`}
-                          disabled={selectedFeatures.includes(cjId)}
+                          value={optionValue}
+                          disabled={!hasMappedCjCategory || selectedFeatures.includes(validCjFeatureId)}
                         >
-                          {item.name}
+                          {item.name}{hasMappedCjCategory ? '' : ' (No CJ match)'}
                         </option>
                       );
                     })}
@@ -956,15 +1104,23 @@ export default function ProductDiscoveryPage() {
                 {/* Fallback to CJ categories if no Supabase match */}
                 {!matchingSupabaseCategory && selectedCategory?.children?.map(child => (
                   <optgroup key={child.categoryId} label={child.categoryName}>
-                    {child.children?.map(subChild => (
-                      <option 
-                        key={subChild.categoryId} 
-                        value={`${subChild.categoryId}:0:${subChild.categoryName}`}
-                        disabled={selectedFeatures.includes(subChild.categoryId)}
-                      >
-                        {subChild.categoryName}
-                      </option>
-                    ))}
+                    {child.children?.map(subChild => {
+                      const validCjFeatureId = isValidDiscoverFeatureCategoryId(subChild.categoryId)
+                        ? subChild.categoryId
+                        : '';
+                      const optionValue = validCjFeatureId
+                        ? `${validCjFeatureId}:0::${subChild.categoryName}`
+                        : `disabled:0::${subChild.categoryName}`;
+                      return (
+                        <option 
+                          key={subChild.categoryId} 
+                          value={optionValue}
+                          disabled={!validCjFeatureId || selectedFeatures.includes(validCjFeatureId)}
+                        >
+                          {subChild.categoryName}
+                        </option>
+                      );
+                    })}
                   </optgroup>
                 ))}
               </select>

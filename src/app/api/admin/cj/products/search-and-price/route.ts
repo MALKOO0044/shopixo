@@ -17,9 +17,15 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const runtime = 'nodejs';
 
+function readEnv(name: string): string | undefined {
+  const env = (globalThis as any)?.process?.env;
+  const value = env?.[name];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
 function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = readEnv('NEXT_PUBLIC_SUPABASE_URL');
+  const key = readEnv('SUPABASE_SERVICE_ROLE_KEY');
   if (!url || !key) return null;
   return createClient(url, key);
 }
@@ -205,6 +211,54 @@ function parseDiscoverMediaMode(value: string | null): DiscoverMediaMode {
   return 'any';
 }
 
+const DISCOVER_CATEGORY_ID_RE = /^\d{2,30}$/;
+
+function normalizeDiscoverCategoryId(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const normalized = String(value).trim();
+  if (!normalized) return undefined;
+  if (normalized.toLowerCase() === 'all') return 'all';
+  return normalized;
+}
+
+function sanitizeDiscoverCategoryIds(values: string[]): { validIds: string[]; invalidIds: string[] } {
+  const validIds: string[] = [];
+  const invalidIds: string[] = [];
+  const seen = new Set<string>();
+  let includesAll = false;
+
+  for (const value of values) {
+    const normalized = normalizeDiscoverCategoryId(value);
+    if (!normalized) continue;
+
+    if (normalized === 'all') {
+      includesAll = true;
+      continue;
+    }
+
+    if (normalized.startsWith('first-') || normalized.startsWith('second-')) {
+      invalidIds.push(normalized);
+      continue;
+    }
+
+    if (!DISCOVER_CATEGORY_ID_RE.test(normalized)) {
+      invalidIds.push(normalized);
+      continue;
+    }
+
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      validIds.push(normalized);
+    }
+  }
+
+  if (includesAll) {
+    return { validIds: ['all'], invalidIds };
+  }
+
+  return { validIds, invalidIds };
+}
+
 const SUPPLIER_RATING_KEYS = [
   'rating',
   'productRating',
@@ -365,6 +419,58 @@ function scoreMergedImageCandidate(url: string, index: number): number {
   return score;
 }
 
+function isCjRateLimitMessage(message: string | null | undefined): boolean {
+  const text = String(message || '').toLowerCase();
+  if (!text) return false;
+  return (
+    text.includes('1600200') ||
+    text.includes('rate limit') ||
+    text.includes('too many requests') ||
+    text.includes('http 429') ||
+    text.includes(' 429')
+  );
+}
+
+function isCjSuccessResponse(payload: any): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+
+  // CJ commonly returns { code: 200, data: ... }. Some wrappers omit code.
+  if (payload.code === undefined || payload.code === null || payload.code === '') {
+    return true;
+  }
+
+  if (typeof payload.code === 'number') {
+    return payload.code === 200;
+  }
+
+  const normalizedCode = String(payload.code).trim().toLowerCase();
+  return normalizedCode === '200' || normalizedCode === 'ok' || normalizedCode === 'success';
+}
+
+function extractCjErrorMessage(payload: any): string {
+  const direct =
+    payload?.message ||
+    payload?.msg ||
+    payload?.error ||
+    payload?.error_message ||
+    payload?.data?.message ||
+    payload?.data?.msg;
+
+  if (typeof direct === 'string' && direct.trim()) {
+    return direct.trim();
+  }
+
+  try {
+    return JSON.stringify(payload).slice(0, 300);
+  } catch {
+    return 'Unknown CJ API response error';
+  }
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function fetchCjProductPage(
   token: string, 
   base: string, 
@@ -381,26 +487,66 @@ async function fetchCjProductPage(
   
   const url = `${base}/product/list?${params}`;
   console.log(`[Search&Price] Fetching product/list: ${url}`);
-  
-  try {
-    const res = await fetchJson<any>(url, {
-      headers: {
-        'CJ-Access-Token': token,
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store',
-      timeoutMs: 30000,
-    });
-    
-    const list = res?.data?.list || [];
-    const total = res?.data?.total || 0;
-    console.log(`[Search&Price] Page ${pageNum} returned ${list.length} items (total: ${total})`);
-    
-    return { list, total };
-  } catch (e: any) {
-    console.error(`[Search&Price] Fetch error:`, e?.message);
-    return { list: [], total: 0 };
+
+  const maxAttempts = 3;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetchJson<any>(url, {
+        headers: {
+          'CJ-Access-Token': token,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        timeoutMs: 30000,
+        retries: 0,
+      });
+
+      if (!isCjSuccessResponse(res)) {
+        const code = String(res?.code ?? res?.status ?? 'unknown');
+        const message = extractCjErrorMessage(res);
+        throw new Error(`CJ product/list rejected (code=${code}): ${message}`);
+      }
+
+      const listCandidate =
+        res?.data?.list ??
+        res?.list ??
+        res?.data?.records ??
+        [];
+      const list = Array.isArray(listCandidate) ? listCandidate : [];
+
+      const totalRaw = Number(
+        res?.data?.total ??
+        res?.total ??
+        res?.data?.totalCount ??
+        list.length
+      );
+      const total = Number.isFinite(totalRaw) && totalRaw >= 0 ? totalRaw : 0;
+
+      console.log(`[Search&Price] Page ${pageNum} returned ${list.length} items (total: ${total})`);
+      return { list, total };
+    } catch (e: any) {
+      lastError = e;
+      const message = String(e?.message || e || 'Failed to fetch CJ product list');
+      const retryable =
+        isCjRateLimitMessage(message) ||
+        /timeout|timed out|network|econnreset|enotfound|fetch failed|abort|503|502|500/i.test(message);
+
+      if (attempt < maxAttempts && retryable) {
+        const backoffMs = Math.min(250 * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 150), 2000);
+        console.warn(
+          `[Search&Price] product/list attempt ${attempt}/${maxAttempts} failed for category ${categoryId || 'all'} page ${pageNum}: ${message}. Retrying in ${backoffMs}ms`
+        );
+        await sleepMs(backoffMs);
+        continue;
+      }
+
+      throw new Error(message);
+    }
   }
+
+  throw new Error(String((lastError as any)?.message || lastError || 'Failed to fetch CJ product list'));
 }
 
 // Fetch inventory data from listV2 by PID keyword search
@@ -655,7 +801,14 @@ async function handleSearch(req: Request, isPost: boolean) {
     }
     
     const categoryIdsParam = searchParams.get('categoryIds') || 'all';
-    const categoryIds = categoryIdsParam.split(',').filter(Boolean);
+    const rawCategoryIds = categoryIdsParam
+      .split(',')
+      .map((value) => normalizeDiscoverCategoryId(value))
+      .filter((value): value is string => Boolean(value));
+    const sanitizedCategoryIds = sanitizeDiscoverCategoryIds(rawCategoryIds);
+    const categoryIds = sanitizedCategoryIds.validIds.length > 0 ? sanitizedCategoryIds.validIds : ['all'];
+    const invalidCategoryIds = sanitizedCategoryIds.invalidIds;
+    const allProvidedCategoryIdsInvalid = rawCategoryIds.length > 0 && sanitizedCategoryIds.validIds.length === 0;
     const quantity = Math.max(1, Math.min(5000, Number(searchParams.get('quantity') || 50)));
     const minPrice = Number(searchParams.get('minPrice') || 0);
     const maxPrice = Number(searchParams.get('maxPrice') || 1000);
@@ -683,6 +836,32 @@ async function handleSearch(req: Request, isPost: boolean) {
     // If not provided, defaults to quantity (full request)
     // Allow 0 to short-circuit when client is already satisfied
     const remainingNeeded = Math.max(0, Number(searchParams.get('remainingNeeded') || quantity));
+
+    if (allProvidedCategoryIdsInvalid) {
+      const shortfallReason = 'All selected category/feature IDs are invalid or unmapped. Select a CJ-mapped category or feature.';
+      const r = NextResponse.json({
+        ok: true,
+        products: [],
+        count: 0,
+        requestedQuantity: quantity,
+        quantityFulfilled: false,
+        mediaMode,
+        duration: 0,
+        shortfallReason,
+        invalidCategoryIds,
+        batch: isBatchMode ? {
+          hasMore: false,
+          cursor: cursorParam,
+          attemptedPids: [],
+          processedPids: [],
+          totalCandidates: 0,
+          productsThisBatch: 0,
+          batchSize,
+        } : undefined,
+      }, { headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
     
     // seenPids: already-processed product IDs from previous batches
     // For POST, get from body (supports large lists); for GET, get from query (limited)
@@ -791,7 +970,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       );
     }
     
-    const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
+    const base = readEnv('CJ_API_BASE') || 'https://developers.cjdropshipping.com/api2.0/v1';
     const excludedCjProductIds = await loadExcludedCjProductIds();
     console.log(`[Search&Price]   excluded existing queue/store products: ${excludedCjProductIds.size}`);
     
@@ -835,6 +1014,8 @@ async function handleSearch(req: Request, isPost: boolean) {
     const maxDurationMs = isBatchMode ? 8000 : 300000;
     
     let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0, existing: 0 };
+    let sourceFetchError: string | null = null;
+    let consecutiveRateLimitErrors = 0; // Shared across source paging + downstream shipping calls
     
     // For batch mode, use cursor-based pagination to resume from exact position
     // This avoids re-fetching pages that were already processed in previous batches
@@ -876,7 +1057,28 @@ async function handleSearch(req: Request, isPost: boolean) {
         if (Date.now() - startTime > maxDurationMs) break;
         if (candidateProducts.length >= neededCandidates) break;
         
-        const pageResult = await fetchCjProductPage(token, base, catId, page);
+        let pageResult: { list: any[]; total: number };
+        try {
+          pageResult = await fetchCjProductPage(token, base, catId, page);
+          sourceFetchError = null;
+          if (consecutiveRateLimitErrors > 0) {
+            consecutiveRateLimitErrors = 0;
+          }
+        } catch (e: any) {
+          sourceFetchError = String(e?.message || e || 'Failed to fetch CJ product list');
+          if (isCjRateLimitMessage(sourceFetchError)) {
+            consecutiveRateLimitErrors++;
+            console.warn(`[Search&Price] product/list rate-limit while fetching category ${catId} page ${page}: ${sourceFetchError}`);
+          } else {
+            console.warn(`[Search&Price] product/list fetch failed for category ${catId} page ${page}: ${sourceFetchError}`);
+          }
+
+          // Keep cursor pinned to this exact point so the next request can resume safely.
+          currentCatIdx = catIdx;
+          currentPage = page;
+          currentItemOffset = 0;
+          break;
+        }
         
         if (pageResult.list.length === 0) {
           console.log(`[Search&Price] No more products at page ${page} in category ${catId}`);
@@ -946,16 +1148,35 @@ async function handleSearch(req: Request, isPost: boolean) {
     
     if (candidateProducts.length === 0) {
       console.log(`[Search&Price] No candidates found! Returning empty result.`);
+      const emptyShortfallReason = sourceFetchError
+        ? (isCjRateLimitMessage(sourceFetchError)
+            ? 'CJ API rate limit reached. Try again in a few minutes.'
+            : `CJ product listing temporarily failed: ${sourceFetchError}`)
+        : 'No products matched the selected category/feature filters.';
       const r = NextResponse.json({
         ok: true,
         products: [],
         count: 0,
+        requestedQuantity: quantity,
+        quantityFulfilled: false,
         mediaMode,
+        shortfallReason: emptyShortfallReason,
+        invalidCategoryIds,
         duration: Date.now() - startTime,
+        batch: isBatchMode ? {
+          hasMore: false,
+          cursor: `${currentCatIdx}.${currentPage}.${currentItemOffset}`,
+          attemptedPids: attemptedPidsThisBatch,
+          processedPids: [],
+          totalCandidates: 0,
+          productsThisBatch: 0,
+          batchSize,
+        } : undefined,
         debug: {
           categoriesSearched: categoryIds,
           totalSeen: seenPids.size,
           filtered: totalFiltered,
+          sourceFetchError,
           exclusion: {
             excludedByQueue: queueExcludedPids.size,
             excludedByStore: storeExcludedPids.size,
@@ -984,7 +1205,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     // In batch mode: always start from 0 since we collect fresh candidates each batch
     // In non-batch mode: start from 0 as well (process all candidates)
     let candidateIndex = 0;
-    let consecutiveRateLimitErrors = 0; // Track consecutive rate limit errors to detect real quota issues
+    // Note: consecutiveRateLimitErrors is shared with source paging failures above.
     let productsProcessedThisBatch = 0; // Count for batch mode limit
     
     // Process candidates until we have the target quantity or run out
@@ -2767,26 +2988,43 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price] Shipping error breakdown:`, shippingErrors);
     
     // Determine fulfillment status
-    const quantityFulfilled = filteredProducts.length >= quantity;
+    const quantityFulfilled = isBatchMode
+      ? filteredProducts.length >= remainingNeeded
+      : filteredProducts.length >= quantity;
     const hitRateLimit = consecutiveRateLimitErrors >= 3;
     const hitTimeLimit = Date.now() - startTime > maxDurationMs;
     const exhaustedCandidates = candidateIndex >= candidateProducts.length;
+
+    // In batch mode, calculate pagination info
+    // hasMore is true when EITHER:
+    // 1. There are more pages to fetch (not exhaustedAllPages), OR
+    // 2. There are unprocessed candidates remaining from this batch
+    // AND we're not rate limited
+    const hasMoreCandidatesInBatch = candidateIndex < candidateProducts.length;
+    const moreSourcePagesExist = !exhaustedAllPages;
+    const hasMoreToProcess = (moreSourcePagesExist || hasMoreCandidatesInBatch) && !hitRateLimit;
     
-    // Determine shortfall reason
+    // Determine shortfall reason.
+    // In batch mode, only emit a shortfall when we have no more progress to make.
+    const shouldEmitShortfallReason = !quantityFulfilled && (!isBatchMode || !hasMoreToProcess || hitRateLimit);
     let shortfallReason: string | undefined;
-    if (!quantityFulfilled) {
+    if (shouldEmitShortfallReason) {
       if (hitRateLimit) {
         shortfallReason = 'CJ API rate limit reached. Try again in a few minutes.';
-      } else if (hitTimeLimit) {
+      } else if (!isBatchMode && hitTimeLimit) {
         shortfallReason = `Processing time exceeded. Got ${filteredProducts.length}/${quantity} products.`;
-      } else if (mediaMode !== 'any' && mediaFilterStats.passed === 0) {
+      } else if (sourceFetchError && !isCjRateLimitMessage(sourceFetchError)) {
+        shortfallReason = `CJ product listing temporarily failed: ${sourceFetchError}`;
+      } else if (mediaMode !== 'any' && mediaFilterStats.passed === 0 && !hasMoreToProcess) {
         shortfallReason = `No products matched media filter "${mediaMode}". Checked ${mediaFilterStats.checked} candidates and filtered out ${mediaFilterStats.filteredOut}.`;
-      } else if (exhaustedCandidates) {
+      } else if (skippedNoShipping > 0 && filteredProducts.length === 0) {
+        shortfallReason = 'No displayable products passed configured shipping checks for the selected filters.';
+      } else if (exhaustedCandidates || !hasMoreToProcess) {
         shortfallReason = mediaMode === 'any'
           ? `Not enough matching products found. Got ${filteredProducts.length}/${quantity} products.`
           : `Not enough products matching media filter "${mediaMode}". Got ${filteredProducts.length}/${quantity} products.`;
       } else {
-        shortfallReason = `Shipping calculation failed for some products. Got ${filteredProducts.length}/${quantity} products.`;
+        shortfallReason = `Not enough matching products found. Got ${filteredProducts.length}/${quantity} products.`;
       }
       console.log(`[Search&Price] Quantity shortfall: ${shortfallReason}`);
     }
@@ -2811,21 +3049,13 @@ async function handleSearch(req: Request, isPost: boolean) {
           skippedNoShipping,
           shippingErrors,
           consecutiveRateLimitErrors,
+          sourceFetchError,
           mediaFilter: mediaFilterStats,
         }
       }, { status: 429, headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
-    
-    // In batch mode, calculate pagination info
-    // hasMore is true when EITHER:
-    // 1. There are more pages to fetch (not exhaustedAllPages), OR
-    // 2. There are unprocessed candidates remaining from this batch
-    // AND we're not rate limited
-    const hasMoreCandidatesInBatch = candidateIndex < candidateProducts.length;
-    const moreSourcePagesExist = !exhaustedAllPages;
-    const hasMoreToProcess = (moreSourcePagesExist || hasMoreCandidatesInBatch) && !hitRateLimit;
     
     // Return ALL attempted PIDs (including filtered/failed) so client can skip them in next batch
     // This is simpler and more reliable than complex cursor tracking
@@ -2870,6 +3100,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         shippingErrors,
         hitTimeLimit,
         hitRateLimit,
+        sourceFetchError,
         exhaustedCandidates,
         exclusion: {
           excludedByQueue: queueExcludedPids.size,
@@ -2886,11 +3117,29 @@ async function handleSearch(req: Request, isPost: boolean) {
     
   } catch (e: any) {
     console.error('[Search&Price] Error:', e?.message, e?.stack);
+    const catchParams = new URL(req.url).searchParams;
+    const catchBatchMode = catchParams.get('batchMode') === '1';
+    const catchCursor = catchParams.get('cursor') || '0.1.0';
+    const catchBatchSize = Math.max(1, Math.min(10, Number(catchParams.get('batchSize') || 3)));
+    const payload: any = { ok: false, error: e?.message || 'Search and price failed' };
+
+    if (catchBatchMode) {
+      payload.batch = {
+        hasMore: false,
+        cursor: catchCursor,
+        attemptedPids: [],
+        processedPids: [],
+        totalCandidates: 0,
+        productsThisBatch: 0,
+        batchSize: catchBatchSize,
+      };
+    }
+
     const r = NextResponse.json(
-      { ok: false, error: e?.message || 'Search and price failed' }, 
+      payload,
       { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );
-    r.headers.set('x-request-id', loggerForRequest(req).requestId);
+    r.headers.set('x-request-id', log.requestId);
     return r;
   }
 }

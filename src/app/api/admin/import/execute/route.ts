@@ -40,22 +40,47 @@ async function linkProductToCategory(admin: any, productId: number, categoryName
     if (!category && cjCategoryId) {
       const hasCjLinks = await hasTable('cj_category_links').catch(() => false);
       if (hasCjLinks) {
-        const { data: cjLink } = await admin
-          .from('cj_category_links')
-          .select('local_category_id')
-          .eq('cj_category_id', cjCategoryId)
-          .maybeSingle();
-        
-        if (cjLink?.local_category_id) {
-          const { data: linkedCat } = await admin
-            .from('categories')
-            .select('id, name, parent_id, slug')
-            .eq('id', cjLink.local_category_id)
+        const [hasLegacyLocalCategoryId, hasCanonicalCategoryId] = await Promise.all([
+          hasColumn('cj_category_links', 'local_category_id').catch(() => false),
+          hasColumn('cj_category_links', 'category_id').catch(() => false),
+        ]);
+
+        const linkSelectColumns = hasLegacyLocalCategoryId && hasCanonicalCategoryId
+          ? 'local_category_id, category_id'
+          : hasCanonicalCategoryId
+            ? 'category_id'
+            : hasLegacyLocalCategoryId
+              ? 'local_category_id'
+              : '';
+
+        if (!linkSelectColumns) {
+          console.warn('[Import] cj_category_links exists but has neither local_category_id nor category_id');
+        } else {
+          const { data: cjLink } = await admin
+            .from('cj_category_links')
+            .select(linkSelectColumns)
+            .eq('cj_category_id', cjCategoryId)
             .maybeSingle();
-          
-          if (linkedCat) {
-            category = linkedCat;
-            console.log(`[Import] Found category via CJ link: ${linkedCat.name}`);
+
+          const linkedCategoryId = Number(
+            cjLink
+              ? (
+                  (hasCanonicalCategoryId ? (cjLink as any)?.category_id : undefined) ??
+                  (hasLegacyLocalCategoryId ? (cjLink as any)?.local_category_id : undefined)
+                )
+              : 0
+          );
+          if (linkedCategoryId > 0) {
+            const { data: linkedCat } = await admin
+              .from('categories')
+              .select('id, name, parent_id, slug')
+              .eq('id', linkedCategoryId)
+              .maybeSingle();
+            
+            if (linkedCat) {
+              category = linkedCat;
+              console.log(`[Import] Found category via CJ link: ${linkedCat.name}`);
+            }
           }
         }
       }

@@ -1,13 +1,30 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAccessToken } from "@/lib/cj/v2";
+import { hasColumn } from "@/lib/db-features";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+type RootCategoryRow = {
+  id: number;
+  name: string;
+};
+
+type CjCategoryLinkRow = {
+  category_id?: number | null;
+  local_category_id?: number | null;
+};
+
+function readEnv(name: string): string | undefined {
+  const env = (globalThis as any)?.process?.env;
+  const value = env?.[name];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
 function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = readEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const key = readEnv("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !key) return null;
   return createClient(url, key);
 }
@@ -62,7 +79,22 @@ export async function POST() {
       return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
     }
 
-    const apiKey = process.env.CJ_API_KEY;
+    const [hasCategoryIdColumn, hasLegacyLocalCategoryIdColumn] = await Promise.all([
+      hasColumn('cj_category_links', 'category_id').catch(() => false),
+      hasColumn('cj_category_links', 'local_category_id').catch(() => false),
+    ]);
+
+    if (!hasCategoryIdColumn && !hasLegacyLocalCategoryIdColumn) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "cj_category_links is missing both category_id and local_category_id columns",
+        },
+        { status: 500 }
+      );
+    }
+
+    const apiKey = readEnv("CJ_API_KEY");
     if (!apiKey) {
       return NextResponse.json({ ok: false, error: "CJ API key not configured" }, { status: 500 });
     }
@@ -72,7 +104,7 @@ export async function POST() {
       return NextResponse.json({ ok: false, error: "Failed to authenticate with CJ" }, { status: 500 });
     }
 
-    const base = process.env.CJ_API_BASE || "https://developers.cjdropshipping.com/api2.0/v1";
+    const base = readEnv("CJ_API_BASE") || "https://developers.cjdropshipping.com/api2.0/v1";
     const res = await fetch(`${base}/product/getCategory`, {
       headers: {
         "CJ-Access-Token": token,
@@ -88,7 +120,7 @@ export async function POST() {
     }
 
     const rawCategories = Array.isArray(data.data) ? data.data : [];
-    const linksToInsert: any[] = [];
+    const linksToInsert: Array<Record<string, unknown>> = [];
     let totalProcessed = 0;
     let totalMapped = 0;
 
@@ -126,17 +158,23 @@ export async function POST() {
           
           if (match) {
             totalMapped++;
-            linksToInsert.push({
+            const linkRow: Record<string, unknown> = {
               cj_category_id: String(cjCategoryId),
               cj_category_name: String(cjCategoryName),
               cj_parent_id: `${firstName} > ${secondName}`,
               cj_level: 3,
-              category_id: match.categoryId,
               confidence: match.confidence,
               notes: `Auto-mapped from CJ: ${firstName} > ${secondName} > ${cjCategoryName}`,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
-            });
+            };
+            if (hasCategoryIdColumn) {
+              linkRow.category_id = match.categoryId;
+            }
+            if (hasLegacyLocalCategoryIdColumn) {
+              linkRow.local_category_id = match.categoryId;
+            }
+            linksToInsert.push(linkRow);
           }
         }
       }
@@ -180,10 +218,28 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
     }
 
+    const [hasCategoryIdColumn, hasLegacyLocalCategoryIdColumn] = await Promise.all([
+      hasColumn('cj_category_links', 'category_id').catch(() => false),
+      hasColumn('cj_category_links', 'local_category_id').catch(() => false),
+    ]);
+
+    const selectColumns = [
+      'cj_category_id',
+      'cj_category_name',
+      'confidence',
+      ...(hasCategoryIdColumn ? ['category_id'] : []),
+      ...(hasLegacyLocalCategoryIdColumn ? ['local_category_id'] : []),
+    ];
+    const orderColumn = hasCategoryIdColumn
+      ? 'category_id'
+      : hasLegacyLocalCategoryIdColumn
+        ? 'local_category_id'
+        : 'cj_category_id';
+
     const { data, count, error } = await admin
       .from('cj_category_links')
-      .select('cj_category_id, cj_category_name, category_id, confidence', { count: 'exact' })
-      .order('category_id')
+      .select(selectColumns.join(', '), { count: 'exact' })
+      .order(orderColumn)
       .limit(100);
 
     if (error) {
@@ -195,8 +251,18 @@ export async function GET() {
       .select('id, name')
       .eq('level', 1);
 
-    const categoryStats = (categories || []).map(cat => {
-      const links = (data || []).filter(l => l.category_id === cat.id);
+    const linkRows: CjCategoryLinkRow[] = Array.isArray(data) ? (data as CjCategoryLinkRow[]) : [];
+    const rootCategories: RootCategoryRow[] = Array.isArray(categories) ? (categories as RootCategoryRow[]) : [];
+
+    const categoryStats = rootCategories.map((cat: RootCategoryRow) => {
+      const links = linkRows.filter((l: CjCategoryLinkRow) => {
+        const linkedCategoryId = Number(
+          (hasCategoryIdColumn ? l?.category_id : undefined) ??
+          (hasLegacyLocalCategoryIdColumn ? l?.local_category_id : undefined) ??
+          0
+        );
+        return linkedCategoryId === cat.id;
+      });
       return {
         categoryId: cat.id,
         categoryName: cat.name,
