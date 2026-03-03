@@ -3,6 +3,15 @@ import { getAccessToken } from "@/lib/cj/v2";
 
 export const dynamic = "force-dynamic";
 
+function getCjAuthErrorMessage(error: unknown): string {
+  const raw = String((error as any)?.message || error || "").trim();
+  if (!raw) return "Failed to authenticate with CJ";
+  if (/missing\s+cj_api_key/i.test(raw)) {
+    return "CJ API key not configured (set CJ_API_KEY env or save it in Admin > CJ Settings).";
+  }
+  return `Failed to authenticate with CJ: ${raw}`;
+}
+
 type CategoryNode = { 
   categoryId: string; 
   categoryName: string;
@@ -86,12 +95,12 @@ function countAllCategories(nodes: CategoryNode[]): number {
 
 export async function GET() {
   try {
-    const apiKey = process.env.CJ_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ ok: false, error: "CJ API key not configured" });
+    let token = "";
+    try {
+      token = await getAccessToken();
+    } catch (e: any) {
+      return NextResponse.json({ ok: false, error: getCjAuthErrorMessage(e) });
     }
-
-    const token = await getAccessToken();
     if (!token) {
       return NextResponse.json({ ok: false, error: "Failed to authenticate with CJ" });
     }

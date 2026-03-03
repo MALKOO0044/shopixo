@@ -5,6 +5,15 @@ import { getAccessToken } from "@/lib/cj/v2";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+function getCjAuthErrorMessage(error: unknown): string {
+  const raw = String((error as any)?.message || error || "").trim();
+  if (!raw) return "Failed to authenticate with CJ";
+  if (/missing\s+cj_api_key/i.test(raw)) {
+    return "CJ API key not configured (set CJ_API_KEY env or save it in Admin > CJ Settings).";
+  }
+  return `Failed to authenticate with CJ: ${raw}`;
+}
+
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -62,12 +71,12 @@ export async function POST() {
       return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
     }
 
-    const apiKey = process.env.CJ_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ ok: false, error: "CJ API key not configured" }, { status: 500 });
+    let token = "";
+    try {
+      token = await getAccessToken();
+    } catch (e: any) {
+      return NextResponse.json({ ok: false, error: getCjAuthErrorMessage(e) }, { status: 500 });
     }
-
-    const token = await getAccessToken();
     if (!token) {
       return NextResponse.json({ ok: false, error: "Failed to authenticate with CJ" }, { status: 500 });
     }
@@ -195,8 +204,8 @@ export async function GET() {
       .select('id, name')
       .eq('level', 1);
 
-    const categoryStats = (categories || []).map(cat => {
-      const links = (data || []).filter(l => l.category_id === cat.id);
+    const categoryStats = (categories || []).map((cat: any) => {
+      const links = (data || []).filter((l: any) => l.category_id === cat.id);
       return {
         categoryId: cat.id,
         categoryName: cat.name,

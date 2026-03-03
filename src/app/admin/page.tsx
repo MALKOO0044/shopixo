@@ -2,6 +2,7 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import Link from "next/link";
+import { getSetting } from "@/lib/settings";
 import { RefreshCw, Clock, Package, ShoppingCart, AlertTriangle, CheckCircle, XCircle, ArrowRight, TrendingUp, Boxes, Calendar, Zap } from "lucide-react";
 
 export const metadata = {
@@ -19,8 +20,17 @@ function getSupabaseAdmin() {
 }
 
 async function getCJStatus() {
-  const apiKey = process.env.CJ_API_KEY;
-  if (!apiKey) return { connected: false, error: "API key not configured", latency: 0 };
+  const envApiKey = process.env.CJ_API_KEY;
+  let settingsApiKey: string | null = null;
+  try {
+    const cfg = await getSetting<{ apiKey?: string | null }>("cj_config", undefined);
+    const rawSettingsApiKey = typeof cfg?.apiKey === "string" ? cfg.apiKey.trim() : "";
+    settingsApiKey = rawSettingsApiKey || null;
+  } catch {}
+
+  if (!envApiKey && !settingsApiKey) {
+    return { connected: false, error: "API key not configured", latency: 0 };
+  }
   
   try {
     const admin = getSupabaseAdmin();
