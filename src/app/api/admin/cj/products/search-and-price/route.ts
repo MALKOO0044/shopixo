@@ -812,7 +812,16 @@ async function handleSearch(req: Request, isPost: boolean) {
     const excludedCjProductIds = excludedPids;
     console.log(`[Search&Price]   excluded existing queue/store/deleted products: ${excludedCjProductIds.size}`);
     
-    const candidateProducts: any[] = [];
+    type CandidateProduct = {
+      item: any;
+      pid: string;
+      normalizedPid: string;
+      sourceCatIdx: number;
+      sourcePage: number;
+      sourceItemIdx: number;
+    };
+
+    const candidateProducts: CandidateProduct[] = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
     let skippedByQueueExclusion = 0;
@@ -866,8 +875,9 @@ async function handleSearch(req: Request, isPost: boolean) {
       ? batchSize * mediaCandidateMultiplier
       : quantity * mediaCandidateMultiplier;
     
-    // Track ALL PIDs attempted in this batch (for returning to client)
-    const attemptedPidsThisBatch: string[] = [];
+    // Track only candidates actually consumed in this request.
+    // Unprocessed deferred candidates are intentionally excluded so they can be resumed.
+    const processedCandidatePidsThisBatch = new Set<string>();
     
     // Track current position for cursor (for next batch)
     let currentCatIdx = isBatchMode ? cursorCatIdx : 0;
@@ -937,7 +947,6 @@ async function handleSearch(req: Request, isPost: boolean) {
           }
           
           seenPids.add(normalizedPid);
-          attemptedPidsThisBatch.push(pid); // Track for returning to client
           
           const sellPrice = Number(item.sellPrice || item.price || 0);
           if (sellPrice < minPrice || sellPrice > maxPrice) {
@@ -945,7 +954,14 @@ async function handleSearch(req: Request, isPost: boolean) {
             continue;
           }
           
-          candidateProducts.push(item);
+          candidateProducts.push({
+            item,
+            pid: pid || normalizedPid,
+            normalizedPid,
+            sourceCatIdx: catIdx,
+            sourcePage: page,
+            sourceItemIdx: itemIdx,
+          });
           
           if (candidateProducts.length >= neededCandidates) break;
         }
@@ -965,15 +981,35 @@ async function handleSearch(req: Request, isPost: boolean) {
     
     if (candidateProducts.length === 0) {
       console.log(`[Search&Price] No candidates found! Returning empty result.`);
+      const emptyBatchHasMore = isBatchMode ? !exhaustedAllPages : false;
+      const emptyBatchCursor = `${currentCatIdx}.${currentPage}.${currentItemOffset}`;
       const r = NextResponse.json({
         ok: true,
         products: [],
         count: 0,
+        requestedQuantity: quantity,
+        quantityFulfilled: false,
         mediaMode,
         duration: Date.now() - startTime,
+        batch: isBatchMode ? {
+          hasMore: emptyBatchHasMore,
+          cursor: emptyBatchCursor,
+          attemptedPids: [],
+          processedPids: [],
+          totalCandidates: 0,
+          candidatesProcessed: 0,
+          candidatesDeferred: 0,
+          productsThisBatch: 0,
+          batchSize,
+        } : undefined,
         debug: {
           categoriesSearched: categoryIds,
           totalSeen: seenPids.size,
+          candidatesCollected: 0,
+          candidatesConsumed: 0,
+          candidatesDeferred: 0,
+          cursor: emptyBatchCursor,
+          hasMore: emptyBatchHasMore,
           filtered: totalFiltered,
           exclusion: {
             excludedByQueue: queueExcludedPids.size,
@@ -1028,8 +1064,15 @@ async function handleSearch(req: Request, isPost: boolean) {
         break;
       }
       
-      const item = candidateProducts[candidateIndex];
+      const candidate = candidateProducts[candidateIndex];
       candidateIndex++;
+
+      const item = candidate.item;
+      const pid = candidate.pid;
+      const normalizedPid = candidate.normalizedPid;
+      if (normalizedPid) {
+        processedCandidatePidsThisBatch.add(normalizedPid);
+      }
       
       // Reactive rate limiting: only add delay if we hit rate limit errors recently
       // This keeps things fast when CJ API is responsive
@@ -1037,7 +1080,6 @@ async function handleSearch(req: Request, isPost: boolean) {
         const backoffMs = Math.min(consecutiveRateLimitErrors * 500, 2000); // 500ms, 1s, 1.5s, max 2s
         await new Promise(resolve => setTimeout(resolve, backoffMs));
       }
-      const pid = String(item.pid || item.productId || '');
       const cjSku = String(item.productSku || item.sku || `CJ-${pid}`);
       const name = String(item.productNameEn || item.name || item.productName || '');
       const productCacheKey = buildDiscoverProductCacheKey(pid, profitMargin, shippingMethod);
@@ -2857,8 +2899,10 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price] Media filter stats:`, mediaFilterStats);
     console.log(`[Search&Price] Shipping error breakdown:`, shippingErrors);
     
-    // Determine fulfillment status
-    const quantityFulfilled = filteredProducts.length >= quantity;
+    // Determine fulfillment status for this request.
+    // In batch mode, the request target is remainingNeeded; in non-batch mode it's full quantity.
+    const quantityTargetForThisRequest = isBatchMode ? remainingNeeded : quantity;
+    const quantityFulfilled = filteredProducts.length >= quantityTargetForThisRequest;
     const hitRateLimit = consecutiveRateLimitErrors >= 3;
     const hitTimeLimit = Date.now() - startTime > maxDurationMs;
     const exhaustedCandidates = candidateIndex >= candidateProducts.length;
@@ -2869,15 +2913,15 @@ async function handleSearch(req: Request, isPost: boolean) {
       if (hitRateLimit) {
         shortfallReason = 'CJ API rate limit reached. Try again in a few minutes.';
       } else if (hitTimeLimit) {
-        shortfallReason = `Processing time exceeded. Got ${filteredProducts.length}/${quantity} products.`;
+        shortfallReason = `Processing time exceeded. Got ${filteredProducts.length}/${quantityTargetForThisRequest} products.`;
       } else if (mediaMode !== 'any' && mediaFilterStats.passed === 0) {
         shortfallReason = `No products matched media filter "${mediaMode}". Checked ${mediaFilterStats.checked} candidates and filtered out ${mediaFilterStats.filteredOut}.`;
       } else if (exhaustedCandidates) {
         shortfallReason = mediaMode === 'any'
-          ? `Not enough matching products found. Got ${filteredProducts.length}/${quantity} products.`
-          : `Not enough products matching media filter "${mediaMode}". Got ${filteredProducts.length}/${quantity} products.`;
+          ? `Not enough matching products found. Got ${filteredProducts.length}/${quantityTargetForThisRequest} products.`
+          : `Not enough products matching media filter "${mediaMode}". Got ${filteredProducts.length}/${quantityTargetForThisRequest} products.`;
       } else {
-        shortfallReason = `Shipping calculation failed for some products. Got ${filteredProducts.length}/${quantity} products.`;
+        shortfallReason = `Shipping calculation failed for some products. Got ${filteredProducts.length}/${quantityTargetForThisRequest} products.`;
       }
       console.log(`[Search&Price] Quantity shortfall: ${shortfallReason}`);
     }
@@ -2912,14 +2956,27 @@ async function handleSearch(req: Request, isPost: boolean) {
     // In batch mode, calculate pagination info
     // hasMore is true when EITHER:
     // 1. There are more pages to fetch (not exhaustedAllPages), OR
-    // 2. There are unprocessed candidates remaining from this batch
-    // AND we're not rate limited
+    // 2. There are unprocessed candidates remaining from this batch.
+    // AND we're not rate limited.
     const hasMoreCandidatesInBatch = candidateIndex < candidateProducts.length;
     const moreSourcePagesExist = !exhaustedAllPages;
     const hasMoreToProcess = (moreSourcePagesExist || hasMoreCandidatesInBatch) && !hitRateLimit;
+
+    // Critical: if there are deferred candidates, resume exactly from the first deferred source position.
+    // This prevents candidate loss between batches.
+    let nextCursor = `${currentCatIdx}.${currentPage}.${currentItemOffset}`;
+    if (isBatchMode && hasMoreCandidatesInBatch) {
+      const deferred = candidateProducts[candidateIndex];
+      nextCursor = `${deferred.sourceCatIdx}.${deferred.sourcePage}.${deferred.sourceItemIdx}`;
+    }
+
+    const attemptedPidsForClient = Array.from(processedCandidatePidsThisBatch);
+    const deferredCandidateCount = Math.max(0, candidateProducts.length - candidateIndex);
+    const shortfallReasonForResponse = quantityFulfilled
+      ? undefined
+      : (isBatchMode && hasMoreToProcess ? undefined : shortfallReason);
     
-    // Return ALL attempted PIDs (including filtered/failed) so client can skip them in next batch
-    // This is simpler and more reliable than complex cursor tracking
+    // Return only consumed candidate PIDs so deferred candidates can be resumed.
     
     // In batch mode, limit returned products to remainingNeeded (exact quantity control)
     const productsToReturn = isBatchMode 
@@ -2933,7 +2990,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       requestedQuantity: quantity,
       mediaMode,
       quantityFulfilled,
-      shortfallReason: quantityFulfilled ? undefined : shortfallReason,
+      shortfallReason: shortfallReasonForResponse,
       duration,
       quotaExhausted: hitRateLimit,
       excludedByQueue: queueExcludedPids.size,
@@ -2944,17 +3001,22 @@ async function handleSearch(req: Request, isPost: boolean) {
       batch: isBatchMode ? {
         hasMore: hasMoreToProcess && !hitRateLimit,
         // Cursor for resuming: categoryIndex.pageNum.itemOffset
-        cursor: `${currentCatIdx}.${currentPage}.${currentItemOffset}`,
-        // Return ALL attempted PIDs so client can skip them (backup deduplication)
-        attemptedPids: attemptedPidsThisBatch,
+        cursor: nextCursor,
+        // Return only consumed candidate PIDs so deferred candidates can be resumed safely.
+        attemptedPids: attemptedPidsForClient,
         processedPids: productsToReturn.map(p => p.pid),
         totalCandidates: candidateProducts.length,
+        candidatesProcessed: candidateIndex,
+        candidatesDeferred: deferredCandidateCount,
         productsThisBatch: productsProcessedThisBatch,
         batchSize,
       } : undefined,
       debug: {
         candidatesFound: candidateProducts.length,
         productsProcessed: candidateIndex,
+        candidatesCollected: candidateProducts.length,
+        candidatesConsumed: candidateIndex,
+        candidatesDeferred: deferredCandidateCount,
         pricedSuccessfully: pricedProducts.length,
         skippedNoShipping,
         filteredBySizes,

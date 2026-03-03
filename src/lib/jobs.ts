@@ -1,7 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { hasTable } from '@/lib/db-features';
 
-export type JobKind = 'finder' | 'import' | 'sync' | 'scanner' | 'media';
+export type JobKind = 'finder' | 'import' | 'sync' | 'scanner' | 'media' | 'discover';
 export type JobStatus = 'pending' | 'running' | 'success' | 'error' | 'canceled';
 export type JobItemStatus = 'pending' | 'running' | 'success' | 'error' | 'skipped' | 'canceled';
 

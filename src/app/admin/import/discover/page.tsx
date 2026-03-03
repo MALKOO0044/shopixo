@@ -46,6 +46,27 @@ type SelectedFeature = {
   supabaseCategorySlug: string;
 };
 
+type DiscoverRunProgress = {
+  found: number;
+  target: number;
+  batches: number;
+  hasMore: boolean;
+};
+
+type DiscoverRunResponse = {
+  ok: boolean;
+  runId?: number;
+  done?: boolean;
+  shortfallReason?: string | null;
+  error?: string;
+  products?: PricedProduct[];
+  run?: {
+    id: number;
+    status: string;
+    progress?: DiscoverRunProgress;
+  };
+};
+
 const DISCOVER_NON_PRODUCT_IMAGE_RE = /(sprite|icon|favicon|logo|placeholder|blank|loading|badge|flag|promo|banner|sale|discount|qr|sizechart|size\s*chart|chart|table|guide|thumb|thumbnail|small|tiny|mini)/i;
 const DISCOVER_IMAGE_KEY_SIZE_TOKEN_RE = /[_-](\d{2,4})x(\d{2,4})(?=\.)/gi;
 const DISCOVER_RESULTS_PER_PAGE = 40;
@@ -76,6 +97,12 @@ function readDiscoverDeletedPidsFromStorage(): string[] {
   } catch {
     return [];
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function saveDiscoverDeletedPidsToStorage(pids: string[]): void {
@@ -376,161 +403,137 @@ export default function ProductDiscoveryPage() {
     setSelected(new Set());
     setSavedBatchId(null);
     setResultsPage(1);
-    
+
     const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
-    const allProducts: PricedProduct[] = [];
-    let hasMore = true;
-    let cursor = "0.1.0"; // Initial cursor: categoryIndex.pageNum.itemOffset
-    const seenPids = new Set<string>(
+    const seenPids = Array.from(new Set(
       persistedDeletedPids
         .map((value) => normalizeDiscoverPid(value))
         .filter(Boolean)
-    ); // Track processed PIDs + permanently deleted PIDs across batches
-    let batchNumber = 0;
-    let lastError: string | null = null;
+    ));
+    let runId: number | null = null;
+    let allProducts: PricedProduct[] = [];
     let lastShortfallReason: string | null = null;
-    let consecutiveEmptyBatches = 0; // Track stalls
-    
+
     try {
-      // Use batch mode to avoid Vercel timeout (10s limit)
-      // Each request processes 3 products max, then we accumulate results
-      while (hasMore && allProducts.length < quantity) {
-        batchNumber++;
-        setSearchProgress(`Finding products... (batch ${batchNumber}, found ${allProducts.length}/${quantity})`);
-        
-        // Use POST to handle large seenPids arrays (URL length limits)
-        // Cursor stays in URL (small), seenPids goes in body (can be large)
-        const remainingNeeded = quantity - allProducts.length;
-        const params = new URLSearchParams({
-          categoryIds: categoryIds.join(","),
-          quantity: quantity.toString(),
-          minPrice: minPrice.toString(),
-          maxPrice: maxPrice.toString(),
-          minStock: minStock.toString(),
-          profitMargin: profitMargin.toString(),
-          popularity: popularity,
-          minRating: minRating,
-          shippingMethod: shippingMethod,
-          freeShippingOnly: freeShippingOnly ? "1" : "0",
+      const createRunRes = await fetch("/api/admin/cj/discover-runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          categoryIds,
+          quantity,
+          minPrice,
+          maxPrice,
+          minStock,
+          profitMargin,
+          popularity,
+          minRating,
+          shippingMethod,
+          freeShippingOnly,
           mediaMode: media,
-          // Batch mode params - cursor-based pagination
-          batchMode: "1",
-          batchSize: "3",
-          cursor: cursor,
-          remainingNeeded: remainingNeeded.toString(),
+          batchSize: 3,
+          seenPids,
+        }),
+      });
+
+      const createContentType = createRunRes.headers.get("content-type") || "";
+      if (!createContentType.includes("application/json")) {
+        const text = await createRunRes.text();
+        throw new Error(`Server error: ${text.slice(0, 100)}...`);
+      }
+
+      const createRunData: DiscoverRunResponse = await createRunRes.json();
+      if (!createRunRes.ok || !createRunData.ok || !createRunData.runId) {
+        throw new Error(createRunData.error || `Failed to start discover run: ${createRunRes.status}`);
+      }
+
+      runId = Number(createRunData.runId);
+      if (!Number.isFinite(runId) || runId <= 0) {
+        throw new Error("Invalid discover run id");
+      }
+
+      let done = false;
+      let safetyTicks = 0;
+      while (!done) {
+        safetyTicks++;
+
+        const stepRes = await fetch(`/api/admin/cj/discover-runs/${runId}/run`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            maxDurationMs: 7000,
+            maxBatches: 2,
+          }),
         });
-        
-        const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ seenPids: Array.from(seenPids) }),
-        });
-        
-        // Check content-type before parsing JSON to avoid parse errors on timeouts/errors
-        const contentType = res.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          const text = await res.text();
+
+        const stepContentType = stepRes.headers.get("content-type") || "";
+        if (!stepContentType.includes("application/json")) {
+          const text = await stepRes.text();
           throw new Error(`Server error: ${text.slice(0, 100)}...`);
         }
-        
-        const data = await res.json();
-        
-        if (!res.ok || !data.ok) {
-          if (data.quotaExhausted || res.status === 429) {
-            lastError = "CJ Dropshipping API limit reached. Showing products found so far.";
-            break;
-          }
-          throw new Error(data.error || `Search failed: ${res.status}`);
+
+        const stepData: DiscoverRunResponse = await stepRes.json();
+        if (!stepRes.ok || !stepData.ok) {
+          throw new Error(stepData.error || `Discover run step failed: ${stepRes.status}`);
         }
-        
-        // Add products from this batch, but stop at exactly the requested quantity
-        const batchProducts: PricedProduct[] = data.products || [];
-        if (typeof data.shortfallReason === 'string' && data.shortfallReason.trim()) {
-          lastShortfallReason = data.shortfallReason.trim();
-        }
-        for (const p of batchProducts) {
-          // Stop if we've reached the requested quantity
-          if (allProducts.length >= quantity) break;
-          // Avoid duplicates
-          if (!allProducts.some(existing => existing.pid === p.pid)) {
-            allProducts.push(p);
-          }
-        }
-        
-        // If we've reached the requested quantity, stop batching
-        if (allProducts.length >= quantity) {
-          console.log(`Reached requested quantity: ${allProducts.length}/${quantity}`);
-          break;
-        }
-        
-        // Update products in real-time so user sees progress
+
+        allProducts = Array.isArray(stepData.products) ? stepData.products : [];
         setProducts([...allProducts]);
-        
-        // Check batch pagination info
-        if (data.batch) {
-          hasMore = data.batch.hasMore;
-          // Update cursor for next batch (resume from where we left off)
-          if (data.batch.cursor) {
-            cursor = data.batch.cursor;
-          }
-          // Accumulate ALL attempted PIDs (backup deduplication)
-          if (Array.isArray(data.batch.attemptedPids)) {
-            for (const attemptedPid of data.batch.attemptedPids) {
-              const normalizedPid = normalizeDiscoverPid(attemptedPid);
-              if (normalizedPid) {
-                seenPids.add(normalizedPid);
-              }
-            }
-          }
-          console.log(`Batch ${batchNumber}: got ${batchProducts.length} products, hasMore=${hasMore}, cursor=${cursor}, totalSeen=${seenPids.size}`);
-        } else {
-          // Non-batch response (fallback)
-          hasMore = false;
+
+        const progress = stepData.run?.progress;
+        const found = Number(progress?.found || allProducts.length);
+        const target = Number(progress?.target || quantity);
+        const batches = Number(progress?.batches || safetyTicks);
+        setSearchProgress(`Finding products... (batch ${batches}, found ${found}/${target})`);
+
+        if (typeof stepData.shortfallReason === "string" && stepData.shortfallReason.trim()) {
+          lastShortfallReason = stepData.shortfallReason.trim();
         }
-        
-        // Trust the server's hasMore flag - it knows when categories are exhausted
-        // Only use client-side guards as last-resort safety nets
-        const newAttempts = data.batch?.attemptedPids?.length || 0;
-        if (batchProducts.length === 0) {
-          consecutiveEmptyBatches++;
-          console.log(`Batch returned 0 products (${newAttempts} attempts filtered), consecutiveEmpty=${consecutiveEmptyBatches}`);
-          
-          // Only stop if BOTH: no new attempts AND server says no more
-          // This means cursor is exhausted and nothing left to try
-          if (newAttempts === 0 && !hasMore) {
-            console.log('No new attempts and server says no more - stopping');
-            break;
-          }
-        } else {
-          // Reset counter on successful batch
-          consecutiveEmptyBatches = 0;
+
+        done = Boolean(stepData.done);
+        if (!done) {
+          await delay(250);
         }
-        
-        // Safety: limit total batches to prevent infinite loops
-        if (batchNumber >= 100) {
-          console.log('Max batch limit reached');
-          break;
+
+        if (safetyTicks >= 180) {
+          throw new Error("Discover run took too long. Please try again with fewer products.");
         }
       }
-      
-      // Set final products
+
       setProducts(allProducts);
-      
-      // Check if we got the requested quantity
+
       if (allProducts.length < quantity) {
-        const reason = lastError || lastShortfallReason || `Found ${allProducts.length}/${quantity} products. Not enough matching products in this category.`;
+        const reason =
+          lastShortfallReason ||
+          `Found ${allProducts.length}/${quantity} products. Not enough matching products in this category.`;
         setError(`Notice: ${reason}`);
       }
-      
+
       if (allProducts.length === 0) {
         setError("No products found with configured shipping methods. Try a different category.");
       }
-      
+
     } catch (e: any) {
       setError(e?.message || "Search failed");
-      // Keep any products we found before the error
+      if (runId) {
+        try {
+          const statusRes = await fetch(`/api/admin/cj/discover-runs/${runId}?limit=${quantity}`, {
+            cache: "no-store",
+          });
+          const statusData: DiscoverRunResponse = await statusRes.json();
+          if (statusRes.ok && statusData.ok && Array.isArray(statusData.products) && statusData.products.length > 0) {
+            allProducts = statusData.products;
+            setProducts(statusData.products);
+            if (typeof statusData.shortfallReason === "string" && statusData.shortfallReason.trim()) {
+              setError(`Notice: ${statusData.shortfallReason.trim()}`);
+            }
+          }
+        } catch {
+          // keep original error
+        }
+      }
+
       if (allProducts.length > 0) {
-        setProducts(allProducts);
+        setProducts([...allProducts]);
       }
     } finally {
       setLoading(false);

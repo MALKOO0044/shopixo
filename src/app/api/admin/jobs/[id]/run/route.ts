@@ -23,8 +23,46 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       r.headers.set('x-request-id', log.requestId)
       return r
     }
+    let body: any = {}
+    try { body = await req.json() } catch {}
+    const mode = (body?.mode || 'step') as 'step' | 'all'
+    const maxSteps = Math.max(1, Math.min(200, Number(body?.steps || 1)))
+
     const st = await getJob(id)
     if (!st) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+
+    if (st.job.kind === 'discover') {
+      const origin = new URL(req.url).origin
+      const forwardCookie = req.headers.get('cookie') || ''
+      const discoverRes = await fetch(`${origin}/api/admin/cj/discover-runs/${id}/run`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(forwardCookie ? { cookie: forwardCookie } : {}),
+        },
+        body: JSON.stringify({
+          maxDurationMs: mode === 'all' ? 8000 : 4000,
+          maxBatches: mode === 'all' ? 6 : Math.max(1, Math.min(3, maxSteps)),
+        }),
+        cache: 'no-store',
+      })
+
+      const discoverData = await discoverRes.json()
+      const runStatus = String(discoverData?.run?.status || '')
+      const done = Boolean(discoverData?.done) || runStatus === 'success' || runStatus === 'error' || runStatus === 'canceled'
+      const processed = Number(discoverData?.run?.progress?.found || 0)
+      const ok = Boolean(discoverRes.ok && discoverData?.ok)
+
+      const r = NextResponse.json({
+        ok,
+        done,
+        kind: st.job.kind,
+        processed,
+        error: ok ? null : (discoverData?.error || `HTTP ${discoverRes.status}`),
+      }, { status: ok ? 200 : discoverRes.status || 500 })
+      r.headers.set('x-request-id', log.requestId)
+      return r
+    }
 
     if (st.job.kind !== 'finder') {
       const result = await runJob(id)
@@ -38,11 +76,6 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       r.headers.set('x-request-id', log.requestId)
       return r
     }
-
-    let body: any = {}
-    try { body = await req.json() } catch {}
-    const mode = (body?.mode || 'step') as 'step' | 'all'
-    const maxSteps = Math.max(1, Math.min(200, Number(body?.steps || 1)))
 
     if (st.job.status === 'pending') await startJob(id)
 
