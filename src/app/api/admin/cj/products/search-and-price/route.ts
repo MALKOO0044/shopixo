@@ -675,7 +675,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     // Batching parameters for Vercel timeout handling
     // batchSize: max products to fully process per request (default 3 for safe margin)
     // Cursor-based pagination: {categoryIndex, pageNum, itemOffset}
-    const batchSize = Math.max(1, Math.min(10, Number(searchParams.get('batchSize') || 3)));
+    const batchSize = Math.max(1, Math.min(12, Number(searchParams.get('batchSize') || 3)));
     const isBatchMode = searchParams.get('batchMode') === '1';
     
     // Cursor for resumable pagination: categoryIndex.pageNum.itemOffset

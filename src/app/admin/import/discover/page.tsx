@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, type MouseEvent as ReactMouseEvent } from "react";
+import { useState, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { Package, Loader2, CheckCircle, Star, Trash2, Eye, X, Play, TrendingUp, ChevronLeft, ChevronRight, Image as ImageIcon, BarChart3, DollarSign, Grid3X3, FileText, Truck, Sparkles } from "lucide-react";
@@ -112,6 +112,34 @@ function saveDiscoverDeletedPidsToStorage(pids: string[]): void {
   } catch {
     // Ignore storage errors; server-side persistence remains authoritative.
   }
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function computeDiscoverAdaptiveBatchSize(
+  targetQuantity: number,
+  mediaMode: "withVideo" | "imagesOnly" | "both"
+): number {
+  const quantityBoost = targetQuantity >= 500 ? 12 : targetQuantity >= 200 ? 10 : targetQuantity >= 100 ? 9 : 7;
+  const mediaPenalty = mediaMode === "both" ? 2 : mediaMode === "withVideo" ? 1 : 0;
+  return clampNumber(quantityBoost - mediaPenalty, 3, 12);
+}
+
+function filterDiscoverProductsByDeletedSet(
+  products: PricedProduct[],
+  deletedPidSet: Set<string>
+): PricedProduct[] {
+  if (!Array.isArray(products) || products.length === 0 || deletedPidSet.size === 0) {
+    return Array.isArray(products) ? products : [];
+  }
+
+  return products.filter((product) => {
+    const normalizedPid = normalizeDiscoverPid(product?.pid);
+    return !normalizedPid || !deletedPidSet.has(normalizedPid);
+  });
 }
 
 function normalizeDiscoverGalleryImageKey(url: string): string {
@@ -241,6 +269,7 @@ export default function ProductDiscoveryPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [resultsPage, setResultsPage] = useState(1);
   const [persistedDeletedPids, setPersistedDeletedPids] = useState<string[]>([]);
+  const deletedPidRuntimeRef = useRef<Set<string>>(new Set());
   
   const [categories, setCategories] = useState<Category[]>([]);
   const [features, setFeatures] = useState<FeatureOption[]>([]);
@@ -332,6 +361,35 @@ export default function ProductDiscoveryPage() {
   }, []);
 
   useEffect(() => {
+    const deletedSet = new Set(
+      persistedDeletedPids
+        .map((value) => normalizeDiscoverPid(value))
+        .filter(Boolean)
+    );
+    deletedPidRuntimeRef.current = deletedSet;
+
+    setProducts((prev) => {
+      const filtered = filterDiscoverProductsByDeletedSet(prev, deletedSet);
+      return filtered.length === prev.length ? prev : filtered;
+    });
+
+    setSelected((prev) => {
+      if (prev.size === 0 || deletedSet.size === 0) return prev;
+      let changed = false;
+      const next = new Set<string>();
+      for (const pid of prev) {
+        const normalizedPid = normalizeDiscoverPid(pid);
+        if (normalizedPid && deletedSet.has(normalizedPid)) {
+          changed = true;
+          continue;
+        }
+        next.add(pid);
+      }
+      return changed ? next : prev;
+    });
+  }, [persistedDeletedPids]);
+
+  useEffect(() => {
     let cancelled = false;
 
     const loadDeletedPids = async () => {
@@ -404,12 +462,22 @@ export default function ProductDiscoveryPage() {
     setSavedBatchId(null);
     setResultsPage(1);
 
-    const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
-    const seenPids = Array.from(new Set(
-      persistedDeletedPids
+    const deletedSeed = Array.from(new Set([
+      ...persistedDeletedPids,
+      ...readDiscoverDeletedPidsFromStorage(),
+      ...Array.from(deletedPidRuntimeRef.current),
+    ]));
+    const initialDeletedPidSet = new Set(
+      deletedSeed
         .map((value) => normalizeDiscoverPid(value))
         .filter(Boolean)
-    ));
+    );
+    deletedPidRuntimeRef.current = initialDeletedPidSet;
+
+    const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
+    const seenPids = Array.from(initialDeletedPidSet);
+    const adaptiveBatchSize = computeDiscoverAdaptiveBatchSize(quantity, media);
+
     let runId: number | null = null;
     let allProducts: PricedProduct[] = [];
     let lastShortfallReason: string | null = null;
@@ -430,7 +498,7 @@ export default function ProductDiscoveryPage() {
           shippingMethod,
           freeShippingOnly,
           mediaMode: media,
-          batchSize: 3,
+          batchSize: adaptiveBatchSize,
           seenPids,
         }),
       });
@@ -453,17 +521,25 @@ export default function ProductDiscoveryPage() {
 
       let done = false;
       let safetyTicks = 0;
+      let adaptiveMaxBatches = quantity >= 200 ? 4 : quantity >= 100 ? 3 : 2;
+      let adaptiveMaxDurationMs = quantity >= 200 ? 9000 : quantity >= 100 ? 8500 : 7600;
+      let previousFound = 0;
+      let previousBatchCount = 0;
+
       while (!done) {
         safetyTicks++;
+        const stepStartedAt = Date.now();
 
         const stepRes = await fetch(`/api/admin/cj/discover-runs/${runId}/run`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            maxDurationMs: 7000,
-            maxBatches: 2,
+            maxDurationMs: adaptiveMaxDurationMs,
+            maxBatches: adaptiveMaxBatches,
+            deletedPids: Array.from(deletedPidRuntimeRef.current),
           }),
         });
+        const stepDurationMs = Date.now() - stepStartedAt;
 
         const stepContentType = stepRes.headers.get("content-type") || "";
         if (!stepContentType.includes("application/json")) {
@@ -476,11 +552,12 @@ export default function ProductDiscoveryPage() {
           throw new Error(stepData.error || `Discover run step failed: ${stepRes.status}`);
         }
 
-        allProducts = Array.isArray(stepData.products) ? stepData.products : [];
+        const incomingProducts = Array.isArray(stepData.products) ? stepData.products : [];
+        allProducts = filterDiscoverProductsByDeletedSet(incomingProducts, deletedPidRuntimeRef.current);
         setProducts([...allProducts]);
 
         const progress = stepData.run?.progress;
-        const found = Number(progress?.found || allProducts.length);
+        const found = allProducts.length;
         const target = Number(progress?.target || quantity);
         const batches = Number(progress?.batches || safetyTicks);
         setSearchProgress(`Finding products... (batch ${batches}, found ${found}/${target})`);
@@ -491,15 +568,34 @@ export default function ProductDiscoveryPage() {
 
         done = Boolean(stepData.done);
         if (!done) {
-          await delay(250);
+          const foundDelta = Math.max(0, found - previousFound);
+          const batchDelta = Math.max(1, batches - previousBatchCount);
+          const foundPerBatch = foundDelta / batchDelta;
+          const durationPressure = stepDurationMs > adaptiveMaxDurationMs * 0.92;
+
+          if (foundPerBatch >= 1.8 && !durationPressure) {
+            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 1, 10);
+            adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs + 400, 7000, 9000);
+          } else if (foundPerBatch < 0.8 || durationPressure) {
+            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches - 1, 1, 10);
+            adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs - 500, 7000, 9000);
+          } else if (foundDelta === 0 && stepDurationMs < adaptiveMaxDurationMs * 0.7) {
+            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 1, 10);
+          }
+
+          const pollDelayMs = foundPerBatch >= 1.8 ? 120 : foundPerBatch < 0.8 ? 320 : 200;
+          await delay(pollDelayMs);
         }
+
+        previousFound = found;
+        previousBatchCount = batches;
 
         if (safetyTicks >= 180) {
           throw new Error("Discover run took too long. Please try again with fewer products.");
         }
       }
 
-      setProducts(allProducts);
+      setProducts(filterDiscoverProductsByDeletedSet(allProducts, deletedPidRuntimeRef.current));
 
       if (allProducts.length < quantity) {
         const reason =
@@ -521,8 +617,8 @@ export default function ProductDiscoveryPage() {
           });
           const statusData: DiscoverRunResponse = await statusRes.json();
           if (statusRes.ok && statusData.ok && Array.isArray(statusData.products) && statusData.products.length > 0) {
-            allProducts = statusData.products;
-            setProducts(statusData.products);
+            allProducts = filterDiscoverProductsByDeletedSet(statusData.products, deletedPidRuntimeRef.current);
+            setProducts(allProducts);
             if (typeof statusData.shortfallReason === "string" && statusData.shortfallReason.trim()) {
               setError(`Notice: ${statusData.shortfallReason.trim()}`);
             }
@@ -566,10 +662,29 @@ export default function ProductDiscoveryPage() {
     e.stopPropagation();
     const normalizedPid = normalizeDiscoverPid(productId);
 
-    setProducts((prev: PricedProduct[]) => prev.filter((p: PricedProduct) => p.pid !== productId));
+    if (normalizedPid) {
+      deletedPidRuntimeRef.current.add(normalizedPid);
+    }
+
+    setProducts((prev: PricedProduct[]) => prev.filter((p: PricedProduct) => {
+      if (p.pid === productId) return false;
+      if (!normalizedPid) return true;
+      return normalizeDiscoverPid(p.pid) !== normalizedPid;
+    }));
     setSelected((prev: Set<string>) => {
       const next = new Set<string>(prev);
-      next.delete(productId);
+
+      if (!normalizedPid) {
+        next.delete(productId);
+        return next;
+      }
+
+      for (const pid of Array.from(next)) {
+        const normalizedSelectedPid = normalizeDiscoverPid(pid);
+        if (normalizedSelectedPid && normalizedSelectedPid === normalizedPid) {
+          next.delete(pid);
+        }
+      }
       return next;
     });
 
@@ -582,29 +697,42 @@ export default function ProductDiscoveryPage() {
       return next;
     });
 
-    try {
-      const res = await fetch("/api/admin/cj/discover-deleted", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pids: [normalizedPid] }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-
-      const data = await res.json();
-      if (data?.ok && Array.isArray(data.deletedPids)) {
-        const remotePids = normalizeDiscoverPidList(data.deletedPids);
-        setPersistedDeletedPids((prev) => {
-          const merged = Array.from(new Set([...prev, ...remotePids]));
-          saveDiscoverDeletedPidsToStorage(merged);
-          return merged;
+    let persisted = false;
+    let lastPersistError: unknown = null;
+    for (let attempt = 1; attempt <= 2 && !persisted; attempt++) {
+      try {
+        const res = await fetch("/api/admin/cj/discover-deleted", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pids: [normalizedPid] }),
         });
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        if (data?.ok && Array.isArray(data.deletedPids)) {
+          const remotePids = normalizeDiscoverPidList(data.deletedPids);
+          setPersistedDeletedPids((prev) => {
+            const merged = Array.from(new Set([...prev, ...remotePids]));
+            saveDiscoverDeletedPidsToStorage(merged);
+            return merged;
+          });
+        }
+
+        persisted = true;
+      } catch (err) {
+        lastPersistError = err;
+        if (attempt < 2) {
+          await delay(300);
+        }
       }
-    } catch (err) {
-      // Keep search flow uninterrupted; local persistence still prevents immediate re-selection.
-      console.warn(`[Discovery] Failed to persist deleted product ${normalizedPid}:`, err);
+    }
+
+    if (!persisted) {
+      console.warn(`[Discovery] Failed to persist deleted product ${normalizedPid}:`, lastPersistError);
+      setError(`Notice: Product ${normalizedPid} was removed locally, but global delete sync failed. It will stay hidden in this session.`);
     }
   };
 

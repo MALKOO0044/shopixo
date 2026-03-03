@@ -10,10 +10,13 @@ import {
   normalizeDiscoverRunParams,
 } from '@/lib/discover/runs'
 import { normalizeCjProductId } from '@/lib/import/normalization'
+import { getSetting } from '@/lib/settings'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
+
+const DISCOVER_DELETED_PIDS_KEY = 'discover_deleted_pids'
 
 type SearchBatchResponse = {
   ok?: boolean
@@ -31,6 +34,26 @@ type SearchBatchResponse = {
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
   return Math.max(min, Math.min(max, value))
+}
+
+async function loadDeletedPidSet(extraDeletedPids?: unknown): Promise<Set<string>> {
+  const out = new Set<string>()
+
+  const pushPid = (rawPid: unknown) => {
+    const normalized = normalizeCjProductId(rawPid)
+    if (normalized) out.add(normalized)
+  }
+
+  const persisted = await getSetting<unknown>(DISCOVER_DELETED_PIDS_KEY, [])
+  if (Array.isArray(persisted)) {
+    for (const rawPid of persisted) pushPid(rawPid)
+  }
+
+  if (Array.isArray(extraDeletedPids)) {
+    for (const rawPid of extraDeletedPids) pushPid(rawPid)
+  }
+
+  return out
 }
 
 export async function POST(req: Request, ctx: { params: { id: string } }) {
@@ -57,18 +80,20 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       return r
     }
 
-    if (jobState.job.status === 'success' || jobState.job.status === 'error' || jobState.job.status === 'canceled') {
-      const payload = buildDiscoverRunPayload(jobState)
-      const r = NextResponse.json({ ok: true, ...payload }, { headers: { 'Cache-Control': 'no-store' } })
-      r.headers.set('x-request-id', log.requestId)
-      return r
-    }
-
     let body: any = {}
     try {
       body = await req.json()
     } catch {
       body = {}
+    }
+
+    const deletedPidSet = await loadDeletedPidSet(body?.deletedPids)
+
+    if (jobState.job.status === 'success' || jobState.job.status === 'error' || jobState.job.status === 'canceled') {
+      const payload = buildDiscoverRunPayload(jobState, undefined, { excludedPids: deletedPidSet })
+      const r = NextResponse.json({ ok: true, ...payload }, { headers: { 'Cache-Control': 'no-store' } })
+      r.headers.set('x-request-id', log.requestId)
+      return r
     }
 
     const maxDurationMs = clamp(Number(body?.maxDurationMs ?? 7000), 1500, 9000)
@@ -80,11 +105,21 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
 
     const params = normalizeDiscoverRunParams(jobState.job.params || {})
     const existingProducts = params.state.resultPids.length === 0
-      ? (buildDiscoverRunPayload(jobState).products || [])
+      ? (buildDiscoverRunPayload(jobState, undefined, { excludedPids: deletedPidSet }).products || [])
       : []
 
     const seenPids = new Set<string>(params.state.seenPids)
-    const resultPids = new Set<string>(params.state.resultPids)
+    const resultPids = new Set<string>()
+
+    for (const deletedPid of deletedPidSet) {
+      seenPids.add(deletedPid)
+    }
+
+    for (const rawPid of params.state.resultPids) {
+      const normalizedPid = normalizeCjProductId(rawPid)
+      if (!normalizedPid || deletedPidSet.has(normalizedPid)) continue
+      resultPids.add(normalizedPid)
+    }
 
     for (const product of existingProducts) {
       const normalizedPid = normalizeCjProductId(product?.pid)
@@ -151,6 +186,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
         if (!normalizedPid) continue
 
         seenPids.add(normalizedPid)
+        if (deletedPidSet.has(normalizedPid)) continue
         if (resultPids.has(normalizedPid)) continue
 
         resultPids.add(normalizedPid)
@@ -239,7 +275,8 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       return r
     }
 
-    const payload = buildDiscoverRunPayload(refreshed)
+    const latestDeletedPidSet = await loadDeletedPidSet(body?.deletedPids)
+    const payload = buildDiscoverRunPayload(refreshed, undefined, { excludedPids: latestDeletedPidSet })
     const r = NextResponse.json(
       {
         ok: true,

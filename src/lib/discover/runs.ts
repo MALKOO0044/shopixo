@@ -138,7 +138,7 @@ export function normalizeDiscoverRunFilters(value: any): DiscoverRunFilters | nu
     freeShippingOnly: normalizeBoolean(source.freeShippingOnly),
     mediaMode: normalizeMediaMode(source.mediaMode),
     sizes: rawSizes,
-    batchSize: clamp(Number(source.batchSize ?? 3), 1, 10),
+    batchSize: clamp(Number(source.batchSize ?? 3), 1, 12),
   }
 }
 
@@ -180,7 +180,7 @@ export function normalizeDiscoverRunParams(raw: any): DiscoverRunParams {
     freeShippingOnly: normalizeBoolean(source.freeShippingOnly),
     mediaMode: normalizeMediaMode(source.mediaMode),
     sizes: normalizeStringArray(source.sizes),
-    batchSize: clamp(Number(source.batchSize ?? 3), 1, 10),
+    batchSize: clamp(Number(source.batchSize ?? 3), 1, 12),
   }
 
   const normalizedFilters = normalizeDiscoverRunFilters(toObject(source.filters)) || normalizeDiscoverRunFilters(source) || fallbackFilters
@@ -271,10 +271,22 @@ export function buildDiscoverSearchParams(
   return params
 }
 
-export function buildDiscoverRunPayload(state: { job: any; items: any[] }, limit?: number) {
+export function buildDiscoverRunPayload(
+  state: { job: any; items: any[] },
+  limit?: number,
+  options?: { excludedPids?: Set<string> }
+) {
   const job = state.job
   const params = normalizeDiscoverRunParams(job?.params || {})
-  const products = extractDiscoverRunProducts(state.items || [])
+  const rawProducts = extractDiscoverRunProducts(state.items || [])
+  const excludedPids = options?.excludedPids
+  const products =
+    excludedPids && excludedPids.size > 0
+      ? rawProducts.filter((product) => {
+          const normalizedPid = normalizeCjProductId((product as any)?.pid)
+          return !normalizedPid || !excludedPids.has(normalizedPid)
+        })
+      : rawProducts
 
   const target = params.filters.quantity
   const found = products.length
