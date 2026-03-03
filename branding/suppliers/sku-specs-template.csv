@@ -1,0 +1,4 @@
+SKU,Name,HSCode,UnitCostCurrency,UnitCost,PackLengthCM,PackWidthCM,PackHeightCM,GrossWeightKG,QtyPerShipment,PreferredService,DDP_or_DAP,Notes
+WOM-TEE-001,Basic Cotton Tee (Women),,USD,0,30,25,3,0.25,1,Express,DDP,
+MEN-SHOE-001,Light Sneaker (Men),,USD,0,33,22,12,0.8,1,Express,DDP,
+KID-DRESS-001,Summer Floral Dress (Kids),,USD,0,28,20,4,0.2,1,Economy,DDP,

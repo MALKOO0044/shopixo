@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "outputDirectory": ".",
+  "rewrites": [
+    {
+      "source": "/generate",
+      "destination": "/api/generate"
+    },
+    {
+      "source": "/runtime-generate",
+      "destination": "/api/runtime-generate"
+    },
+    {
+      "source": "/runtime-asset/:assetKey",
+      "destination": "/api/runtime-asset/:assetKey"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/health"
+    }
+  ]
+}

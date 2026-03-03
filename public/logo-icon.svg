@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Deep teal radial background with vignette -->
+    <radialGradient id="bgRadial" cx="50%" cy="32%" r="70%">
+      <stop offset="0%" stop-color="#0F3D63"/>
+      <stop offset="70%" stop-color="#0C3556"/>
+      <stop offset="100%" stop-color="#072B46"/>
+    </radialGradient>
+    <!-- Soft inner highlight at top -->
+    <radialGradient id="highlight" cx="50%" cy="28%" r="55%">
+      <stop offset="0%" stop-color="#9CD8FF" stop-opacity="0.22"/>
+      <stop offset="65%" stop-color="#9CD8FF" stop-opacity="0.0"/>
+      <stop offset="100%" stop-color="#9CD8FF" stop-opacity="0.0"/>
+    </radialGradient>
+    <!-- Golden gradients for star facetting -->
+    <linearGradient id="goldMain" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFD166"/>
+      <stop offset="55%" stop-color="#F5A623"/>
+      <stop offset="100%" stop-color="#D67A00"/>
+    </linearGradient>
+    <linearGradient id="goldLight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFE8A6"/>
+      <stop offset="100%" stop-color="#F5AE2E"/>
+    </linearGradient>
+    <linearGradient id="goldDark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#E38B10"/>
+      <stop offset="100%" stop-color="#B85E00"/>
+    </linearGradient>
+    <!-- Soft drop shadow -->
+    <filter id="dropShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur"/>
+      <feOffset dx="0" dy="10" result="off"/>
+      <feColorMatrix in="off" type="matrix" values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0   0 0 0 0.25 0" result="shadow"/>
+      <feMerge>
+        <feMergeNode in="shadow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Rounded background with vignette and subtle top highlight -->
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="url(#bgRadial)"/>
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="url(#highlight)"/>
+
+  <!-- Subtle decorative ring similar to reference -->
+  <circle cx="256" cy="256" r="168" fill="none" stroke="#7FD3FF" stroke-opacity="0.35" stroke-width="2"/>
+  <circle cx="256" cy="256" r="210" fill="none" stroke="#7FD3FF" stroke-opacity="0.12" stroke-width="10" stroke-linecap="round" stroke-dasharray="90 260"/>
+
+  <!-- 3D Faceted Star (built from 5 triangles for crisp edges) -->
+  <!-- Top arm -->
+  <path d="M256 84 L289 176 L223 176 Z" fill="url(#goldLight)" filter="url(#dropShadow)"/>
+  <!-- Upper-right arm -->
+  <path d="M289 176 L408 176 L323 238 Z" fill="url(#goldMain)" filter="url(#dropShadow)"/>
+  <!-- Lower-right arm -->
+  <path d="M323 238 L355 348 L256 288 Z" fill="url(#goldDark)" filter="url(#dropShadow)"/>
+  <!-- Lower-left arm -->
+  <path d="M256 288 L157 348 L189 238 Z" fill="url(#goldMain)" filter="url(#dropShadow)"/>
+  <!-- Upper-left arm -->
+  <path d="M189 238 L104 176 L223 176 Z" fill="url(#goldDark)" filter="url(#dropShadow)"/>
+  <!-- Center diamond to tie facets -->
+  <path d="M256 176 L289 176 L323 238 L256 288 L189 238 L223 176 Z" fill="url(#goldMain)"/>
+
+</svg>

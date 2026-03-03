@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 160" role="img" aria-label="Shopixo logo with bag icon">
+  <defs>
+    <style>
+      .text { font-family: 'Inter', Arial, Helvetica, sans-serif; font-weight: 800; letter-spacing: 0.5px; }
+    </style>
+  </defs>
+  <!-- Bag Icon -->
+  <rect x="20" y="52" width="88" height="80" rx="12" fill="#111111"/>
+  <path d="M35 60 q30 -32 58 0" fill="none" stroke="#111111" stroke-width="12" stroke-linecap="round"/>
+  <!-- Wordmark -->
+  <text x="130" y="110" class="text" font-size="76" fill="#111111">Shopixo</text>
+</svg>

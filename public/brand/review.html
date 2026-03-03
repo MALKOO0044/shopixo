@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <title>Shopixo | Brand Review</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{ --brand:#111111; --bg:#ffffff; --accent:#2563EB; --muted:#6b7280; }
+    *{ box-sizing:border-box; }
+    body{ margin:0; font-family: Inter, Cairo, Arial, Helvetica, sans-serif; color:#111; background:#fff; }
+    header{ position:sticky; top:0; background:#fff; border-bottom:1px solid #eee; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    header .l{ display:flex; align-items:center; gap:12px; }
+    header img{ height:28px; }
+    .wrap{ max-width:1100px; margin:0 auto; padding:18px 16px 40px; }
+    h1{ font-size:20px; margin:6px 0 12px; }
+    h2{ font-size:18px; margin:22px 0 10px; }
+    p{ margin:8px 0; color:#333; }
+    .row{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .card{ border:1px solid #eee; border-radius:10px; padding:14px; background:#fff; }
+    .swatches{ display:flex; flex-wrap:wrap; gap:10px; }
+    .swatch{ width:110px; height:64px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; box-shadow:0 0 0 1px rgba(0,0,0,.05) inset; }
+    .swatch span{ background:rgba(0,0,0,.35); padding:2px 6px; border-radius:6px; font-size:12px; }
+    .grid-logos{ display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:center; }
+    .logo-box{ border:1px dashed #ddd; border-radius:10px; background:#fafafa; display:flex; align-items:center; justify-content:center; padding:16px; }
+    .logo-box.dark{ background:#111; }
+    .logo-box img{ max-width:100%; height:64px; }
+    .toolbar{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    button{ background:var(--accent); color:#fff; border:0; padding:8px 12px; border-radius:8px; cursor:pointer; font-weight:700; }
+    .muted{ color:var(--muted); font-size:12px; }
+    iframe{ width:100%; height:330px; border:1px solid #eee; border-radius:10px; background:#fff; }
+    .checklist li{ margin:6px 0; }
+    .pill{ display:inline-block; padding:2px 8px; border:1px solid #eee; border-radius:999px; font-size:12px; color:#333; background:#fafafa; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="l">
+      <img src="/brand/logo-shopixo-wordmark.svg" alt="Shopixo" />
+      <strong>لوحة مراجعة العلامة | Brand Review</strong>
+    </div>
+    <div class="toolbar">
+      <button id="accentBlue">Accent أزرق</button>
+      <button id="accentTeal">Accent تركوازي</button>
+      <span class="pill">Shipper Name: Shopixo</span>
+      <span class="pill">WhatsApp: 00962781637033</span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card">
+      <h1>الشعار</h1>
+      <div class="grid-logos">
+        <div>
+          <div class="muted">Wordmark على خلفية فاتحة</div>
+          <div class="logo-box">
+            <img src="/brand/logo-shopixo-wordmark.svg" alt="Shopixo wordmark" />
+          </div>
+        </div>
+        <div>
+          <div class="muted">Wordmark على خلفية داكنة</div>
+          <div class="logo-box dark">
+            <img src="/brand/logo-shopixo-wordmark.svg" alt="Shopixo wordmark" />
+          </div>
+        </div>
+      </div>
+      <div style="height:12px"></div>
+      <div class="grid-logos">
+        <div>
+          <div class="muted">نسخة الحقيبة — فاتح</div>
+          <div class="logo-box">
+            <img src="/brand/logo-shopixo-bag.svg" alt="Shopixo with bag" />
+          </div>
+        </div>
+        <div>
+          <div class="muted">نسخة الحقيبة — داكن</div>
+          <div class="logo-box dark">
+            <img src="/brand/logo-shopixo-bag.svg" alt="Shopixo with bag" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>الألوان</h2>
+      <div class="swatches">
+        <div class="swatch" style="background:#111111"><span>#111111</span></div>
+        <div class="swatch" style="background:#FFFFFF; color:#111"><span>#FFFFFF</span></div>
+        <div class="swatch" id="swAccent" style="background:#2563EB"><span>#2563EB</span></div>
+        <div class="swatch" style="background:#374151"><span>#374151</span></div>
+        <div class="swatch" style="background:#9CA3AF"><span>#9CA3AF</span></div>
+        <div class="swatch" style="background:#F59E0B"><span>#F59E0B</span></div>
+      </div>
+      <p class="muted">يمكن تغيير لون الـ Accent مؤقتاً بالأزرار أعلى الصفحة لمعاينة الإحساس البصري.</p>
+    </section>
+
+    <section class="row">
+      <div class="card">
+        <h2>قسيمة التغليف (Packing Slip)</h2>
+        <iframe src="/brand/packing-slip.html" title="Packing Slip"></iframe>
+        <p class="muted">تُعرَض القسيمة بحجم A5. تحقّق من ترتيب النصوص بالعربية ووضوح المعلومات.</p>
+      </div>
+      <div class="card">
+        <h2>بطاقة الشكر (Thank-You)</h2>
+        <iframe src="/brand/thank-you-insert.html" title="Thank You Insert"></iframe>
+        <p class="muted">الـ QR يفتح واتساب <span class="ltr">00962781637033</span>. تأكد من ملاءمة الخط والهوامش.</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>قائمة قرارات سريعة</h2>
+      <ul class="checklist">
+        <li>اختر الشعار للاستخدام في الهيدر: <strong>Wordmark</strong> أم <strong>نسخة الحقيبة</strong>؟</li>
+        <li>اعتماد لون الـ Accent: الأزرق (#2563EB) أم تفضّل تركوازي (#0EA5E9)؟</li>
+        <li>هل الخط مناسب؟ (Inter + Cairo/Tajawal) — يمكننا تغييره إذا رغبت.</li>
+        <li>هل نصوص الـ Packing Slip وبطاقة الشكر مناسبة؟ هل نعدّل البريد/النص؟</li>
+        <li>اعتماد اسم المرسل: <strong>Shopixo</strong> — تأكيد نهائي؟</li>
+      </ul>
+      <p>بعد اعتماد هذه النقاط، سأُطبّق الهوية على واجهة المتجر (الهيدر/الأزرار/الروابط) ونبدأ فوراً باعتماد الموردين وطلبات الاختبار.</p>
+    </section>
+  </main>
+
+  <script>
+    const accentBtnBlue = document.getElementById('accentBlue');
+    const accentBtnTeal = document.getElementById('accentTeal');
+    const swAccent = document.getElementById('swAccent');
+    accentBtnBlue.addEventListener('click', ()=>{
+      document.documentElement.style.setProperty('--accent', '#2563EB');
+      swAccent.style.background = '#2563EB';
+      swAccent.querySelector('span').textContent = '#2563EB';
+    });
+    accentBtnTeal.addEventListener('click', ()=>{
+      document.documentElement.style.setProperty('--accent', '#0EA5E9');
+      swAccent.style.background = '#0EA5E9';
+      swAccent.querySelector('span').textContent = '#0EA5E9';
+    });
+  </script>
+</body>
+</html>
