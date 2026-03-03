@@ -15,6 +15,7 @@ import type { PricedProduct, PricedVariant } from "@/components/admin/import/pre
 import { sarToUsd } from "@/lib/pricing";
 import { inferCjVideoQualityHint } from "@/lib/cj/video";
 import { enhanceProductImageUrl } from "@/lib/media/image-quality";
+import { normalizeCjProductId } from "@/lib/import/normalization";
 
 type Category = {
   categoryId: string;
@@ -47,6 +48,44 @@ type SelectedFeature = {
 
 const DISCOVER_NON_PRODUCT_IMAGE_RE = /(sprite|icon|favicon|logo|placeholder|blank|loading|badge|flag|promo|banner|sale|discount|qr|sizechart|size\s*chart|chart|table|guide|thumb|thumbnail|small|tiny|mini)/i;
 const DISCOVER_IMAGE_KEY_SIZE_TOKEN_RE = /[_-](\d{2,4})x(\d{2,4})(?=\.)/gi;
+const DISCOVER_RESULTS_PER_PAGE = 40;
+const DISCOVER_DELETED_PIDS_STORAGE_KEY = "discover_deleted_pids_v1";
+
+function normalizeDiscoverPid(value: unknown): string {
+  return normalizeCjProductId(value);
+}
+
+function normalizeDiscoverPidList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  const normalized = new Set<string>();
+  for (const raw of value) {
+    const pid = normalizeDiscoverPid(raw);
+    if (pid) normalized.add(pid);
+  }
+
+  return Array.from(normalized);
+}
+
+function readDiscoverDeletedPidsFromStorage(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(DISCOVER_DELETED_PIDS_STORAGE_KEY);
+    if (!raw) return [];
+    return normalizeDiscoverPidList(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
+function saveDiscoverDeletedPidsToStorage(pids: string[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(DISCOVER_DELETED_PIDS_STORAGE_KEY, JSON.stringify(normalizeDiscoverPidList(pids)));
+  } catch {
+    // Ignore storage errors; server-side persistence remains authoritative.
+  }
+}
 
 function normalizeDiscoverGalleryImageKey(url: string): string {
   const normalizedUrl = String(url || '').trim().toLowerCase();
@@ -173,6 +212,8 @@ export default function ProductDiscoveryPage() {
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<PricedProduct[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [resultsPage, setResultsPage] = useState(1);
+  const [persistedDeletedPids, setPersistedDeletedPids] = useState<string[]>([]);
   
   const [categories, setCategories] = useState<Category[]>([]);
   const [features, setFeatures] = useState<FeatureOption[]>([]);
@@ -263,6 +304,40 @@ export default function ProductDiscoveryPage() {
     loadSupabaseCategories();
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadDeletedPids = async () => {
+      const localPids = readDiscoverDeletedPidsFromStorage();
+      if (!cancelled && localPids.length > 0) {
+        setPersistedDeletedPids(localPids);
+      }
+
+      try {
+        const res = await fetch("/api/admin/cj/discover-deleted", { cache: "no-store" });
+        if (!res.ok) return;
+
+        const data = await res.json();
+        if (!data?.ok) return;
+
+        const remotePids = normalizeDiscoverPidList(data.deletedPids);
+        const merged = Array.from(new Set([...localPids, ...remotePids]));
+        if (!cancelled) {
+          setPersistedDeletedPids(merged);
+        }
+        saveDiscoverDeletedPidsToStorage(merged);
+      } catch (e) {
+        console.warn("[Discovery] Failed to load persistent deleted products:", e);
+      }
+    };
+
+    void loadDeletedPids();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const loadFeatures = async (categoryId: string) => {
     if (categoryId === "all") {
       setSelectedFeatures([]);
@@ -300,12 +375,17 @@ export default function ProductDiscoveryPage() {
     setProducts([]);
     setSelected(new Set());
     setSavedBatchId(null);
+    setResultsPage(1);
     
     const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
     const allProducts: PricedProduct[] = [];
     let hasMore = true;
     let cursor = "0.1.0"; // Initial cursor: categoryIndex.pageNum.itemOffset
-    let seenPids: string[] = []; // Track processed PIDs across batches
+    const seenPids = new Set<string>(
+      persistedDeletedPids
+        .map((value) => normalizeDiscoverPid(value))
+        .filter(Boolean)
+    ); // Track processed PIDs + permanently deleted PIDs across batches
     let batchNumber = 0;
     let lastError: string | null = null;
     let lastShortfallReason: string | null = null;
@@ -343,7 +423,7 @@ export default function ProductDiscoveryPage() {
         const res = await fetch(`/api/admin/cj/products/search-and-price?${params}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ seenPids }),
+          body: JSON.stringify({ seenPids: Array.from(seenPids) }),
         });
         
         // Check content-type before parsing JSON to avoid parse errors on timeouts/errors
@@ -394,10 +474,15 @@ export default function ProductDiscoveryPage() {
             cursor = data.batch.cursor;
           }
           // Accumulate ALL attempted PIDs (backup deduplication)
-          if (data.batch.attemptedPids) {
-            seenPids = [...seenPids, ...data.batch.attemptedPids];
+          if (Array.isArray(data.batch.attemptedPids)) {
+            for (const attemptedPid of data.batch.attemptedPids) {
+              const normalizedPid = normalizeDiscoverPid(attemptedPid);
+              if (normalizedPid) {
+                seenPids.add(normalizedPid);
+              }
+            }
           }
-          console.log(`Batch ${batchNumber}: got ${batchProducts.length} products, hasMore=${hasMore}, cursor=${cursor}, totalSeen=${seenPids.length}`);
+          console.log(`Batch ${batchNumber}: got ${batchProducts.length} products, hasMore=${hasMore}, cursor=${cursor}, totalSeen=${seenPids.size}`);
         } else {
           // Non-batch response (fallback)
           hasMore = false;
@@ -474,14 +559,50 @@ export default function ProductDiscoveryPage() {
     setSelected(new Set());
   };
 
-  const removeProduct = (productId: string, e: ReactMouseEvent<HTMLButtonElement>) => {
+  const removeProduct = async (productId: string, e: ReactMouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
+    const normalizedPid = normalizeDiscoverPid(productId);
+
     setProducts((prev: PricedProduct[]) => prev.filter((p: PricedProduct) => p.pid !== productId));
     setSelected((prev: Set<string>) => {
       const next = new Set<string>(prev);
       next.delete(productId);
       return next;
     });
+
+    if (!normalizedPid) return;
+
+    setPersistedDeletedPids((prev) => {
+      if (prev.includes(normalizedPid)) return prev;
+      const next = [...prev, normalizedPid];
+      saveDiscoverDeletedPidsToStorage(next);
+      return next;
+    });
+
+    try {
+      const res = await fetch("/api/admin/cj/discover-deleted", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pids: [normalizedPid] }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (data?.ok && Array.isArray(data.deletedPids)) {
+        const remotePids = normalizeDiscoverPidList(data.deletedPids);
+        setPersistedDeletedPids((prev) => {
+          const merged = Array.from(new Set([...prev, ...remotePids]));
+          saveDiscoverDeletedPidsToStorage(merged);
+          return merged;
+        });
+      }
+    } catch (err) {
+      // Keep search flow uninterrupted; local persistence still prevents immediate re-selection.
+      console.warn(`[Discovery] Failed to persist deleted product ${normalizedPid}:`, err);
+    }
   };
 
   const openPreview = (product: PricedProduct, e: ReactMouseEvent<HTMLButtonElement>) => {
@@ -833,6 +954,28 @@ export default function ProductDiscoveryPage() {
   // Backend search-and-price route is authoritative for media filtering.
   // Keep rendering aligned with backend results to avoid client/backend divergence.
   const displayedProducts = products;
+  const totalResultsPages = Math.max(1, Math.ceil(displayedProducts.length / DISCOVER_RESULTS_PER_PAGE));
+  const pagedProducts = useMemo(() => {
+    const start = (resultsPage - 1) * DISCOVER_RESULTS_PER_PAGE;
+    return displayedProducts.slice(start, start + DISCOVER_RESULTS_PER_PAGE);
+  }, [displayedProducts, resultsPage]);
+  const currentPageStart = displayedProducts.length === 0
+    ? 0
+    : (resultsPage - 1) * DISCOVER_RESULTS_PER_PAGE + 1;
+  const currentPageEnd = Math.min(resultsPage * DISCOVER_RESULTS_PER_PAGE, displayedProducts.length);
+  const visiblePageNumbers = useMemo(() => {
+    const out: number[] = [];
+    const start = Math.max(1, resultsPage - 2);
+    const end = Math.min(totalResultsPages, resultsPage + 2);
+    for (let page = start; page <= end; page++) {
+      out.push(page);
+    }
+    return out;
+  }, [resultsPage, totalResultsPages]);
+
+  useEffect(() => {
+    setResultsPage((prev) => Math.min(prev, totalResultsPages));
+  }, [totalResultsPages]);
   
   // Find matching Supabase main category based on CJ category name
   const getMatchingSupabaseMainCategory = (): SupabaseCategory | null => {
@@ -1206,6 +1349,10 @@ export default function ProductDiscoveryPage() {
               </span>
               <span className="text-sm text-gray-400">|</span>
               <span className="text-sm text-gray-600">
+                Showing <strong>{currentPageStart}-{currentPageEnd}</strong>
+              </span>
+              <span className="text-sm text-gray-400">|</span>
+              <span className="text-sm text-gray-600">
                 <strong>{selected.size}</strong> selected
               </span>
             </div>
@@ -1216,7 +1363,7 @@ export default function ProductDiscoveryPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {displayedProducts.map((product) => {
+            {pagedProducts.map((product) => {
               const isSelected = selected.has(product.pid);
               
               return (
@@ -1367,6 +1514,66 @@ export default function ProductDiscoveryPage() {
               );
             })}
           </div>
+
+          {displayedProducts.length > DISCOVER_RESULTS_PER_PAGE && (
+            <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-4">
+              <button
+                onClick={() => setResultsPage((prev) => Math.max(1, prev - 1))}
+                disabled={resultsPage === 1}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Previous
+              </button>
+
+              <div className="flex items-center gap-1.5">
+                {resultsPage > 3 && (
+                  <>
+                    <button
+                      onClick={() => setResultsPage(1)}
+                      className="min-w-8 px-2 py-1 text-sm rounded border border-gray-300 hover:bg-gray-50"
+                    >
+                      1
+                    </button>
+                    {resultsPage > 4 && <span className="px-1 text-gray-400">...</span>}
+                  </>
+                )}
+
+                {visiblePageNumbers.map((pageNum) => (
+                  <button
+                    key={pageNum}
+                    onClick={() => setResultsPage(pageNum)}
+                    className={`min-w-8 px-2 py-1 text-sm rounded border ${
+                      pageNum === resultsPage
+                        ? "bg-blue-600 text-white border-blue-600"
+                        : "border-gray-300 hover:bg-gray-50"
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                ))}
+
+                {resultsPage < totalResultsPages - 2 && (
+                  <>
+                    {resultsPage < totalResultsPages - 3 && <span className="px-1 text-gray-400">...</span>}
+                    <button
+                      onClick={() => setResultsPage(totalResultsPages)}
+                      className="min-w-8 px-2 py-1 text-sm rounded border border-gray-300 hover:bg-gray-50"
+                    >
+                      {totalResultsPages}
+                    </button>
+                  </>
+                )}
+              </div>
+
+              <button
+                onClick={() => setResultsPage((prev) => Math.min(totalResultsPages, prev + 1))}
+                disabled={resultsPage === totalResultsPages}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Next
+              </button>
+            </div>
+          )}
 
           {selected.size > 0 && (
             <div className="sticky bottom-4 bg-white rounded-xl border shadow-lg p-4 flex items-center justify-between">

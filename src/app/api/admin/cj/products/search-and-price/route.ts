@@ -12,6 +12,7 @@ import { dedupeLabelsCaseInsensitive, extractCanonicalSize, normalizeCjProductId
 import { extractCjProductGalleryImages, normalizeCjImageKey, prioritizeCjHeroImage } from '@/lib/cj/image-gallery';
 import { extractCjProductVideoCandidates, inferCjVideoQualityHint } from '@/lib/cj/video';
 import { build4kVideoDelivery } from '@/lib/video/delivery';
+import { getSetting } from '@/lib/settings';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -182,6 +183,7 @@ const DISCOVER_PRODUCT_CACHE_TTL_MS = parseCacheTtlMs('DISCOVER_PRODUCT_CACHE_TT
 const discoverProductCache = new Map<string, CacheEntry<PricedProduct>>();
 const CJ_PRODUCT_PAGE_CACHE_TTL_MS = parseCacheTtlMs('CJ_PRODUCT_PAGE_CACHE_TTL_MS', 10 * 60 * 1000);
 const cjProductPageCache = new Map<string, CacheEntry<{ list: any[]; total: number }>>();
+const DISCOVER_DELETED_PIDS_KEY = 'discover_deleted_pids';
 
 function buildDiscoverProductCacheKey(pid: string, profitMargin: number, shippingMethod: string): string {
   const normalized = normalizeCjProductId(pid) || String(pid || '').trim();
@@ -735,6 +737,7 @@ async function handleSearch(req: Request, isPost: boolean) {
 
     const queueExcludedPids = new Set<string>();
     const storeExcludedPids = new Set<string>();
+    const deletedExcludedPids = new Set<string>();
     try {
       const supabaseAdmin = getSupabaseAdmin();
       if (supabaseAdmin) {
@@ -764,7 +767,18 @@ async function handleSearch(req: Request, isPost: boolean) {
     } catch (e: any) {
       console.error('[Search&Price] Failed to build exclusion sets:', e?.message || e);
     }
-    const excludedPids = new Set<string>([...queueExcludedPids, ...storeExcludedPids]);
+    try {
+      const deletedFromSettings = await getSetting<unknown>(DISCOVER_DELETED_PIDS_KEY, []);
+      if (Array.isArray(deletedFromSettings)) {
+        for (const rawPid of deletedFromSettings) {
+          const normalizedPid = normalizeCjProductId(rawPid);
+          if (normalizedPid) deletedExcludedPids.add(normalizedPid);
+        }
+      }
+    } catch (e: any) {
+      console.error('[Search&Price] Failed to load discover deleted exclusions:', e?.message || e);
+    }
+    const excludedPids = new Set<string>([...queueExcludedPids, ...storeExcludedPids, ...deletedExcludedPids]);
 
     console.log(`[Search&Price] ========================================`);
     console.log(`[Search&Price] Starting search with params:`);
@@ -781,7 +795,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   batchMode: ${isBatchMode}, batchSize: ${batchSize}`);
     console.log(`[Search&Price]   cursor: ${cursorParam} (cat=${cursorCatIdx}, page=${cursorPageNum}, offset=${cursorItemOffset})`);
     console.log(`[Search&Price]   seenPids: ${seenPidsFromClient.size} already processed`);
-    console.log(`[Search&Price]   excluded queue/store/total: ${queueExcludedPids.size}/${storeExcludedPids.size}/${excludedPids.size}`);
+    console.log(`[Search&Price]   excluded queue/store/deleted/total: ${queueExcludedPids.size}/${storeExcludedPids.size}/${deletedExcludedPids.size}/${excludedPids.size}`);
     console.log(`[Search&Price] ========================================`);
 
     const token = await getAccessToken();
@@ -796,13 +810,14 @@ async function handleSearch(req: Request, isPost: boolean) {
     const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
     // Reuse exclusion set built above to avoid a second full-table scan.
     const excludedCjProductIds = excludedPids;
-    console.log(`[Search&Price]   excluded existing queue/store products: ${excludedCjProductIds.size}`);
+    console.log(`[Search&Price]   excluded existing queue/store/deleted products: ${excludedCjProductIds.size}`);
     
     const candidateProducts: any[] = [];
     const seenPids = new Set<string>();
     const startTime = Date.now();
     let skippedByQueueExclusion = 0;
     let skippedByStoreExclusion = 0;
+    let skippedByDeletedExclusion = 0;
     const mediaFilterStats = {
       mode: mediaMode,
       checked: 0,
@@ -912,10 +927,11 @@ async function handleSearch(req: Request, isPost: boolean) {
           // Skip PIDs already processed by previous batches (backup deduplication)
           if (isBatchMode && seenPidsFromClient.has(normalizedPid)) continue;
 
-          // Exclude products already added to queue and/or store.
+          // Exclude products already added to queue/store and permanently deleted from Discover.
           if (excludedCjProductIds.has(normalizedPid)) {
             if (queueExcludedPids.has(normalizedPid)) skippedByQueueExclusion++;
             if (storeExcludedPids.has(normalizedPid)) skippedByStoreExclusion++;
+            if (deletedExcludedPids.has(normalizedPid)) skippedByDeletedExclusion++;
             totalFiltered.existing++;
             continue;
           }
@@ -943,8 +959,8 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   Filtered by stock: ${totalFiltered.stock}`);
     console.log(`[Search&Price]   Filtered by popularity: ${totalFiltered.popularity}`);
     console.log(`[Search&Price]   Filtered by rating: ${totalFiltered.rating}`);
-    console.log(`[Search&Price]   Filtered as existing (queue/store): ${totalFiltered.existing}`);
-    console.log(`[Search&Price]   Excluded by queue/store: ${skippedByQueueExclusion}/${skippedByStoreExclusion}`);
+    console.log(`[Search&Price]   Filtered as existing (queue/store/deleted): ${totalFiltered.existing}`);
+    console.log(`[Search&Price]   Excluded by queue/store/deleted: ${skippedByQueueExclusion}/${skippedByStoreExclusion}/${skippedByDeletedExclusion}`);
     console.log(`[Search&Price] ----------------------------------------`);
     
     if (candidateProducts.length === 0) {
@@ -962,9 +978,11 @@ async function handleSearch(req: Request, isPost: boolean) {
           exclusion: {
             excludedByQueue: queueExcludedPids.size,
             excludedByStore: storeExcludedPids.size,
+            excludedByDeleted: deletedExcludedPids.size,
             excludedTotal: excludedPids.size,
             skippedByQueue: skippedByQueueExclusion,
             skippedByStore: skippedByStoreExclusion,
+            skippedByDeleted: skippedByDeletedExclusion,
           },
           mediaFilter: mediaFilterStats,
         }
@@ -2920,6 +2938,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       quotaExhausted: hitRateLimit,
       excludedByQueue: queueExcludedPids.size,
       excludedByStore: storeExcludedPids.size,
+      excludedByDeleted: deletedExcludedPids.size,
       excludedTotal: excludedPids.size,
       // Batch mode pagination info
       batch: isBatchMode ? {
@@ -2947,9 +2966,11 @@ async function handleSearch(req: Request, isPost: boolean) {
         exclusion: {
           excludedByQueue: queueExcludedPids.size,
           excludedByStore: storeExcludedPids.size,
+          excludedByDeleted: deletedExcludedPids.size,
           excludedTotal: excludedPids.size,
           skippedByQueue: skippedByQueueExclusion,
           skippedByStore: skippedByStoreExclusion,
+          skippedByDeleted: skippedByDeletedExclusion,
         },
         mediaFilter: mediaFilterStats,
       }
