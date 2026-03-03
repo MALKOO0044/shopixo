@@ -8,6 +8,12 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
+function isDiscoverJob(job: any): boolean {
+  if (!job) return false
+  if (job.kind === 'discover') return true
+  return job.kind === 'finder' && (job.params?.__discoverCompat === true || job.params?.__discoverCompat === '1')
+}
+
 export async function GET(req: Request, ctx: { params: { id: string } }) {
   const log = loggerForRequest(req)
   try {
@@ -26,7 +32,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     }
 
     const jobState = await getJob(id)
-    if (!jobState?.job || jobState.job.kind !== 'discover') {
+    if (!jobState?.job || !isDiscoverJob(jobState.job)) {
       const r = NextResponse.json({ ok: false, error: 'Discover run not found' }, { status: 404 })
       r.headers.set('x-request-id', log.requestId)
       return r

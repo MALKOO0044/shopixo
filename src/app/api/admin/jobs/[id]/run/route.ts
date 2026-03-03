@@ -31,7 +31,9 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     const st = await getJob(id)
     if (!st) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
 
-    if (st.job.kind === 'discover') {
+    const isDiscoverCompat = st.job.kind === 'finder' && (st.job.params?.__discoverCompat === true || st.job.params?.__discoverCompat === '1')
+
+    if (st.job.kind === 'discover' || isDiscoverCompat) {
       const origin = new URL(req.url).origin
       const forwardCookie = req.headers.get('cookie') || ''
       const discoverRes = await fetch(`${origin}/api/admin/cj/discover-runs/${id}/run`, {
@@ -56,7 +58,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       const r = NextResponse.json({
         ok,
         done,
-        kind: st.job.kind,
+        kind: 'discover',
         processed,
         error: ok ? null : (discoverData?.error || `HTTP ${discoverRes.status}`),
       }, { status: ok ? 200 : discoverRes.status || 500 })

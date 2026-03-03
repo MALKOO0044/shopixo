@@ -36,9 +36,25 @@ export async function POST(req: Request) {
     }
 
     const params = createDiscoverRunParams(filters, body?.seenPids)
-    const created = await createJob('discover', params)
+    let created = await createJob('discover', params)
+    let compatibilityMode = false
+
+    // Backward compatibility: older DBs may not yet allow kind='discover'.
+    // Fall back to finder-kind jobs with an explicit marker so discover routes can still run.
     if (!created?.id) {
-      const r = NextResponse.json({ ok: false, error: 'Failed to create discover run job.' }, { status: 500 })
+      created = await createJob('finder', { ...params, __discoverCompat: true })
+      compatibilityMode = Boolean(created?.id)
+    }
+
+    if (!created?.id) {
+      const r = NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Failed to create discover run job. Ensure SUPABASE_SERVICE_ROLE_KEY is set and admin_jobs/admin_job_items tables exist. If your DB is old, apply the discover job-kind migration.',
+        },
+        { status: 500 }
+      )
       r.headers.set('x-request-id', log.requestId)
       return r
     }
@@ -48,6 +64,7 @@ export async function POST(req: Request) {
         ok: true,
         runId: created.id,
         filters,
+        compatibilityMode,
       },
       { headers: { 'Cache-Control': 'no-store' } }
     )
