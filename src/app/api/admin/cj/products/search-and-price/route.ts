@@ -151,48 +151,41 @@ type PricedProduct = {
   colorImageMap?: Record<string, string>;
 };
 
-async function appendCjProductIdsFromTable(
-  supabase: ReturnType<typeof getSupabaseAdmin>,
-  tableName: 'product_queue' | 'products',
-  target: Set<string>
-): Promise<void> {
-  if (!supabase) return;
+type CacheEntry<T> = {
+  value: T;
+  expiresAt: number;
+};
 
-  const pageSize = 1000;
-  let offset = 0;
-
-  for (let page = 0; page < 200; page++) {
-    const { data, error } = await supabase
-      .from(tableName)
-      .select('cj_product_id')
-      .not('cj_product_id', 'is', null)
-      .order('cj_product_id', { ascending: true })
-      .range(offset, offset + pageSize - 1);
-
-    if (error) {
-      console.warn(`[Search&Price] Could not load existing CJ IDs from ${tableName}: ${error.message}`);
-      break;
-    }
-
-    const rows = Array.isArray(data) ? data : [];
-    for (const row of rows) {
-      const normalized = normalizeCjProductId((row as any)?.cj_product_id);
-      if (normalized) target.add(normalized);
-    }
-
-    if (rows.length < pageSize) break;
-    offset += pageSize;
-  }
+function parseCacheTtlMs(envName: string, fallbackMs: number): number {
+  const parsed = Number(process.env[envName]);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallbackMs;
 }
 
-async function loadExcludedCjProductIds(): Promise<Set<string>> {
-  const supabase = getSupabaseAdmin();
-  if (!supabase) return new Set<string>();
+function readFreshCache<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
+  const entry = cache.get(key);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(key);
+    return undefined;
+  }
+  return entry.value;
+}
 
-  const excluded = new Set<string>();
-  await appendCjProductIdsFromTable(supabase, 'product_queue', excluded);
-  await appendCjProductIdsFromTable(supabase, 'products', excluded);
-  return excluded;
+function writeFreshCache<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, ttlMs: number): void {
+  cache.set(key, {
+    value,
+    expiresAt: Date.now() + ttlMs,
+  });
+}
+
+const DISCOVER_PRODUCT_CACHE_TTL_MS = parseCacheTtlMs('DISCOVER_PRODUCT_CACHE_TTL_MS', 15 * 60 * 1000);
+const discoverProductCache = new Map<string, CacheEntry<PricedProduct>>();
+const CJ_PRODUCT_PAGE_CACHE_TTL_MS = parseCacheTtlMs('CJ_PRODUCT_PAGE_CACHE_TTL_MS', 10 * 60 * 1000);
+const cjProductPageCache = new Map<string, CacheEntry<{ list: any[]; total: number }>>();
+
+function buildDiscoverProductCacheKey(pid: string, profitMargin: number, shippingMethod: string): string {
+  const normalized = normalizeCjProductId(pid) || String(pid || '').trim();
+  return `${normalized}|margin:${profitMargin}|ship:${shippingMethod}`;
 }
 
 type DiscoverMediaMode = 'any' | 'withVideo' | 'imagesOnly' | 'both';
@@ -371,6 +364,13 @@ async function fetchCjProductPage(
   categoryId: string | null,
   pageNum: number
 ): Promise<{ list: any[]; total: number }> {
+  const pageCacheKey = `${categoryId || 'all'}|${pageNum}`;
+  const cachedPage = readFreshCache(cjProductPageCache, pageCacheKey);
+  if (cachedPage !== undefined) {
+    console.log(`[Search&Price] Product page cache hit: ${pageCacheKey}`);
+    return cachedPage;
+  }
+
   // Use /product/list for category filtering (stable and reliable)
   const params = new URLSearchParams();
   params.set('pageNum', String(pageNum));
@@ -395,6 +395,8 @@ async function fetchCjProductPage(
     const list = res?.data?.list || [];
     const total = res?.data?.total || 0;
     console.log(`[Search&Price] Page ${pageNum} returned ${list.length} items (total: ${total})`);
+
+    writeFreshCache(cjProductPageCache, pageCacheKey, { list, total }, CJ_PRODUCT_PAGE_CACHE_TTL_MS);
     
     return { list, total };
   } catch (e: any) {
@@ -792,7 +794,8 @@ async function handleSearch(req: Request, isPost: boolean) {
     }
     
     const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
-    const excludedCjProductIds = await loadExcludedCjProductIds();
+    // Reuse exclusion set built above to avoid a second full-table scan.
+    const excludedCjProductIds = excludedPids;
     console.log(`[Search&Price]   excluded existing queue/store products: ${excludedCjProductIds.size}`);
     
     const candidateProducts: any[] = [];
@@ -1019,6 +1022,63 @@ async function handleSearch(req: Request, isPost: boolean) {
       const pid = String(item.pid || item.productId || '');
       const cjSku = String(item.productSku || item.sku || `CJ-${pid}`);
       const name = String(item.productNameEn || item.name || item.productName || '');
+      const productCacheKey = buildDiscoverProductCacheKey(pid, profitMargin, shippingMethod);
+      const cachedPricedProduct = readFreshCache(discoverProductCache, productCacheKey);
+
+      if (cachedPricedProduct) {
+        const cachedHasVideo = typeof cachedPricedProduct.videoSourceUrl === 'string' && cachedPricedProduct.videoSourceUrl.trim().length > 0;
+        const cachedHasImages = Array.isArray(cachedPricedProduct.images) && cachedPricedProduct.images.length > 0;
+        const cachedVideoHint = cachedPricedProduct.videoSourceQualityHint || 'unknown';
+        const cachedDeliveryMode = cachedPricedProduct.videoDeliveryMode || 'native';
+
+        mediaFilterStats.checked++;
+        mediaFilterStats.videoSource[cachedHasVideo ? 'details' : 'none']++;
+        if (cachedVideoHint in mediaFilterStats.videoQualityHints) {
+          mediaFilterStats.videoQualityHints[cachedVideoHint as keyof typeof mediaFilterStats.videoQualityHints]++;
+        } else {
+          mediaFilterStats.videoQualityHints.unknown++;
+        }
+        if (cachedDeliveryMode in mediaFilterStats.videoDeliveryModes) {
+          mediaFilterStats.videoDeliveryModes[cachedDeliveryMode as keyof typeof mediaFilterStats.videoDeliveryModes]++;
+        }
+        if (cachedHasVideo) {
+          if (cachedPricedProduct.videoQualityGatePassed) {
+            mediaFilterStats.videoQualityGate.passed++;
+          } else {
+            mediaFilterStats.videoQualityGate.failed++;
+          }
+        } else {
+          mediaFilterStats.missingVideoAfterExtraction++;
+        }
+        if (!matchesDiscoverMediaMode(mediaMode, cachedHasVideo, cachedHasImages)) {
+          mediaFilterStats.filteredOut++;
+          if (!cachedHasVideo) {
+            mediaFilterStats.missingVideo++;
+            if (mediaFilterStats.skippedMissingVideoPids.length < 25) {
+              mediaFilterStats.skippedMissingVideoPids.push(pid);
+            }
+          }
+          if (!cachedHasImages) mediaFilterStats.missingImages++;
+          console.log(`[Search&Price] Product ${pid} skipped by media filter from cache (mode=${mediaMode})`);
+          continue;
+        }
+        mediaFilterStats.passed++;
+
+        const minRatingNum = minRating === 'any' ? 0 : Number(minRating);
+        if (
+          Number.isFinite(minRatingNum) &&
+          typeof cachedPricedProduct.displayedRating === 'number' &&
+          cachedPricedProduct.displayedRating < minRatingNum
+        ) {
+          totalFiltered.rating++;
+          continue;
+        }
+
+        pricedProducts.push(cachedPricedProduct);
+        productsProcessedThisBatch++;
+        console.log(`[Search&Price] Product ${pid}: served from route cache`);
+        continue;
+      }
       
       // Fetch full product details for this product (on-demand)
       let fullDetails: any = null;
@@ -1028,6 +1088,10 @@ async function handleSearch(req: Request, isPost: boolean) {
       } catch (e: any) {
         console.log(`[Search&Price] Product ${pid} - Failed to fetch details: ${e?.message}`);
       }
+
+      const preloadedVariants = Array.isArray(fullDetails?.variantList)
+        ? fullDetails.variantList
+        : [];
 
       const source = fullDetails || item;
       let images = extractAllImages(source);
@@ -1168,7 +1232,11 @@ async function handleSearch(req: Request, isPost: boolean) {
         // The CJ API handles rate limiting itself; we only slow down on actual rate limit errors
         
         try {
-          variantInventory = await queryVariantInventory(pid);
+          variantInventory = await queryVariantInventory(
+            pid,
+            undefined,
+            preloadedVariants.length > 0 ? preloadedVariants : undefined
+          );
         } catch (e: any) {
           const errorMsg = e?.message || 'Failed to fetch variant inventory';
           console.log(`[Search&Price] Product ${pid} - queryVariantInventory error: ${errorMsg}`);
@@ -1815,8 +1883,10 @@ async function handleSearch(req: Request, isPost: boolean) {
       console.log(`  - packingList: ${packingList ? `YES (${packingList.length} chars)` : 'NO'}`);
       console.log(`  - sizeChartImages: ${sizeChartImages.length}`);
       
-      // Fetch variants - CJ returns only purchasable variants in this API
-      const variants = await getVariantsForProduct(token, base, pid);
+      // Fetch variants - reuse full-details variantList when available to avoid duplicate API calls.
+      const variants = preloadedVariants.length > 0
+        ? preloadedVariants
+        : await getVariantsForProduct(token, base, pid);
       
       // Build set of images from variants (these are the purchasable color options)
       const variantImages: string[] = [];
@@ -2662,7 +2732,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       const originCountry = String(source.originCountry || source.countryOrigin || source.originArea || '').trim() || undefined;
       const hsCode = source.entryCode ? `${source.entryCode}${source.entryNameEn ? ` (${source.entryNameEn})` : ''}` : undefined;
       
-      pricedProducts.push({
+      const pricedProduct: PricedProduct = {
         pid,
         cjSku,
         name,
@@ -2733,7 +2803,10 @@ async function handleSearch(req: Request, isPost: boolean) {
         availableModels: extractedModels,
         // Color-to-image mapping for color swatches
         colorImageMap: Object.keys(colorImageMap).length > 0 ? colorImageMap : undefined,
-      });
+      };
+
+      pricedProducts.push(pricedProduct);
+      writeFreshCache(discoverProductCache, productCacheKey, pricedProduct, DISCOVER_PRODUCT_CACHE_TTL_MS);
       
       // Track batch progress
       productsProcessedThisBatch++;

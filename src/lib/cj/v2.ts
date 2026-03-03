@@ -89,6 +89,33 @@ export async function waitForCjRateLimit(): Promise<boolean> {
 
 // ============================================================================
 
+type CacheEntry<T> = {
+  value: T;
+  expiresAt: number;
+};
+
+function parseCacheTtlMs(envName: string, fallbackMs: number): number {
+  const parsed = Number(process.env[envName]);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallbackMs;
+}
+
+function readFreshCache<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
+  const entry = cache.get(key);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(key);
+    return undefined;
+  }
+  return entry.value;
+}
+
+function writeFreshCache<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, ttlMs: number): void {
+  cache.set(key, {
+    value,
+    expiresAt: Date.now() + ttlMs,
+  });
+}
+
 type CjConfig = { email?: string | null; apiKey?: string | null; base?: string | null };
 
 async function getCjApiKey(): Promise<string | null> {
@@ -272,6 +299,9 @@ export type FreightResult = {
   message: string;
 };
 
+const CJ_FREIGHT_CACHE_TTL_MS = parseCacheTtlMs('CJ_FREIGHT_CACHE_TTL_MS', 10 * 60 * 1000);
+const cjFreightCache = new Map<string, CacheEntry<FreightResult>>();
+
 export async function freightCalculate(params: CjFreightCalcParams): Promise<FreightResult> {
   const startCountry = params.startCountryCode || 'CN';
   const endCountry = params.countryCode || 'US';
@@ -284,6 +314,13 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<Fre
       reason: 'invalid_vid',
       message: 'Variant ID (vid) is required for shipping calculation',
     };
+  }
+
+  const freightCacheKey = `${startCountry}|${endCountry}|${vid}|${qty}`;
+  const cachedFreight = readFreshCache(cjFreightCache, freightCacheKey);
+  if (cachedFreight !== undefined) {
+    console.log(`[CJ Freight] Cache hit for ${freightCacheKey}`);
+    return cachedFreight;
   }
   
   console.log(`[CJ Freight] Getting "According to Shipping Method" for vid=${vid}, qty=${qty}, ${startCountry} → ${endCountry}`);
@@ -305,16 +342,19 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<Fre
     
     const result = parseFreightResponse(r);
     if (result.ok && result.options.length > 0) {
+      writeFreshCache(cjFreightCache, freightCacheKey, result, CJ_FREIGHT_CACHE_TTL_MS);
       console.log(`[CJ Freight] Got ${result.options.length} shipping options from CJ "According to Shipping Method"`);
       return result;
     }
     
     // No options returned
-    return {
+    const noOptionsResult: FreightResult = {
       ok: false,
       reason: 'no_options',
       message: 'CJ returned no shipping options for this variant/destination',
     };
+    writeFreshCache(cjFreightCache, freightCacheKey, noOptionsResult, Math.min(CJ_FREIGHT_CACHE_TTL_MS, 2 * 60 * 1000));
+    return noOptionsResult;
   } catch (e: any) {
     console.error(`[CJ Freight] API error: ${e?.message}`);
     return {
@@ -410,12 +450,24 @@ export function findCJPacketOrdinary(options: CjShippingOption[]): CjShippingOpt
 // --- Product Variants by PID ---
 // Uses CJ's variant query API: GET /product/variant/query
 // Returns list of purchasable variants with pricing and attributes
+const CJ_PRODUCT_VARIANTS_CACHE_TTL_MS = parseCacheTtlMs('CJ_PRODUCT_VARIANTS_CACHE_TTL_MS', 20 * 60 * 1000);
+const cjProductVariantsCache = new Map<string, CacheEntry<any[]>>();
+
 export async function getProductVariants(pid: string): Promise<any[]> {
+  const normalizedPid = String(pid || '').trim();
+  if (!normalizedPid) return [];
+
+  const cachedVariants = readFreshCache(cjProductVariantsCache, normalizedPid);
+  if (cachedVariants !== undefined) {
+    console.log(`[CJ Variants] Cache hit for pid=${normalizedPid}`);
+    return cachedVariants;
+  }
+
   const token = await getAccessToken();
   const base = await resolveBase();
   
   try {
-    const res = await fetchJson<any>(`${base}/product/variant/query?pid=${encodeURIComponent(pid)}`, {
+    const res = await fetchJson<any>(`${base}/product/variant/query?pid=${encodeURIComponent(normalizedPid)}`, {
       headers: {
         'CJ-Access-Token': token,
         'Content-Type': 'application/json',
@@ -425,14 +477,15 @@ export async function getProductVariants(pid: string): Promise<any[]> {
     });
     const data = res?.data;
     const variants = Array.isArray(data) ? data : (data?.list || data?.variants || []);
+    writeFreshCache(cjProductVariantsCache, normalizedPid, variants, CJ_PRODUCT_VARIANTS_CACHE_TTL_MS);
     
     if (variants.length > 0) {
-      console.log(`[CJ Variants] Product ${pid}: ${variants.length} variants found`);
+      console.log(`[CJ Variants] Product ${normalizedPid}: ${variants.length} variants found`);
     }
     
     return variants;
   } catch (e: any) {
-    console.log(`[CJ Variants] Error for ${pid}:`, e?.message);
+    console.log(`[CJ Variants] Error for ${normalizedPid}:`, e?.message);
     return [];
   }
 }
@@ -457,14 +510,26 @@ export type CjProductInventory = {
   warehouses: CjWarehouseInventory[];
 };
 
+const CJ_PRODUCT_INVENTORY_CACHE_TTL_MS = parseCacheTtlMs('CJ_PRODUCT_INVENTORY_CACHE_TTL_MS', 5 * 60 * 1000);
+const cjProductInventoryCache = new Map<string, CacheEntry<CjProductInventory | null>>();
+
 export async function getInventoryByPid(pid: string): Promise<CjProductInventory | null> {
+  const normalizedPid = String(pid || '').trim();
+  if (!normalizedPid) return null;
+
+  const cachedInventory = readFreshCache(cjProductInventoryCache, normalizedPid);
+  if (cachedInventory !== undefined) {
+    console.log(`[CJ Inventory] Cache hit for pid=${normalizedPid}`);
+    return cachedInventory;
+  }
+
   const token = await getAccessToken();
   const base = await resolveBase();
   
-  console.log(`[CJ Inventory] Fetching inventory for pid=${pid}`);
+  console.log(`[CJ Inventory] Fetching inventory for pid=${normalizedPid}`);
   
   try {
-    const url = `${base}/product/stock/getInventoryByPid?pid=${encodeURIComponent(pid)}`;
+    const url = `${base}/product/stock/getInventoryByPid?pid=${encodeURIComponent(normalizedPid)}`;
     const res = await fetchJson<any>(url, {
       method: 'GET',
       headers: {
@@ -474,12 +539,13 @@ export async function getInventoryByPid(pid: string): Promise<CjProductInventory
       timeoutMs: 10000,
     });
     
-    console.log(`[CJ Inventory] Response for ${pid}:`, JSON.stringify(res).slice(0, 1000));
+    console.log(`[CJ Inventory] Response for ${normalizedPid}:`, JSON.stringify(res).slice(0, 1000));
     
     // CJ API returns code as either number 200 or string "200" - handle both
     const isSuccess = res && (res.code === 200 || res.code === '200' || String(res.code) === '200');
     if (!isSuccess || !res.data) {
-      console.log(`[CJ Inventory] No inventory data returned for ${pid} (code: ${res?.code})`);
+      console.log(`[CJ Inventory] No inventory data returned for ${normalizedPid} (code: ${res?.code})`);
+      writeFreshCache(cjProductInventoryCache, normalizedPid, null, Math.min(CJ_PRODUCT_INVENTORY_CACHE_TTL_MS, 60 * 1000));
       return null;
     }
     
@@ -509,18 +575,20 @@ export async function getInventoryByPid(pid: string): Promise<CjProductInventory
     }
     
     const result: CjProductInventory = {
-      pid,
+      pid: normalizedPid,
       totalCJ,
       totalFactory,
       totalAvailable: totalCJ + totalFactory,
       warehouses,
     };
     
-    console.log(`[CJ Inventory] Parsed for ${pid}: total=${result.totalAvailable} (CJ=${totalCJ}, Factory=${totalFactory}), warehouses=${warehouses.length}`);
+    console.log(`[CJ Inventory] Parsed for ${normalizedPid}: total=${result.totalAvailable} (CJ=${totalCJ}, Factory=${totalFactory}), warehouses=${warehouses.length}`);
+    writeFreshCache(cjProductInventoryCache, normalizedPid, result, CJ_PRODUCT_INVENTORY_CACHE_TTL_MS);
     
     return result;
   } catch (e: any) {
-    console.error(`[CJ Inventory] Error fetching inventory for ${pid}:`, e?.message);
+    console.error(`[CJ Inventory] Error fetching inventory for ${normalizedPid}:`, e?.message);
+    writeFreshCache(cjProductInventoryCache, normalizedPid, null, Math.min(CJ_PRODUCT_INVENTORY_CACHE_TTL_MS, 60 * 1000));
     return null;
   }
 }
@@ -546,7 +614,20 @@ export type CjVariantInventory = {
   totalStock: number;
 };
 
-export async function queryVariantInventory(pid: string, warehouse?: string): Promise<CjVariantInventory[]> {
+const CJ_VARIANT_INVENTORY_CACHE_TTL_MS = parseCacheTtlMs('CJ_VARIANT_INVENTORY_CACHE_TTL_MS', 5 * 60 * 1000);
+const cjVariantInventoryCache = new Map<string, CacheEntry<CjVariantInventory[]>>();
+
+export async function queryVariantInventory(pid: string, warehouse?: string, preloadedVariants?: any[]): Promise<CjVariantInventory[]> {
+  const normalizedPid = String(pid || '').trim();
+  if (!normalizedPid) return [];
+
+  const variantCacheKey = `${normalizedPid}|${warehouse || 'all'}`;
+  const cachedVariantInventory = readFreshCache(cjVariantInventoryCache, variantCacheKey);
+  if (cachedVariantInventory !== undefined) {
+    console.log(`[CJ Inventory] Variant cache hit for pid=${normalizedPid}`);
+    return cachedVariantInventory;
+  }
+
   const token = await getAccessToken();
   const base = await resolveBase();
   
@@ -567,7 +648,7 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
     let stockRes: any = null;
     
     try {
-      stockRes = await fetchJson<any>(`${base}/product/stock/queryByPid?pid=${encodeURIComponent(pid)}`, {
+      stockRes = await fetchJson<any>(`${base}/product/stock/queryByPid?pid=${encodeURIComponent(normalizedPid)}`, {
         method: 'GET',
         headers: {
           'CJ-Access-Token': token,
@@ -575,12 +656,12 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
         cache: 'no-store',
         timeoutMs: 15000,
       });
-      console.log(`[CJ Inventory] Used /product/stock/queryByPid for ${pid}`);
+      console.log(`[CJ Inventory] Used /product/stock/queryByPid for ${normalizedPid}`);
     } catch (e: any) {
       console.log(`[CJ Inventory] /product/stock/queryByPid failed, trying /inventory/queryVariantStock: ${e?.message}`);
       
       // Fallback to old endpoint
-      const inventoryBody: any = { pid };
+      const inventoryBody: any = { pid: normalizedPid };
       if (warehouse) inventoryBody.warehouseId = warehouse;
       
       stockRes = await fetchJson<any>(`${base}/inventory/queryVariantStock`, {
@@ -595,13 +676,13 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       });
     }
     
-    console.log(`[CJ Inventory] Response for ${pid}:`, JSON.stringify(stockRes).slice(0, 3000));
-    console.log(`[CJ Inventory] Full data structure for ${pid}:`, JSON.stringify(stockRes?.data, null, 2)?.slice(0, 5000));
+    console.log(`[CJ Inventory] Response for ${normalizedPid}:`, JSON.stringify(stockRes).slice(0, 3000));
+    console.log(`[CJ Inventory] Full data structure for ${normalizedPid}:`, JSON.stringify(stockRes?.data, null, 2)?.slice(0, 5000));
     
     // Log first 3 raw variants to see exact field names CJ provides
     const rawVariants = stockRes?.data?.variantInventories || stockRes?.data?.variantStocks || [];
     if (Array.isArray(rawVariants) && rawVariants.length > 0) {
-      console.log(`[CJ Inventory DEBUG] Raw variant fields for ${pid}:`);
+      console.log(`[CJ Inventory DEBUG] Raw variant fields for ${normalizedPid}:`);
       for (let i = 0; i < Math.min(3, rawVariants.length); i++) {
         const v = rawVariants[i];
         console.log(`  Variant ${i + 1}: ${JSON.stringify(v)}`);
@@ -609,7 +690,7 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
         console.log(`  Stock fields: cjInventory=${v.cjInventory}, factoryInventory=${v.factoryInventory}, inventory=${JSON.stringify(v.inventory)}`);
       }
     } else {
-      console.log(`[CJ Inventory DEBUG] No variantInventories or variantStocks in response for ${pid}`);
+      console.log(`[CJ Inventory DEBUG] No variantInventories or variantStocks in response for ${normalizedPid}`);
     }
     
     const stockData = stockRes?.data;
@@ -792,23 +873,29 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
     stockListItems = stockList; // Save for fallback variant building
     console.log(`[CJ Inventory] Parsed ${stockBySku.size} stock entries from inventory API (from ${stockList.length} items)`);
   } catch (e: any) {
-    console.error(`[CJ Inventory] Error fetching stock for ${pid}:`, e?.message);
+    console.error(`[CJ Inventory] Error fetching stock for ${normalizedPid}:`, e?.message);
   }
   
   try {
-    const variantRes = await fetchJson<any>(`${base}/product/variant/query?pid=${encodeURIComponent(pid)}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        'CJ-Access-Token': token,
-      },
-      cache: 'no-store',
-      timeoutMs: 15000,
-    });
-    
-    console.log(`[CJ Variants] Response for ${pid}:`, JSON.stringify(variantRes).slice(0, 1500));
-    
-    const variantData = variantRes?.data;
-    const variantList = Array.isArray(variantData) ? variantData : (variantData?.list || variantData?.variants || []);
+    let variantList: any[] = [];
+    if (Array.isArray(preloadedVariants) && preloadedVariants.length > 0) {
+      variantList = preloadedVariants;
+      console.log(`[CJ Variants] Using preloaded variants for ${normalizedPid}: ${variantList.length}`);
+    } else {
+      const variantRes = await fetchJson<any>(`${base}/product/variant/query?pid=${encodeURIComponent(normalizedPid)}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'CJ-Access-Token': token,
+        },
+        cache: 'no-store',
+        timeoutMs: 15000,
+      });
+      
+      console.log(`[CJ Variants] Response for ${normalizedPid}:`, JSON.stringify(variantRes).slice(0, 1500));
+      
+      const variantData = variantRes?.data;
+      variantList = Array.isArray(variantData) ? variantData : (variantData?.list || variantData?.variants || []);
+    }
     
     if (Array.isArray(variantList) && variantList.length > 0) {
       console.log(`[CJ Variants] First variant sample:`, JSON.stringify(variantList[0]));
@@ -824,7 +911,7 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
     
     // Log first few variants to debug field values
     if (Array.isArray(variantList) && variantList.length > 0) {
-      console.log(`[CJ Variants DEBUG] First 3 variants for ${pid}:`);
+      console.log(`[CJ Variants DEBUG] First 3 variants for ${normalizedPid}:`);
       for (let i = 0; i < Math.min(3, variantList.length); i++) {
         const v = variantList[i];
         console.log(`  #${i + 1}: variantKey="${v.variantKey || '(empty)'}", variantSku="${v.variantSku || '(empty)'}", variantName="${v.variantName || '(empty)'}", variantNameEn="${v.variantNameEn || '(empty)'}", variantSellPrice=${v.variantSellPrice}`);
@@ -903,7 +990,7 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
       }
     }
   } catch (e: any) {
-    console.error(`[CJ Variants] Error fetching variants for ${pid}:`, e?.message);
+    console.error(`[CJ Variants] Error fetching variants for ${normalizedPid}:`, e?.message);
   }
   
   // If variants have no per-variant stock data, query each variant individually
@@ -1017,7 +1104,8 @@ export async function queryVariantInventory(pid: string, warehouse?: string): Pr
     console.log(`[CJ Variants] Built ${allVariants.length} variants from stock data fallback`);
   }
   
-  console.log(`[CJ Variants] Final result: ${allVariants.length} variants for ${pid}`);
+  console.log(`[CJ Variants] Final result: ${allVariants.length} variants for ${normalizedPid}`);
+  writeFreshCache(cjVariantInventoryCache, variantCacheKey, allVariants, CJ_VARIANT_INVENTORY_CACHE_TTL_MS);
   return allVariants;
 }
 
@@ -1676,12 +1764,22 @@ function mergeListV2Fields(productData: any, match: any, source: string): void {
 }
 
 // Fetch full product details by PID - returns complete product with all images and variants
+const CJ_PRODUCT_DETAILS_CACHE_TTL_MS = parseCacheTtlMs('CJ_PRODUCT_DETAILS_CACHE_TTL_MS', 30 * 60 * 1000);
+const cjProductDetailsCache = new Map<string, CacheEntry<any>>();
+
 export async function fetchProductDetailsByPid(pid: string): Promise<any | null> {
-  if (!pid) return null;
+  const normalizedPid = String(pid || '').trim();
+  if (!normalizedPid) return null;
+
+  const cachedDetails = readFreshCache(cjProductDetailsCache, normalizedPid);
+  if (cachedDetails !== undefined) {
+    console.log(`[CJ Details] Cache hit for ${normalizedPid}`);
+    return cachedDetails;
+  }
   
   try {
     // Fetch product details from /product/query
-    const pr = await cjFetch<any>(`/product/query?pid=${encodeURIComponent(pid)}`);
+    const pr = await cjFetch<any>(`/product/query?pid=${encodeURIComponent(normalizedPid)}`);
     let productData = pr?.data || pr?.content || pr || null;
     
     if (!productData) return null;
@@ -1789,14 +1887,14 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
     if (needsListV2Enrichment()) {
       // Strategy 1: Direct search by PID (most reliable if CJ indexes by PID)
       try {
-        const listV2Res = await cjFetch<any>(`/product/listV2?keyWord=${encodeURIComponent(pid)}&page=1&size=5&features=${listV2Features}`);
+        const listV2Res = await cjFetch<any>(`/product/listV2?keyWord=${encodeURIComponent(normalizedPid)}&page=1&size=5&features=${listV2Features}`);
         const productList = extractListV2Products(listV2Res);
         const match = productList.find((p: any) => matchesPid(p));
         if (match) {
           mergeListV2Fields(productData, match, `PID search ${pid}`);
         }
       } catch (e: any) {
-        console.log(`[CJ Details] listV2 PID search failed for ${pid}:`, e?.message);
+        console.log(`[CJ Details] listV2 PID search failed for ${normalizedPid}:`, e?.message);
       }
     }
     
@@ -1811,7 +1909,7 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
           mergeListV2Fields(productData, match, `SKU search ${sku}`);
         }
       } catch (e: any) {
-        console.log(`[CJ Details] listV2 SKU search failed for ${pid}:`, e?.message);
+        console.log(`[CJ Details] listV2 SKU search failed for ${normalizedPid}:`, e?.message);
       }
     }
     
@@ -1838,7 +1936,7 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
           }
         }
       } catch (e: any) {
-        console.log(`[CJ Details] listV2 name search failed for ${pid}:`, e?.message);
+        console.log(`[CJ Details] listV2 name search failed for ${normalizedPid}:`, e?.message);
       }
     }
     
@@ -1852,9 +1950,9 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
       }
     }
     if (Object.keys(foundWeights).length > 0) {
-      console.log(`[CJ Details] Product ${pid} weight fields:`, JSON.stringify(foundWeights));
+      console.log(`[CJ Details] Product ${normalizedPid} weight fields:`, JSON.stringify(foundWeights));
     } else {
-      console.log(`[CJ Details] Product ${pid}: No weight data in CJ response`);
+      console.log(`[CJ Details] Product ${normalizedPid}: No weight data in CJ response`);
     }
     
     // Build synthesized productInfo from all available fields (used if no description HTML)
@@ -1909,7 +2007,7 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
       
       if (infoLines.length > 0) {
         productData.synthesizedInfo = infoLines.join('<br/>');
-        console.log(`[CJ Details] Built synthesizedInfo for ${pid}: ${infoLines.length} fields`);
+        console.log(`[CJ Details] Built synthesizedInfo for ${normalizedPid}: ${infoLines.length} fields`);
       }
     }
     
@@ -1928,23 +2026,24 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
         }
       }
     }
-    console.log(`[CJ Details] Product ${pid} spec fields:`, JSON.stringify(availableSpecs));
+    console.log(`[CJ Details] Product ${normalizedPid} spec fields:`, JSON.stringify(availableSpecs));
     
     // Fetch variants separately to get complete variant data with images
     try {
-      const vr = await cjFetch<any>(`/product/variant/query?pid=${encodeURIComponent(pid)}`);
+      const vr = await cjFetch<any>(`/product/variant/query?pid=${encodeURIComponent(normalizedPid)}`);
       const variantList = Array.isArray(vr?.data) ? vr.data : (vr?.data?.list || []);
       if (variantList.length > 0) {
-        console.log(`[CJ Details] Product ${pid} has ${variantList.length} variants`);
+        console.log(`[CJ Details] Product ${normalizedPid} has ${variantList.length} variants`);
         productData = { ...productData, variantList };
       }
     } catch {
       // Continue without variants if that endpoint fails
     }
     
+    writeFreshCache(cjProductDetailsCache, normalizedPid, productData, CJ_PRODUCT_DETAILS_CACHE_TTL_MS);
     return productData;
   } catch (e: any) {
-    console.log(`[CJ Details] Failed to fetch details for ${pid}:`, e?.message);
+    console.log(`[CJ Details] Failed to fetch details for ${normalizedPid}:`, e?.message);
     return null;
   }
 }
