@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
 import { getJob, startJob, finishJob } from '@/lib/jobs'
+import { isDiscoverRunJob } from '@/lib/discover/runs'
 import { runJob, stepFinderJob } from '@/lib/runner'
 
 export const runtime = 'nodejs'
@@ -31,9 +32,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     const st = await getJob(id)
     if (!st) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
 
-    const isDiscoverCompat = st.job.kind === 'finder' && (st.job.params?.__discoverCompat === true || st.job.params?.__discoverCompat === '1')
-
-    if (st.job.kind === 'discover' || isDiscoverCompat) {
+    if (isDiscoverRunJob(st.job)) {
       const origin = new URL(req.url).origin
       const forwardCookie = req.headers.get('cookie') || ''
       const discoverRes = await fetch(`${origin}/api/admin/cj/discover-runs/${id}/run`, {

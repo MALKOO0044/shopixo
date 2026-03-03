@@ -2,17 +2,11 @@ import { NextResponse } from 'next/server'
 import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
 import { getJob } from '@/lib/jobs'
-import { buildDiscoverRunPayload } from '@/lib/discover/runs'
+import { buildDiscoverRunPayload, isDiscoverRunJob } from '@/lib/discover/runs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
-
-function isDiscoverJob(job: any): boolean {
-  if (!job) return false
-  if (job.kind === 'discover') return true
-  return job.kind === 'finder' && (job.params?.__discoverCompat === true || job.params?.__discoverCompat === '1')
-}
 
 export async function GET(req: Request, ctx: { params: { id: string } }) {
   const log = loggerForRequest(req)
@@ -32,7 +26,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     }
 
     const jobState = await getJob(id)
-    if (!jobState?.job || !isDiscoverJob(jobState.job)) {
+    if (!jobState?.job || !isDiscoverRunJob(jobState.job)) {
       const r = NextResponse.json({ ok: false, error: 'Discover run not found' }, { status: 404 })
       r.headers.set('x-request-id', log.requestId)
       return r

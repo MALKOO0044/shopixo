@@ -6,6 +6,7 @@ import { finishJob, getJob, patchJob, startJob, upsertJobItemByPid } from '@/lib
 import {
   buildDiscoverRunPayload,
   buildDiscoverSearchParams,
+  isDiscoverRunJob,
   normalizeDiscoverRunParams,
 } from '@/lib/discover/runs'
 import { normalizeCjProductId } from '@/lib/import/normalization'
@@ -13,12 +14,6 @@ import { normalizeCjProductId } from '@/lib/import/normalization'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
-
-function isDiscoverJob(job: any): boolean {
-  if (!job) return false
-  if (job.kind === 'discover') return true
-  return job.kind === 'finder' && (job.params?.__discoverCompat === true || job.params?.__discoverCompat === '1')
-}
 
 type SearchBatchResponse = {
   ok?: boolean
@@ -56,7 +51,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     }
 
     const jobState = await getJob(id)
-    if (!jobState?.job || !isDiscoverJob(jobState.job)) {
+    if (!jobState?.job || !isDiscoverRunJob(jobState.job)) {
       const r = NextResponse.json({ ok: false, error: 'Discover run not found' }, { status: 404 })
       r.headers.set('x-request-id', log.requestId)
       return r

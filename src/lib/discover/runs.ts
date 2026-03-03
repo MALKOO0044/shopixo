@@ -40,6 +40,22 @@ export type DiscoverRunParams = {
 const DISCOVER_RUN_VERSION = 1
 const DEFAULT_CURSOR = '0.1.0'
 
+function toObject(value: unknown): Record<string, any> {
+  if (!value) return {}
+  if (typeof value === 'object') return value as Record<string, any>
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return {}
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, any>
+    } catch {
+      // ignore malformed JSON-like text
+    }
+  }
+  return {}
+}
+
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
   return Math.max(min, Math.min(max, value))
@@ -99,29 +115,30 @@ function normalizeMediaMode(value: unknown): DiscoverMediaMode {
 }
 
 export function normalizeDiscoverRunFilters(value: any): DiscoverRunFilters | null {
-  const categoryIds = normalizeStringArray(value?.categoryIds).filter((id) => id !== 'all')
+  const source = toObject(value)
+  const categoryIds = normalizeStringArray(source.categoryIds).filter((id) => id !== 'all')
   if (categoryIds.length === 0) return null
 
-  const minPrice = Math.max(0, Number(value?.minPrice ?? 0))
-  const requestedMaxPrice = Math.max(0, Number(value?.maxPrice ?? 1000))
+  const minPrice = Math.max(0, Number(source.minPrice ?? 0))
+  const requestedMaxPrice = Math.max(0, Number(source.maxPrice ?? 1000))
   const maxPrice = Math.max(minPrice, requestedMaxPrice)
 
-  const rawSizes = normalizeStringArray(value?.sizes)
+  const rawSizes = normalizeStringArray(source.sizes)
 
   return {
     categoryIds,
-    quantity: clamp(Number(value?.quantity ?? 50), 1, 5000),
+    quantity: clamp(Number(source.quantity ?? 50), 1, 5000),
     minPrice,
     maxPrice,
-    minStock: Math.max(0, Number(value?.minStock ?? 0)),
-    profitMargin: Math.max(1, Number(value?.profitMargin ?? 8)),
-    popularity: String(value?.popularity || 'any') || 'any',
-    minRating: String(value?.minRating || 'any') || 'any',
-    shippingMethod: String(value?.shippingMethod || 'configured-cheapest') || 'configured-cheapest',
-    freeShippingOnly: normalizeBoolean(value?.freeShippingOnly),
-    mediaMode: normalizeMediaMode(value?.mediaMode),
+    minStock: Math.max(0, Number(source.minStock ?? 0)),
+    profitMargin: Math.max(1, Number(source.profitMargin ?? 8)),
+    popularity: String(source.popularity || 'any') || 'any',
+    minRating: String(source.minRating || 'any') || 'any',
+    shippingMethod: String(source.shippingMethod || 'configured-cheapest') || 'configured-cheapest',
+    freeShippingOnly: normalizeBoolean(source.freeShippingOnly),
+    mediaMode: normalizeMediaMode(source.mediaMode),
     sizes: rawSizes,
-    batchSize: clamp(Number(value?.batchSize ?? 3), 1, 10),
+    batchSize: clamp(Number(source.batchSize ?? 3), 1, 10),
   }
 }
 
@@ -148,28 +165,30 @@ export function createDiscoverRunParams(filters: DiscoverRunFilters, seedSeenPid
 }
 
 export function normalizeDiscoverRunParams(raw: any): DiscoverRunParams {
+  const source = toObject(raw)
+
   const fallbackFilters: DiscoverRunFilters = {
     categoryIds: [],
-    quantity: clamp(Number(raw?.quantity ?? 50), 1, 5000),
-    minPrice: Math.max(0, Number(raw?.minPrice ?? 0)),
-    maxPrice: Math.max(0, Number(raw?.maxPrice ?? 1000)),
-    minStock: Math.max(0, Number(raw?.minStock ?? 0)),
-    profitMargin: Math.max(1, Number(raw?.profitMargin ?? 8)),
-    popularity: String(raw?.popularity || 'any') || 'any',
-    minRating: String(raw?.minRating || 'any') || 'any',
-    shippingMethod: String(raw?.shippingMethod || 'configured-cheapest') || 'configured-cheapest',
-    freeShippingOnly: normalizeBoolean(raw?.freeShippingOnly),
-    mediaMode: normalizeMediaMode(raw?.mediaMode),
-    sizes: normalizeStringArray(raw?.sizes),
-    batchSize: clamp(Number(raw?.batchSize ?? 3), 1, 10),
+    quantity: clamp(Number(source.quantity ?? 50), 1, 5000),
+    minPrice: Math.max(0, Number(source.minPrice ?? 0)),
+    maxPrice: Math.max(0, Number(source.maxPrice ?? 1000)),
+    minStock: Math.max(0, Number(source.minStock ?? 0)),
+    profitMargin: Math.max(1, Number(source.profitMargin ?? 8)),
+    popularity: String(source.popularity || 'any') || 'any',
+    minRating: String(source.minRating || 'any') || 'any',
+    shippingMethod: String(source.shippingMethod || 'configured-cheapest') || 'configured-cheapest',
+    freeShippingOnly: normalizeBoolean(source.freeShippingOnly),
+    mediaMode: normalizeMediaMode(source.mediaMode),
+    sizes: normalizeStringArray(source.sizes),
+    batchSize: clamp(Number(source.batchSize ?? 3), 1, 10),
   }
 
-  const normalizedFilters = normalizeDiscoverRunFilters(raw?.filters || raw) || fallbackFilters
+  const normalizedFilters = normalizeDiscoverRunFilters(toObject(source.filters)) || normalizeDiscoverRunFilters(source) || fallbackFilters
 
-  const rawState = raw?.state || {}
+  const rawState = toObject(source.state)
 
   return {
-    version: Number(raw?.version || DISCOVER_RUN_VERSION) || DISCOVER_RUN_VERSION,
+    version: Number(source.version || DISCOVER_RUN_VERSION) || DISCOVER_RUN_VERSION,
     filters: normalizedFilters,
     state: {
       cursor: String(rawState?.cursor || DEFAULT_CURSOR),
@@ -186,6 +205,21 @@ export function normalizeDiscoverRunParams(raw: any): DiscoverRunParams {
       quotaExhausted: normalizeBoolean(rawState?.quotaExhausted),
     },
   }
+}
+
+export function isDiscoverRunJob(job: any): boolean {
+  if (!job || typeof job !== 'object') return false
+  if (job.kind === 'discover') return true
+  if (job.kind !== 'finder') return false
+
+  const params = toObject(job.params)
+  const compatFlag = params.__discoverCompat
+  if (compatFlag === true || compatFlag === '1' || compatFlag === 'true') return true
+
+  // Final fallback: infer discover shape from stored params.
+  const filters = toObject(params.filters)
+  const state = toObject(params.state)
+  return Array.isArray(filters.categoryIds) && (typeof state.cursor === 'string' || typeof state.hasMore === 'boolean')
 }
 
 export function extractDiscoverRunProducts(items: any[]): PricedProduct[] {
