@@ -211,6 +211,8 @@ export async function POST(req: NextRequest) {
         cjShippingCost: p.cjShippingCost || undefined,
         cjProductCost: p.cjProductCost || undefined,
         profitMargin: p.profitMargin || undefined,
+      }, {
+        schemaCheck,
       });
 
       if (result.success) {

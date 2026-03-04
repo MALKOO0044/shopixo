@@ -13,6 +13,7 @@ export type DiscoverRunFilters = {
   popularity: string
   minRating: string
   shippingMethod: string
+  shippingCountry: string
   freeShippingOnly: boolean
   mediaMode: DiscoverMediaMode
   sizes: string[]
@@ -114,6 +115,11 @@ function normalizeMediaMode(value: unknown): DiscoverMediaMode {
   return 'both'
 }
 
+function normalizeShippingCountryCode(value: unknown): string {
+  const normalized = String(value ?? '').trim().toUpperCase()
+  return /^[A-Z]{2}$/.test(normalized) ? normalized : ''
+}
+
 export function normalizeDiscoverRunFilters(value: any): DiscoverRunFilters | null {
   const source = toObject(value)
   const categoryIds = normalizeStringArray(source.categoryIds).filter((id) => id !== 'all')
@@ -135,6 +141,7 @@ export function normalizeDiscoverRunFilters(value: any): DiscoverRunFilters | nu
     popularity: String(source.popularity || 'any') || 'any',
     minRating: String(source.minRating || 'any') || 'any',
     shippingMethod: String(source.shippingMethod || 'configured-cheapest') || 'configured-cheapest',
+    shippingCountry: normalizeShippingCountryCode(source.shippingCountry),
     freeShippingOnly: normalizeBoolean(source.freeShippingOnly),
     mediaMode: normalizeMediaMode(source.mediaMode),
     sizes: rawSizes,
@@ -177,6 +184,7 @@ export function normalizeDiscoverRunParams(raw: any): DiscoverRunParams {
     popularity: String(source.popularity || 'any') || 'any',
     minRating: String(source.minRating || 'any') || 'any',
     shippingMethod: String(source.shippingMethod || 'configured-cheapest') || 'configured-cheapest',
+    shippingCountry: normalizeShippingCountryCode(source.shippingCountry),
     freeShippingOnly: normalizeBoolean(source.freeShippingOnly),
     mediaMode: normalizeMediaMode(source.mediaMode),
     sizes: normalizeStringArray(source.sizes),
@@ -256,6 +264,7 @@ export function buildDiscoverSearchParams(
     popularity: filters.popularity,
     minRating: filters.minRating,
     shippingMethod: filters.shippingMethod,
+    shippingCountry: filters.shippingCountry,
     freeShippingOnly: filters.freeShippingOnly ? '1' : '0',
     mediaMode: filters.mediaMode,
     batchMode: '1',

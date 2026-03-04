@@ -60,6 +60,7 @@ type DiscoverRunResponse = {
   shortfallReason?: string | null;
   error?: string;
   products?: PricedProduct[];
+  newProducts?: PricedProduct[];
   run?: {
     id: number;
     status: string;
@@ -140,6 +141,39 @@ function filterDiscoverProductsByDeletedSet(
     const normalizedPid = normalizeDiscoverPid(product?.pid);
     return !normalizedPid || !deletedPidSet.has(normalizedPid);
   });
+}
+
+function mergeDiscoverProductsByPid(
+  currentProducts: PricedProduct[],
+  incomingProducts: PricedProduct[],
+  deletedPidSet: Set<string>
+): PricedProduct[] {
+  if (!Array.isArray(incomingProducts) || incomingProducts.length === 0) {
+    return filterDiscoverProductsByDeletedSet(currentProducts, deletedPidSet);
+  }
+
+  const merged = Array.isArray(currentProducts) ? [...currentProducts] : [];
+  const seenPids = new Set<string>();
+
+  for (const product of merged) {
+    const normalizedPid = normalizeDiscoverPid(product?.pid);
+    if (normalizedPid) {
+      seenPids.add(normalizedPid);
+    }
+  }
+
+  for (const product of incomingProducts) {
+    const normalizedPid = normalizeDiscoverPid(product?.pid);
+    if (normalizedPid) {
+      if (deletedPidSet.has(normalizedPid) || seenPids.has(normalizedPid)) {
+        continue;
+      }
+      seenPids.add(normalizedPid);
+    }
+    merged.push(product);
+  }
+
+  return filterDiscoverProductsByDeletedSet(merged, deletedPidSet);
 }
 
 function normalizeDiscoverGalleryImageKey(url: string): string {
@@ -361,19 +395,19 @@ export default function ProductDiscoveryPage() {
   }, []);
 
   useEffect(() => {
-    const deletedSet = new Set(
+    const deletedSet = new Set<string>(
       persistedDeletedPids
-        .map((value) => normalizeDiscoverPid(value))
-        .filter(Boolean)
+        .map((value: string) => normalizeDiscoverPid(value))
+        .filter((value): value is string => Boolean(value))
     );
     deletedPidRuntimeRef.current = deletedSet;
 
-    setProducts((prev) => {
+    setProducts((prev: PricedProduct[]) => {
       const filtered = filterDiscoverProductsByDeletedSet(prev, deletedSet);
       return filtered.length === prev.length ? prev : filtered;
     });
 
-    setSelected((prev) => {
+    setSelected((prev: Set<string>) => {
       if (prev.size === 0 || deletedSet.size === 0) return prev;
       let changed = false;
       const next = new Set<string>();
@@ -552,12 +586,22 @@ export default function ProductDiscoveryPage() {
           throw new Error(stepData.error || `Discover run step failed: ${stepRes.status}`);
         }
 
-        const incomingProducts = Array.isArray(stepData.products) ? stepData.products : [];
-        allProducts = filterDiscoverProductsByDeletedSet(incomingProducts, deletedPidRuntimeRef.current);
+        const hasIncrementalPayload = Array.isArray(stepData.newProducts);
+        const incomingProducts = hasIncrementalPayload
+          ? (stepData.newProducts as PricedProduct[])
+          : (Array.isArray(stepData.products) ? stepData.products : []);
+
+        allProducts = hasIncrementalPayload
+          ? mergeDiscoverProductsByPid(allProducts, incomingProducts, deletedPidRuntimeRef.current)
+          : filterDiscoverProductsByDeletedSet(incomingProducts, deletedPidRuntimeRef.current);
+
         setProducts([...allProducts]);
 
         const progress = stepData.run?.progress;
-        const found = allProducts.length;
+        const foundFromProgress = Number(progress?.found);
+        const found = Number.isFinite(foundFromProgress) && foundFromProgress >= 0
+          ? Math.floor(foundFromProgress)
+          : allProducts.length;
         const target = Number(progress?.target || quantity);
         const batches = Number(progress?.batches || safetyTicks);
         setSearchProgress(`Finding products... (batch ${batches}, found ${found}/${target})`);

@@ -184,10 +184,113 @@ const discoverProductCache = new Map<string, CacheEntry<PricedProduct>>();
 const CJ_PRODUCT_PAGE_CACHE_TTL_MS = parseCacheTtlMs('CJ_PRODUCT_PAGE_CACHE_TTL_MS', 10 * 60 * 1000);
 const cjProductPageCache = new Map<string, CacheEntry<{ list: any[]; total: number }>>();
 const DISCOVER_DELETED_PIDS_KEY = 'discover_deleted_pids';
+const DISCOVER_EXISTING_PID_CACHE_TTL_MS = parseCacheTtlMs('DISCOVER_EXISTING_PID_CACHE_TTL_MS', 60 * 1000);
+const DISCOVER_EXISTING_PID_NEGATIVE_CACHE_TTL_MS = parseCacheTtlMs('DISCOVER_EXISTING_PID_NEGATIVE_CACHE_TTL_MS', 20 * 1000);
+
+type DiscoverExistingPidSource = 'queue' | 'store' | 'both' | 'none';
+
+const discoverExistingPidCache = new Map<string, CacheEntry<DiscoverExistingPidSource>>();
 
 function buildDiscoverProductCacheKey(pid: string, profitMargin: number, shippingMethod: string): string {
   const normalized = normalizeCjProductId(pid) || String(pid || '').trim();
   return `${normalized}|margin:${profitMargin}|ship:${shippingMethod}`;
+}
+
+function readExistingPidSourceFromCache(pid: string): DiscoverExistingPidSource | undefined {
+  return readFreshCache(discoverExistingPidCache, pid);
+}
+
+function writeExistingPidSourceToCache(pid: string, source: DiscoverExistingPidSource): void {
+  const ttlMs = source === 'none'
+    ? DISCOVER_EXISTING_PID_NEGATIVE_CACHE_TTL_MS
+    : DISCOVER_EXISTING_PID_CACHE_TTL_MS;
+  writeFreshCache(discoverExistingPidCache, pid, source, ttlMs);
+}
+
+async function resolveExistingPidExclusions(
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>,
+  candidatePids: string[]
+): Promise<{ queueExcludedPids: Set<string>; storeExcludedPids: Set<string> }> {
+  const queueExcludedPids = new Set<string>();
+  const storeExcludedPids = new Set<string>();
+
+  if (!Array.isArray(candidatePids) || candidatePids.length === 0) {
+    return { queueExcludedPids, storeExcludedPids };
+  }
+
+  const pendingLookup: string[] = [];
+  const deduped = new Set<string>();
+  for (const rawPid of candidatePids) {
+    const normalizedPid = normalizeCjProductId(rawPid);
+    if (!normalizedPid || deduped.has(normalizedPid)) continue;
+    deduped.add(normalizedPid);
+
+    const cachedSource = readExistingPidSourceFromCache(normalizedPid);
+    if (cachedSource === 'queue' || cachedSource === 'both') queueExcludedPids.add(normalizedPid);
+    if (cachedSource === 'store' || cachedSource === 'both') storeExcludedPids.add(normalizedPid);
+    if (!cachedSource) pendingLookup.push(normalizedPid);
+  }
+
+  if (!supabaseAdmin || pendingLookup.length === 0) {
+    return { queueExcludedPids, storeExcludedPids };
+  }
+
+  const chunkSize = 120;
+  for (let i = 0; i < pendingLookup.length; i += chunkSize) {
+    const chunk = pendingLookup.slice(i, i + chunkSize);
+    if (chunk.length === 0) continue;
+
+    const [queueRowsRes, storeRowsRes] = await Promise.all([
+      supabaseAdmin.from('product_queue').select('cj_product_id').in('cj_product_id', chunk),
+      supabaseAdmin.from('products').select('cj_product_id').in('cj_product_id', chunk),
+    ]);
+
+    const chunkQueueFound = new Set<string>();
+    const chunkStoreFound = new Set<string>();
+
+    if (queueRowsRes.error) {
+      console.error('[Search&Price] Failed to resolve queue exclusions by pid chunk:', queueRowsRes.error);
+    } else {
+      for (const row of queueRowsRes.data || []) {
+        const pid = normalizeCjProductId((row as any)?.cj_product_id);
+        if (pid) chunkQueueFound.add(pid);
+      }
+    }
+
+    if (storeRowsRes.error) {
+      console.error('[Search&Price] Failed to resolve store exclusions by pid chunk:', storeRowsRes.error);
+    } else {
+      for (const row of storeRowsRes.data || []) {
+        const pid = normalizeCjProductId((row as any)?.cj_product_id);
+        if (pid) chunkStoreFound.add(pid);
+      }
+    }
+
+    for (const pid of chunk) {
+      const inQueue = chunkQueueFound.has(pid);
+      const inStore = chunkStoreFound.has(pid);
+
+      if (inQueue) queueExcludedPids.add(pid);
+      if (inStore) storeExcludedPids.add(pid);
+
+      let resolvedSource: DiscoverExistingPidSource | null = null;
+      if (inQueue && inStore) {
+        resolvedSource = 'both';
+      } else if (inQueue) {
+        resolvedSource = 'queue';
+      } else if (inStore) {
+        resolvedSource = 'store';
+      } else if (!queueRowsRes.error && !storeRowsRes.error) {
+        resolvedSource = 'none';
+      }
+
+      if (resolvedSource) {
+        writeExistingPidSourceToCache(pid, resolvedSource);
+      }
+    }
+  }
+
+  return { queueExcludedPids, storeExcludedPids };
 }
 
 type DiscoverMediaMode = 'any' | 'withVideo' | 'imagesOnly' | 'both';
@@ -198,6 +301,14 @@ function parseDiscoverMediaMode(value: string | null): DiscoverMediaMode {
     return normalized;
   }
   return 'any';
+}
+
+function normalizeShippingCountryCode(value: unknown): string {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(normalized)) {
+    return normalized;
+  }
+  return 'US';
 }
 
 const SUPPLIER_RATING_KEYS = [
@@ -669,6 +780,13 @@ async function handleSearch(req: Request, isPost: boolean) {
     const minRating = searchParams.get('minRating') || 'any';
     const freeShippingOnly = searchParams.get('freeShippingOnly') === '1';
     const shippingMethod = searchParams.get('shippingMethod') || 'any';
+    const shippingCountryCode = normalizeShippingCountryCode(
+      searchParams.get('shippingCountry') ||
+      searchParams.get('shippingCountryCode') ||
+      process.env.DISCOVER_SHIPPING_COUNTRY ||
+      process.env.NEXT_PUBLIC_DEFAULT_SHIPPING_COUNTRY ||
+      'US'
+    );
     const sizesParam = searchParams.get('sizes') || '';
     const mediaMode = parseDiscoverMediaMode(searchParams.get('mediaMode'));
     
@@ -709,6 +827,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         requestedQuantity: quantity,
         quantityFulfilled: true,
         mediaMode,
+        shippingCountryCode,
         duration: 0, // No processing time spent
         batch: {
           hasMore: false,
@@ -738,35 +857,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     const queueExcludedPids = new Set<string>();
     const storeExcludedPids = new Set<string>();
     const deletedExcludedPids = new Set<string>();
-    try {
-      const supabaseAdmin = getSupabaseAdmin();
-      if (supabaseAdmin) {
-        const [queueRowsRes, storeRowsRes] = await Promise.all([
-          supabaseAdmin.from('product_queue').select('cj_product_id').not('cj_product_id', 'is', null),
-          supabaseAdmin.from('products').select('cj_product_id').not('cj_product_id', 'is', null),
-        ]);
-
-        if (queueRowsRes.error) {
-          console.error('[Search&Price] Failed to load queue exclusions:', queueRowsRes.error);
-        } else {
-          for (const row of queueRowsRes.data || []) {
-            const pid = normalizeCjProductId((row as any)?.cj_product_id);
-            if (pid) queueExcludedPids.add(pid);
-          }
-        }
-
-        if (storeRowsRes.error) {
-          console.error('[Search&Price] Failed to load store exclusions:', storeRowsRes.error);
-        } else {
-          for (const row of storeRowsRes.data || []) {
-            const pid = normalizeCjProductId((row as any)?.cj_product_id);
-            if (pid) storeExcludedPids.add(pid);
-          }
-        }
-      }
-    } catch (e: any) {
-      console.error('[Search&Price] Failed to build exclusion sets:', e?.message || e);
-    }
+    const supabaseAdmin = getSupabaseAdmin();
     try {
       const deletedFromSettings = await getSetting<unknown>(DISCOVER_DELETED_PIDS_KEY, []);
       if (Array.isArray(deletedFromSettings)) {
@@ -778,7 +869,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     } catch (e: any) {
       console.error('[Search&Price] Failed to load discover deleted exclusions:', e?.message || e);
     }
-    const excludedPids = new Set<string>([...queueExcludedPids, ...storeExcludedPids, ...deletedExcludedPids]);
+    const excludedPids = new Set<string>(deletedExcludedPids);
 
     console.log(`[Search&Price] ========================================`);
     console.log(`[Search&Price] Starting search with params:`);
@@ -790,6 +881,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   minRating: ${minRating}`);
     console.log(`[Search&Price]   profitMargin: ${profitMargin}%`);
     console.log(`[Search&Price]   shippingMethod: ${shippingMethod}`);
+    console.log(`[Search&Price]   shippingCountryCode: ${shippingCountryCode}`);
     console.log(`[Search&Price]   sizes filter: ${requestedSizes.length > 0 ? requestedSizes.join(',') : 'none'}`);
     console.log(`[Search&Price]   mediaMode: ${mediaMode}`);
     console.log(`[Search&Price]   batchMode: ${isBatchMode}, batchSize: ${batchSize}`);
@@ -808,9 +900,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     }
     
     const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
-    // Reuse exclusion set built above to avoid a second full-table scan.
-    const excludedCjProductIds = excludedPids;
-    console.log(`[Search&Price]   excluded existing queue/store/deleted products: ${excludedCjProductIds.size}`);
+    console.log(`[Search&Price]   excluded existing queue/store/deleted products: ${excludedPids.size}`);
     
     type CandidateProduct = {
       item: any;
@@ -874,6 +964,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     const neededCandidates = isBatchMode 
       ? batchSize * mediaCandidateMultiplier
       : quantity * mediaCandidateMultiplier;
+    const targetCollectedCandidates = isBatchMode ? neededCandidates * 3 : neededCandidates;
     
     // Track only candidates actually consumed in this request.
     // Unprocessed deferred candidates are intentionally excluded so they can be resumed.
@@ -888,7 +979,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     // Start from cursor position (for batch mode) or from beginning (for non-batch)
     for (let catIdx = currentCatIdx; catIdx < categoryIds.length; catIdx++) {
       const catId = categoryIds[catIdx];
-      if (candidateProducts.length >= neededCandidates) break;
+      if (candidateProducts.length >= targetCollectedCandidates) break;
       if (Date.now() - startTime > maxDurationMs) {
         console.log(`[Search&Price] Timeout reached during candidate collection`);
         break;
@@ -902,7 +993,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       
       for (let page = startPage; page <= maxPages; page++) {
         if (Date.now() - startTime > maxDurationMs) break;
-        if (candidateProducts.length >= neededCandidates) break;
+        if (candidateProducts.length >= targetCollectedCandidates) break;
         
         const pageResult = await fetchCjProductPage(token, base, catId, page);
         
@@ -937,11 +1028,24 @@ async function handleSearch(req: Request, isPost: boolean) {
           // Skip PIDs already processed by previous batches (backup deduplication)
           if (isBatchMode && seenPidsFromClient.has(normalizedPid)) continue;
 
-          // Exclude products already added to queue/store and permanently deleted from Discover.
-          if (excludedCjProductIds.has(normalizedPid)) {
-            if (queueExcludedPids.has(normalizedPid)) skippedByQueueExclusion++;
-            if (storeExcludedPids.has(normalizedPid)) skippedByStoreExclusion++;
-            if (deletedExcludedPids.has(normalizedPid)) skippedByDeletedExclusion++;
+          // Deleted products should never be reconsidered.
+          if (deletedExcludedPids.has(normalizedPid)) {
+            skippedByDeletedExclusion++;
+            totalFiltered.existing++;
+            continue;
+          }
+
+          const cachedExistingSource = readExistingPidSourceFromCache(normalizedPid);
+          if (cachedExistingSource && cachedExistingSource !== 'none') {
+            if (cachedExistingSource === 'queue' || cachedExistingSource === 'both') {
+              queueExcludedPids.add(normalizedPid);
+              skippedByQueueExclusion++;
+            }
+            if (cachedExistingSource === 'store' || cachedExistingSource === 'both') {
+              storeExcludedPids.add(normalizedPid);
+              skippedByStoreExclusion++;
+            }
+            excludedPids.add(normalizedPid);
             totalFiltered.existing++;
             continue;
           }
@@ -963,11 +1067,44 @@ async function handleSearch(req: Request, isPost: boolean) {
             sourceItemIdx: itemIdx,
           });
           
-          if (candidateProducts.length >= neededCandidates) break;
+          if (candidateProducts.length >= targetCollectedCandidates) break;
         }
       }
     }
     
+    if (candidateProducts.length > 0) {
+      const resolvedExclusionSets = await resolveExistingPidExclusions(
+        supabaseAdmin,
+        candidateProducts.map((candidate) => candidate.normalizedPid)
+      );
+
+      for (const pid of resolvedExclusionSets.queueExcludedPids) {
+        queueExcludedPids.add(pid);
+        excludedPids.add(pid);
+      }
+      for (const pid of resolvedExclusionSets.storeExcludedPids) {
+        storeExcludedPids.add(pid);
+        excludedPids.add(pid);
+      }
+
+      const exclusionFilteredCandidates = candidateProducts.filter((candidate) => {
+        const pid = candidate.normalizedPid;
+        const inQueue = queueExcludedPids.has(pid);
+        const inStore = storeExcludedPids.has(pid);
+        if (!inQueue && !inStore) {
+          return true;
+        }
+
+        if (inQueue) skippedByQueueExclusion++;
+        if (inStore) skippedByStoreExclusion++;
+        totalFiltered.existing++;
+        return false;
+      });
+
+      candidateProducts.length = 0;
+      candidateProducts.push(...exclusionFilteredCandidates);
+    }
+
     console.log(`[Search&Price] ----------------------------------------`);
     console.log(`[Search&Price] Search complete:`);
     console.log(`[Search&Price]   Total candidates: ${candidateProducts.length}`);
@@ -990,6 +1127,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         requestedQuantity: quantity,
         quantityFulfilled: false,
         mediaMode,
+        shippingCountryCode,
         duration: Date.now() - startTime,
         batch: isBatchMode ? {
           hasMore: emptyBatchHasMore,
@@ -2365,7 +2503,7 @@ async function handleSearch(req: Request, isPost: boolean) {
           
           try {
             const freight = await freightCalculate({
-              countryCode: 'US',
+              countryCode: shippingCountryCode,
               vid: variantVid,
               quantity: 1,
             });
@@ -2529,7 +2667,7 @@ async function handleSearch(req: Request, isPost: boolean) {
             
             try {
               const freight = await freightCalculate({
-                countryCode: 'US',
+                countryCode: shippingCountryCode,
                 vid: variantId,
                 quantity: 1,
               });
@@ -2938,6 +3076,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         requestedQuantity: quantity,
         quantityFulfilled: false,
         mediaMode,
+        shippingCountryCode,
         duration,
         debug: {
           candidatesFound: candidateProducts.length,
@@ -2989,6 +3128,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       count: productsToReturn.length,
       requestedQuantity: quantity,
       mediaMode,
+      shippingCountryCode,
       quantityFulfilled,
       shortfallReason: shortfallReasonForResponse,
       duration,
@@ -3021,6 +3161,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         skippedNoShipping,
         filteredBySizes,
         filteredExisting: totalFiltered.existing,
+        shippingCountryCode,
         shippingErrors,
         hitTimeLimit,
         hitRateLimit,

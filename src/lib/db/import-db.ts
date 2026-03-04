@@ -284,6 +284,8 @@ export async function addProductToQueue(batchId: number, product: {
   cjProductCost?: number;
   profitMargin?: number;
   colorImageMap?: Record<string, string>;
+}, options?: {
+  schemaCheck?: Awaited<ReturnType<typeof checkProductQueueSchema>>;
 }): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { success: false, error: 'Supabase not configured' };
@@ -486,7 +488,7 @@ export async function addProductToQueue(batchId: number, product: {
   };
   
   // Check which new columns exist in the schema
-  const schemaCheck = await checkProductQueueSchema();
+  const schemaCheck = options?.schemaCheck || await checkProductQueueSchema();
   if (schemaCheck.ready) {
     // All new columns exist, add them to productData
     Object.assign(productData, newColumns);

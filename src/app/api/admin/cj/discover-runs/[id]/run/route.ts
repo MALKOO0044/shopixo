@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { PricedProduct } from '@/components/admin/import/preview/types'
 import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
-import { finishJob, getJob, patchJob, startJob, upsertJobItemByPid } from '@/lib/jobs'
+import { finishJob, getJob, getJobMeta, patchJob, startJob, upsertJobItemByPid } from '@/lib/jobs'
 import {
   buildDiscoverRunPayload,
   buildDiscoverSearchParams,
@@ -73,8 +73,8 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       return r
     }
 
-    const jobState = await getJob(id)
-    if (!jobState?.job || !isDiscoverRunJob(jobState.job)) {
+    const jobMeta = await getJobMeta(id)
+    if (!jobMeta || !isDiscoverRunJob(jobMeta)) {
       const r = NextResponse.json({ ok: false, error: 'Discover run not found' }, { status: 404 })
       r.headers.set('x-request-id', log.requestId)
       return r
@@ -89,8 +89,15 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
 
     const deletedPidSet = await loadDeletedPidSet(body?.deletedPids)
 
-    if (jobState.job.status === 'success' || jobState.job.status === 'error' || jobState.job.status === 'canceled') {
-      const payload = buildDiscoverRunPayload(jobState, undefined, { excludedPids: deletedPidSet })
+    if (jobMeta.status === 'success' || jobMeta.status === 'error' || jobMeta.status === 'canceled') {
+      const terminalState = await getJob(id)
+      if (!terminalState?.job) {
+        const r = NextResponse.json({ ok: false, error: 'Discover run not found' }, { status: 404 })
+        r.headers.set('x-request-id', log.requestId)
+        return r
+      }
+
+      const payload = buildDiscoverRunPayload(terminalState, undefined, { excludedPids: deletedPidSet })
       const r = NextResponse.json({ ok: true, ...payload }, { headers: { 'Cache-Control': 'no-store' } })
       r.headers.set('x-request-id', log.requestId)
       return r
@@ -99,17 +106,22 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     const maxDurationMs = clamp(Number(body?.maxDurationMs ?? 7000), 1500, 9000)
     const maxBatches = clamp(Number(body?.maxBatches ?? 2), 1, 12)
 
-    if (jobState.job.status === 'pending') {
+    if (jobMeta.status === 'pending') {
       await startJob(id)
     }
 
-    const params = normalizeDiscoverRunParams(jobState.job.params || {})
-    const existingProducts = params.state.resultPids.length === 0
-      ? (buildDiscoverRunPayload(jobState, undefined, { excludedPids: deletedPidSet }).products || [])
-      : []
+    const params = normalizeDiscoverRunParams(jobMeta.params || {})
+    let existingProducts: PricedProduct[] = []
+    if (params.state.resultPids.length === 0 && Number(jobMeta?.totals?.found || 0) > 0) {
+      const hydratedState = await getJob(id)
+      if (hydratedState?.job) {
+        existingProducts = buildDiscoverRunPayload(hydratedState, undefined, { excludedPids: deletedPidSet }).products || []
+      }
+    }
 
     const seenPids = new Set<string>(params.state.seenPids)
     const resultPids = new Set<string>()
+    const newProductsThisStep: PricedProduct[] = []
 
     for (const deletedPid of deletedPidSet) {
       seenPids.add(deletedPid)
@@ -189,10 +201,6 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
         if (deletedPidSet.has(normalizedPid)) continue
         if (resultPids.has(normalizedPid)) continue
 
-        resultPids.add(normalizedPid)
-        addedThisBatch++
-        addedNow++
-
         const saved = await upsertJobItemByPid(id, normalizedPid, {
           status: 'success',
           step: 'discover_result',
@@ -202,6 +210,11 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
           fatalError = `Failed to persist discover product ${normalizedPid}`
           break
         }
+
+        resultPids.add(normalizedPid)
+        addedThisBatch++
+        addedNow++
+        newProductsThisStep.push(product)
       }
 
       if (fatalError) break
@@ -262,28 +275,48 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       params.state.quotaExhausted ||
       Boolean(fatalError)
 
+    let responseStatus = 'running'
+
     if (fatalError) {
       await finishJob(id, 'error', totals, fatalError)
+      responseStatus = 'error'
     } else if (isDone) {
       await finishJob(id, 'success', totals)
+      responseStatus = 'success'
     }
 
-    const refreshed = await getJob(id)
-    if (!refreshed?.job) {
-      const r = NextResponse.json({ ok: false, error: 'Failed to reload discover run state' }, { status: 500 })
-      r.headers.set('x-request-id', log.requestId)
-      return r
-    }
+    const shortfallReason =
+      isDone && resultPids.size < params.filters.quantity
+        ? params.state.lastError ||
+          params.state.lastShortfallReason ||
+          `Found ${resultPids.size}/${params.filters.quantity} products. Not enough matching products in this category.`
+        : null
 
-    const latestDeletedPidSet = await loadDeletedPidSet(body?.deletedPids)
-    const payload = buildDiscoverRunPayload(refreshed, undefined, { excludedPids: latestDeletedPidSet })
-    const r = NextResponse.json(
-      {
-        ok: true,
-        ...payload,
+    const responsePayload = {
+      ok: true,
+      done: isDone,
+      shortfallReason,
+      quotaExhausted: params.state.quotaExhausted,
+      run: {
+        id,
+        status: responseStatus,
+        progress: {
+          found: resultPids.size,
+          target: params.filters.quantity,
+          remaining: Math.max(0, params.filters.quantity - resultPids.size),
+          seenPids: params.state.seenPids.length,
+          batches: params.state.batchNumber,
+          cursor: params.state.cursor,
+          hasMore: params.state.hasMore,
+        },
       },
-      { headers: { 'Cache-Control': 'no-store' } }
-    )
+      // Keep products for compatibility with existing clients, but return only incremental deltas.
+      products: newProductsThisStep,
+      newProducts: newProductsThisStep,
+      totalProducts: resultPids.size,
+    }
+
+    const r = NextResponse.json(responsePayload, { headers: { 'Cache-Control': 'no-store' } })
     r.headers.set('x-request-id', log.requestId)
     return r
   } catch (e: any) {

@@ -121,6 +121,13 @@ export async function getJob(id: number): Promise<any | null> {
   return { job, items: items || [] };
 }
 
+export async function getJobMeta(id: number): Promise<any | null> {
+  const db = getAdmin();
+  if (!db) return null;
+  const { data: job } = await db.from('admin_jobs').select('*').eq('id', id).maybeSingle();
+  return job || null;
+}
+
 export async function listJobs(limit = 50): Promise<{ jobs: any[]; tablesMissing?: boolean }> {
   const db = getAdmin();
   if (!db) return { jobs: [], tablesMissing: true };
