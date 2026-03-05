@@ -324,6 +324,30 @@ function resolveDiscoverBatchDurationMs(batchSize: number): number {
   return 7800;
 }
 
+function resolveDiscoverHydrationTarget(batchSize: number, remainingNeeded: number): number {
+  const boundedBatch = Math.max(8, Math.min(80, Math.floor(batchSize || 0)));
+  return Math.max(1, Math.min(Math.max(1, remainingNeeded), boundedBatch));
+}
+
+function resolveDiscoverCandidateFetchSize(
+  batchSize: number,
+  hydrationTarget: number,
+  mediaMode: DiscoverMediaMode
+): number {
+  const mediaMultiplier = mediaMode === 'withVideo' || mediaMode === 'both'
+    ? 12
+    : mediaMode === 'imagesOnly'
+      ? 8
+      : 5;
+  const desired = Math.max(hydrationTarget * mediaMultiplier, batchSize * 4, hydrationTarget * 3);
+  const ceiling = mediaMode === 'withVideo' || mediaMode === 'both' ? 760 : 560;
+  return Math.min(desired, ceiling);
+}
+
+function resolveDiscoverMaxCandidatesProcessed(batchSize: number, hydrationTarget: number): number {
+  return Math.min(Math.max(hydrationTarget * 3, batchSize * 2, 40), 240);
+}
+
 const SUPPLIER_RATING_KEYS = [
   'rating',
   'productRating',
@@ -705,6 +729,19 @@ async function handleSearch(req: Request, isPost: boolean) {
     // If not provided, defaults to quantity (full request)
     // Allow 0 to short-circuit when client is already satisfied
     const remainingNeeded = Math.max(0, Number(searchParams.get('remainingNeeded') || quantity));
+
+    const requestedCandidateFetchSizeRaw = Number(searchParams.get('candidateFetchSize') || 0);
+    const requestedCandidateFetchSize = Number.isFinite(requestedCandidateFetchSizeRaw) && requestedCandidateFetchSizeRaw > 0
+      ? Math.floor(requestedCandidateFetchSizeRaw)
+      : 0;
+    const requestedHydrateTargetRaw = Number(searchParams.get('hydrateTarget') || 0);
+    const requestedHydrateTarget = Number.isFinite(requestedHydrateTargetRaw) && requestedHydrateTargetRaw > 0
+      ? Math.floor(requestedHydrateTargetRaw)
+      : 0;
+    const requestedMaxCandidatesProcessedRaw = Number(searchParams.get('maxCandidatesProcessed') || 0);
+    const requestedMaxCandidatesProcessed = Number.isFinite(requestedMaxCandidatesProcessedRaw) && requestedMaxCandidatesProcessedRaw > 0
+      ? Math.floor(requestedMaxCandidatesProcessedRaw)
+      : 0;
     
     // seenPids: already-processed product IDs from previous batches
     // For POST, get from body (supports large lists); for GET, get from query (limited)
@@ -850,15 +887,45 @@ async function handleSearch(req: Request, isPost: boolean) {
       : mediaMode === 'imagesOnly'
         ? 6
         : 3;
+    const hydrateTargetPerBatch = isBatchMode
+      ? Math.max(
+          1,
+          Math.min(
+            remainingNeeded,
+            requestedHydrateTarget > 0
+              ? Math.min(requestedHydrateTarget, 120)
+              : resolveDiscoverHydrationTarget(batchSize, remainingNeeded)
+          )
+        )
+      : quantity;
     const neededCandidates = isBatchMode 
-      ? Math.max(batchSize * mediaCandidateMultiplier, batchSize * 3)
+      ? Math.max(
+          requestedCandidateFetchSize,
+          resolveDiscoverCandidateFetchSize(batchSize, hydrateTargetPerBatch, mediaMode),
+          hydrateTargetPerBatch * mediaCandidateMultiplier
+        )
       : quantity * mediaCandidateMultiplier;
     const targetCollectedCandidates = isBatchMode
       ? Math.min(
-          Math.max(Math.floor(neededCandidates * 1.5), batchSize * 6),
+          Math.max(Math.floor(neededCandidates * 1.2), hydrateTargetPerBatch * 3),
           mediaMode === 'withVideo' || mediaMode === 'both' ? 720 : 520
         )
       : neededCandidates;
+    const maxCandidatesProcessedPerBatch = isBatchMode
+      ? Math.min(
+          Math.max(
+            requestedMaxCandidatesProcessed,
+            resolveDiscoverMaxCandidatesProcessed(batchSize, hydrateTargetPerBatch)
+          ),
+          260
+        )
+      : Number.MAX_SAFE_INTEGER;
+
+    if (isBatchMode) {
+      console.log(
+        `[Search&Price]   throughput controls: hydrateTarget=${hydrateTargetPerBatch}, candidateFetchSize=${targetCollectedCandidates}, maxCandidatesProcessed=${maxCandidatesProcessedPerBatch}`
+      );
+    }
     
     // Track only candidates actually consumed in this request.
     // Unprocessed deferred candidates are intentionally excluded so they can be resumed.
@@ -1061,7 +1128,7 @@ async function handleSearch(req: Request, isPost: boolean) {
 
     const prefetchedDetailsByPid = new Map<string, any>();
     const detailPrefetchLimit = isBatchMode
-      ? Math.min(candidateProducts.length, Math.max(Math.floor(batchSize * 1.5), 24), 120)
+      ? Math.min(candidateProducts.length, Math.max(hydrateTargetPerBatch * 2, 24), 100)
       : Math.min(candidateProducts.length, 120);
     const detailPrefetchPids = candidateProducts
       .slice(0, detailPrefetchLimit)
@@ -1086,7 +1153,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     // Process candidates until we reach the needed quantity
     // In batch mode: use remainingNeeded (what client still needs)
     // In non-batch mode: use quantity (full request)
-    const targetProducts = isBatchMode ? remainingNeeded : quantity;
+    const targetProducts = isBatchMode ? hydrateTargetPerBatch : quantity;
     console.log(`[Search&Price] Processing candidates to get ${targetProducts} products (batch mode: ${isBatchMode})...`);
     console.log(`[Search&Price] Available candidates: ${candidateProducts.length}`);
     
@@ -1103,6 +1170,10 @@ async function handleSearch(req: Request, isPost: boolean) {
     // Process candidates until we have the target quantity or run out
     // In batch mode: stop after batchSize products OR after reaching remainingNeeded
     while (pricedProducts.length < targetProducts && candidateIndex < candidateProducts.length) {
+      if (isBatchMode && candidateIndex >= maxCandidatesProcessedPerBatch) {
+        console.log(`[Search&Price] Candidate processing cap reached (${maxCandidatesProcessedPerBatch} candidates)`);
+        break;
+      }
       // In batch mode, stop after processing batchSize products
       if (isBatchMode && productsProcessedThisBatch >= batchSize) {
         console.log(`[Search&Price] Batch limit reached (${batchSize} products)`);
@@ -2538,8 +2609,9 @@ async function handleSearch(req: Request, isPost: boolean) {
         }
       } else {
         // Multi-variant product - check heaviest variants first to find HIGHEST shipping cost
-        // This ensures we match CJ's "According to Shipping Method" which uses the heaviest variant
-        const MAX_VARIANTS_TO_CHECK = 2; // Only check 2 variants (heaviest first) to stay within timeout
+        // This ensures we match CJ's "According to Shipping Method" using a strict baseline-first strategy.
+        // We check the heaviest variant first, and only check a fallback variant if baseline has no valid quote.
+        const MAX_VARIANTS_TO_CHECK = 2;
         
         // Sort variants by weight (descending) to check heaviest first
         // CJ shipping cost is primarily driven by weight, so heaviest = highest shipping
@@ -2549,7 +2621,8 @@ async function handleSearch(req: Request, isPost: boolean) {
           return weightB - weightA; // Descending (heaviest first)
         });
         
-        // Collect all valid shipping quotes, then pick the highest
+        // Collect baseline quote first; only fallback to one additional variant if baseline fails.
+        // Then pick the highest among the checked baseline/fallback quotes.
         const variantShippingQuotes: Array<{
           variantIndex: number;
           variant: any;
@@ -2655,6 +2728,7 @@ async function handleSearch(req: Request, isPost: boolean) {
               logisticName,
             });
             console.log(`[Search&Price] Product ${pid} variant ${i + 1}: selected configured shipping ${logisticName} $${shippingPriceUSD.toFixed(2)}`);
+            break;
           } else {
             console.log(`[Search&Price] Product ${pid} variant ${i+1}: ${shippingError}`);
           }
@@ -3076,6 +3150,8 @@ async function handleSearch(req: Request, isPost: boolean) {
         candidatesProcessed: candidateIndex,
         candidatesDeferred: deferredCandidateCount,
         productsThisBatch: productsProcessedThisBatch,
+        hydrateTarget: isBatchMode ? hydrateTargetPerBatch : undefined,
+        maxCandidatesProcessed: isBatchMode ? maxCandidatesProcessedPerBatch : undefined,
         batchSize,
       } : undefined,
       debug: {

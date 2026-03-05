@@ -51,6 +51,26 @@ type DiscoverRunProgress = {
   target: number;
   batches: number;
   hasMore: boolean;
+  noProgressBatches?: number;
+  candidateOnlyBatches?: number;
+  lowYieldBatches?: number;
+};
+
+type DiscoverRunDiagnostics = {
+  batchesRunNow?: number;
+  addedNow?: number;
+  attemptedNow?: number;
+  lastBatch?: {
+    attempted?: number;
+    added?: number;
+    cursorAdvanced?: boolean;
+  };
+  streaks?: {
+    empty?: number;
+    noProgress?: number;
+    candidateOnly?: number;
+    lowYield?: number;
+  };
 };
 
 type DiscoverRunResponse = {
@@ -66,6 +86,7 @@ type DiscoverRunResponse = {
     status: string;
     progress?: DiscoverRunProgress;
   };
+  diagnostics?: DiscoverRunDiagnostics;
 };
 
 type DiscoverQueueSaveSummary = {
@@ -572,15 +593,15 @@ export default function ProductDiscoveryPage() {
       let done = false;
       let safetyTicks = 0;
       let adaptiveMaxBatches =
-        quantity >= 2000 ? 14 :
-        quantity >= 1000 ? 12 :
-        quantity >= 500 ? 10 :
-        quantity >= 200 ? 8 :
-        quantity >= 100 ? 6 : 4;
+        quantity >= 2000 ? 8 :
+        quantity >= 1000 ? 7 :
+        quantity >= 500 ? 6 :
+        quantity >= 200 ? 5 :
+        quantity >= 100 ? 4 : 3;
       let adaptiveMaxDurationMs =
-        quantity >= 1000 ? 11000 :
-        quantity >= 500 ? 10000 :
-        quantity >= 200 ? 9500 : 8500;
+        quantity >= 1000 ? 9000 :
+        quantity >= 500 ? 8600 :
+        quantity >= 200 ? 8200 : 7800;
       let previousFound = 0;
       let previousBatchCount = 0;
 
@@ -628,7 +649,19 @@ export default function ProductDiscoveryPage() {
           : allProducts.length;
         const target = Number(progress?.target || quantity);
         const batches = Number(progress?.batches || safetyTicks);
-        setSearchProgress(`Finding products... (batch ${batches}, found ${found}/${target})`);
+        const lastAttempted = Number(stepData.diagnostics?.lastBatch?.attempted || 0);
+        const lastAdded = Number(stepData.diagnostics?.lastBatch?.added || 0);
+        const streakCandidateOnly = Number(stepData.diagnostics?.streaks?.candidateOnly || progress?.candidateOnlyBatches || 0);
+        const streakNoProgress = Number(stepData.diagnostics?.streaks?.noProgress || progress?.noProgressBatches || 0);
+        const lastBatchDetail =
+          lastAttempted > 0
+            ? `, last ${Math.max(0, lastAdded)}/${Math.max(0, lastAttempted)}`
+            : "";
+        const streakDetail =
+          streakCandidateOnly > 0 || streakNoProgress > 0
+            ? `, streak c${streakCandidateOnly}/n${streakNoProgress}`
+            : "";
+        setSearchProgress(`Finding products... (batch ${batches}, found ${found}/${target}${lastBatchDetail}${streakDetail})`);
 
         if (typeof stepData.shortfallReason === "string" && stepData.shortfallReason.trim()) {
           lastShortfallReason = stepData.shortfallReason.trim();
@@ -640,18 +673,33 @@ export default function ProductDiscoveryPage() {
           const batchDelta = Math.max(1, batches - previousBatchCount);
           const foundPerBatch = foundDelta / batchDelta;
           const durationPressure = stepDurationMs > adaptiveMaxDurationMs * 0.92;
+          const candidateOnlyStreak = Number(stepData.diagnostics?.streaks?.candidateOnly || progress?.candidateOnlyBatches || 0);
+          const noProgressStreak = Number(stepData.diagnostics?.streaks?.noProgress || progress?.noProgressBatches || 0);
+          const lowYieldStreak = Number(stepData.diagnostics?.streaks?.lowYield || progress?.lowYieldBatches || 0);
 
           if (foundPerBatch >= 1.8 && !durationPressure) {
-            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 2, 18);
-            adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs + 500, 7500, 12000);
+            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 2, 10);
+            adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs + 250, 7200, 9800);
           } else if (foundPerBatch < 0.8 || durationPressure) {
-            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches - 1, 2, 18);
-            adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs - 600, 7500, 12000);
+            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches - 1, 2, 10);
+            adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs - 400, 7200, 9800);
           } else if (foundDelta === 0 && stepDurationMs < adaptiveMaxDurationMs * 0.7) {
-            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 2, 18);
+            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 2, 10);
           }
 
-          const pollDelayMs = foundPerBatch >= 1.8 ? 100 : foundPerBatch < 0.8 ? 260 : 160;
+          if (candidateOnlyStreak >= 2 || noProgressStreak >= 2 || lowYieldStreak >= 3) {
+            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches - 1, 2, 10);
+            adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs - 250, 7000, 9800);
+          }
+
+          const pollDelayMs =
+            candidateOnlyStreak >= 2 || noProgressStreak >= 2
+              ? 320
+              : foundPerBatch >= 1.8
+                ? 120
+                : foundPerBatch < 0.8
+                  ? 280
+                  : 180;
           await delay(pollDelayMs);
         }
 
