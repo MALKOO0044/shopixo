@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getAccessToken, freightCalculate, fetchProductDetailsBatch, findCheapestConfiguredShippingOption, getInventoryByPid, queryVariantInventory } from '@/lib/cj/v2';
+import {
+  fetchProductDetailsBatch,
+  fetchProductListPage,
+  findCheapestConfiguredShippingOption,
+  freightCalculate,
+  getInventoryByPid,
+  getProductVariants,
+  queryVariantInventory,
+} from '@/lib/cj/v2';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
-import { fetchJson } from '@/lib/http';
 import { loggerForRequest } from '@/lib/log';
 import { enhanceProductImageUrl } from '@/lib/media/image-quality';
 import { usdToSar, sarToUsd, computeRetailFromLanded } from '@/lib/pricing';
@@ -13,6 +20,7 @@ import { extractCjProductGalleryImages, normalizeCjImageKey, prioritizeCjHeroIma
 import { extractCjProductVideoCandidates, inferCjVideoQualityHint } from '@/lib/cj/video';
 import { build4kVideoDelivery } from '@/lib/video/delivery';
 import { getSetting } from '@/lib/settings';
+import { diffCounterSnapshots, getRequestCountersSnapshot, withRequestCounters } from '@/lib/telemetry/request-counters';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -181,8 +189,6 @@ function writeFreshCache<T>(cache: Map<string, CacheEntry<T>>, key: string, valu
 
 const DISCOVER_PRODUCT_CACHE_TTL_MS = parseCacheTtlMs('DISCOVER_PRODUCT_CACHE_TTL_MS', 15 * 60 * 1000);
 const discoverProductCache = new Map<string, CacheEntry<PricedProduct>>();
-const CJ_PRODUCT_PAGE_CACHE_TTL_MS = parseCacheTtlMs('CJ_PRODUCT_PAGE_CACHE_TTL_MS', 10 * 60 * 1000);
-const cjProductPageCache = new Map<string, CacheEntry<{ list: any[]; total: number }>>();
 const DISCOVER_DELETED_PIDS_KEY = 'discover_deleted_pids';
 const DISCOVER_EXISTING_PID_CACHE_TTL_MS = parseCacheTtlMs('DISCOVER_EXISTING_PID_CACHE_TTL_MS', 60 * 1000);
 const DISCOVER_EXISTING_PID_NEGATIVE_CACHE_TTL_MS = parseCacheTtlMs('DISCOVER_EXISTING_PID_NEGATIVE_CACHE_TTL_MS', 20 * 1000);
@@ -472,138 +478,19 @@ function scoreMergedImageCandidate(url: string, index: number): number {
 }
 
 async function fetchCjProductPage(
-  token: string, 
-  base: string, 
   categoryId: string | null,
   pageNum: number
 ): Promise<{ list: any[]; total: number }> {
-  const pageCacheKey = `${categoryId || 'all'}|${pageNum}`;
-  const cachedPage = readFreshCache(cjProductPageCache, pageCacheKey);
-  if (cachedPage !== undefined) {
-    console.log(`[Search&Price] Product page cache hit: ${pageCacheKey}`);
-    return cachedPage;
-  }
-
-  // Use /product/list for category filtering (stable and reliable)
-  const params = new URLSearchParams();
-  params.set('pageNum', String(pageNum));
-  
-  if (categoryId && categoryId !== 'all' && !categoryId.startsWith('first-') && !categoryId.startsWith('second-')) {
-    params.set('categoryId', categoryId);
-  }
-  
-  const url = `${base}/product/list?${params}`;
-  console.log(`[Search&Price] Fetching product/list: ${url}`);
-  
   try {
-    const res = await fetchJson<any>(url, {
-      headers: {
-        'CJ-Access-Token': token,
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store',
-      timeoutMs: 30000,
+    const page = await fetchProductListPage({
+      categoryId,
+      pageNum,
     });
-    
-    const list = res?.data?.list || [];
-    const total = res?.data?.total || 0;
-    console.log(`[Search&Price] Page ${pageNum} returned ${list.length} items (total: ${total})`);
-
-    writeFreshCache(cjProductPageCache, pageCacheKey, { list, total }, CJ_PRODUCT_PAGE_CACHE_TTL_MS);
-    
-    return { list, total };
+    console.log(`[Search&Price] Page ${pageNum} returned ${page.list.length} items (total: ${page.total})`);
+    return page;
   } catch (e: any) {
     console.error(`[Search&Price] Fetch error:`, e?.message);
     return { list: [], total: 0 };
-  }
-}
-
-// Fetch inventory data from listV2 by PID keyword search
-async function enrichWithListV2Inventory(
-  token: string,
-  base: string, 
-  pid: string
-): Promise<{ warehouseInventoryNum?: number; listedNum?: number; totalVerifiedInventory?: number; totalUnVerifiedInventory?: number } | null> {
-  try {
-    const url = `${base}/product/listV2?keyWord=${encodeURIComponent(pid)}&page=1&size=5&features=enable_description`;
-    const res = await fetchJson<any>(url, {
-      headers: {
-        'CJ-Access-Token': token,
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store',
-      timeoutMs: 10000,
-    });
-    
-    // Extract product list from response
-    const data = res?.data;
-    let productList: any[] = [];
-    if (Array.isArray(data)) {
-      productList = data;
-    } else if (data?.list) {
-      productList = data.list;
-    } else if (data?.products) {
-      productList = data.products;
-    }
-    
-    // Find matching product by PID
-    const match = productList.find((p: any) => p.id === pid || p.pid === pid);
-    if (match) {
-      return {
-        warehouseInventoryNum: Number(match.warehouseInventoryNum || 0),
-        listedNum: Number(match.listedNum || 0),
-        totalVerifiedInventory: Number(match.totalVerifiedInventory || 0),
-        totalUnVerifiedInventory: Number(match.totalUnVerifiedInventory || 0),
-      };
-    }
-    return null;
-  } catch (e: any) {
-    console.log(`[Search&Price] listV2 enrichment failed for ${pid}:`, e?.message);
-    return null;
-  }
-}
-
-async function getVariantsForProduct(token: string, base: string, pid: string): Promise<any[]> {
-  try {
-    const res = await fetchJson<any>(`${base}/product/variant/query?pid=${encodeURIComponent(pid)}`, {
-      headers: {
-        'CJ-Access-Token': token,
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store',
-      timeoutMs: 15000,
-    });
-    const data = res?.data;
-    const variants = Array.isArray(data) ? data : (data?.list || data?.variants || []);
-    
-    // Log first variant to see what fields are available
-    if (variants.length > 0) {
-      const sample = variants[0];
-      const keys = Object.keys(sample);
-      const imageKeys = keys.filter(k => /image|img|photo|pic/i.test(k));
-      console.log(`[Variants] Product ${pid}: ${variants.length} variants`);
-      console.log(`[Variants] ALL fields: [${keys.join(', ')}]`);
-      console.log(`[Variants] Image fields: [${imageKeys.join(', ')}]`);
-      
-      // Log actual values for image fields
-      for (const k of imageKeys) {
-        const val = sample[k];
-        if (val) {
-          console.log(`[Variants] ${k} = ${typeof val === 'string' ? val.slice(0, 100) : JSON.stringify(val).slice(0, 100)}`);
-        }
-      }
-      
-      // Log shipping-critical fields: vid is needed for "According to Shipping Method" freight calculation
-      console.log(`[Variants] vid = ${sample.vid || 'NOT_FOUND'}`);
-      console.log(`[Variants] variantSku = ${sample.variantSku || 'NOT_FOUND'}`);
-      if (sample.variantKey) console.log(`[Variants] variantKey = ${sample.variantKey}`);
-      if (sample.variantNameEn) console.log(`[Variants] variantNameEn = ${sample.variantNameEn}`);
-    }
-    
-    return variants;
-  } catch (e: any) {
-    console.log(`[Variants] Error for ${pid}:`, e?.message);
-    return [];
   }
 }
 
@@ -745,17 +632,23 @@ export async function GET(req: Request) {
 }
 
 async function handleSearch(req: Request, isPost: boolean) {
-  const log = loggerForRequest(req);
-  try {
-    const guard = await ensureAdmin();
-    if (!guard.ok) {
-      const r = NextResponse.json(
-        { ok: false, error: guard.reason }, 
-        { status: 401, headers: { 'Cache-Control': 'no-store' } }
-      );
-      r.headers.set('x-request-id', log.requestId);
-      return r;
-    }
+  return withRequestCounters(async () => {
+    const log = loggerForRequest(req);
+    const requestCounterBefore = getRequestCountersSnapshot();
+    const withCallbackTelemetry = <T extends Record<string, any>>(payload: T) => ({
+      ...payload,
+      cjApiCallbacks: diffCounterSnapshots(requestCounterBefore, getRequestCountersSnapshot()),
+    });
+    try {
+      const guard = await ensureAdmin();
+      if (!guard.ok) {
+        const r = NextResponse.json(
+          withCallbackTelemetry({ ok: false, error: guard.reason }), 
+          { status: 401, headers: { 'Cache-Control': 'no-store' } }
+        );
+        r.headers.set('x-request-id', log.requestId);
+        return r;
+      }
 
     const { searchParams } = new URL(req.url);
     
@@ -820,7 +713,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     // Short-circuit when client already has enough products
     if (isBatchMode && remainingNeeded === 0) {
       console.log(`[Search&Price] remainingNeeded=0, returning empty batch`);
-      const r = NextResponse.json({
+      const r = NextResponse.json(withCallbackTelemetry({
         ok: true,
         products: [],
         count: 0,
@@ -838,7 +731,7 @@ async function handleSearch(req: Request, isPost: boolean) {
           productsThisBatch: 0,
           batchSize,
         }
-      }, { headers: { 'Cache-Control': 'no-store' } });
+      }), { headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
@@ -889,17 +782,6 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   seenPids: ${seenPidsFromClient.size} already processed`);
     console.log(`[Search&Price]   excluded queue/store/deleted/total: ${queueExcludedPids.size}/${storeExcludedPids.size}/${deletedExcludedPids.size}/${excludedPids.size}`);
     console.log(`[Search&Price] ========================================`);
-
-    const token = await getAccessToken();
-    if (!token) {
-      console.error('[Search&Price] Failed to get access token');
-      return NextResponse.json(
-        { ok: false, error: 'Failed to authenticate with CJ API' },
-        { status: 500, headers: { 'Cache-Control': 'no-store' } }
-      );
-    }
-    
-    const base = process.env.CJ_API_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
     console.log(`[Search&Price]   excluded existing queue/store/deleted products: ${excludedPids.size}`);
     
     type CandidateProduct = {
@@ -995,7 +877,7 @@ async function handleSearch(req: Request, isPost: boolean) {
         if (Date.now() - startTime > maxDurationMs) break;
         if (candidateProducts.length >= targetCollectedCandidates) break;
         
-        const pageResult = await fetchCjProductPage(token, base, catId, page);
+        const pageResult = await fetchCjProductPage(catId, page);
         
         if (pageResult.list.length === 0) {
           console.log(`[Search&Price] No more products at page ${page} in category ${catId}`);
@@ -1120,7 +1002,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       console.log(`[Search&Price] No candidates found! Returning empty result.`);
       const emptyBatchHasMore = isBatchMode ? !exhaustedAllPages : false;
       const emptyBatchCursor = `${currentCatIdx}.${currentPage}.${currentItemOffset}`;
-      const r = NextResponse.json({
+      const r = NextResponse.json(withCallbackTelemetry({
         ok: true,
         products: [],
         count: 0,
@@ -1160,7 +1042,7 @@ async function handleSearch(req: Request, isPost: boolean) {
           },
           mediaFilter: mediaFilterStats,
         }
-      }, { headers: { 'Cache-Control': 'no-store' } });
+      }), { headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
@@ -2084,7 +1966,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       // Fetch variants - reuse full-details variantList when available to avoid duplicate API calls.
       const variants = preloadedVariants.length > 0
         ? preloadedVariants
-        : await getVariantsForProduct(token, base, pid);
+        : await getProductVariants(pid);
       
       // Build set of images from variants (these are the purchasable color options)
       const variantImages: string[] = [];
@@ -3067,7 +2949,7 @@ async function handleSearch(req: Request, isPost: boolean) {
     // Return error if no products at all and rate limited
     if (hitRateLimit && filteredProducts.length === 0) {
       console.log(`[Search&Price] Rate limit hit with no products - returning error`);
-      const r = NextResponse.json({
+      const r = NextResponse.json(withCallbackTelemetry({
         ok: false,
         error: 'CJ API rate limit reached. Please wait a minute and try again with fewer products.',
         quotaExhausted: true,
@@ -3087,7 +2969,7 @@ async function handleSearch(req: Request, isPost: boolean) {
           consecutiveRateLimitErrors,
           mediaFilter: mediaFilterStats,
         }
-      }, { status: 429, headers: { 'Cache-Control': 'no-store' } });
+      }), { status: 429, headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
@@ -3122,7 +3004,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       ? filteredProducts.slice(0, remainingNeeded)
       : filteredProducts;
     
-    const r = NextResponse.json({
+    const r = NextResponse.json(withCallbackTelemetry({
       ok: true,
       products: productsToReturn,
       count: productsToReturn.length,
@@ -3177,17 +3059,18 @@ async function handleSearch(req: Request, isPost: boolean) {
         },
         mediaFilter: mediaFilterStats,
       }
-    }, { headers: { 'Cache-Control': 'no-store' } });
+    }), { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);
     return r;
     
-  } catch (e: any) {
-    console.error('[Search&Price] Error:', e?.message, e?.stack);
-    const r = NextResponse.json(
-      { ok: false, error: e?.message || 'Search and price failed' }, 
-      { status: 500, headers: { 'Cache-Control': 'no-store' } }
-    );
-    r.headers.set('x-request-id', loggerForRequest(req).requestId);
-    return r;
-  }
+    } catch (e: any) {
+      console.error('[Search&Price] Error:', e?.message, e?.stack);
+      const r = NextResponse.json(
+        withCallbackTelemetry({ ok: false, error: e?.message || 'Search and price failed' }), 
+        { status: 500, headers: { 'Cache-Control': 'no-store' } }
+      );
+      r.headers.set('x-request-id', loggerForRequest(req).requestId);
+      return r;
+    }
+  });
 }

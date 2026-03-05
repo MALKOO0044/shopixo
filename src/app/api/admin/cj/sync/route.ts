@@ -9,6 +9,11 @@ import { isKillSwitchOn } from '@/lib/settings';
 import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization';
 import { normalizeCjImageKey } from '@/lib/cj/image-gallery';
 import { enhanceProductImageUrl } from '@/lib/media/image-quality';
+import {
+  diffCounterSnapshots,
+  getRequestCountersSnapshot,
+  withRequestCounters,
+} from '@/lib/telemetry/request-counters';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -26,27 +31,34 @@ async function productVariantsTableExists(_admin: any): Promise<boolean> {
 }
 
 export async function GET(req: Request) {
-  const log = loggerForRequest(req);
-  try {
-    const guard = await ensureAdmin();
-    if (!guard.ok) {
-      const r = NextResponse.json({ ok: false, version: 'cj-sync-v1', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
-      r.headers.set('x-request-id', log.requestId);
-      return r;
-    }
-    const supabase = getSupabaseAdmin();
-    if (!supabase) {
-      const r = NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
-      r.headers.set('x-request-id', log.requestId);
-      return r;
-    }
+  return withRequestCounters(async () => {
+    const log = loggerForRequest(req);
+    const requestCounterBefore = getRequestCountersSnapshot();
+    const withCallbackTelemetry = <T extends Record<string, any>>(payload: T) => ({
+      ...payload,
+      cjApiCallbacks: diffCounterSnapshots(requestCounterBefore, getRequestCountersSnapshot()),
+    });
+
+    try {
+      const guard = await ensureAdmin();
+      if (!guard.ok) {
+        const r = NextResponse.json(withCallbackTelemetry({ ok: false, version: 'cj-sync-v1', error: guard.reason }), { status: 401, headers: { 'Cache-Control': 'no-store' } });
+        r.headers.set('x-request-id', log.requestId);
+        return r;
+      }
+      const supabase = getSupabaseAdmin();
+      if (!supabase) {
+        const r = NextResponse.json(withCallbackTelemetry({ ok: false, error: 'Server not configured' }), { status: 500 });
+        r.headers.set('x-request-id', log.requestId);
+        return r;
+      }
 
     // Global kill-switch enforcement: block write operations
-    if (await isKillSwitchOn()) {
-      const r = NextResponse.json({ ok: false, version: 'cj-sync-v1', error: 'Kill switch is ON. Sync is temporarily disabled.' }, { status: 423, headers: { 'Cache-Control': 'no-store' } });
-      r.headers.set('x-request-id', log.requestId);
-      return r;
-    }
+      if (await isKillSwitchOn()) {
+        const r = NextResponse.json(withCallbackTelemetry({ ok: false, version: 'cj-sync-v1', error: 'Kill switch is ON. Sync is temporarily disabled.' }), { status: 423, headers: { 'Cache-Control': 'no-store' } });
+        r.headers.set('x-request-id', log.requestId);
+        return r;
+      }
 
     const { searchParams } = new URL(req.url);
     const limit = Math.max(1, Math.min(50, Number(searchParams.get('limit') || '20')));
@@ -83,7 +95,7 @@ export async function GET(req: Request) {
     let products: any[] = [];
     if (idsCsv) {
       const ids = idsCsv.split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n > 0);
-      if (ids.length === 0) return NextResponse.json({ ok: false, version: 'cj-sync-v1', error: 'No valid ids provided' }, { status: 400 });
+      if (ids.length === 0) return NextResponse.json(withCallbackTelemetry({ ok: false, version: 'cj-sync-v1', error: 'No valid ids provided' }), { status: 400 });
       const { data } = await supabase
         .from('products')
         .select('id, cj_product_id, slug, title, price, images')
@@ -101,7 +113,7 @@ export async function GET(req: Request) {
     }
 
     if (products.length === 0) {
-      const r = NextResponse.json({ ok: true, version: 'cj-sync-v1', synced: 0, results: [] }, { headers: { 'Cache-Control': 'no-store' } });
+      const r = NextResponse.json(withCallbackTelemetry({ ok: true, version: 'cj-sync-v1', synced: 0, results: [] }), { headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
@@ -288,12 +300,13 @@ export async function GET(req: Request) {
       }
     }
 
-    const r = NextResponse.json({ ok: true, version: 'cj-sync-v1', synced: results.filter(r => r.ok).length, results }, { headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json(withCallbackTelemetry({ ok: true, version: 'cj-sync-v1', synced: results.filter(r => r.ok).length, results }), { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);
     return r;
-  } catch (e: any) {
-    const r = NextResponse.json({ ok: false, version: 'cj-sync-v1', error: e?.message || 'Sync failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
-    r.headers.set('x-request-id', loggerForRequest(req).requestId);
-    return r;
-  }
+    } catch (e: any) {
+      const r = NextResponse.json(withCallbackTelemetry({ ok: false, version: 'cj-sync-v1', error: e?.message || 'Sync failed' }), { status: 500, headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', loggerForRequest(req).requestId);
+      return r;
+    }
+  });
 }

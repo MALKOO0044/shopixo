@@ -9,6 +9,11 @@ import { isKillSwitchOn } from '@/lib/settings';
 import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization';
 import { normalizeCjImageKey } from '@/lib/cj/image-gallery';
 import { enhanceProductImageUrl } from '@/lib/media/image-quality';
+import {
+  diffCounterSnapshots,
+  getRequestCountersSnapshot,
+  withRequestCounters,
+} from '@/lib/telemetry/request-counters';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -71,24 +76,31 @@ async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
 }
 
 export async function GET(req: Request) {
-  const log = loggerForRequest(req);
-  try {
+  return withRequestCounters(async () => {
+    const log = loggerForRequest(req);
+    const requestCounterBefore = getRequestCountersSnapshot();
+    const withCallbackTelemetry = <T extends Record<string, any>>(payload: T) => ({
+      ...payload,
+      cjApiCallbacks: diffCounterSnapshots(requestCounterBefore, getRequestCountersSnapshot()),
+    });
+
+    try {
     const guard = await ensureAdmin();
     if (!guard.ok) {
-      const r = NextResponse.json({ ok: false, version: 'quick-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+      const r = NextResponse.json(withCallbackTelemetry({ ok: false, version: 'quick-v2', error: guard.reason }), { status: 401, headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
     const supabase = getSupabaseAdmin();
     if (!supabase) {
-      const r = NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+      const r = NextResponse.json(withCallbackTelemetry({ ok: false, error: 'Server not configured' }), { status: 500 });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
 
     // Global kill-switch enforcement
     if (await isKillSwitchOn()) {
-      const r = NextResponse.json({ ok: false, version: 'quick-v2', error: 'Kill switch is ON. Import is disabled.' }, { status: 423, headers: { 'Cache-Control': 'no-store' } });
+      const r = NextResponse.json(withCallbackTelemetry({ ok: false, version: 'quick-v2', error: 'Kill switch is ON. Import is disabled.' }), { status: 423, headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
@@ -121,7 +133,7 @@ export async function GET(req: Request) {
     }
 
     if (pids.size === 0) {
-      const r = NextResponse.json({ ok: false, error: 'Provide pid=... or url=... (supports multiple)' }, { status: 400 });
+      const r = NextResponse.json(withCallbackTelemetry({ ok: false, error: 'Provide pid=... or url=... (supports multiple)' }), { status: 400 });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
@@ -153,7 +165,7 @@ export async function GET(req: Request) {
     }
 
     if (fetched.length === 0) {
-      const r = NextResponse.json({ ok: false, error: 'No CJ products found for provided inputs' }, { status: 404 });
+      const r = NextResponse.json(withCallbackTelemetry({ ok: false, error: 'No CJ products found for provided inputs' }), { status: 404 });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
@@ -331,12 +343,13 @@ export async function GET(req: Request) {
       }
     }
 
-    const r = NextResponse.json({ ok: true, version: 'quick-v2', imported: results.filter(r => r.ok).length, results }, { headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json(withCallbackTelemetry({ ok: true, version: 'quick-v2', imported: results.filter(r => r.ok).length, results }), { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);
     return r;
-  } catch (e: any) {
-    const r = NextResponse.json({ ok: false, version: 'quick-v2', error: e?.message || 'Quick import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
-    r.headers.set('x-request-id', loggerForRequest(req).requestId);
-    return r;
-  }
+    } catch (e: any) {
+      const r = NextResponse.json(withCallbackTelemetry({ ok: false, version: 'quick-v2', error: e?.message || 'Quick import failed' }), { status: 500, headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', loggerForRequest(req).requestId);
+      return r;
+    }
+  });
 }

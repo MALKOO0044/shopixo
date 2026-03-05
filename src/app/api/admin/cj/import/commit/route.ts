@@ -9,6 +9,11 @@ import { hasColumn, hasTable } from '@/lib/db-features'
 import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization'
 import { normalizeCjImageKey } from '@/lib/cj/image-gallery'
 import { enhanceProductImageUrl } from '@/lib/media/image-quality'
+import {
+  diffCounterSnapshots,
+  getRequestCountersSnapshot,
+  withRequestCounters,
+} from '@/lib/telemetry/request-counters'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,21 +27,33 @@ function getAdmin() {
 }
 
 export async function POST(req: Request) {
-  const log = loggerForRequest(req)
-  try {
-    const guard = await ensureAdmin()
-    if (!guard.ok) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
-    if (await isKillSwitchOn()) return NextResponse.json({ ok: false, error: 'Kill switch is ON' }, { status: 423 })
+  return withRequestCounters(async () => {
+    const log = loggerForRequest(req)
+    const requestCounterBefore = getRequestCountersSnapshot()
+    const withCallbackTelemetry = <T extends Record<string, any>>(payload: T) => ({
+      ...payload,
+      cjApiCallbacks: diffCounterSnapshots(requestCounterBefore, getRequestCountersSnapshot()),
+    })
+    const json = (payload: Record<string, any>, init?: any) => {
+      const r = NextResponse.json(withCallbackTelemetry(payload), init)
+      r.headers.set('x-request-id', log.requestId)
+      return r
+    }
 
-    const admin = getAdmin()
-    if (!admin) return NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 })
-    const db = admin
+    try {
+      const guard = await ensureAdmin()
+      if (!guard.ok) return json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+      if (await isKillSwitchOn()) return json({ ok: false, error: 'Kill switch is ON' }, { status: 423 })
+
+      const admin = getAdmin()
+      if (!admin) return json({ ok: false, error: 'Server not configured' }, { status: 500 })
+      const db = admin
 
     let body: any = {}
     try { body = await req.json() } catch {}
     const mediaModeFromBody = typeof body?.mediaMode === 'string' ? body.mediaMode : null
     const items: Array<{ cj_product_id: string; includeSkus?: string[]; category?: string; margin?: number; handlingSar?: number; cjCurrency?: 'USD'|'SAR'; mediaMode?: string }> = Array.isArray(body?.selected) ? body.selected : []
-    if (!items || items.length === 0) return NextResponse.json({ ok: false, error: 'selected array required' }, { status: 400 })
+      if (!items || items.length === 0) return json({ ok: false, error: 'selected array required' }, { status: 400 })
 
     const results: any[] = []
     const productOptionalColumns = [
@@ -313,10 +330,9 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, results })
-  } catch (e: any) {
-    const r = NextResponse.json({ ok: false, error: e?.message || 'commit failed' }, { status: 500 })
-    r.headers.set('x-request-id', loggerForRequest(req).requestId)
-    return r
-  }
+      return json({ ok: true, results })
+    } catch (e: any) {
+      return json({ ok: false, error: e?.message || 'commit failed' }, { status: 500 })
+    }
+  })
 }

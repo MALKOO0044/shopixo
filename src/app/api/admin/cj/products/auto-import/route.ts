@@ -9,6 +9,11 @@ import { isKillSwitchOn } from '@/lib/settings';
 import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization';
 import { normalizeCjImageKey } from '@/lib/cj/image-gallery';
 import { enhanceProductImageUrl } from '@/lib/media/image-quality';
+import {
+  diffCounterSnapshots,
+  getRequestCountersSnapshot,
+  withRequestCounters,
+} from '@/lib/telemetry/request-counters';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -37,27 +42,33 @@ async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
 }
 
 export async function GET(req: Request) {
-  const log = loggerForRequest(req);
-  try {
-    const guard = await ensureAdmin();
-    if (!guard.ok) {
-      const r = NextResponse.json({ ok: false, version: 'auto-import-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+  return withRequestCounters(async () => {
+    const log = loggerForRequest(req);
+    const requestCounterBefore = getRequestCountersSnapshot();
+    const withCallbackTelemetry = <T extends Record<string, any>>(payload: T) => ({
+      ...payload,
+      cjApiCallbacks: diffCounterSnapshots(requestCounterBefore, getRequestCountersSnapshot()),
+    });
+    const json = (payload: Record<string, any>, init?: any) => {
+      const r = NextResponse.json(withCallbackTelemetry(payload), init);
       r.headers.set('x-request-id', log.requestId);
       return r;
-    }
-    const supabase = getSupabaseAdmin();
-    if (!supabase) {
-      const r = NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
-      r.headers.set('x-request-id', log.requestId);
-      return r;
-    }
+    };
+
+    try {
+      const guard = await ensureAdmin();
+      if (!guard.ok) {
+        return json({ ok: false, version: 'auto-import-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+      }
+      const supabase = getSupabaseAdmin();
+      if (!supabase) {
+        return json({ ok: false, error: 'Server not configured' }, { status: 500 });
+      }
 
     // Global kill-switch enforcement: block write operations
-    if (await isKillSwitchOn()) {
-      const r = NextResponse.json({ ok: false, version: 'auto-import-v2', error: 'Kill switch is ON. Auto-import is temporarily disabled.' }, { status: 423, headers: { 'Cache-Control': 'no-store' } });
-      r.headers.set('x-request-id', log.requestId);
-      return r;
-    }
+      if (await isKillSwitchOn()) {
+        return json({ ok: false, version: 'auto-import-v2', error: 'Kill switch is ON. Auto-import is temporarily disabled.' }, { status: 423, headers: { 'Cache-Control': 'no-store' } });
+      }
 
     const { searchParams } = new URL(req.url);
     const keywordsParam = searchParams.get('keywords') || '';
@@ -69,11 +80,9 @@ export async function GET(req: Request) {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    if (keywords.length === 0) {
-      const r = NextResponse.json({ ok: false, error: 'Provide ?keywords=women%20dress,women%20blouse&limit=2' }, { status: 400 });
-      r.headers.set('x-request-id', log.requestId);
-      return r;
-    }
+      if (keywords.length === 0) {
+        return json({ ok: false, error: 'Provide ?keywords=women%20dress,women%20blouse&limit=2' }, { status: 400 });
+      }
 
     // 1) Aggregate results from CJ for all keywords
     const pool: any[] = [];
@@ -111,11 +120,9 @@ export async function GET(req: Request) {
       if (selected.length >= limit) break;
     }
 
-    if (selected.length === 0) {
-      const r = NextResponse.json({ ok: false, error: 'No CJ products found from given keywords' }, { status: 404 });
-      r.headers.set('x-request-id', log.requestId);
-      return r;
-    }
+      if (selected.length === 0) {
+        return json({ ok: false, error: 'No CJ products found from given keywords' }, { status: 404 });
+      }
 
     // 3) Import selected items (same logic as POST import route)
     const results: any[] = [];
@@ -294,12 +301,9 @@ export async function GET(req: Request) {
       }
     }
 
-    const r = NextResponse.json({ ok: true, version: 'auto-import-v2', selected: selected.map((s) => ({ productId: s.productId, name: s.name })), results }, { headers: { 'Cache-Control': 'no-store' } });
-    r.headers.set('x-request-id', log.requestId);
-    return r;
-  } catch (e: any) {
-    const r = NextResponse.json({ ok: false, version: 'auto-import-v2', error: e?.message || 'Auto import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
-    r.headers.set('x-request-id', loggerForRequest(req).requestId);
-    return r;
-  }
+      return json({ ok: true, version: 'auto-import-v2', selected: selected.map((s) => ({ productId: s.productId, name: s.name })), results }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch (e: any) {
+      return json({ ok: false, version: 'auto-import-v2', error: e?.message || 'Auto import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    }
+  });
 }

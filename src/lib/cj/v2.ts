@@ -1,11 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import { loadToken, saveToken } from '@/lib/integration/token-store';
-import { fetchJson } from '@/lib/http';
+import { fetchJson, fetchWithMeta } from '@/lib/http';
 import { getSetting } from '@/lib/settings';
 import { extractCjProductGalleryImages } from '@/lib/cj/image-gallery';
 import { extractCjProductVideoUrl } from '@/lib/cj/video';
 import { normalizeSingleSize } from '@/lib/cj/size-normalization';
 import { build4kVideoDelivery } from '@/lib/video/delivery';
+import { incrementRequestCounter } from '@/lib/telemetry/request-counters';
 
 // CJ v2 client with token auth per official docs:
 // - POST /authentication/getAccessToken { apiKey }
@@ -26,14 +27,15 @@ const CJ_MAX_WAIT_MS = 55000; // 55 second timeout (CJ API timeout)
 
 // Initialize Redis-backed rate limiter (if Redis is available)
 let redisRateLimiter: Ratelimit | null = null;
+let sharedRedisClient: Redis | null = null;
 try {
   if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    const redis = new Redis({
+    sharedRedisClient = new Redis({
       url: process.env.UPSTASH_REDIS_REST_URL,
       token: process.env.UPSTASH_REDIS_REST_TOKEN,
     });
     redisRateLimiter = new Ratelimit({
-      redis,
+      redis: sharedRedisClient,
       limiter: Ratelimit.fixedWindow(1, '1 s'), // 1 request per second
       prefix: 'cj-api-ratelimit',
     });
@@ -99,6 +101,11 @@ function parseCacheTtlMs(envName: string, fallbackMs: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallbackMs;
 }
 
+function parsePositiveInt(envName: string, fallback: number): number {
+  const parsed = Number(process.env[envName]);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
 function readFreshCache<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
   const entry = cache.get(key);
   if (!entry) return undefined;
@@ -115,6 +122,156 @@ function writeFreshCache<T>(cache: Map<string, CacheEntry<T>>, key: string, valu
     expiresAt: Date.now() + ttlMs,
   });
 }
+
+const CJ_SHARED_CACHE_PREFIX = 'shopixo:cj-cache:v1';
+
+function buildSharedCacheKey(namespace: string, key: string): string {
+  return `${CJ_SHARED_CACHE_PREFIX}:${namespace}:${key}`;
+}
+
+async function readSharedCache<T>(namespace: string, key: string): Promise<T | undefined> {
+  if (!sharedRedisClient) return undefined;
+  const cacheKey = buildSharedCacheKey(namespace, key);
+
+  try {
+    const cached = await sharedRedisClient.get<string>(cacheKey);
+    if (cached === null || cached === undefined) return undefined;
+    if (typeof cached !== 'string') return cached as T;
+    return JSON.parse(cached) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeSharedCache<T>(namespace: string, key: string, value: T, ttlMs: number): Promise<void> {
+  if (!sharedRedisClient) return;
+  const cacheKey = buildSharedCacheKey(namespace, key);
+  const ttlSeconds = Math.max(1, Math.ceil(ttlMs / 1000));
+
+  try {
+    await sharedRedisClient.set(cacheKey, JSON.stringify(value), { ex: ttlSeconds });
+  } catch {
+    // Shared cache failures are non-fatal; in-memory cache remains active.
+  }
+}
+
+export type CjApiCallbackCounterSnapshot = {
+  total: number;
+  productGetCategory: number;
+  productList: number;
+  productQuery: number;
+  listV2: number;
+  variantQuery: number;
+  inventoryByPid: number;
+  inventoryByVid: number;
+  freightCalculate: number;
+  productComments: number;
+  other: number;
+};
+
+const cjApiCallbackCounters: CjApiCallbackCounterSnapshot = {
+  total: 0,
+  productGetCategory: 0,
+  productList: 0,
+  productQuery: 0,
+  listV2: 0,
+  variantQuery: 0,
+  inventoryByPid: 0,
+  inventoryByVid: 0,
+  freightCalculate: 0,
+  productComments: 0,
+  other: 0,
+};
+
+function incrementCjApiCallbackCounter(path: string): void {
+  const normalizedPath = String(path || '').toLowerCase();
+  cjApiCallbackCounters.total += 1;
+
+  if (normalizedPath.includes('/product/listv2')) {
+    cjApiCallbackCounters.listV2 += 1;
+    incrementRequestCounter('cj_listv2_calls');
+    return;
+  }
+
+  if (normalizedPath.includes('/product/getcategory')) {
+    cjApiCallbackCounters.productGetCategory += 1;
+    incrementRequestCounter('cj_product_category_calls');
+    return;
+  }
+
+  if (normalizedPath.includes('/product/list')) {
+    cjApiCallbackCounters.productList += 1;
+    incrementRequestCounter('cj_product_list_calls');
+    return;
+  }
+
+  if (normalizedPath.includes('/product/query')) {
+    cjApiCallbackCounters.productQuery += 1;
+    incrementRequestCounter('cj_product_query_calls');
+    return;
+  }
+
+  if (normalizedPath.includes('/product/variant/query')) {
+    cjApiCallbackCounters.variantQuery += 1;
+    incrementRequestCounter('cj_variant_query_calls');
+    return;
+  }
+
+  if (
+    normalizedPath.includes('/product/stock/getinventorybypid') ||
+    normalizedPath.includes('/product/stock/querybypid') ||
+    normalizedPath.includes('/inventory/queryvariantstock')
+  ) {
+    cjApiCallbackCounters.inventoryByPid += 1;
+    incrementRequestCounter('cj_inventory_pid_calls');
+    return;
+  }
+
+  if (normalizedPath.includes('/product/stock/querybyvid')) {
+    cjApiCallbackCounters.inventoryByVid += 1;
+    incrementRequestCounter('cj_inventory_vid_calls');
+    return;
+  }
+
+  if (normalizedPath.includes('/logistic/freightcalculate')) {
+    cjApiCallbackCounters.freightCalculate += 1;
+    incrementRequestCounter('cj_freight_calls');
+    return;
+  }
+
+  if (normalizedPath.includes('/product/productcomments')) {
+    cjApiCallbackCounters.productComments += 1;
+    return;
+  }
+
+  cjApiCallbackCounters.other += 1;
+  incrementRequestCounter('cj_other_calls');
+}
+
+export function getCjApiCallbackCounters(): CjApiCallbackCounterSnapshot {
+  return { ...cjApiCallbackCounters };
+}
+
+function withSingleflight<T>(inFlight: Map<string, Promise<T>>, key: string, loader: () => Promise<T>): Promise<T> {
+  const existing = inFlight.get(key);
+  if (existing) return existing;
+
+  const task = (async () => loader())().finally(() => {
+    inFlight.delete(key);
+  });
+
+  inFlight.set(key, task);
+  return task;
+}
+
+const SHARED_CACHE_NS_FREIGHT = 'freight';
+const SHARED_CACHE_NS_PRODUCT_CATEGORY = 'product-category';
+const SHARED_CACHE_NS_PRODUCT_LIST_PAGE = 'product-list-page';
+const SHARED_CACHE_NS_PRODUCT_VARIANTS = 'product-variants';
+const SHARED_CACHE_NS_PRODUCT_INVENTORY = 'product-inventory';
+const SHARED_CACHE_NS_VARIANT_INVENTORY = 'variant-inventory';
+const SHARED_CACHE_NS_VARIANT_VID_PID = 'variant-vid-pid';
+const SHARED_CACHE_NS_PRODUCT_DETAILS = 'product-details';
 
 type CjConfig = { email?: string | null; apiKey?: string | null; base?: string | null };
 
@@ -137,15 +294,146 @@ async function getCjCreds(): Promise<{ email: string | null; apiKey: string | nu
   return { email: envEmail, apiKey };
 }
 
+const CJ_PRODUCT_LIST_PAGE_CACHE_TTL_MS = parseCacheTtlMs('CJ_PRODUCT_LIST_PAGE_CACHE_TTL_MS', 10 * 60 * 1000);
+const cjProductListPageCache = new Map<string, CacheEntry<{ list: any[]; total: number }>>();
+const cjProductListPageInFlight = new Map<string, Promise<{ list: any[]; total: number }>>();
+
+type CjCategoryApiResponse = {
+  code?: number | string;
+  result?: unknown;
+  message?: string;
+  data?: any[];
+  [key: string]: any;
+};
+
+const CJ_PRODUCT_CATEGORY_CACHE_TTL_MS = parseCacheTtlMs('CJ_PRODUCT_CATEGORY_CACHE_TTL_MS', 60 * 60 * 1000);
+const CJ_PRODUCT_CATEGORY_CACHE_KEY = 'all';
+const cjProductCategoryCache = new Map<string, CacheEntry<CjCategoryApiResponse>>();
+const cjProductCategoryInFlight = new Map<string, Promise<CjCategoryApiResponse>>();
+
+function normalizeProductCategoryResponse(input: any): CjCategoryApiResponse {
+  const base = input && typeof input === 'object' ? input : {};
+  return {
+    ...base,
+    data: Array.isArray(base?.data) ? base.data : [],
+  };
+}
+
+export async function fetchProductCategories(): Promise<CjCategoryApiResponse> {
+  const cacheKey = CJ_PRODUCT_CATEGORY_CACHE_KEY;
+  const cached = readFreshCache(cjProductCategoryCache, cacheKey);
+  if (cached !== undefined) return cached;
+
+  const sharedCached = await readSharedCache<CjCategoryApiResponse>(
+    SHARED_CACHE_NS_PRODUCT_CATEGORY,
+    cacheKey
+  );
+  if (sharedCached !== undefined) {
+    writeFreshCache(cjProductCategoryCache, cacheKey, sharedCached, CJ_PRODUCT_CATEGORY_CACHE_TTL_MS);
+    return sharedCached;
+  }
+
+  return withSingleflight(cjProductCategoryInFlight, cacheKey, async () => {
+    const cachedAfterLock = readFreshCache(cjProductCategoryCache, cacheKey);
+    if (cachedAfterLock !== undefined) return cachedAfterLock;
+
+    const sharedAfterLock = await readSharedCache<CjCategoryApiResponse>(
+      SHARED_CACHE_NS_PRODUCT_CATEGORY,
+      cacheKey
+    );
+    if (sharedAfterLock !== undefined) {
+      writeFreshCache(cjProductCategoryCache, cacheKey, sharedAfterLock, CJ_PRODUCT_CATEGORY_CACHE_TTL_MS);
+      return sharedAfterLock;
+    }
+
+    const response = normalizeProductCategoryResponse(await cjFetch<CjCategoryApiResponse>('/product/getCategory'));
+    writeFreshCache(cjProductCategoryCache, cacheKey, response, CJ_PRODUCT_CATEGORY_CACHE_TTL_MS);
+    await writeSharedCache(
+      SHARED_CACHE_NS_PRODUCT_CATEGORY,
+      cacheKey,
+      response,
+      CJ_PRODUCT_CATEGORY_CACHE_TTL_MS
+    );
+    return response;
+  });
+}
+
+export async function fetchProductListPage(params: {
+  pageNum: number;
+  pageSize?: number;
+  keyword?: string;
+  categoryId?: string | null;
+}): Promise<{ list: any[]; total: number }> {
+  const pageNum = Math.max(1, Math.floor(params.pageNum || 1));
+  const pageSizeRaw = Number(params.pageSize);
+  const pageSize = Number.isFinite(pageSizeRaw) && pageSizeRaw > 0
+    ? Math.min(50, Math.floor(pageSizeRaw))
+    : undefined;
+  const keyword = String(params.keyword || '').trim();
+  const categoryId = String(params.categoryId || '').trim();
+  const cacheKey = [
+    categoryId || 'all',
+    keyword || '-',
+    pageNum,
+    pageSize || '-',
+  ].join('|');
+
+  const cachedPage = readFreshCache(cjProductListPageCache, cacheKey);
+  if (cachedPage !== undefined) return cachedPage;
+
+  const sharedCachedPage = await readSharedCache<{ list: any[]; total: number }>(
+    SHARED_CACHE_NS_PRODUCT_LIST_PAGE,
+    cacheKey
+  );
+  if (sharedCachedPage !== undefined) {
+    writeFreshCache(cjProductListPageCache, cacheKey, sharedCachedPage, CJ_PRODUCT_LIST_PAGE_CACHE_TTL_MS);
+    return sharedCachedPage;
+  }
+
+  return withSingleflight(cjProductListPageInFlight, cacheKey, async () => {
+    const cachedAfterLock = readFreshCache(cjProductListPageCache, cacheKey);
+    if (cachedAfterLock !== undefined) return cachedAfterLock;
+
+    const sharedAfterLock = await readSharedCache<{ list: any[]; total: number }>(
+      SHARED_CACHE_NS_PRODUCT_LIST_PAGE,
+      cacheKey
+    );
+    if (sharedAfterLock !== undefined) {
+      writeFreshCache(cjProductListPageCache, cacheKey, sharedAfterLock, CJ_PRODUCT_LIST_PAGE_CACHE_TTL_MS);
+      return sharedAfterLock;
+    }
+
+    const query = new URLSearchParams();
+    query.set('pageNum', String(pageNum));
+    if (pageSize) query.set('pageSize', String(pageSize));
+    if (keyword) query.set('keyWords', keyword);
+    if (categoryId && categoryId !== 'all' && !categoryId.startsWith('first-') && !categoryId.startsWith('second-')) {
+      query.set('categoryId', categoryId);
+    }
+
+    try {
+      const res = await cjFetch<any>(`/product/list?${query.toString()}`);
+      const result = {
+        list: Array.isArray(res?.data?.list) ? res.data.list : [],
+        total: Number(res?.data?.total || 0),
+      };
+      writeFreshCache(cjProductListPageCache, cacheKey, result, CJ_PRODUCT_LIST_PAGE_CACHE_TTL_MS);
+      await writeSharedCache(SHARED_CACHE_NS_PRODUCT_LIST_PAGE, cacheKey, result, CJ_PRODUCT_LIST_PAGE_CACHE_TTL_MS);
+      return result;
+    } catch (e: any) {
+      console.log(`[CJ ProductList] Failed for key=${cacheKey}: ${e?.message || e}`);
+      return { list: [], total: 0 };
+    }
+  });
+}
+
 export async function listCjProductsPage(params: { pageNum: number; pageSize?: number; keyword?: string }): Promise<any> {
   const pageNum = Math.max(1, Math.floor(params.pageNum || 1));
   const pageSize = Math.min(50, Math.max(1, Math.floor(params.pageSize ?? 20)));
   const kw = params.keyword ? String(params.keyword) : '';
-  const qsList = `keyWords=${encodeURIComponent(kw)}&pageSize=${pageSize}&pageNum=${pageNum}`;
   const qsQuery = `keyword=${encodeURIComponent(kw)}&pageSize=${pageSize}&pageNumber=${pageNum}`;
 
   const endpoints = [
-    `/product/list?${qsList}`,
     `/product/query?${qsQuery}`,
     `/product/myProduct/query?${qsQuery}`,
   ];
@@ -153,6 +441,23 @@ export async function listCjProductsPage(params: { pageNum: number; pageSize?: n
   const out: any[] = [];
   const seen = new Set<string>();
   let lastErr: any = null;
+
+  try {
+    const primaryPage = await fetchProductListPage({ pageNum, pageSize, keyword: kw });
+    for (const it of primaryPage.list || []) {
+      const pid = String(it?.pid || it?.productId || it?.id || '');
+      const key = pid || JSON.stringify(it).slice(0, 120);
+      if (!seen.has(key)) { seen.add(key); out.push(it); }
+      if (out.length >= pageSize) break;
+    }
+  } catch (e) {
+    lastErr = e;
+  }
+
+  if (out.length >= pageSize) {
+    return { code: 200, data: { list: out } };
+  }
+
   for (const ep of endpoints) {
     try {
       const r = await cjFetch<any>(ep);
@@ -301,6 +606,7 @@ export type FreightResult = {
 
 const CJ_FREIGHT_CACHE_TTL_MS = parseCacheTtlMs('CJ_FREIGHT_CACHE_TTL_MS', 10 * 60 * 1000);
 const cjFreightCache = new Map<string, CacheEntry<FreightResult>>();
+const cjFreightInFlight = new Map<string, Promise<FreightResult>>();
 
 export async function freightCalculate(params: CjFreightCalcParams): Promise<FreightResult> {
   const startCountry = params.startCountryCode || 'CN';
@@ -322,47 +628,62 @@ export async function freightCalculate(params: CjFreightCalcParams): Promise<Fre
     console.log(`[CJ Freight] Cache hit for ${freightCacheKey}`);
     return cachedFreight;
   }
-  
-  console.log(`[CJ Freight] Getting "According to Shipping Method" for vid=${vid}, qty=${qty}, ${startCountry} → ${endCountry}`);
-  
-  try {
-    // Use CJ's freightCalculate API - this returns the exact "According to Shipping Method" data
-    const body = {
-      startCountryCode: startCountry,
-      endCountryCode: endCountry,
-      products: [{ vid, quantity: qty }],
-    };
-    
-    const r = await cjFetch<any>('/logistic/freightCalculate', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
-    
-    console.log(`[CJ Freight] Response: ${JSON.stringify(r).slice(0, 2000)}`);
-    
-    const result = parseFreightResponse(r);
-    if (result.ok && result.options.length > 0) {
-      writeFreshCache(cjFreightCache, freightCacheKey, result, CJ_FREIGHT_CACHE_TTL_MS);
-      console.log(`[CJ Freight] Got ${result.options.length} shipping options from CJ "According to Shipping Method"`);
-      return result;
-    }
-    
-    // No options returned
-    const noOptionsResult: FreightResult = {
-      ok: false,
-      reason: 'no_options',
-      message: 'CJ returned no shipping options for this variant/destination',
-    };
-    writeFreshCache(cjFreightCache, freightCacheKey, noOptionsResult, Math.min(CJ_FREIGHT_CACHE_TTL_MS, 2 * 60 * 1000));
-    return noOptionsResult;
-  } catch (e: any) {
-    console.error(`[CJ Freight] API error: ${e?.message}`);
-    return {
-      ok: false,
-      reason: 'api_error',
-      message: `CJ shipping API error: ${e?.message || 'Unknown error'}`,
-    };
+
+  const sharedCachedFreight = await readSharedCache<FreightResult>(SHARED_CACHE_NS_FREIGHT, freightCacheKey);
+  if (sharedCachedFreight !== undefined) {
+    console.log(`[CJ Freight] Shared cache hit for ${freightCacheKey}`);
+    writeFreshCache(cjFreightCache, freightCacheKey, sharedCachedFreight, CJ_FREIGHT_CACHE_TTL_MS);
+    return sharedCachedFreight;
   }
+
+  return withSingleflight(cjFreightInFlight, freightCacheKey, async () => {
+    const cachedAfterLock = readFreshCache(cjFreightCache, freightCacheKey);
+    if (cachedAfterLock !== undefined) return cachedAfterLock;
+  
+    console.log(`[CJ Freight] Getting "According to Shipping Method" for vid=${vid}, qty=${qty}, ${startCountry} → ${endCountry}`);
+  
+    try {
+      // Use CJ's freightCalculate API - this returns the exact "According to Shipping Method" data
+      const body = {
+        startCountryCode: startCountry,
+        endCountryCode: endCountry,
+        products: [{ vid, quantity: qty }],
+      };
+      
+      const r = await cjFetch<any>('/logistic/freightCalculate', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      
+      console.log(`[CJ Freight] Response: ${JSON.stringify(r).slice(0, 2000)}`);
+      
+      const result = parseFreightResponse(r);
+      if (result.ok && result.options.length > 0) {
+        writeFreshCache(cjFreightCache, freightCacheKey, result, CJ_FREIGHT_CACHE_TTL_MS);
+        await writeSharedCache(SHARED_CACHE_NS_FREIGHT, freightCacheKey, result, CJ_FREIGHT_CACHE_TTL_MS);
+        console.log(`[CJ Freight] Got ${result.options.length} shipping options from CJ "According to Shipping Method"`);
+        return result;
+      }
+      
+      // No options returned
+      const noOptionsResult: FreightResult = {
+        ok: false,
+        reason: 'no_options',
+        message: 'CJ returned no shipping options for this variant/destination',
+      };
+      const noOptionsTtlMs = Math.min(CJ_FREIGHT_CACHE_TTL_MS, 2 * 60 * 1000);
+      writeFreshCache(cjFreightCache, freightCacheKey, noOptionsResult, noOptionsTtlMs);
+      await writeSharedCache(SHARED_CACHE_NS_FREIGHT, freightCacheKey, noOptionsResult, noOptionsTtlMs);
+      return noOptionsResult;
+    } catch (e: any) {
+      console.error(`[CJ Freight] API error: ${e?.message}`);
+      return {
+        ok: false,
+        reason: 'api_error',
+        message: `CJ shipping API error: ${e?.message || 'Unknown error'}`,
+      };
+    }
+  });
 }
 
 // Helper to parse freightCalculate response
@@ -452,6 +773,7 @@ export function findCJPacketOrdinary(options: CjShippingOption[]): CjShippingOpt
 // Returns list of purchasable variants with pricing and attributes
 const CJ_PRODUCT_VARIANTS_CACHE_TTL_MS = parseCacheTtlMs('CJ_PRODUCT_VARIANTS_CACHE_TTL_MS', 20 * 60 * 1000);
 const cjProductVariantsCache = new Map<string, CacheEntry<any[]>>();
+const cjProductVariantsInFlight = new Map<string, Promise<any[]>>();
 
 export async function getProductVariants(pid: string): Promise<any[]> {
   const normalizedPid = String(pid || '').trim();
@@ -463,31 +785,34 @@ export async function getProductVariants(pid: string): Promise<any[]> {
     return cachedVariants;
   }
 
-  const token = await getAccessToken();
-  const base = await resolveBase();
-  
-  try {
-    const res = await fetchJson<any>(`${base}/product/variant/query?pid=${encodeURIComponent(normalizedPid)}`, {
-      headers: {
-        'CJ-Access-Token': token,
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store',
-      timeoutMs: 15000,
-    });
-    const data = res?.data;
-    const variants = Array.isArray(data) ? data : (data?.list || data?.variants || []);
-    writeFreshCache(cjProductVariantsCache, normalizedPid, variants, CJ_PRODUCT_VARIANTS_CACHE_TTL_MS);
-    
-    if (variants.length > 0) {
-      console.log(`[CJ Variants] Product ${normalizedPid}: ${variants.length} variants found`);
-    }
-    
-    return variants;
-  } catch (e: any) {
-    console.log(`[CJ Variants] Error for ${normalizedPid}:`, e?.message);
-    return [];
+  const sharedCachedVariants = await readSharedCache<any[]>(SHARED_CACHE_NS_PRODUCT_VARIANTS, normalizedPid);
+  if (sharedCachedVariants !== undefined) {
+    console.log(`[CJ Variants] Shared cache hit for pid=${normalizedPid}`);
+    writeFreshCache(cjProductVariantsCache, normalizedPid, sharedCachedVariants, CJ_PRODUCT_VARIANTS_CACHE_TTL_MS);
+    return sharedCachedVariants;
   }
+
+  return withSingleflight(cjProductVariantsInFlight, normalizedPid, async () => {
+    const cachedAfterLock = readFreshCache(cjProductVariantsCache, normalizedPid);
+    if (cachedAfterLock !== undefined) return cachedAfterLock;
+    
+    try {
+      const res = await cjFetch<any>(`/product/variant/query?pid=${encodeURIComponent(normalizedPid)}`);
+      const data = res?.data;
+      const variants = Array.isArray(data) ? data : (data?.list || data?.variants || []);
+      writeFreshCache(cjProductVariantsCache, normalizedPid, variants, CJ_PRODUCT_VARIANTS_CACHE_TTL_MS);
+      await writeSharedCache(SHARED_CACHE_NS_PRODUCT_VARIANTS, normalizedPid, variants, CJ_PRODUCT_VARIANTS_CACHE_TTL_MS);
+      
+      if (variants.length > 0) {
+        console.log(`[CJ Variants] Product ${normalizedPid}: ${variants.length} variants found`);
+      }
+      
+      return variants;
+    } catch (e: any) {
+      console.log(`[CJ Variants] Error for ${normalizedPid}:`, e?.message);
+      return [];
+    }
+  });
 }
 
 // --- Product Inventory by PID ---
@@ -512,6 +837,7 @@ export type CjProductInventory = {
 
 const CJ_PRODUCT_INVENTORY_CACHE_TTL_MS = parseCacheTtlMs('CJ_PRODUCT_INVENTORY_CACHE_TTL_MS', 5 * 60 * 1000);
 const cjProductInventoryCache = new Map<string, CacheEntry<CjProductInventory | null>>();
+const cjProductInventoryInFlight = new Map<string, Promise<CjProductInventory | null>>();
 
 export async function getInventoryByPid(pid: string): Promise<CjProductInventory | null> {
   const normalizedPid = String(pid || '').trim();
@@ -523,74 +849,85 @@ export async function getInventoryByPid(pid: string): Promise<CjProductInventory
     return cachedInventory;
   }
 
-  const token = await getAccessToken();
-  const base = await resolveBase();
-  
-  console.log(`[CJ Inventory] Fetching inventory for pid=${normalizedPid}`);
-  
-  try {
-    const url = `${base}/product/stock/getInventoryByPid?pid=${encodeURIComponent(normalizedPid)}`;
-    const res = await fetchJson<any>(url, {
-      method: 'GET',
-      headers: {
-        'CJ-Access-Token': token,
-      },
-      cache: 'no-store',
-      timeoutMs: 10000,
-    });
+  const sharedCachedInventory = await readSharedCache<CjProductInventory | null>(
+    SHARED_CACHE_NS_PRODUCT_INVENTORY,
+    normalizedPid
+  );
+  if (sharedCachedInventory !== undefined) {
+    console.log(`[CJ Inventory] Shared cache hit for pid=${normalizedPid}`);
+    writeFreshCache(cjProductInventoryCache, normalizedPid, sharedCachedInventory, CJ_PRODUCT_INVENTORY_CACHE_TTL_MS);
+    return sharedCachedInventory;
+  }
+
+  return withSingleflight(cjProductInventoryInFlight, normalizedPid, async () => {
+    const cachedAfterLock = readFreshCache(cjProductInventoryCache, normalizedPid);
+    if (cachedAfterLock !== undefined) return cachedAfterLock;
     
-    console.log(`[CJ Inventory] Response for ${normalizedPid}:`, JSON.stringify(res).slice(0, 1000));
+    console.log(`[CJ Inventory] Fetching inventory for pid=${normalizedPid}`);
     
-    // CJ API returns code as either number 200 or string "200" - handle both
-    const isSuccess = res && (res.code === 200 || res.code === '200' || String(res.code) === '200');
-    if (!isSuccess || !res.data) {
-      console.log(`[CJ Inventory] No inventory data returned for ${normalizedPid} (code: ${res?.code})`);
-      writeFreshCache(cjProductInventoryCache, normalizedPid, null, Math.min(CJ_PRODUCT_INVENTORY_CACHE_TTL_MS, 60 * 1000));
+    try {
+      const res = await cjFetch<any>(`/product/stock/getInventoryByPid?pid=${encodeURIComponent(normalizedPid)}`, {
+        method: 'GET',
+      });
+      
+      console.log(`[CJ Inventory] Response for ${normalizedPid}:`, JSON.stringify(res).slice(0, 1000));
+      
+      // CJ API returns code as either number 200 or string "200" - handle both
+      const isSuccess = res && (res.code === 200 || res.code === '200' || String(res.code) === '200');
+      if (!isSuccess || !res.data) {
+        console.log(`[CJ Inventory] No inventory data returned for ${normalizedPid} (code: ${res?.code})`);
+        const missTtlMs = Math.min(CJ_PRODUCT_INVENTORY_CACHE_TTL_MS, 60 * 1000);
+        writeFreshCache(cjProductInventoryCache, normalizedPid, null, missTtlMs);
+        await writeSharedCache(SHARED_CACHE_NS_PRODUCT_INVENTORY, normalizedPid, null, missTtlMs);
+        return null;
+      }
+      
+      const data = res.data;
+      const inventories = data.inventories || [];
+      
+      let totalCJ = 0;
+      let totalFactory = 0;
+      const warehouses: CjWarehouseInventory[] = [];
+      
+      for (const inv of inventories) {
+        const cjInv = Number(inv.cjInventoryNum || inv.cjInventory || 0);
+        const factoryInv = Number(inv.factoryInventoryNum || inv.factoryInventory || 0);
+        const totalInv = Number(inv.totalInventoryNum || inv.totalInventory || cjInv + factoryInv);
+        
+        totalCJ += cjInv;
+        totalFactory += factoryInv;
+        
+        warehouses.push({
+          areaId: Number(inv.areaId || 0),
+          areaName: inv.areaEn || inv.countryNameEn || inv.area || 'Unknown',
+          countryCode: inv.countryCode || '',
+          totalInventory: totalInv,
+          cjInventory: cjInv,
+          factoryInventory: factoryInv,
+        });
+      }
+      
+      const result: CjProductInventory = {
+        pid: normalizedPid,
+        totalCJ,
+        totalFactory,
+        totalAvailable: totalCJ + totalFactory,
+        warehouses,
+      };
+      
+      console.log(`[CJ Inventory] Parsed for ${normalizedPid}: total=${result.totalAvailable} (CJ=${totalCJ}, Factory=${totalFactory}), warehouses=${warehouses.length}`);
+      writeFreshCache(cjProductInventoryCache, normalizedPid, result, CJ_PRODUCT_INVENTORY_CACHE_TTL_MS);
+      await writeSharedCache(SHARED_CACHE_NS_PRODUCT_INVENTORY, normalizedPid, result, CJ_PRODUCT_INVENTORY_CACHE_TTL_MS);
+      
+      return result;
+    } catch (e: any) {
+      console.error(`[CJ Inventory] Error fetching inventory for ${normalizedPid}:`, e?.message);
+      const missTtlMs = Math.min(CJ_PRODUCT_INVENTORY_CACHE_TTL_MS, 60 * 1000);
+      writeFreshCache(cjProductInventoryCache, normalizedPid, null, missTtlMs);
+      await writeSharedCache(SHARED_CACHE_NS_PRODUCT_INVENTORY, normalizedPid, null, missTtlMs);
       return null;
     }
-    
-    const data = res.data;
-    const inventories = data.inventories || [];
-    
-    let totalCJ = 0;
-    let totalFactory = 0;
-    const warehouses: CjWarehouseInventory[] = [];
-    
-    for (const inv of inventories) {
-      const cjInv = Number(inv.cjInventoryNum || inv.cjInventory || 0);
-      const factoryInv = Number(inv.factoryInventoryNum || inv.factoryInventory || 0);
-      const totalInv = Number(inv.totalInventoryNum || inv.totalInventory || cjInv + factoryInv);
-      
-      totalCJ += cjInv;
-      totalFactory += factoryInv;
-      
-      warehouses.push({
-        areaId: Number(inv.areaId || 0),
-        areaName: inv.areaEn || inv.countryNameEn || inv.area || 'Unknown',
-        countryCode: inv.countryCode || '',
-        totalInventory: totalInv,
-        cjInventory: cjInv,
-        factoryInventory: factoryInv,
-      });
-    }
-    
-    const result: CjProductInventory = {
-      pid: normalizedPid,
-      totalCJ,
-      totalFactory,
-      totalAvailable: totalCJ + totalFactory,
-      warehouses,
-    };
-    
-    console.log(`[CJ Inventory] Parsed for ${normalizedPid}: total=${result.totalAvailable} (CJ=${totalCJ}, Factory=${totalFactory}), warehouses=${warehouses.length}`);
-    writeFreshCache(cjProductInventoryCache, normalizedPid, result, CJ_PRODUCT_INVENTORY_CACHE_TTL_MS);
-    
-    return result;
-  } catch (e: any) {
-    console.error(`[CJ Inventory] Error fetching inventory for ${normalizedPid}:`, e?.message);
-    writeFreshCache(cjProductInventoryCache, normalizedPid, null, Math.min(CJ_PRODUCT_INVENTORY_CACHE_TTL_MS, 60 * 1000));
-    return null;
-  }
+  });
 }
 
 // - POST /authentication/refreshAccessToken { refreshToken }
@@ -616,6 +953,11 @@ export type CjVariantInventory = {
 
 const CJ_VARIANT_INVENTORY_CACHE_TTL_MS = parseCacheTtlMs('CJ_VARIANT_INVENTORY_CACHE_TTL_MS', 5 * 60 * 1000);
 const cjVariantInventoryCache = new Map<string, CacheEntry<CjVariantInventory[]>>();
+const cjVariantInventoryInFlight = new Map<string, Promise<CjVariantInventory[]>>();
+const CJ_VARIANT_INVENTORY_VID_FALLBACK_MAX = Math.max(
+  1,
+  Math.min(20, parsePositiveInt('CJ_VARIANT_INVENTORY_VID_FALLBACK_MAX', 8))
+);
 
 export async function queryVariantInventory(pid: string, warehouse?: string, preloadedVariants?: any[]): Promise<CjVariantInventory[]> {
   const normalizedPid = String(pid || '').trim();
@@ -628,19 +970,30 @@ export async function queryVariantInventory(pid: string, warehouse?: string, pre
     return cachedVariantInventory;
   }
 
-  const token = await getAccessToken();
-  const base = await resolveBase();
-  
-  const toSafeNumber = (val: any, fallback = 0): number => {
-    if (val === undefined || val === null || val === '') return fallback;
-    const num = typeof val === 'number' ? val : Number(val);
-    return isNaN(num) ? fallback : num;
-  };
-  
-  let allVariants: CjVariantInventory[] = [];
-  const stockBySku: Map<string, { cjStock: number; factoryStock: number }> = new Map();
-  // Store original stockList items for fallback variant building
-  let stockListItems: any[] = [];
+  const sharedCachedVariantInventory = await readSharedCache<CjVariantInventory[]>(
+    SHARED_CACHE_NS_VARIANT_INVENTORY,
+    variantCacheKey
+  );
+  if (sharedCachedVariantInventory !== undefined) {
+    console.log(`[CJ Inventory] Shared variant cache hit for pid=${normalizedPid}`);
+    writeFreshCache(cjVariantInventoryCache, variantCacheKey, sharedCachedVariantInventory, CJ_VARIANT_INVENTORY_CACHE_TTL_MS);
+    return sharedCachedVariantInventory;
+  }
+
+  return withSingleflight(cjVariantInventoryInFlight, variantCacheKey, async () => {
+    const cachedAfterLock = readFreshCache(cjVariantInventoryCache, variantCacheKey);
+    if (cachedAfterLock !== undefined) return cachedAfterLock;
+    
+    const toSafeNumber = (val: any, fallback = 0): number => {
+      if (val === undefined || val === null || val === '') return fallback;
+      const num = typeof val === 'number' ? val : Number(val);
+      return isNaN(num) ? fallback : num;
+    };
+    
+    let allVariants: CjVariantInventory[] = [];
+    const stockBySku: Map<string, { cjStock: number; factoryStock: number }> = new Map();
+    // Store original stockList items for fallback variant building
+    let stockListItems: any[] = [];
   
   try {
     // Try the newer /product/stock/queryByPid endpoint first (better per-variant data)
@@ -648,13 +1001,8 @@ export async function queryVariantInventory(pid: string, warehouse?: string, pre
     let stockRes: any = null;
     
     try {
-      stockRes = await fetchJson<any>(`${base}/product/stock/queryByPid?pid=${encodeURIComponent(normalizedPid)}`, {
+      stockRes = await cjFetch<any>(`/product/stock/queryByPid?pid=${encodeURIComponent(normalizedPid)}`, {
         method: 'GET',
-        headers: {
-          'CJ-Access-Token': token,
-        },
-        cache: 'no-store',
-        timeoutMs: 15000,
       });
       console.log(`[CJ Inventory] Used /product/stock/queryByPid for ${normalizedPid}`);
     } catch (e: any) {
@@ -664,15 +1012,9 @@ export async function queryVariantInventory(pid: string, warehouse?: string, pre
       const inventoryBody: any = { pid: normalizedPid };
       if (warehouse) inventoryBody.warehouseId = warehouse;
       
-      stockRes = await fetchJson<any>(`${base}/inventory/queryVariantStock`, {
+      stockRes = await cjFetch<any>(`/inventory/queryVariantStock`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'CJ-Access-Token': token,
-        },
         body: JSON.stringify(inventoryBody),
-        cache: 'no-store',
-        timeoutMs: 15000,
       });
     }
     
@@ -882,14 +1224,7 @@ export async function queryVariantInventory(pid: string, warehouse?: string, pre
       variantList = preloadedVariants;
       console.log(`[CJ Variants] Using preloaded variants for ${normalizedPid}: ${variantList.length}`);
     } else {
-      const variantRes = await fetchJson<any>(`${base}/product/variant/query?pid=${encodeURIComponent(normalizedPid)}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'CJ-Access-Token': token,
-        },
-        cache: 'no-store',
-        timeoutMs: 15000,
-      });
+      const variantRes = await cjFetch<any>(`/product/variant/query?pid=${encodeURIComponent(normalizedPid)}`);
       
       console.log(`[CJ Variants] Response for ${normalizedPid}:`, JSON.stringify(variantRes).slice(0, 1500));
       
@@ -996,7 +1331,7 @@ export async function queryVariantInventory(pid: string, warehouse?: string, pre
   // If variants have no per-variant stock data, query each variant individually
   // using /product/stock/queryByVid endpoint
   const variantsNeedStock = allVariants.filter(v => v.cjStock === 0 && v.factoryStock === 0 && v.vid);
-  if (variantsNeedStock.length > 0 && variantsNeedStock.length <= 20) {
+  if (variantsNeedStock.length > 0 && variantsNeedStock.length <= CJ_VARIANT_INVENTORY_VID_FALLBACK_MAX) {
     console.log(`[CJ Variants] Querying per-variant stock for ${variantsNeedStock.length} variants with vid...`);
     
     // Query each variant's stock individually (respecting rate limits)
@@ -1007,13 +1342,10 @@ export async function queryVariantInventory(pid: string, warehouse?: string, pre
         // Rate limit: wait between requests
         await new Promise(r => setTimeout(r, 150)); // 150ms between variant stock queries
         
-        const vidStockRes = await fetchJson<any>(
-          `${base}/product/stock/queryByVid?vid=${encodeURIComponent(variant.vid)}`,
+        const vidStockRes = await cjFetch<any>(
+          `/product/stock/queryByVid?vid=${encodeURIComponent(variant.vid)}`,
           {
             method: 'GET',
-            headers: { 'CJ-Access-Token': token },
-            cache: 'no-store',
-            timeoutMs: 10000,
           }
         );
         
@@ -1062,6 +1394,10 @@ export async function queryVariantInventory(pid: string, warehouse?: string, pre
         console.log(`[CJ Variants] Failed to get stock for vid ${variant.vid}: ${e?.message}`);
       }
     }
+  } else if (variantsNeedStock.length > CJ_VARIANT_INVENTORY_VID_FALLBACK_MAX) {
+    console.log(
+      `[CJ Variants] Skipping per-variant queryByVid fallback for ${variantsNeedStock.length} variants (cap=${CJ_VARIANT_INVENTORY_VID_FALLBACK_MAX})`
+    );
   }
   
   // If variant query returned nothing but we have stock data from inventory API,
@@ -1106,7 +1442,9 @@ export async function queryVariantInventory(pid: string, warehouse?: string, pre
   
   console.log(`[CJ Variants] Final result: ${allVariants.length} variants for ${normalizedPid}`);
   writeFreshCache(cjVariantInventoryCache, variantCacheKey, allVariants, CJ_VARIANT_INVENTORY_CACHE_TTL_MS);
+  await writeSharedCache(SHARED_CACHE_NS_VARIANT_INVENTORY, variantCacheKey, allVariants, CJ_VARIANT_INVENTORY_CACHE_TTL_MS);
   return allVariants;
+  });
 }
 
 export type CjVariantLike = {
@@ -1344,6 +1682,7 @@ async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
       'CJ-Access-Token': tok,
       ...(init?.headers || {}),
     } as Record<string, string>;
+    incrementCjApiCallbackCounter(path);
     return await fetchJson<T>(url, {
       ...init,
       headers,
@@ -1373,6 +1712,55 @@ async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw e;
   }
+}
+
+export async function probeCjEndpoint<T = any>(
+  path: string,
+  init?: RequestInit & { timeoutMs?: number; retries?: number; retryStatuses?: number[] }
+): Promise<{ status: number; ok: boolean; body: T }> {
+  const base = await resolveBase();
+  const url = `${base}${path.startsWith('/') ? '' : '/'}${path}`;
+
+  const attempt = async (tok: string) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      'CJ-Access-Token': tok,
+      ...(init?.headers || {}),
+    } as Record<string, string>;
+
+    incrementCjApiCallbackCounter(path);
+    return await fetchWithMeta<T>(url, {
+      ...init,
+      method: init?.method || 'GET',
+      headers,
+      cache: 'no-store',
+      timeoutMs: init?.timeoutMs ?? 12000,
+      retries: init?.retries ?? 2,
+      retryStatuses: init?.retryStatuses,
+    });
+  };
+
+  let token = await getAccessToken();
+  let result = await attempt(token);
+  if (result.ok || ![401, 403].includes(result.status)) {
+    return result;
+  }
+
+  const freshCreds = await getCjCreds();
+  const canFetchFresh = !!(process.env.CJ_EMAIL || freshCreds.email) && !!(process.env.CJ_API_KEY || freshCreds.apiKey);
+  if (!canFetchFresh) {
+    return result;
+  }
+
+  try {
+    const fresh = await fetchNewAccessToken();
+    tokenState = fresh;
+    result = await attempt(fresh.accessToken);
+  } catch {
+    // keep the original failed probe result
+  }
+
+  return result;
 }
 
 // --- Product Rating from Comments ---
@@ -1766,6 +2154,7 @@ function mergeListV2Fields(productData: any, match: any, source: string): void {
 // Fetch full product details by PID - returns complete product with all images and variants
 const CJ_PRODUCT_DETAILS_CACHE_TTL_MS = parseCacheTtlMs('CJ_PRODUCT_DETAILS_CACHE_TTL_MS', 30 * 60 * 1000);
 const cjProductDetailsCache = new Map<string, CacheEntry<any>>();
+const cjProductDetailsInFlight = new Map<string, Promise<any | null>>();
 
 export async function fetchProductDetailsByPid(pid: string): Promise<any | null> {
   const normalizedPid = String(pid || '').trim();
@@ -1776,8 +2165,19 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
     console.log(`[CJ Details] Cache hit for ${normalizedPid}`);
     return cachedDetails;
   }
-  
-  try {
+
+  const sharedCachedDetails = await readSharedCache<any | null>(SHARED_CACHE_NS_PRODUCT_DETAILS, normalizedPid);
+  if (sharedCachedDetails !== undefined) {
+    console.log(`[CJ Details] Shared cache hit for ${normalizedPid}`);
+    writeFreshCache(cjProductDetailsCache, normalizedPid, sharedCachedDetails, CJ_PRODUCT_DETAILS_CACHE_TTL_MS);
+    return sharedCachedDetails;
+  }
+
+  return withSingleflight(cjProductDetailsInFlight, normalizedPid, async () => {
+    const cachedAfterLock = readFreshCache(cjProductDetailsCache, normalizedPid);
+    if (cachedAfterLock !== undefined) return cachedAfterLock;
+
+    try {
     // Fetch product details from /product/query
     const pr = await cjFetch<any>(`/product/query?pid=${encodeURIComponent(normalizedPid)}`);
     let productData = pr?.data || pr?.content || pr || null;
@@ -2041,11 +2441,67 @@ export async function fetchProductDetailsByPid(pid: string): Promise<any | null>
     }
     
     writeFreshCache(cjProductDetailsCache, normalizedPid, productData, CJ_PRODUCT_DETAILS_CACHE_TTL_MS);
+    await writeSharedCache(SHARED_CACHE_NS_PRODUCT_DETAILS, normalizedPid, productData, CJ_PRODUCT_DETAILS_CACHE_TTL_MS);
     return productData;
   } catch (e: any) {
     console.log(`[CJ Details] Failed to fetch details for ${normalizedPid}:`, e?.message);
     return null;
   }
+  });
+}
+
+const CJ_VARIANT_VID_LOOKUP_CACHE_TTL_MS = parseCacheTtlMs('CJ_VARIANT_VID_LOOKUP_CACHE_TTL_MS', 30 * 60 * 1000);
+const cjVariantVidToPidCache = new Map<string, CacheEntry<string | null>>();
+const cjVariantVidToPidInFlight = new Map<string, Promise<string | null>>();
+
+async function lookupPidByVariantVid(vid: string): Promise<string | null> {
+  const normalizedVid = String(vid || '').trim();
+  if (!normalizedVid) return null;
+
+  const cachedPid = readFreshCache(cjVariantVidToPidCache, normalizedVid);
+  if (cachedPid !== undefined) {
+    return cachedPid;
+  }
+
+  const sharedCachedPid = await readSharedCache<string | null>(SHARED_CACHE_NS_VARIANT_VID_PID, normalizedVid);
+  if (sharedCachedPid !== undefined) {
+    writeFreshCache(cjVariantVidToPidCache, normalizedVid, sharedCachedPid, CJ_VARIANT_VID_LOOKUP_CACHE_TTL_MS);
+    return sharedCachedPid;
+  }
+
+  return withSingleflight(cjVariantVidToPidInFlight, normalizedVid, async () => {
+    const cachedAfterLock = readFreshCache(cjVariantVidToPidCache, normalizedVid);
+    if (cachedAfterLock !== undefined) return cachedAfterLock;
+
+    const sharedAfterLock = await readSharedCache<string | null>(SHARED_CACHE_NS_VARIANT_VID_PID, normalizedVid);
+    if (sharedAfterLock !== undefined) {
+      writeFreshCache(cjVariantVidToPidCache, normalizedVid, sharedAfterLock, CJ_VARIANT_VID_LOOKUP_CACHE_TTL_MS);
+      return sharedAfterLock;
+    }
+
+    try {
+      const response = await cjFetch<any>(`/product/variant/queryByVid?vid=${encodeURIComponent(normalizedVid)}`);
+      const resolvedPid = String(response?.data?.pid || response?.data?.productId || '').trim() || null;
+      const ttlMs = resolvedPid
+        ? CJ_VARIANT_VID_LOOKUP_CACHE_TTL_MS
+        : Math.min(CJ_VARIANT_VID_LOOKUP_CACHE_TTL_MS, 2 * 60 * 1000);
+
+      writeFreshCache(cjVariantVidToPidCache, normalizedVid, resolvedPid, ttlMs);
+      await writeSharedCache(SHARED_CACHE_NS_VARIANT_VID_PID, normalizedVid, resolvedPid, ttlMs);
+      return resolvedPid;
+    } catch {
+      const missTtlMs = Math.min(CJ_VARIANT_VID_LOOKUP_CACHE_TTL_MS, 60 * 1000);
+      writeFreshCache(cjVariantVidToPidCache, normalizedVid, null, missTtlMs);
+      await writeSharedCache(SHARED_CACHE_NS_VARIANT_VID_PID, normalizedVid, null, missTtlMs);
+      return null;
+    }
+  });
+}
+
+export async function fetchProductDetailsByVariantVid(vid: string): Promise<any | null> {
+  const pid = await lookupPidByVariantVid(vid);
+  if (!pid) return null;
+  return fetchProductDetailsByPid(pid);
 }
 
 // Batch fetch product details with concurrency control

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { ensureAdmin } from '@/lib/auth/admin-guard';
-import { getAccessToken, freightCalculate, fetchProductDetailsByPid, getInventoryByPid, queryVariantInventory, getProductVariants, findCheapestConfiguredShippingOption } from '@/lib/cj/v2';
+import { freightCalculate, fetchProductDetailsByPid, getInventoryByPid, queryVariantInventory, getProductVariants, findCheapestConfiguredShippingOption } from '@/lib/cj/v2';
 import type { PricedProduct, PricedVariant, InventoryVariant, ProductInventory } from '@/components/admin/import/preview/types';
 import { computeRating, normalizeDisplayedRating } from '@/lib/rating/engine';
 import { buildSyntheticReviewProfile } from '@/lib/reviews/synthetic-feedback';
@@ -12,6 +12,11 @@ import { extractCjProductGalleryImages, normalizeCjImageKey, prioritizeCjHeroIma
 import { extractCjProductVideoUrl } from '@/lib/cj/video';
 import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization';
 import { build4kVideoDelivery } from '@/lib/video/delivery';
+import {
+  diffCounterSnapshots,
+  getRequestCountersSnapshot,
+  withRequestCounters,
+} from '@/lib/telemetry/request-counters';
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -242,45 +247,44 @@ export async function GET(
   req: Request,
   { params }: { params: { pid: string } }
 ) {
-  try {
-    const guard = await ensureAdmin();
-    if (!guard.ok) {
-      return NextResponse.json(
-        { ok: false, error: guard.reason },
-        { status: 401, headers: { 'Cache-Control': 'no-store' } }
-      );
-    }
+  return withRequestCounters(async () => {
+    const requestCounterBefore = getRequestCountersSnapshot();
+    const withCallbackTelemetry = <T extends Record<string, any>>(payload: T) => ({
+      ...payload,
+      cjApiCallbacks: diffCounterSnapshots(requestCounterBefore, getRequestCountersSnapshot()),
+    });
 
-    const pid = params.pid;
-    if (!pid) {
-      return NextResponse.json(
-        { ok: false, error: 'Product ID required' },
-        { status: 400, headers: { 'Cache-Control': 'no-store' } }
-      );
-    }
+    try {
+      const guard = await ensureAdmin();
+      if (!guard.ok) {
+        return NextResponse.json(
+          withCallbackTelemetry({ ok: false, error: guard.reason }),
+          { status: 401, headers: { 'Cache-Control': 'no-store' } }
+        );
+      }
 
-    const { searchParams } = new URL(req.url);
-    const profitMargin = Math.max(1, Number(searchParams.get('profitMargin') || 8));
+      const pid = params.pid;
+      if (!pid) {
+        return NextResponse.json(
+          withCallbackTelemetry({ ok: false, error: 'Product ID required' }),
+          { status: 400, headers: { 'Cache-Control': 'no-store' } }
+        );
+      }
 
-    console.log(`[ProductDetails] Fetching full details for product ${pid}`);
-    const startTime = Date.now();
+      const { searchParams } = new URL(req.url);
+      const profitMargin = Math.max(1, Number(searchParams.get('profitMargin') || 8));
 
-    const token = await getAccessToken();
-    if (!token) {
-      return NextResponse.json(
-        { ok: false, error: 'Failed to authenticate with CJ API' },
-        { status: 500, headers: { 'Cache-Control': 'no-store' } }
-      );
-    }
+      console.log(`[ProductDetails] Fetching full details for product ${pid}`);
+      const startTime = Date.now();
 
-    // Fetch full product details
-    const fullDetails = await fetchProductDetailsByPid(pid);
-    if (!fullDetails) {
-      return NextResponse.json(
-        { ok: false, error: 'Product not found in CJ API' },
-        { status: 404, headers: { 'Cache-Control': 'no-store' } }
-      );
-    }
+      // Fetch full product details
+      const fullDetails = await fetchProductDetailsByPid(pid);
+      if (!fullDetails) {
+        return NextResponse.json(
+          withCallbackTelemetry({ ok: false, error: 'Product not found in CJ API' }),
+          { status: 404, headers: { 'Cache-Control': 'no-store' } }
+        );
+      }
 
     const source = fullDetails;
     const name = String(source.productNameEn || source.name || source.productName || '');
@@ -1081,22 +1085,23 @@ export async function GET(
       colorImageMap: Object.keys(colorImageMap).length > 0 ? colorImageMap : undefined,
     };
 
-    const duration = Date.now() - startTime;
-    console.log(`[ProductDetails] Complete in ${duration}ms`);
+      const duration = Date.now() - startTime;
+      console.log(`[ProductDetails] Complete in ${duration}ms`);
 
-    return NextResponse.json({
-      ok: true,
-      product: pricedProduct,
-      duration,
-    }, { headers: { 'Cache-Control': 'no-store' } });
+      return NextResponse.json(withCallbackTelemetry({
+        ok: true,
+        product: pricedProduct,
+        duration,
+      }), { headers: { 'Cache-Control': 'no-store' } });
 
-  } catch (e: any) {
-    console.error('[ProductDetails] Error:', e?.message, e?.stack);
-    return NextResponse.json(
-      { ok: false, error: e?.message || 'Failed to fetch product details' },
-      { status: 500, headers: { 'Cache-Control': 'no-store' } }
-    );
-  }
+    } catch (e: any) {
+      console.error('[ProductDetails] Error:', e?.message, e?.stack);
+      return NextResponse.json(
+        withCallbackTelemetry({ ok: false, error: e?.message || 'Failed to fetch product details' }),
+        { status: 500, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+  });
 }
 
 function extractAllImages(item: any): string[] {

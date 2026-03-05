@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getAccessToken } from "@/lib/cj/v2";
+import { fetchProductCategories } from "@/lib/cj/v2";
+import {
+  diffCounterSnapshots,
+  getRequestCountersSnapshot,
+  withRequestCounters,
+} from "@/lib/telemetry/request-counters";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -65,121 +70,111 @@ function findBestCategoryMatch(cjCategoryName: string, cjParentName?: string): {
 }
 
 export async function POST() {
-  try {
-    const admin = getSupabaseAdmin();
-    if (!admin) {
-      return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
-    }
-
-    let token = "";
-    try {
-      token = await getAccessToken();
-    } catch (e: any) {
-      return NextResponse.json({ ok: false, error: getCjAuthErrorMessage(e) }, { status: 500 });
-    }
-    if (!token) {
-      return NextResponse.json({ ok: false, error: "Failed to authenticate with CJ" }, { status: 500 });
-    }
-
-    const base = process.env.CJ_API_BASE || "https://developers.cjdropshipping.com/api2.0/v1";
-    const res = await fetch(`${base}/product/getCategory`, {
-      headers: {
-        "CJ-Access-Token": token,
-        "Content-Type": "application/json",
-      },
-      cache: "no-store",
+  return withRequestCounters(async () => {
+    const requestCounterBefore = getRequestCountersSnapshot();
+    const withCallbackTelemetry = <T extends Record<string, any>>(payload: T) => ({
+      ...payload,
+      cjApiCallbacks: diffCounterSnapshots(requestCounterBefore, getRequestCountersSnapshot()),
     });
 
-    const data = await res.json();
-    
-    if (data.code !== 200 || !data.data) {
-      return NextResponse.json({ ok: false, error: "Failed to fetch CJ categories" }, { status: 500 });
-    }
+    try {
+      const admin = getSupabaseAdmin();
+      if (!admin) {
+        return NextResponse.json(withCallbackTelemetry({ ok: false, error: "Database not configured" }), { status: 500 });
+      }
 
-    const rawCategories = Array.isArray(data.data) ? data.data : [];
-    const linksToInsert: any[] = [];
-    let totalProcessed = 0;
-    let totalMapped = 0;
+      const data = await fetchProductCategories();
+      if (data.code !== 200 || !data.data) {
+        return NextResponse.json(withCallbackTelemetry({ ok: false, error: "Failed to fetch CJ categories" }), { status: 500 });
+      }
 
-    for (let i = 0; i < rawCategories.length; i++) {
-      const firstLevel = rawCategories[i];
-      if (!firstLevel || typeof firstLevel !== 'object') continue;
-      
-      const firstName = firstLevel.categoryFirstName;
-      if (!firstName) continue;
+      const rawCategories = Array.isArray(data.data) ? data.data : [];
+      const linksToInsert: any[] = [];
+      let totalProcessed = 0;
+      let totalMapped = 0;
 
-      const firstList = firstLevel.categoryFirstList;
-      if (!Array.isArray(firstList)) continue;
+      for (let i = 0; i < rawCategories.length; i++) {
+        const firstLevel = rawCategories[i];
+        if (!firstLevel || typeof firstLevel !== 'object') continue;
 
-      for (let j = 0; j < firstList.length; j++) {
-        const secondLevel = firstList[j];
-        if (!secondLevel || typeof secondLevel !== 'object') continue;
-        
-        const secondName = secondLevel.categorySecondName;
-        if (!secondName) continue;
+        const firstName = firstLevel.categoryFirstName;
+        if (!firstName) continue;
 
-        const secondList = secondLevel.categorySecondList;
-        if (!Array.isArray(secondList)) continue;
+        const firstList = firstLevel.categoryFirstList;
+        if (!Array.isArray(firstList)) continue;
 
-        for (const thirdLevel of secondList) {
-          if (!thirdLevel || typeof thirdLevel !== 'object') continue;
-          
-          const cjCategoryId = thirdLevel.categoryId;
-          const cjCategoryName = thirdLevel.categoryName;
-          
-          if (!cjCategoryId || !cjCategoryName) continue;
-          
-          totalProcessed++;
-          
-          const match = findBestCategoryMatch(cjCategoryName, `${firstName} ${secondName}`);
-          
-          if (match) {
-            totalMapped++;
-            linksToInsert.push({
-              cj_category_id: String(cjCategoryId),
-              cj_category_name: String(cjCategoryName),
-              cj_parent_id: `${firstName} > ${secondName}`,
-              cj_level: 3,
-              category_id: match.categoryId,
-              confidence: match.confidence,
-              notes: `Auto-mapped from CJ: ${firstName} > ${secondName} > ${cjCategoryName}`,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            });
+        for (let j = 0; j < firstList.length; j++) {
+          const secondLevel = firstList[j];
+          if (!secondLevel || typeof secondLevel !== 'object') continue;
+
+          const secondName = secondLevel.categorySecondName;
+          if (!secondName) continue;
+
+          const secondList = secondLevel.categorySecondList;
+          if (!Array.isArray(secondList)) continue;
+
+          for (const thirdLevel of secondList) {
+            if (!thirdLevel || typeof thirdLevel !== 'object') continue;
+
+            const cjCategoryId = thirdLevel.categoryId;
+            const cjCategoryName = thirdLevel.categoryName;
+
+            if (!cjCategoryId || !cjCategoryName) continue;
+
+            totalProcessed++;
+
+            const match = findBestCategoryMatch(cjCategoryName, `${firstName} ${secondName}`);
+
+            if (match) {
+              totalMapped++;
+              linksToInsert.push({
+                cj_category_id: String(cjCategoryId),
+                cj_category_name: String(cjCategoryName),
+                cj_parent_id: `${firstName} > ${secondName}`,
+                cj_level: 3,
+                category_id: match.categoryId,
+                confidence: match.confidence,
+                notes: `Auto-mapped from CJ: ${firstName} > ${secondName} > ${cjCategoryName}`,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              });
+            }
           }
         }
       }
-    }
 
-    await admin.from('cj_category_links').delete().neq('id', 0);
+      await admin.from('cj_category_links').delete().neq('id', 0);
 
-    if (linksToInsert.length > 0) {
-      const batchSize = 100;
-      for (let i = 0; i < linksToInsert.length; i += batchSize) {
-        const batch = linksToInsert.slice(i, i + batchSize);
-        const { error } = await admin.from('cj_category_links').insert(batch);
-        if (error) {
-          console.error(`[CJ Sync] Batch insert error:`, error);
+      if (linksToInsert.length > 0) {
+        const batchSize = 100;
+        for (let i = 0; i < linksToInsert.length; i += batchSize) {
+          const batch = linksToInsert.slice(i, i + batchSize);
+          const { error } = await admin.from('cj_category_links').insert(batch);
+          if (error) {
+            console.error(`[CJ Sync] Batch insert error:`, error);
+          }
         }
       }
+
+      const { count } = await admin.from('cj_category_links').select('*', { count: 'exact', head: true });
+
+      return NextResponse.json(withCallbackTelemetry({
+        ok: true,
+        message: `Synced ${count} CJ category mappings`,
+        stats: {
+          totalCjCategories: totalProcessed,
+          mappedCategories: totalMapped,
+          savedToDatabase: count,
+        },
+      }));
+    } catch (e: any) {
+      console.error("[CJ Sync] Error:", e);
+      return NextResponse.json(
+        withCallbackTelemetry({ ok: false, error: getCjAuthErrorMessage(e) }),
+        { status: 500 }
+      );
     }
-
-    const { count } = await admin.from('cj_category_links').select('*', { count: 'exact', head: true });
-
-    return NextResponse.json({
-      ok: true,
-      message: `Synced ${count} CJ category mappings`,
-      stats: {
-        totalCjCategories: totalProcessed,
-        mappedCategories: totalMapped,
-        savedToDatabase: count,
-      }
-    });
-
-  } catch (e: any) {
-    console.error("[CJ Sync] Error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
-  }
+  });
 }
 
 export async function GET() {

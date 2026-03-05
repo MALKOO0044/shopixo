@@ -4,6 +4,11 @@ import { queryProductByPidOrKeyword } from "@/lib/cj/v2";
 import { ensureAdmin } from "@/lib/auth/admin-guard";
 import { normalizeSingleSize, normalizeSizeList } from "@/lib/cj/size-normalization";
 import { enhanceProductImageUrl } from "@/lib/media/image-quality";
+import {
+  diffCounterSnapshots,
+  getRequestCountersSnapshot,
+  withRequestCounters,
+} from "@/lib/telemetry/request-counters";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -213,61 +218,69 @@ async function resyncProduct(supabase: any, product: any): Promise<{ ok: boolean
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    const guard = await ensureAdmin();
-    if (!guard.ok) {
-      return NextResponse.json({ ok: false, error: guard.reason }, { status: 401 });
-    }
-
-    const supabase = getSupabaseAdmin();
-    if (!supabase) {
-      return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 500 });
-    }
-
-    const body = await req.json();
-    const limit = body?.limit || 100;
-
-    const { data: products, error: queryError } = await supabase
-      .from("products")
-      .select("id, title, cj_product_id")
-      .not("cj_product_id", "is", null)
-      .limit(limit);
-
-    if (queryError) {
-      return NextResponse.json({ ok: false, error: queryError.message }, { status: 500 });
-    }
-
-    if (!products || products.length === 0) {
-      return NextResponse.json({ ok: true, message: "No CJ products found to resync", results: [] });
-    }
-
-    const results: { id: number; title: string; ok: boolean; message: string }[] = [];
-
-    for (const product of products) {
-      const result = await resyncProduct(supabase, product);
-      results.push({
-        id: product.id,
-        title: product.title,
-        ok: result.ok,
-        message: result.message,
-      });
-      
-      await new Promise(r => setTimeout(r, 200));
-    }
-
-    const successful = results.filter(r => r.ok).length;
-    const failedCount = results.filter(r => !r.ok).length;
-
-    return NextResponse.json({
-      ok: true,
-      message: `Bulk resync complete: ${successful} succeeded, ${failedCount} failed`,
-      total: results.length,
-      updated: successful,
-      failed: failedCount,
-      results,
+  return withRequestCounters(async () => {
+    const requestCounterBefore = getRequestCountersSnapshot();
+    const withCallbackTelemetry = <T extends Record<string, any>>(payload: T) => ({
+      ...payload,
+      cjApiCallbacks: diffCounterSnapshots(requestCounterBefore, getRequestCountersSnapshot()),
     });
-  } catch (e: any) {
-    console.error("[Bulk Resync] Error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "Bulk resync failed" }, { status: 500 });
-  }
+
+    try {
+      const guard = await ensureAdmin();
+      if (!guard.ok) {
+        return NextResponse.json(withCallbackTelemetry({ ok: false, error: guard.reason }), { status: 401 });
+      }
+
+      const supabase = getSupabaseAdmin();
+      if (!supabase) {
+        return NextResponse.json(withCallbackTelemetry({ ok: false, error: "Database not configured" }), { status: 500 });
+      }
+
+      const body = await req.json();
+      const limit = body?.limit || 100;
+
+      const { data: products, error: queryError } = await supabase
+        .from("products")
+        .select("id, title, cj_product_id")
+        .not("cj_product_id", "is", null)
+        .limit(limit);
+
+      if (queryError) {
+        return NextResponse.json(withCallbackTelemetry({ ok: false, error: queryError.message }), { status: 500 });
+      }
+
+      if (!products || products.length === 0) {
+        return NextResponse.json(withCallbackTelemetry({ ok: true, message: "No CJ products found to resync", results: [] }));
+      }
+
+      const results: { id: number; title: string; ok: boolean; message: string }[] = [];
+
+      for (const product of products) {
+        const result = await resyncProduct(supabase, product);
+        results.push({
+          id: product.id,
+          title: product.title,
+          ok: result.ok,
+          message: result.message,
+        });
+
+        await new Promise(r => setTimeout(r, 200));
+      }
+
+      const successful = results.filter(r => r.ok).length;
+      const failedCount = results.filter(r => !r.ok).length;
+
+      return NextResponse.json(withCallbackTelemetry({
+        ok: true,
+        message: `Bulk resync complete: ${successful} succeeded, ${failedCount} failed`,
+        total: results.length,
+        updated: successful,
+        failed: failedCount,
+        results,
+      }));
+    } catch (e: any) {
+      console.error("[Bulk Resync] Error:", e);
+      return NextResponse.json(withCallbackTelemetry({ ok: false, error: e?.message || "Bulk resync failed" }), { status: 500 });
+    }
+  });
 }

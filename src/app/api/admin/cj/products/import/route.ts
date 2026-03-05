@@ -9,6 +9,11 @@ import { isKillSwitchOn } from '@/lib/settings';
 import { normalizeSingleSize, normalizeSizeList } from '@/lib/cj/size-normalization';
 import { normalizeCjImageKey } from '@/lib/cj/image-gallery';
 import { enhanceProductImageUrl } from '@/lib/media/image-quality';
+import {
+  diffCounterSnapshots,
+  getRequestCountersSnapshot,
+  withRequestCounters,
+} from '@/lib/telemetry/request-counters';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -37,24 +42,31 @@ async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
 }
 
 export async function POST(req: Request) {
-  const log = loggerForRequest(req);
-  try {
+  return withRequestCounters(async () => {
+    const log = loggerForRequest(req);
+    const requestCounterBefore = getRequestCountersSnapshot();
+    const withCallbackTelemetry = <T extends Record<string, any>>(payload: T) => ({
+      ...payload,
+      cjApiCallbacks: diffCounterSnapshots(requestCounterBefore, getRequestCountersSnapshot()),
+    });
+
+    try {
     const guard = await ensureAdmin();
     if (!guard.ok) {
-      const r = NextResponse.json({ ok: false, version: 'import-v2', error: guard.reason }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+      const r = NextResponse.json(withCallbackTelemetry({ ok: false, version: 'import-v2', error: guard.reason }), { status: 401, headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
     const supabase = getSupabaseAdmin();
     if (!supabase) {
-      const r = NextResponse.json({ ok: false, error: 'Server not configured' }, { status: 500 });
+      const r = NextResponse.json(withCallbackTelemetry({ ok: false, error: 'Server not configured' }), { status: 500 });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
 
     // Global kill-switch enforcement: block write operations
     if (await isKillSwitchOn()) {
-      const r = NextResponse.json({ ok: false, version: 'import-v2', error: 'Kill switch is ON. Import is temporarily disabled.' }, { status: 423, headers: { 'Cache-Control': 'no-store' } });
+      const r = NextResponse.json(withCallbackTelemetry({ ok: false, version: 'import-v2', error: 'Kill switch is ON. Import is temporarily disabled.' }), { status: 423, headers: { 'Cache-Control': 'no-store' } });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
@@ -81,12 +93,12 @@ export async function POST(req: Request) {
               : [];
       items = (listRaw as any[]).map((it) => mapCjItemToProductLike(it)).filter(Boolean) as CjProductLike[];
       if (items.length === 0) {
-        const r = NextResponse.json({ ok: false, error: 'No CJ products found for pid' }, { status: 404 });
+        const r = NextResponse.json(withCallbackTelemetry({ ok: false, error: 'No CJ products found for pid' }), { status: 404 });
         r.headers.set('x-request-id', log.requestId);
         return r;
       }
     } else {
-      const r = NextResponse.json({ ok: false, error: 'Provide pid or items' }, { status: 400 });
+      const r = NextResponse.json(withCallbackTelemetry({ ok: false, error: 'Provide pid or items' }), { status: 400 });
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
@@ -346,12 +358,13 @@ export async function POST(req: Request) {
       }
     }
 
-    const r = NextResponse.json({ ok: true, version: 'import-v2', results }, { headers: { 'Cache-Control': 'no-store' } });
+    const r = NextResponse.json(withCallbackTelemetry({ ok: true, version: 'import-v2', results }), { headers: { 'Cache-Control': 'no-store' } });
     r.headers.set('x-request-id', log.requestId);
     return r;
-  } catch (e: any) {
-    const r = NextResponse.json({ ok: false, version: 'import-v2', error: e?.message || 'CJ import failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
-    r.headers.set('x-request-id', log.requestId);
-    return r;
-  }
+    } catch (e: any) {
+      const r = NextResponse.json(withCallbackTelemetry({ ok: false, version: 'import-v2', error: e?.message || 'CJ import failed' }), { status: 500, headers: { 'Cache-Control': 'no-store' } });
+      r.headers.set('x-request-id', log.requestId);
+      return r;
+    }
+  });
 }
