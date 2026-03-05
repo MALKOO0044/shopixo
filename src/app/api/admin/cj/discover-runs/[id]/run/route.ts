@@ -31,6 +31,8 @@ type SearchBatchResponse = {
   }
 }
 
+const MAX_CONSECUTIVE_EMPTY_BATCHES = 8
+
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
   return Math.max(min, Math.min(max, value))
@@ -230,18 +232,39 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
         params.state.lastShortfallReason = data.shortfallReason.trim()
       }
 
+      const previousCursor = params.state.cursor
+      let cursorAdvanced = false
       if (typeof data.batch?.cursor === 'string' && data.batch.cursor.trim()) {
-        params.state.cursor = data.batch.cursor.trim()
+        const nextCursor = data.batch.cursor.trim()
+        cursorAdvanced = nextCursor !== previousCursor
+        params.state.cursor = nextCursor
       }
       params.state.hasMore = Boolean(data.batch?.hasMore)
 
+      const attemptedCount = Array.isArray(data.batch?.attemptedPids) ? data.batch.attemptedPids.length : 0
+
       if (addedThisBatch === 0) {
         params.state.consecutiveEmptyBatches += 1
+
+        // If CJ keeps returning empty batches without any candidate attempts or cursor movement,
+        // force-stop after a bounded number of retries to avoid endless API-only loops.
+        const noBatchProgress = attemptedCount === 0 && !cursorAdvanced
+        if (noBatchProgress) {
+          params.state.consecutiveEmptyBatches += 1
+        }
+
+        if (params.state.consecutiveEmptyBatches >= MAX_CONSECUTIVE_EMPTY_BATCHES) {
+          params.state.hasMore = false
+          if (!params.state.lastShortfallReason) {
+            params.state.lastShortfallReason =
+              'No additional eligible products were found after repeated empty batches. Try another feature or relax the filters.'
+          }
+          break
+        }
       } else {
         params.state.consecutiveEmptyBatches = 0
       }
 
-      const attemptedCount = Array.isArray(data.batch?.attemptedPids) ? data.batch.attemptedPids.length : 0
       if (addedThisBatch === 0 && attemptedCount === 0 && !params.state.hasMore) {
         break
       }
