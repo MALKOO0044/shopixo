@@ -317,6 +317,13 @@ function normalizeShippingCountryCode(value: unknown): string {
   return 'US';
 }
 
+function resolveDiscoverBatchDurationMs(batchSize: number): number {
+  if (batchSize >= 60) return 9000;
+  if (batchSize >= 40) return 8800;
+  if (batchSize >= 24) return 8500;
+  return 7800;
+}
+
 const SUPPLIER_RATING_KEYS = [
   'rating',
   'productRating',
@@ -683,10 +690,10 @@ async function handleSearch(req: Request, isPost: boolean) {
     const sizesParam = searchParams.get('sizes') || '';
     const mediaMode = parseDiscoverMediaMode(searchParams.get('mediaMode'));
     
-    // Batching parameters for Vercel timeout handling
-    // batchSize: max products to fully process per request (default 3 for safe margin)
+    // Batching parameters for discover-run handling.
+    // batchSize: max products to fully process per request.
     // Cursor-based pagination: {categoryIndex, pageNum, itemOffset}
-    const batchSize = Math.max(1, Math.min(12, Number(searchParams.get('batchSize') || 3)));
+    const batchSize = Math.max(1, Math.min(80, Number(searchParams.get('batchSize') || 24)));
     const isBatchMode = searchParams.get('batchMode') === '1';
     
     // Cursor for resumable pagination: categoryIndex.pageNum.itemOffset
@@ -735,7 +742,7 @@ async function handleSearch(req: Request, isPost: boolean) {
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
-    
+
     const requestedSizes = sizesParam
       ? Array.from(
           new Set(
@@ -829,9 +836,9 @@ async function handleSearch(req: Request, isPost: boolean) {
         failed: 0,
       },
     };
-    // In batch mode: 8 seconds max (Vercel has 10s limit, need buffer)
+    // In batch mode: dynamic budget by requested batch size
     // In non-batch mode: 5 minutes for legacy compatibility
-    const maxDurationMs = isBatchMode ? 8000 : 300000;
+    const maxDurationMs = isBatchMode ? resolveDiscoverBatchDurationMs(batchSize) : 300000;
     
     let totalFiltered = { price: 0, stock: 0, popularity: 0, rating: 0, existing: 0 };
     
@@ -844,9 +851,14 @@ async function handleSearch(req: Request, isPost: boolean) {
         ? 6
         : 3;
     const neededCandidates = isBatchMode 
-      ? batchSize * mediaCandidateMultiplier
+      ? Math.max(batchSize * mediaCandidateMultiplier, batchSize * 3)
       : quantity * mediaCandidateMultiplier;
-    const targetCollectedCandidates = isBatchMode ? neededCandidates * 3 : neededCandidates;
+    const targetCollectedCandidates = isBatchMode
+      ? Math.min(
+          Math.max(Math.floor(neededCandidates * 1.5), batchSize * 6),
+          mediaMode === 'withVideo' || mediaMode === 'both' ? 720 : 520
+        )
+      : neededCandidates;
     
     // Track only candidates actually consumed in this request.
     // Unprocessed deferred candidates are intentionally excluded so they can be resumed.
@@ -1046,6 +1058,30 @@ async function handleSearch(req: Request, isPost: boolean) {
       r.headers.set('x-request-id', log.requestId);
       return r;
     }
+
+    const prefetchedDetailsByPid = new Map<string, any>();
+    const detailPrefetchLimit = isBatchMode
+      ? Math.min(candidateProducts.length, Math.max(Math.floor(batchSize * 1.5), 24), 120)
+      : Math.min(candidateProducts.length, 120);
+    const detailPrefetchPids = candidateProducts
+      .slice(0, detailPrefetchLimit)
+      .map((candidate) => candidate.pid);
+    if (detailPrefetchPids.length > 0) {
+      try {
+        const detailPrefetchConcurrency = isBatchMode
+          ? Math.min(12, Math.max(4, Math.floor(batchSize / 6)))
+          : 6;
+        const prefetched = await fetchProductDetailsBatch(detailPrefetchPids, detailPrefetchConcurrency);
+        for (const [pidKey, details] of prefetched.entries()) {
+          prefetchedDetailsByPid.set(pidKey, details);
+        }
+        if (prefetchedDetailsByPid.size > 0) {
+          console.log(`[Search&Price] Prefetched details for ${prefetchedDetailsByPid.size}/${detailPrefetchPids.length} candidates (concurrency=${detailPrefetchConcurrency})`);
+        }
+      } catch (prefetchError: any) {
+        console.warn(`[Search&Price] Details prefetch failed: ${prefetchError?.message || prefetchError}`);
+      }
+    }
     
     // Process candidates until we reach the needed quantity
     // In batch mode: use remainingNeeded (what client still needs)
@@ -1161,12 +1197,14 @@ async function handleSearch(req: Request, isPost: boolean) {
       }
       
       // Fetch full product details for this product (on-demand)
-      let fullDetails: any = null;
-      try {
-        const detailsMap = await fetchProductDetailsBatch([pid], 1);
-        fullDetails = detailsMap.get(pid) || null;
-      } catch (e: any) {
-        console.log(`[Search&Price] Product ${pid} - Failed to fetch details: ${e?.message}`);
+      let fullDetails: any = prefetchedDetailsByPid.get(pid) || null;
+      if (!fullDetails) {
+        try {
+          const detailsMap = await fetchProductDetailsBatch([pid], 1);
+          fullDetails = detailsMap.get(pid) || null;
+        } catch (e: any) {
+          console.log(`[Search&Price] Product ${pid} - Failed to fetch details: ${e?.message}`);
+        }
       }
 
       const preloadedVariants = Array.isArray(fullDetails?.variantList)
@@ -1291,38 +1329,45 @@ async function handleSearch(req: Request, isPost: boolean) {
       let variantInventory: Awaited<ReturnType<typeof queryVariantInventory>> = [];
       
       try {
-        // Fetch product-level inventory from dedicated API
-        realInventory = await getInventoryByPid(pid);
-        if (realInventory) {
-          console.log(`[Search&Price] Product ${pid} - Inventory from getInventoryByPid:`);
-          console.log(`  - Total: ${realInventory.totalAvailable} (CJ: ${realInventory.totalCJ}, Factory: ${realInventory.totalFactory})`);
-          console.log(`  - Warehouses: ${realInventory.warehouses.length}`);
-          for (const wh of realInventory.warehouses) {
-            console.log(`    - ${wh.areaName}: CJ=${wh.cjInventory}, Factory=${wh.factoryInventory}, Total=${wh.totalInventory}`);
-          }
-        } else {
-          console.log(`[Search&Price] Product ${pid} - No inventory data returned from getInventoryByPid`);
-          inventoryStatus = 'partial';
-          inventoryErrorMessage = 'Could not fetch warehouse inventory';
-        }
-        
-        // Also fetch per-variant inventory (CJ vs Factory breakdown per variant)
-        // This matches CJ's "Inventory Details" modal showing: White-L (CJ:0, Factory:6714), etc.
-        // NOTE: Removed waitForCjRateLimit() call - it was adding 1100ms delay per product
-        // The CJ API handles rate limiting itself; we only slow down on actual rate limit errors
-        
-        try {
-          variantInventory = await queryVariantInventory(
+        const [inventoryResult, variantInventoryResult] = await Promise.allSettled([
+          getInventoryByPid(pid),
+          queryVariantInventory(
             pid,
             undefined,
             preloadedVariants.length > 0 ? preloadedVariants : undefined
-          );
-        } catch (e: any) {
-          const errorMsg = e?.message || 'Failed to fetch variant inventory';
+          ),
+        ]);
+
+        if (inventoryResult.status === 'fulfilled') {
+          realInventory = inventoryResult.value;
+          if (realInventory) {
+            console.log(`[Search&Price] Product ${pid} - Inventory from getInventoryByPid:`);
+            console.log(`  - Total: ${realInventory.totalAvailable} (CJ: ${realInventory.totalCJ}, Factory: ${realInventory.totalFactory})`);
+            console.log(`  - Warehouses: ${realInventory.warehouses.length}`);
+            for (const wh of realInventory.warehouses) {
+              console.log(`    - ${wh.areaName}: CJ=${wh.cjInventory}, Factory=${wh.factoryInventory}, Total=${wh.totalInventory}`);
+            }
+          } else {
+            console.log(`[Search&Price] Product ${pid} - No inventory data returned from getInventoryByPid`);
+            inventoryStatus = 'partial';
+            inventoryErrorMessage = 'Could not fetch warehouse inventory';
+          }
+        } else {
+          const errorMsg = (inventoryResult.reason as any)?.message || 'Failed to fetch warehouse inventory';
+          console.log(`[Search&Price] Product ${pid} - getInventoryByPid error: ${errorMsg}`);
+          inventoryStatus = 'partial';
+          inventoryErrorMessage = errorMsg;
+        }
+
+        if (variantInventoryResult.status === 'fulfilled') {
+          variantInventory = variantInventoryResult.value;
+        } else {
+          const errorMsg = (variantInventoryResult.reason as any)?.message || 'Failed to fetch variant inventory';
           console.log(`[Search&Price] Product ${pid} - queryVariantInventory error: ${errorMsg}`);
           inventoryStatus = inventoryStatus === 'ok' ? 'partial' : 'error';
           inventoryErrorMessage = inventoryErrorMessage ? `${inventoryErrorMessage}; ${errorMsg}` : errorMsg;
         }
+
         if (variantInventory && variantInventory.length > 0) {
           console.log(`[Search&Price] Product ${pid} - Per-variant inventory: ${variantInventory.length} variants`);
           for (const vi of variantInventory) {

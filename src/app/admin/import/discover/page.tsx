@@ -68,6 +68,15 @@ type DiscoverRunResponse = {
   };
 };
 
+type DiscoverQueueSaveSummary = {
+  selected: number;
+  inserted: number;
+  updated: number;
+  failed: number;
+  skippedMissingVideo: number;
+  skippedVideoQualityGate: number;
+};
+
 const DISCOVER_NON_PRODUCT_IMAGE_RE = /(sprite|icon|favicon|logo|placeholder|blank|loading|badge|flag|promo|banner|sale|discount|qr|sizechart|size\s*chart|chart|table|guide|thumb|thumbnail|small|tiny|mini)/i;
 const DISCOVER_IMAGE_KEY_SIZE_TOKEN_RE = /[_-](\d{2,4})x(\d{2,4})(?=\.)/gi;
 const DISCOVER_RESULTS_PER_PAGE = 40;
@@ -124,9 +133,14 @@ function computeDiscoverAdaptiveBatchSize(
   targetQuantity: number,
   mediaMode: "withVideo" | "imagesOnly" | "both"
 ): number {
-  const quantityBoost = targetQuantity >= 500 ? 12 : targetQuantity >= 200 ? 10 : targetQuantity >= 100 ? 9 : 7;
-  const mediaPenalty = mediaMode === "both" ? 2 : mediaMode === "withVideo" ? 1 : 0;
-  return clampNumber(quantityBoost - mediaPenalty, 3, 12);
+  const quantityBoost =
+    targetQuantity >= 2000 ? 72 :
+    targetQuantity >= 1000 ? 56 :
+    targetQuantity >= 500 ? 44 :
+    targetQuantity >= 250 ? 32 :
+    targetQuantity >= 100 ? 24 : 16;
+  const mediaPenalty = mediaMode === "both" ? 8 : mediaMode === "withVideo" ? 4 : 0;
+  return clampNumber(quantityBoost - mediaPenalty, 12, 80);
 }
 
 function filterDiscoverProductsByDeletedSet(
@@ -317,6 +331,7 @@ export default function ProductDiscoveryPage() {
   const [batchName, setBatchName] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedBatchId, setSavedBatchId] = useState<number | null>(null);
+  const [queueSaveSummary, setQueueSaveSummary] = useState<DiscoverQueueSaveSummary | null>(null);
   
   const [previewProduct, setPreviewProduct] = useState<PricedProduct | null>(null);
   const [previewPage, setPreviewPage] = useState(1);
@@ -494,6 +509,7 @@ export default function ProductDiscoveryPage() {
     setProducts([]);
     setSelected(new Set());
     setSavedBatchId(null);
+    setQueueSaveSummary(null);
     setResultsPage(1);
 
     const deletedSeed = Array.from(new Set([
@@ -555,8 +571,16 @@ export default function ProductDiscoveryPage() {
 
       let done = false;
       let safetyTicks = 0;
-      let adaptiveMaxBatches = quantity >= 200 ? 4 : quantity >= 100 ? 3 : 2;
-      let adaptiveMaxDurationMs = quantity >= 200 ? 9000 : quantity >= 100 ? 8500 : 7600;
+      let adaptiveMaxBatches =
+        quantity >= 2000 ? 14 :
+        quantity >= 1000 ? 12 :
+        quantity >= 500 ? 10 :
+        quantity >= 200 ? 8 :
+        quantity >= 100 ? 6 : 4;
+      let adaptiveMaxDurationMs =
+        quantity >= 1000 ? 11000 :
+        quantity >= 500 ? 10000 :
+        quantity >= 200 ? 9500 : 8500;
       let previousFound = 0;
       let previousBatchCount = 0;
 
@@ -618,16 +642,16 @@ export default function ProductDiscoveryPage() {
           const durationPressure = stepDurationMs > adaptiveMaxDurationMs * 0.92;
 
           if (foundPerBatch >= 1.8 && !durationPressure) {
-            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 1, 10);
-            adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs + 400, 7000, 9000);
+            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 2, 18);
+            adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs + 500, 7500, 12000);
           } else if (foundPerBatch < 0.8 || durationPressure) {
-            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches - 1, 1, 10);
-            adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs - 500, 7000, 9000);
+            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches - 1, 2, 18);
+            adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs - 600, 7500, 12000);
           } else if (foundDelta === 0 && stepDurationMs < adaptiveMaxDurationMs * 0.7) {
-            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 1, 10);
+            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 2, 18);
           }
 
-          const pollDelayMs = foundPerBatch >= 1.8 ? 120 : foundPerBatch < 0.8 ? 320 : 200;
+          const pollDelayMs = foundPerBatch >= 1.8 ? 100 : foundPerBatch < 0.8 ? 260 : 160;
           await delay(pollDelayMs);
         }
 
@@ -841,6 +865,7 @@ export default function ProductDiscoveryPage() {
     if (selected.size === 0) return;
     
     setSaving(true);
+    setQueueSaveSummary(null);
     try {
       const selectedProducts = products.filter((p: PricedProduct) => selected.has(p.pid));
       const res = await fetch("/api/admin/import/batch", {
@@ -1026,6 +1051,14 @@ export default function ProductDiscoveryPage() {
       const data = await res.json();
       if (data.ok && data.batchId) {
         setSavedBatchId(data.batchId);
+        setQueueSaveSummary({
+          selected: selectedProducts.length,
+          inserted: Math.max(0, Number(data.productsInserted ?? data.productsAdded ?? 0)),
+          updated: Math.max(0, Number(data.productsUpdated ?? 0)),
+          failed: Math.max(0, Number(data.productsFailed ?? 0)),
+          skippedMissingVideo: Math.max(0, Number(data.productsSkippedMissingVideo ?? 0)),
+          skippedVideoQualityGate: Math.max(0, Number(data.productsSkippedVideoQualityGate ?? 0)),
+        });
         const skippedNotices: string[] = [];
         if (typeof data.productsSkippedMissingVideo === 'number' && data.productsSkippedMissingVideo > 0) {
           skippedNotices.push(
@@ -1788,7 +1821,20 @@ export default function ProductDiscoveryPage() {
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-5 w-5 text-green-600" />
                 <span className="text-green-800">
-                  {selected.size} products added to queue successfully!
+                  {(() => {
+                    const inserted = queueSaveSummary?.inserted ?? 0;
+                    const updated = queueSaveSummary?.updated ?? 0;
+                    const failed = queueSaveSummary?.failed ?? 0;
+                    const totalWritten = inserted + updated;
+                    if (updated > 0) {
+                      const failedText = failed > 0 ? `, ${failed} failed` : "";
+                      return `${totalWritten} products written (${inserted} inserted, ${updated} updated${failedText}).`;
+                    }
+                    if (failed > 0) {
+                      return `${inserted} products inserted, ${failed} failed.`;
+                    }
+                    return `${inserted} products added to queue successfully!`;
+                  })()}
                 </span>
               </div>
               <Link

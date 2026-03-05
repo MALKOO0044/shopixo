@@ -86,7 +86,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Failed to create batch" }, { status: 500 });
     }
 
-    let addedCount = 0;
+    let insertedCount = 0;
+    let updatedCount = 0;
+    let successfulWrites = 0;
     let failedCount = 0;
     let skippedMissingVideoCount = 0;
     let skippedVideoQualityGateCount = 0;
@@ -216,7 +218,12 @@ export async function POST(req: NextRequest) {
       });
 
       if (result.success) {
-        addedCount++;
+        successfulWrites++;
+        if (result.mode === 'updated') {
+          updatedCount++;
+        } else {
+          insertedCount++;
+        }
       } else {
         failedCount++;
         failedProducts.push(productId);
@@ -226,7 +233,7 @@ export async function POST(req: NextRequest) {
       }
     }
     
-    if (addedCount === 0 && products.length > 0) {
+    if (successfulWrites === 0 && products.length > 0) {
       const errorDetail = errorMessages.length > 0 
         ? ` First error: ${errorMessages[0]}`
         : '';
@@ -259,7 +266,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       batchId: batch.id,
-      productsAdded: addedCount,
+      productsAdded: successfulWrites,
+      productsInserted: insertedCount,
+      productsUpdated: updatedCount,
+      productsWritten: successfulWrites,
       productsFailed: failedCount,
       productsSkippedMissingVideo: skippedMissingVideoCount,
       productsSkippedVideoQualityGate: skippedVideoQualityGateCount,

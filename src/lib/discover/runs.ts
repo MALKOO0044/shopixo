@@ -145,7 +145,7 @@ export function normalizeDiscoverRunFilters(value: any): DiscoverRunFilters | nu
     freeShippingOnly: normalizeBoolean(source.freeShippingOnly),
     mediaMode: normalizeMediaMode(source.mediaMode),
     sizes: rawSizes,
-    batchSize: clamp(Number(source.batchSize ?? 3), 1, 12),
+    batchSize: clamp(Number(source.batchSize ?? 24), 1, 80),
   }
 }
 
@@ -188,7 +188,7 @@ export function normalizeDiscoverRunParams(raw: any): DiscoverRunParams {
     freeShippingOnly: normalizeBoolean(source.freeShippingOnly),
     mediaMode: normalizeMediaMode(source.mediaMode),
     sizes: normalizeStringArray(source.sizes),
-    batchSize: clamp(Number(source.batchSize ?? 3), 1, 12),
+    batchSize: clamp(Number(source.batchSize ?? 24), 1, 80),
   }
 
   const normalizedFilters = normalizeDiscoverRunFilters(toObject(source.filters)) || normalizeDiscoverRunFilters(source) || fallbackFilters

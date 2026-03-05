@@ -223,6 +223,8 @@ export async function createImportBatch(data: {
   return batch;
 }
 
+type QueueWriteMode = 'inserted' | 'updated';
+
 export async function addProductToQueue(batchId: number, product: {
   productId: string;
   cjSku?: string;
@@ -286,7 +288,7 @@ export async function addProductToQueue(batchId: number, product: {
   colorImageMap?: Record<string, string>;
 }, options?: {
   schemaCheck?: Awaited<ReturnType<typeof checkProductQueueSchema>>;
-}): Promise<{ success: boolean; error?: string }> {
+}): Promise<{ success: boolean; error?: string; mode?: QueueWriteMode }> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { success: false, error: 'Supabase not configured' };
   if (!product.productId) return { success: false, error: 'Missing required field: pid' };
@@ -501,7 +503,7 @@ export async function addProductToQueue(batchId: number, product: {
     }
   }
 
-  const writeProductQueue = async (payload: Record<string, any>) => {
+  const writeProductQueue = async (payload: Record<string, any>): Promise<{ error: any; mode: QueueWriteMode }> => {
     const { data: existing } = await supabase
       .from('product_queue')
       .select('id')
@@ -509,19 +511,23 @@ export async function addProductToQueue(batchId: number, product: {
       .maybeSingle();
 
     if (existing) {
-      return await supabase
+      const { error } = await supabase
         .from('product_queue')
         .update(payload)
         .eq('cj_product_id', product.productId);
+      return { error, mode: 'updated' };
     }
 
-    return await supabase
+    const { error } = await supabase
       .from('product_queue')
       .insert(payload);
+    return { error, mode: 'inserted' };
   };
 
   let payloadForWrite: Record<string, any> = { ...productData };
-  let { error } = await writeProductQueue(payloadForWrite);
+  let writeResult = await writeProductQueue(payloadForWrite);
+  let { error } = writeResult;
+  let writeMode: QueueWriteMode = writeResult.mode;
 
   if (error && isSchemaMissingColumnError(error)) {
     const optionalColumns = new Set(Object.keys(newColumns));
@@ -556,6 +562,7 @@ export async function addProductToQueue(batchId: number, product: {
       payloadForWrite = retryPayload;
       const retryResult = await writeProductQueue(payloadForWrite);
       error = retryResult.error;
+      writeMode = retryResult.mode;
     }
   }
 
@@ -594,7 +601,7 @@ export async function addProductToQueue(batchId: number, product: {
     // Non-fatal
   }
 
-  return { success: true };
+  return { success: true, mode: writeMode };
 }
 
 export async function logImportAction(batchId: number, action: string, status: string, details: any): Promise<void> {

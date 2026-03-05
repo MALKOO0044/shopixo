@@ -31,7 +31,7 @@ type SearchBatchResponse = {
   }
 }
 
-const MAX_CONSECUTIVE_EMPTY_BATCHES = 8
+const MAX_CONSECUTIVE_EMPTY_BATCHES = 14
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
@@ -105,8 +105,8 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       return r
     }
 
-    const maxDurationMs = clamp(Number(body?.maxDurationMs ?? 7000), 1500, 9000)
-    const maxBatches = clamp(Number(body?.maxBatches ?? 2), 1, 12)
+    const maxDurationMs = clamp(Number(body?.maxDurationMs ?? 8500), 1500, 12000)
+    const maxBatches = clamp(Number(body?.maxBatches ?? 4), 1, 24)
 
     if (jobMeta.status === 'pending') {
       await startJob(id)
@@ -249,8 +249,13 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
         // If CJ keeps returning empty batches without any candidate attempts or cursor movement,
         // force-stop after a bounded number of retries to avoid endless API-only loops.
         const noBatchProgress = attemptedCount === 0 && !cursorAdvanced
-        if (noBatchProgress) {
-          params.state.consecutiveEmptyBatches += 1
+        if (noBatchProgress && params.state.consecutiveEmptyBatches >= Math.ceil(MAX_CONSECUTIVE_EMPTY_BATCHES / 2)) {
+          params.state.hasMore = false
+          if (!params.state.lastShortfallReason) {
+            params.state.lastShortfallReason =
+              'No additional eligible products were found after repeated no-progress batches. Try another feature or relax the filters.'
+          }
+          break
         }
 
         if (params.state.consecutiveEmptyBatches >= MAX_CONSECUTIVE_EMPTY_BATCHES) {
