@@ -150,6 +150,17 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function normalizeDiscoverErrorMessage(value: unknown): string {
+  const message = typeof value === "string" ? value.trim() : "";
+  if (!message) return "Search failed";
+
+  if (/\bno\s+files?\b/i.test(message) || /\bno\s+file\s+provided\b/i.test(message)) {
+    return "No additional eligible products were returned by CJ for the current filters. Try another feature or relax filters.";
+  }
+
+  return message;
+}
+
 function computeDiscoverAdaptiveBatchSize(
   targetQuantity: number,
   mediaMode: "withVideo" | "imagesOnly" | "both"
@@ -717,7 +728,7 @@ export default function ProductDiscoveryPage() {
         const reason =
           lastShortfallReason ||
           `Found ${allProducts.length}/${quantity} products. Not enough matching products in this category.`;
-        setError(`Notice: ${reason}`);
+        setError(`Notice: ${normalizeDiscoverErrorMessage(reason)}`);
       }
 
       if (allProducts.length === 0) {
@@ -725,7 +736,7 @@ export default function ProductDiscoveryPage() {
       }
 
     } catch (e: any) {
-      setError(e?.message || "Search failed");
+      setError(normalizeDiscoverErrorMessage(e?.message));
       if (runId) {
         try {
           const statusRes = await fetch(`/api/admin/cj/discover-runs/${runId}?limit=${quantity}`, {
@@ -736,7 +747,7 @@ export default function ProductDiscoveryPage() {
             allProducts = filterDiscoverProductsByDeletedSet(statusData.products, deletedPidRuntimeRef.current);
             setProducts(allProducts);
             if (typeof statusData.shortfallReason === "string" && statusData.shortfallReason.trim()) {
-              setError(`Notice: ${statusData.shortfallReason.trim()}`);
+              setError(`Notice: ${normalizeDiscoverErrorMessage(statusData.shortfallReason.trim())}`);
             }
           }
         } catch {

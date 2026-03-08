@@ -3185,6 +3185,57 @@ async function handleSearch(req: Request, isPost: boolean) {
     return r;
     
     } catch (e: any) {
+      const errorMessage = String(e?.message || 'Search and price failed').trim();
+      const recoverableNoFilesError = /\bno\s+files?\b/i.test(errorMessage) || /\bno\s+file\s+provided\b/i.test(errorMessage);
+
+      if (recoverableNoFilesError) {
+        const { searchParams } = new URL(req.url);
+        const quantity = Math.max(1, Math.min(5000, Number(searchParams.get('quantity') || 50)));
+        const mediaMode = parseDiscoverMediaMode(searchParams.get('mediaMode'));
+        const shippingCountryCode = normalizeShippingCountryCode(
+          searchParams.get('shippingCountry') ||
+          searchParams.get('shippingCountryCode') ||
+          process.env.DISCOVER_SHIPPING_COUNTRY ||
+          process.env.NEXT_PUBLIC_DEFAULT_SHIPPING_COUNTRY ||
+          'US'
+        );
+        const isBatchMode = searchParams.get('batchMode') === '1';
+        const cursorParam = searchParams.get('cursor') || '0.1.0';
+        const batchSize = Math.max(1, Math.min(80, Number(searchParams.get('batchSize') || 24)));
+
+        console.warn(`[Search&Price] Recoverable upstream error: ${errorMessage}`);
+
+        const r = NextResponse.json(withCallbackTelemetry({
+          ok: true,
+          products: [],
+          count: 0,
+          requestedQuantity: quantity,
+          quantityFulfilled: false,
+          shortfallReason: 'No additional eligible products were returned by CJ for the current filters. Try another feature or relax filters.',
+          mediaMode,
+          shippingCountryCode,
+          duration: 0,
+          batch: isBatchMode ? {
+            hasMore: true,
+            cursor: cursorParam,
+            attemptedPids: [],
+            processedPids: [],
+            totalCandidates: 0,
+            candidatesProcessed: 0,
+            candidatesDeferred: 0,
+            productsThisBatch: 0,
+            batchSize,
+          } : undefined,
+          debug: {
+            recoverableError: true,
+            recoverableErrorCode: 'NO_FILES_UPSTREAM',
+            recoverableErrorMessage: errorMessage,
+          },
+        }), { headers: { 'Cache-Control': 'no-store' } });
+        r.headers.set('x-request-id', log.requestId);
+        return r;
+      }
+
       console.error('[Search&Price] Error:', e?.message, e?.stack);
       const r = NextResponse.json(
         withCallbackTelemetry({ ok: false, error: e?.message || 'Search and price failed' }), 

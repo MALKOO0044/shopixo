@@ -70,6 +70,30 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
+function normalizeErrorMessage(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  return value.trim()
+}
+
+function isRecoverableSearchStepError(status: number, message: string): boolean {
+  const normalized = String(message || '').toLowerCase()
+  if (!normalized) return false
+
+  if (status >= 500 && /\bno\s+files?\b/.test(normalized)) return true
+  if (/\bno\s+file\s+provided\b/.test(normalized)) return true
+
+  return false
+}
+
+function sanitizeShortfallReason(message: string): string {
+  const normalized = normalizeErrorMessage(message)
+  if (!normalized) return ''
+  if (/\bno\s+files?\b/i.test(normalized) || /\bno\s+file\s+provided\b/i.test(normalized)) {
+    return 'No additional eligible products were returned by CJ for the current filters. Try another feature or relax filters.'
+  }
+  return normalized
+}
+
 async function loadDeletedPidSet(extraDeletedPids?: unknown): Promise<Set<string>> {
   const out = new Set<string>()
 
@@ -183,12 +207,50 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     let candidateOnlyBatchesNow = 0
     let noProgressBatchesNow = 0
     let lowYieldBatchesNow = 0
+    let recoverableErrorsNow = 0
     let lastAttemptedCount = 0
     let lastAddedCount = 0
     let lastCursorAdvanced = false
+    let lastRecoverableError: string | null = null
     let fatalError: string | null = null
 
     const startedAt = Date.now()
+
+    const applyRecoverableSearchError = (errorMessage: string) => {
+      batchesRunNow += 1
+      params.state.batchNumber += 1
+      recoverableErrorsNow += 1
+      lastRecoverableError = errorMessage
+
+      params.state.consecutiveEmptyBatches += 1
+      params.state.consecutiveNoProgressBatches += 1
+      params.state.consecutiveCandidateOnlyBatches = 0
+      params.state.consecutiveLowYieldBatches = 0
+      noProgressBatchesNow += 1
+
+      lastAttemptedCount = 0
+      lastAddedCount = 0
+      lastCursorAdvanced = false
+
+      const remainingAfterFailure = Math.max(0, params.filters.quantity - resultPids.size)
+      const noProgressStopThreshold = resolveNoProgressStopThreshold(remainingAfterFailure)
+
+      if (params.state.consecutiveNoProgressBatches >= noProgressStopThreshold) {
+        params.state.hasMore = false
+        if (!params.state.lastShortfallReason) {
+          params.state.lastShortfallReason =
+            'Search repeatedly returned upstream empty-data responses (No files). Try another feature or relax the filters.'
+        }
+      }
+
+      if (params.state.consecutiveEmptyBatches >= MAX_CONSECUTIVE_EMPTY_BATCHES) {
+        params.state.hasMore = false
+        if (!params.state.lastShortfallReason) {
+          params.state.lastShortfallReason =
+            'No additional eligible products were found after repeated empty upstream responses. Try another feature or relax the filters.'
+        }
+      }
+    }
 
     while (params.state.hasMore && resultPids.size < params.filters.quantity) {
       if (batchesRunNow >= maxBatches) break
@@ -212,6 +274,10 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       const contentType = searchRes.headers.get('content-type') || ''
       if (!contentType.includes('application/json')) {
         const text = await searchRes.text()
+        if (isRecoverableSearchStepError(searchRes.status, text)) {
+          applyRecoverableSearchError(normalizeErrorMessage(text) || 'Upstream returned "No files"')
+          continue
+        }
         fatalError = `Discover run failed: non-JSON response (${text.slice(0, 120)})`
         break
       }
@@ -224,7 +290,12 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
           params.state.hasMore = false
           break
         }
-        fatalError = data?.error || `search-and-price failed (${searchRes.status})`
+        const upstreamError = normalizeErrorMessage(data?.error || `search-and-price failed (${searchRes.status})`)
+        if (isRecoverableSearchStepError(searchRes.status, upstreamError)) {
+          applyRecoverableSearchError(upstreamError)
+          continue
+        }
+        fatalError = upstreamError
         break
       }
 
@@ -268,7 +339,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       }
 
       if (typeof data.shortfallReason === 'string' && data.shortfallReason.trim()) {
-        params.state.lastShortfallReason = data.shortfallReason.trim()
+        params.state.lastShortfallReason = sanitizeShortfallReason(data.shortfallReason)
       }
 
       const previousCursor = params.state.cursor
@@ -388,6 +459,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       candidateOnlyBatchesNow,
       noProgressBatchesNow,
       lowYieldBatchesNow,
+      recoverableErrorsNow,
       quotaExhausted: params.state.quotaExhausted,
     }
 
@@ -455,6 +527,8 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
           candidateOnly: params.state.consecutiveCandidateOnlyBatches,
           lowYield: params.state.consecutiveLowYieldBatches,
         },
+        recoverableErrorsNow,
+        lastRecoverableError,
       },
       // Keep products for compatibility with existing clients, but return only incremental deltas.
       products: newProductsThisStep,
