@@ -28,70 +28,12 @@ type SearchBatchResponse = {
     hasMore?: boolean
     cursor?: string
     attemptedPids?: string[]
-    candidatesProcessed?: number
-    candidatesDeferred?: number
-    productsThisBatch?: number
-    totalCandidates?: number
   }
-}
-
-const MAX_CONSECUTIVE_EMPTY_BATCHES = 14
-
-function resolveNoProgressStopThreshold(remainingNeeded: number): number {
-  if (remainingNeeded >= 1000) return 5
-  if (remainingNeeded >= 300) return 4
-  if (remainingNeeded >= 100) return 3
-  return 2
-}
-
-function resolveCandidateOnlyStopThreshold(remainingNeeded: number): number {
-  if (remainingNeeded >= 1000) return 7
-  if (remainingNeeded >= 300) return 6
-  if (remainingNeeded >= 100) return 5
-  return 4
-}
-
-function resolveLowYieldStopThreshold(remainingNeeded: number): number {
-  if (remainingNeeded >= 1000) return 6
-  if (remainingNeeded >= 300) return 5
-  if (remainingNeeded >= 100) return 4
-  return 3
-}
-
-function isLowYieldBatch(addedThisBatch: number, attemptedCount: number): boolean {
-  if (addedThisBatch <= 0 || attemptedCount < 8) return false
-  const ratio = addedThisBatch / attemptedCount
-  if (attemptedCount >= 18) return ratio < 0.08
-  return ratio < 0.12
 }
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
   return Math.max(min, Math.min(max, value))
-}
-
-function normalizeErrorMessage(value: unknown): string {
-  if (typeof value !== 'string') return ''
-  return value.trim()
-}
-
-function isRecoverableSearchStepError(status: number, message: string): boolean {
-  const normalized = String(message || '').toLowerCase()
-  if (!normalized) return false
-
-  if (status >= 500 && /\bno\s+files?\b/.test(normalized)) return true
-  if (/\bno\s+file\s+provided\b/.test(normalized)) return true
-
-  return false
-}
-
-function sanitizeShortfallReason(message: string): string {
-  const normalized = normalizeErrorMessage(message)
-  if (!normalized) return ''
-  if (/\bno\s+files?\b/i.test(normalized) || /\bno\s+file\s+provided\b/i.test(normalized)) {
-    return 'No additional eligible products were returned by CJ for the current filters. Try another feature or relax filters.'
-  }
-  return normalized
 }
 
 async function loadDeletedPidSet(extraDeletedPids?: unknown): Promise<Set<string>> {
@@ -161,8 +103,8 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       return r
     }
 
-    const maxDurationMs = clamp(Number(body?.maxDurationMs ?? 8200), 1500, 11000)
-    const maxBatches = clamp(Number(body?.maxBatches ?? 4), 1, 16)
+    const maxDurationMs = clamp(Number(body?.maxDurationMs ?? 7000), 1500, 9000)
+    const maxBatches = clamp(Number(body?.maxBatches ?? 2), 1, 12)
 
     if (jobMeta.status === 'pending') {
       await startJob(id)
@@ -203,54 +145,9 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
 
     let batchesRunNow = 0
     let addedNow = 0
-    let attemptedNow = 0
-    let candidateOnlyBatchesNow = 0
-    let noProgressBatchesNow = 0
-    let lowYieldBatchesNow = 0
-    let recoverableErrorsNow = 0
-    let lastAttemptedCount = 0
-    let lastAddedCount = 0
-    let lastCursorAdvanced = false
-    let lastRecoverableError: string | null = null
     let fatalError: string | null = null
 
     const startedAt = Date.now()
-
-    const applyRecoverableSearchError = (errorMessage: string) => {
-      batchesRunNow += 1
-      params.state.batchNumber += 1
-      recoverableErrorsNow += 1
-      lastRecoverableError = errorMessage
-
-      params.state.consecutiveEmptyBatches += 1
-      params.state.consecutiveNoProgressBatches += 1
-      params.state.consecutiveCandidateOnlyBatches = 0
-      params.state.consecutiveLowYieldBatches = 0
-      noProgressBatchesNow += 1
-
-      lastAttemptedCount = 0
-      lastAddedCount = 0
-      lastCursorAdvanced = false
-
-      const remainingAfterFailure = Math.max(0, params.filters.quantity - resultPids.size)
-      const noProgressStopThreshold = resolveNoProgressStopThreshold(remainingAfterFailure)
-
-      if (params.state.consecutiveNoProgressBatches >= noProgressStopThreshold) {
-        params.state.hasMore = false
-        if (!params.state.lastShortfallReason) {
-          params.state.lastShortfallReason =
-            'Search repeatedly returned upstream empty-data responses (No files). Try another feature or relax the filters.'
-        }
-      }
-
-      if (params.state.consecutiveEmptyBatches >= MAX_CONSECUTIVE_EMPTY_BATCHES) {
-        params.state.hasMore = false
-        if (!params.state.lastShortfallReason) {
-          params.state.lastShortfallReason =
-            'No additional eligible products were found after repeated empty upstream responses. Try another feature or relax the filters.'
-        }
-      }
-    }
 
     while (params.state.hasMore && resultPids.size < params.filters.quantity) {
       if (batchesRunNow >= maxBatches) break
@@ -274,10 +171,6 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       const contentType = searchRes.headers.get('content-type') || ''
       if (!contentType.includes('application/json')) {
         const text = await searchRes.text()
-        if (isRecoverableSearchStepError(searchRes.status, text)) {
-          applyRecoverableSearchError(normalizeErrorMessage(text) || 'Upstream returned "No files"')
-          continue
-        }
         fatalError = `Discover run failed: non-JSON response (${text.slice(0, 120)})`
         break
       }
@@ -290,12 +183,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
           params.state.hasMore = false
           break
         }
-        const upstreamError = normalizeErrorMessage(data?.error || `search-and-price failed (${searchRes.status})`)
-        if (isRecoverableSearchStepError(searchRes.status, upstreamError)) {
-          applyRecoverableSearchError(upstreamError)
-          continue
-        }
-        fatalError = upstreamError
+        fatalError = data?.error || `search-and-price failed (${searchRes.status})`
         break
       }
 
@@ -339,39 +227,13 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       }
 
       if (typeof data.shortfallReason === 'string' && data.shortfallReason.trim()) {
-        params.state.lastShortfallReason = sanitizeShortfallReason(data.shortfallReason)
+        params.state.lastShortfallReason = data.shortfallReason.trim()
       }
 
-      const previousCursor = params.state.cursor
-      let cursorAdvanced = false
       if (typeof data.batch?.cursor === 'string' && data.batch.cursor.trim()) {
-        const nextCursor = data.batch.cursor.trim()
-        cursorAdvanced = nextCursor !== previousCursor
-        params.state.cursor = nextCursor
+        params.state.cursor = data.batch.cursor.trim()
       }
       params.state.hasMore = Boolean(data.batch?.hasMore)
-
-      const attemptedCountFromResponse = Number(data.batch?.candidatesProcessed)
-      const attemptedCount =
-        Number.isFinite(attemptedCountFromResponse) && attemptedCountFromResponse >= 0
-          ? Math.floor(attemptedCountFromResponse)
-          : Array.isArray(data.batch?.attemptedPids)
-            ? data.batch.attemptedPids.length
-            : 0
-
-      attemptedNow += attemptedCount
-      lastAttemptedCount = attemptedCount
-      lastAddedCount = addedThisBatch
-      lastCursorAdvanced = cursorAdvanced
-
-      const remainingAfterBatch = Math.max(0, params.filters.quantity - resultPids.size)
-      const noProgressStopThreshold = resolveNoProgressStopThreshold(remainingAfterBatch)
-      const candidateOnlyStopThreshold = resolveCandidateOnlyStopThreshold(remainingAfterBatch)
-      const lowYieldStopThreshold = resolveLowYieldStopThreshold(remainingAfterBatch)
-
-      const noBatchProgress = attemptedCount === 0 && !cursorAdvanced
-      const candidateOnlyProgress = attemptedCount > 0 && addedThisBatch === 0
-      const lowYieldBatch = isLowYieldBatch(addedThisBatch, attemptedCount)
 
       if (addedThisBatch === 0) {
         params.state.consecutiveEmptyBatches += 1
@@ -379,63 +241,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
         params.state.consecutiveEmptyBatches = 0
       }
 
-      if (noBatchProgress) {
-        params.state.consecutiveNoProgressBatches += 1
-        noProgressBatchesNow += 1
-      } else {
-        params.state.consecutiveNoProgressBatches = 0
-      }
-
-      if (candidateOnlyProgress) {
-        params.state.consecutiveCandidateOnlyBatches += 1
-        candidateOnlyBatchesNow += 1
-      } else {
-        params.state.consecutiveCandidateOnlyBatches = 0
-      }
-
-      if (lowYieldBatch) {
-        params.state.consecutiveLowYieldBatches += 1
-        lowYieldBatchesNow += 1
-      } else {
-        params.state.consecutiveLowYieldBatches = 0
-      }
-
-      if (noBatchProgress && params.state.consecutiveNoProgressBatches >= noProgressStopThreshold) {
-        params.state.hasMore = false
-        if (!params.state.lastShortfallReason) {
-          params.state.lastShortfallReason =
-            'No additional eligible products were found after repeated no-progress batches. Try another feature or relax the filters.'
-        }
-        break
-      }
-
-      if (candidateOnlyProgress && params.state.consecutiveCandidateOnlyBatches >= candidateOnlyStopThreshold) {
-        params.state.hasMore = false
-        if (!params.state.lastShortfallReason) {
-          params.state.lastShortfallReason =
-            'Search is scanning candidates but not finding new eligible products. Try another feature or relax filters.'
-        }
-        break
-      }
-
-      if (lowYieldBatch && params.state.consecutiveLowYieldBatches >= lowYieldStopThreshold) {
-        params.state.hasMore = false
-        if (!params.state.lastShortfallReason) {
-          params.state.lastShortfallReason =
-            `Low-yield batches detected repeatedly (${addedThisBatch}/${attemptedCount} in last batch). Try another feature or relax filters.`
-        }
-        break
-      }
-
-      if (params.state.consecutiveEmptyBatches >= MAX_CONSECUTIVE_EMPTY_BATCHES) {
-        params.state.hasMore = false
-        if (!params.state.lastShortfallReason) {
-          params.state.lastShortfallReason =
-            'No additional eligible products were found after repeated empty batches. Try another feature or relax the filters.'
-        }
-        break
-      }
-
+      const attemptedCount = Array.isArray(data.batch?.attemptedPids) ? data.batch.attemptedPids.length : 0
       if (addedThisBatch === 0 && attemptedCount === 0 && !params.state.hasMore) {
         break
       }
@@ -455,11 +261,6 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       batches: params.state.batchNumber,
       batchesRunNow,
       addedNow,
-      attemptedNow,
-      candidateOnlyBatchesNow,
-      noProgressBatchesNow,
-      lowYieldBatchesNow,
-      recoverableErrorsNow,
       quotaExhausted: params.state.quotaExhausted,
     }
 
@@ -507,28 +308,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
           batches: params.state.batchNumber,
           cursor: params.state.cursor,
           hasMore: params.state.hasMore,
-          noProgressBatches: params.state.consecutiveNoProgressBatches,
-          candidateOnlyBatches: params.state.consecutiveCandidateOnlyBatches,
-          lowYieldBatches: params.state.consecutiveLowYieldBatches,
         },
-      },
-      diagnostics: {
-        batchesRunNow,
-        addedNow,
-        attemptedNow,
-        lastBatch: {
-          attempted: lastAttemptedCount,
-          added: lastAddedCount,
-          cursorAdvanced: lastCursorAdvanced,
-        },
-        streaks: {
-          empty: params.state.consecutiveEmptyBatches,
-          noProgress: params.state.consecutiveNoProgressBatches,
-          candidateOnly: params.state.consecutiveCandidateOnlyBatches,
-          lowYield: params.state.consecutiveLowYieldBatches,
-        },
-        recoverableErrorsNow,
-        lastRecoverableError,
       },
       // Keep products for compatibility with existing clients, but return only incremental deltas.
       products: newProductsThisStep,

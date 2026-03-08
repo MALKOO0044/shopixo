@@ -27,9 +27,6 @@ export type DiscoverRunState = {
   seenPids: string[]
   resultPids: string[]
   consecutiveEmptyBatches: number
-  consecutiveNoProgressBatches: number
-  consecutiveCandidateOnlyBatches: number
-  consecutiveLowYieldBatches: number
   lastShortfallReason: string | null
   lastError: string | null
   quotaExhausted: boolean
@@ -148,7 +145,7 @@ export function normalizeDiscoverRunFilters(value: any): DiscoverRunFilters | nu
     freeShippingOnly: normalizeBoolean(source.freeShippingOnly),
     mediaMode: normalizeMediaMode(source.mediaMode),
     sizes: rawSizes,
-    batchSize: clamp(Number(source.batchSize ?? 24), 1, 80),
+    batchSize: clamp(Number(source.batchSize ?? 3), 1, 12),
   }
 }
 
@@ -160,9 +157,6 @@ export function createInitialDiscoverRunState(seedSeenPids?: unknown): DiscoverR
     seenPids: normalizePidList(seedSeenPids),
     resultPids: [],
     consecutiveEmptyBatches: 0,
-    consecutiveNoProgressBatches: 0,
-    consecutiveCandidateOnlyBatches: 0,
-    consecutiveLowYieldBatches: 0,
     lastShortfallReason: null,
     lastError: null,
     quotaExhausted: false,
@@ -194,7 +188,7 @@ export function normalizeDiscoverRunParams(raw: any): DiscoverRunParams {
     freeShippingOnly: normalizeBoolean(source.freeShippingOnly),
     mediaMode: normalizeMediaMode(source.mediaMode),
     sizes: normalizeStringArray(source.sizes),
-    batchSize: clamp(Number(source.batchSize ?? 24), 1, 80),
+    batchSize: clamp(Number(source.batchSize ?? 3), 1, 12),
   }
 
   const normalizedFilters = normalizeDiscoverRunFilters(toObject(source.filters)) || normalizeDiscoverRunFilters(source) || fallbackFilters
@@ -211,9 +205,6 @@ export function normalizeDiscoverRunParams(raw: any): DiscoverRunParams {
       seenPids: normalizePidList(rawState?.seenPids),
       resultPids: normalizePidList(rawState?.resultPids),
       consecutiveEmptyBatches: Math.max(0, Number(rawState?.consecutiveEmptyBatches || 0)),
-      consecutiveNoProgressBatches: Math.max(0, Number(rawState?.consecutiveNoProgressBatches || 0)),
-      consecutiveCandidateOnlyBatches: Math.max(0, Number(rawState?.consecutiveCandidateOnlyBatches || 0)),
-      consecutiveLowYieldBatches: Math.max(0, Number(rawState?.consecutiveLowYieldBatches || 0)),
       lastShortfallReason:
         typeof rawState?.lastShortfallReason === 'string' && rawState.lastShortfallReason.trim()
           ? rawState.lastShortfallReason.trim()
@@ -263,15 +254,6 @@ export function buildDiscoverSearchParams(
   state: DiscoverRunState,
   remainingNeeded: number
 ): URLSearchParams {
-  const hydrateTarget = Math.max(1, Math.min(Math.max(0, remainingNeeded), Math.max(8, filters.batchSize)))
-  const mediaMultiplier = filters.mediaMode === 'withVideo' || filters.mediaMode === 'both'
-    ? 12
-    : filters.mediaMode === 'imagesOnly'
-      ? 8
-      : 5
-  const candidateFetchSize = Math.max(hydrateTarget * mediaMultiplier, filters.batchSize * 4)
-  const maxCandidatesProcessed = Math.max(hydrateTarget * 3, filters.batchSize * 2)
-
   const params = new URLSearchParams({
     categoryIds: filters.categoryIds.join(','),
     quantity: String(filters.quantity),
@@ -287,9 +269,6 @@ export function buildDiscoverSearchParams(
     mediaMode: filters.mediaMode,
     batchMode: '1',
     batchSize: String(filters.batchSize),
-    hydrateTarget: String(hydrateTarget),
-    candidateFetchSize: String(candidateFetchSize),
-    maxCandidatesProcessed: String(maxCandidatesProcessed),
     cursor: state.cursor || DEFAULT_CURSOR,
     remainingNeeded: String(Math.max(0, remainingNeeded)),
   })
@@ -352,9 +331,6 @@ export function buildDiscoverRunPayload(
         batches: params.state.batchNumber,
         cursor: params.state.cursor,
         hasMore,
-        noProgressBatches: params.state.consecutiveNoProgressBatches,
-        candidateOnlyBatches: params.state.consecutiveCandidateOnlyBatches,
-        lowYieldBatches: params.state.consecutiveLowYieldBatches,
       },
     },
     done,
