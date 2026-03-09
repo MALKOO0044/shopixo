@@ -1633,7 +1633,7 @@ async function handleSearch(req: Request, isPost: boolean) {
 
     const discoverProfile = parseDiscoverProfile(
 
-      searchParams.get('discoverProfile') || process.env.DISCOVER_PROFILE_DEFAULT || process.env.NEXT_PUBLIC_DISCOVER_PROFILE_DEFAULT
+      searchParams.get('discoverProfile') ?? process.env.DISCOVER_PROFILE_DEFAULT ?? process.env.NEXT_PUBLIC_DISCOVER_PROFILE_DEFAULT ?? null
 
     );
 
