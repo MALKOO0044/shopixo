@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { PricedProduct } from '@/components/admin/import/preview/types'
 import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
-import { finishJob, getJob, getJobMeta, patchJob, startJob, upsertJobItemByPid } from '@/lib/jobs'
+import { finishJob, getJob, getJobMeta, patchJob, startJob, upsertJobItemsByPidBulk } from '@/lib/jobs'
 import {
   buildDiscoverRunPayload,
   buildDiscoverSearchParams,
@@ -208,6 +208,8 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       const batchProducts = Array.isArray(data.products) ? data.products : []
       let addedThisBatch = 0
 
+      const pendingUpserts = new Map<string, PricedProduct>()
+
       for (const product of batchProducts) {
         const normalizedPid = normalizeCjProductId(product?.pid)
         if (!normalizedPid) continue
@@ -215,21 +217,38 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
         seenPids.add(normalizedPid)
         if (deletedPidSet.has(normalizedPid)) continue
         if (resultPids.has(normalizedPid)) continue
+        if (pendingUpserts.has(normalizedPid)) continue
 
-        const saved = await upsertJobItemByPid(id, normalizedPid, {
-          status: 'success',
-          step: 'discover_result',
-          result: product,
-        })
-        if (!saved?.id) {
-          fatalError = `Failed to persist discover product ${normalizedPid}`
-          break
+        pendingUpserts.set(normalizedPid, product)
+      }
+
+      const upsertEntries = Array.from(pendingUpserts.entries())
+      if (upsertEntries.length > 0) {
+        const saveResult = await upsertJobItemsByPidBulk(
+          id,
+          upsertEntries.map(([normalizedPid, product]) => ({
+            cj_product_id: normalizedPid,
+            status: 'success',
+            step: 'discover_result',
+            result: product,
+          })),
+          { chunkSize: 120 }
+        )
+
+        const succeededSet = new Set(saveResult.succeededPids)
+        for (const [normalizedPid, product] of upsertEntries) {
+          if (!succeededSet.has(normalizedPid)) continue
+
+          resultPids.add(normalizedPid)
+          addedThisBatch++
+          addedNow++
+          newProductsThisStep.push(product)
         }
 
-        resultPids.add(normalizedPid)
-        addedThisBatch++
-        addedNow++
-        newProductsThisStep.push(product)
+        if (!saveResult.ok) {
+          const failedPreview = saveResult.failedPids.slice(0, 3).join(',')
+          fatalError = `Failed to persist discover products (${saveResult.failedPids.length} failed${failedPreview ? `: ${failedPreview}` : ''})`
+        }
       }
 
       if (fatalError) break

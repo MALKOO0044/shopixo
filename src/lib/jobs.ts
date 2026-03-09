@@ -5,6 +5,21 @@ export type JobKind = 'finder' | 'import' | 'sync' | 'scanner' | 'media' | 'disc
 export type JobStatus = 'pending' | 'running' | 'success' | 'error' | 'canceled';
 export type JobItemStatus = 'pending' | 'running' | 'success' | 'error' | 'skipped' | 'canceled';
 
+type UpsertJobItemByPidInput = Partial<{
+  status: JobItemStatus;
+  step: string | null;
+  result: any;
+  error_text: string | null;
+}>;
+
+type UpsertJobItemsByPidBulkInput = {
+  cj_product_id: string;
+  status?: JobItemStatus;
+  step?: string | null;
+  result?: any;
+  error_text?: string | null;
+};
+
 function getAdmin(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -141,15 +156,39 @@ export async function listJobs(limit = 50): Promise<{ jobs: any[]; tablesMissing
   return { jobs: data || [] };
 }
 
-export async function upsertJobItemByPid(jobId: number, cj_product_id: string, input: Partial<{ status: JobItemStatus; step: string | null; result: any; error_text: string | null }>): Promise<{ id: number } | null> {
-  const db = getAdmin();
-  if (!db) return null;
+function buildUpsertJobItemByPidRow(jobId: number, cjProductId: string, input: UpsertJobItemByPidInput): Record<string, any> {
+  return {
+    job_id: jobId,
+    cj_product_id: cjProductId,
+    status: input.status || 'pending',
+    step: typeof input.step === 'undefined' ? null : input.step,
+    result: typeof input.result === 'undefined' ? null : input.result,
+    error_text: typeof input.error_text === 'undefined' ? null : input.error_text,
+  };
+}
+
+function isMissingOnConflictConstraintError(error: any): boolean {
+  const message = String(error?.message || '').toLowerCase();
+  const details = String(error?.details || '').toLowerCase();
+  return (
+    message.includes('there is no unique or exclusion constraint matching the on conflict specification')
+    || details.includes('there is no unique or exclusion constraint matching the on conflict specification')
+  );
+}
+
+async function upsertJobItemByPidLegacy(
+  db: SupabaseClient,
+  jobId: number,
+  cjProductId: string,
+  input: UpsertJobItemByPidInput,
+): Promise<{ id: number } | null> {
   const { data: exist } = await db
     .from('admin_job_items')
     .select('id')
     .eq('job_id', jobId)
-    .eq('cj_product_id', cj_product_id)
+    .eq('cj_product_id', cjProductId)
     .maybeSingle();
+
   if (exist?.id) {
     const { error } = await db
       .from('admin_job_items')
@@ -163,5 +202,117 @@ export async function upsertJobItemByPid(jobId: number, cj_product_id: string, i
     if (error) return null;
     return { id: exist.id as number };
   }
-  return await addJobItem(jobId, { status: input.status || 'pending', step: input.step || null, cj_product_id, cj_sku: undefined, result: input.result || null, error_text: input.error_text || null });
+
+  return await addJobItem(jobId, {
+    status: input.status || 'pending',
+    step: typeof input.step === 'undefined' ? null : input.step,
+    cj_product_id: cjProductId,
+    cj_sku: undefined,
+    result: typeof input.result === 'undefined' ? null : input.result,
+    error_text: typeof input.error_text === 'undefined' ? null : input.error_text,
+  });
+}
+
+export async function upsertJobItemByPid(jobId: number, cj_product_id: string, input: UpsertJobItemByPidInput): Promise<{ id: number } | null> {
+  const db = getAdmin();
+  if (!db) return null;
+
+  const normalizedPid = String(cj_product_id || '').trim();
+  if (!normalizedPid) return null;
+
+  const fastRow = buildUpsertJobItemByPidRow(jobId, normalizedPid, input);
+  const fastResult = await db
+    .from('admin_job_items')
+    .upsert(fastRow, { onConflict: 'job_id,cj_product_id' })
+    .select('id')
+    .maybeSingle();
+
+  if (!fastResult.error && fastResult.data?.id) {
+    return { id: fastResult.data.id as number };
+  }
+
+  if (fastResult.error && !isMissingOnConflictConstraintError(fastResult.error)) {
+    return null;
+  }
+
+  return await upsertJobItemByPidLegacy(db, jobId, normalizedPid, input);
+}
+
+export async function upsertJobItemsByPidBulk(
+  jobId: number,
+  items: UpsertJobItemsByPidBulkInput[],
+  options?: { chunkSize?: number }
+): Promise<{ ok: boolean; upserted: number; failedPids: string[]; succeededPids: string[] }> {
+  const db = getAdmin();
+  if (!db) return { ok: false, upserted: 0, failedPids: [], succeededPids: [] };
+
+  const deduped = new Map<string, UpsertJobItemsByPidBulkInput>();
+  for (const item of items || []) {
+    const pid = String(item?.cj_product_id || '').trim();
+    if (!pid) continue;
+    deduped.set(pid, {
+      cj_product_id: pid,
+      status: item?.status,
+      step: item?.step,
+      result: item?.result,
+      error_text: item?.error_text,
+    });
+  }
+
+  const uniqueItems = Array.from(deduped.values());
+  if (uniqueItems.length === 0) {
+    return { ok: true, upserted: 0, failedPids: [], succeededPids: [] };
+  }
+
+  const chunkSize = Math.max(1, Math.min(250, Number(options?.chunkSize || 120)));
+  const failedPids: string[] = [];
+  const succeededPids: string[] = [];
+  let upserted = 0;
+
+  for (let i = 0; i < uniqueItems.length; i += chunkSize) {
+    const chunk = uniqueItems.slice(i, i + chunkSize);
+    const rows = chunk.map((item) => buildUpsertJobItemByPidRow(jobId, item.cj_product_id, {
+      status: item.status,
+      step: item.step,
+      result: item.result,
+      error_text: item.error_text,
+    }));
+
+    const upsertRes = await db
+      .from('admin_job_items')
+      .upsert(rows, { onConflict: 'job_id,cj_product_id' });
+
+    if (!upsertRes.error) {
+      upserted += chunk.length;
+      succeededPids.push(...chunk.map((item) => item.cj_product_id));
+      continue;
+    }
+
+    if (!isMissingOnConflictConstraintError(upsertRes.error)) {
+      failedPids.push(...chunk.map((item) => item.cj_product_id));
+      return { ok: false, upserted, failedPids, succeededPids };
+    }
+
+    // Legacy fallback for databases that do not yet have a unique key on (job_id, cj_product_id).
+    for (const item of chunk) {
+      const saved = await upsertJobItemByPidLegacy(db, jobId, item.cj_product_id, {
+        status: item.status,
+        step: item.step,
+        result: item.result,
+        error_text: item.error_text,
+      });
+      if (!saved?.id) {
+        failedPids.push(item.cj_product_id);
+      } else {
+        upserted += 1;
+        succeededPids.push(item.cj_product_id);
+      }
+    }
+  }
+
+  if (failedPids.length > 0) {
+    return { ok: false, upserted, failedPids, succeededPids };
+  }
+
+  return { ok: true, upserted, failedPids: [], succeededPids };
 }

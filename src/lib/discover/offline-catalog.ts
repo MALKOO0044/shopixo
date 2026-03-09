@@ -65,6 +65,98 @@ type ExistingPidSources = {
   store: Set<string>
 }
 
+type ExistingPidLookupCache = {
+  checked: Set<string>
+  queue: Set<string>
+  store: Set<string>
+}
+
+const OFFLINE_PRODUCT_BASE_SELECT = [
+  'pid',
+  'discover_rank',
+  'images',
+  'video_url',
+  'video_4k_url',
+  'available_sizes',
+  'displayed_rating',
+  'supplier_rating',
+].join(',')
+
+const OFFLINE_PRODUCT_FULL_SELECT = [
+  'pid',
+  'cj_sku',
+  'category_id',
+  'category_name',
+  'name',
+  'description',
+  'overview',
+  'product_info',
+  'size_info',
+  'product_note',
+  'packing_list',
+  'images',
+  'video_url',
+  'video_source_url',
+  'video_4k_url',
+  'video_delivery_mode',
+  'video_quality_gate_passed',
+  'video_source_quality_hint',
+  'available_sizes',
+  'available_colors',
+  'available_models',
+  'color_image_map',
+  'supplier_rating',
+  'review_count',
+  'displayed_rating',
+  'rating_confidence',
+  'listed_num',
+  'stock_total',
+  'processing_days',
+  'delivery_days_min',
+  'delivery_days_max',
+  'min_price_usd',
+  'max_price_usd',
+  'avg_price_usd',
+  'min_price_sar',
+  'max_price_sar',
+  'avg_price_sar',
+  'product_weight_g',
+  'pack_length',
+  'pack_width',
+  'pack_height',
+  'material',
+  'product_type',
+  'origin_country',
+  'hs_code',
+].join(',')
+
+const OFFLINE_VARIANT_SELECT = [
+  'pid',
+  'variant_id',
+  'variant_sku',
+  'variant_name',
+  'variant_image',
+  'size',
+  'color',
+  'stock_total',
+  'cj_stock',
+  'factory_stock',
+  'variant_price_usd',
+  'shipping_price_usd',
+  'shipping_price_sar',
+  'total_cost_usd',
+  'total_cost_sar',
+  'sell_price_usd',
+  'sell_price_sar',
+  'profit_usd',
+  'profit_sar',
+  'margin_percent',
+  'delivery_days',
+  'logistic_name',
+  'shipping_country_code',
+  'shipping_method',
+].join(',')
+
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -143,7 +235,8 @@ function intersects(values: string[], required: string[]): boolean {
 
 async function resolveExistingPidSources(
   supabaseAdmin: ReturnType<typeof getSupabaseAdmin>,
-  candidatePids: string[]
+  candidatePids: string[],
+  cache?: ExistingPidLookupCache,
 ): Promise<ExistingPidSources> {
   const queue = new Set<string>()
   const store = new Set<string>()
@@ -153,31 +246,81 @@ async function resolveExistingPidSources(
   const deduped = Array.from(new Set(candidatePids.map((pid) => normalizeCjProductId(pid)).filter(Boolean) as string[]))
   if (deduped.length === 0) return { queue, store }
 
+  const checkedSet = cache?.checked || new Set<string>()
+  const cachedQueueSet = cache?.queue || new Set<string>()
+  const cachedStoreSet = cache?.store || new Set<string>()
+
+  const unknown = deduped.filter((pid) => !checkedSet.has(pid))
+
   const chunkSize = 200
-  for (let i = 0; i < deduped.length; i += chunkSize) {
-    const chunk = deduped.slice(i, i + chunkSize)
+  for (let i = 0; i < unknown.length; i += chunkSize) {
+    const chunk = unknown.slice(i, i + chunkSize)
 
     const [queueRes, storeRes] = await Promise.all([
       supabaseAdmin.from('product_queue').select('cj_product_id').in('cj_product_id', chunk),
       supabaseAdmin.from('products').select('cj_product_id').in('cj_product_id', chunk),
     ])
 
-    if (!queueRes.error) {
+    const queueLookupSucceeded = !queueRes.error
+    const storeLookupSucceeded = !storeRes.error
+
+    if (queueLookupSucceeded) {
       for (const row of queueRes.data || []) {
         const pid = normalizeCjProductId((row as any)?.cj_product_id)
-        if (pid) queue.add(pid)
+        if (pid) cachedQueueSet.add(pid)
       }
     }
 
-    if (!storeRes.error) {
+    if (storeLookupSucceeded) {
       for (const row of storeRes.data || []) {
         const pid = normalizeCjProductId((row as any)?.cj_product_id)
-        if (pid) store.add(pid)
+        if (pid) cachedStoreSet.add(pid)
+      }
+    }
+
+    if (queueLookupSucceeded && storeLookupSucceeded) {
+      for (const pid of chunk) {
+        checkedSet.add(pid)
       }
     }
   }
 
+  for (const pid of deduped) {
+    if (cachedQueueSet.has(pid)) queue.add(pid)
+    if (cachedStoreSet.has(pid)) store.add(pid)
+  }
+
   return { queue, store }
+}
+
+function passesOfflineProductPreFilters(
+  row: CatalogProductRow,
+  input: OfflineDiscoverSearchInput,
+  requestedSizes: string[],
+  debug: OfflineDiscoverSearchResult['debug']
+): boolean {
+  const hasImages = toStringArray(row.images).some((value) => /^https?:\/\//i.test(String(value || '').trim()))
+  const hasVideo = Boolean(String(row.video_4k_url || '').trim() || String(row.video_url || '').trim())
+
+  if (!shouldIncludeByMediaMode(input.mediaMode, hasImages, hasVideo)) {
+    debug.filteredByMedia++
+    return false
+  }
+
+  const availableSizes = normalizeSizeList(toStringArray(row.available_sizes), { allowNumeric: false })
+  if (!intersects(availableSizes, requestedSizes)) {
+    debug.filteredBySize++
+    return false
+  }
+
+  const minRatingNum = input.minRating === 'any' ? 0 : toFiniteNumber(input.minRating, 0)
+  const displayedRating = toFiniteNumber(row.displayed_rating, toFiniteNumber(row.supplier_rating, 0))
+  if (minRatingNum > 0 && displayedRating > 0 && displayedRating < minRatingNum) {
+    debug.filteredByRating++
+    return false
+  }
+
+  return true
 }
 
 function buildOfflineVariant(
@@ -511,6 +654,13 @@ export async function runOfflineDiscoverSearch(
   const attemptedPids: string[] = []
   const processedPids: string[] = []
   const acceptedProducts: PricedProduct[] = []
+  const requestedSizes = normalizeSizeList(input.requestedSizes, { allowNumeric: false })
+
+  const existingLookupCache: ExistingPidLookupCache = {
+    checked: new Set<string>(),
+    queue: new Set<string>(),
+    store: new Set<string>(),
+  }
 
   const excludeQueueExisting =
     input.existingProductPolicy === 'excludeQueueAndStore' ||
@@ -533,7 +683,7 @@ export async function runOfflineDiscoverSearch(
 
     let query = supabaseAdmin
       .from('discover_catalog_products')
-      .select('*')
+      .select(OFFLINE_PRODUCT_BASE_SELECT)
       .order('discover_rank', { ascending: false, nullsFirst: false })
       .order('pid', { ascending: true })
       .range(cursorOffset, cursorOffset + windowSize - 1)
@@ -610,7 +760,7 @@ export async function runOfflineDiscoverSearch(
 
     const existingSources =
       excludeQueueExisting || excludeStoreExisting
-        ? await resolveExistingPidSources(supabaseAdmin, candidatePids)
+        ? await resolveExistingPidSources(supabaseAdmin, candidatePids, existingLookupCache)
         : { queue: new Set<string>(), store: new Set<string>() }
 
     debug.queueExcluded += existingSources.queue.size
@@ -634,17 +784,33 @@ export async function runOfflineDiscoverSearch(
       continue
     }
 
+    const preFilteredRows = rowsAfterExistingFilter.filter((row) =>
+      passesOfflineProductPreFilters(row, input, requestedSizes, debug)
+    )
+
+    if (preFilteredRows.length === 0) {
+      continue
+    }
+
     const remainingSlots = maxOutput - acceptedProducts.length
-    const fetchPidWindow = rowsAfterExistingFilter
+    const fetchPidWindow = Array.from(new Set(preFilteredRows
       .slice(0, Math.max(remainingSlots * 6, remainingSlots))
       .map((row) => normalizeCjProductId(row.pid))
-      .filter(Boolean) as string[]
+      .filter(Boolean) as string[]))
 
+    const fetchPidWindowSet = new Set(fetchPidWindow)
+
+    let fullProductRowsByPid = new Map<string, CatalogProductRow>()
     let variantRows: CatalogVariantRow[] = []
     if (fetchPidWindow.length > 0) {
+      const fullProductsQuery = supabaseAdmin
+        .from('discover_catalog_products')
+        .select(OFFLINE_PRODUCT_FULL_SELECT)
+        .in('pid', fetchPidWindow)
+
       let variantQuery = supabaseAdmin
         .from('discover_catalog_variants')
-        .select('*')
+        .select(OFFLINE_VARIANT_SELECT)
         .in('pid', fetchPidWindow)
 
       if (input.shippingCountryCode) {
@@ -655,7 +821,31 @@ export async function runOfflineDiscoverSearch(
         variantQuery = variantQuery.eq('shipping_method', input.shippingMethod)
       }
 
-      const variantRes = await variantQuery
+      const [fullProductsRes, variantRes] = await Promise.all([
+        fullProductsQuery,
+        variantQuery,
+      ])
+
+      if (fullProductsRes.error) {
+        return {
+          ok: false,
+          error: `Offline catalog product details query failed: ${fullProductsRes.error.message}`,
+          products: [],
+          hasMore: false,
+          nextCursor: `offline.${cursorOffset}`,
+          attemptedPids,
+          processedPids,
+          totalCandidates: debug.scannedRows,
+          debug,
+        }
+      }
+
+      for (const row of fullProductsRes.data || []) {
+        const pid = normalizeCjProductId((row as any)?.pid)
+        if (!pid) continue
+        fullProductRowsByPid.set(pid, { ...(row as CatalogProductRow), pid })
+      }
+
       if (variantRes.error) {
         return {
           ok: false,
@@ -675,7 +865,7 @@ export async function runOfflineDiscoverSearch(
       if (variantRows.length === 0 && input.shippingCountryCode && input.shippingCountryCode !== 'US') {
         const fallbackVariantRes = await supabaseAdmin
           .from('discover_catalog_variants')
-          .select('*')
+          .select(OFFLINE_VARIANT_SELECT)
           .in('pid', fetchPidWindow)
           .eq('shipping_country_code', 'US')
 
@@ -697,14 +887,18 @@ export async function runOfflineDiscoverSearch(
       }
     }
 
-    for (const row of rowsAfterExistingFilter) {
+    for (const row of preFilteredRows) {
       if (acceptedProducts.length >= maxOutput) break
 
       const pid = normalizeCjProductId(row.pid)
       if (!pid) continue
+      if (!fetchPidWindowSet.has(pid)) continue
+
+      const fullRow = fullProductRowsByPid.get(pid)
+      if (!fullRow) continue
 
       const variants = variantsByPid.get(pid) || []
-      const product = buildOfflineProduct(row, variants, input, debug)
+      const product = buildOfflineProduct(fullRow, variants, input, debug)
       if (!product) continue
 
       acceptedProducts.push(product)

@@ -835,9 +835,17 @@ export async function POST(req: NextRequest) {
       return !optionalMissingProductFidelityColumns.includes(field);
     });
 
+    type ImportProcessResult = {
+      id: number;
+      success: boolean;
+      shopixoId?: string;
+      error?: string;
+      ratingSignalRow?: Record<string, any>;
+    };
+
     const results: { id: number; success: boolean; shopixoId?: string; error?: string }[] = [];
 
-    const processQueueProduct = async (qp: any): Promise<{ id: number; success: boolean; shopixoId?: string; error?: string }> => {
+    const processQueueProduct = async (qp: any): Promise<ImportProcessResult> => {
       try {
         requireField(qp.cj_product_id, 'pid');
         const queueStoreSku = qp.store_sku || qp.product_code || null;
@@ -1329,20 +1337,16 @@ export async function POST(req: NextRequest) {
           })
           .eq('id', qp.id);
 
-        try {
-          if (hasProductRatingSignalsTable) {
-            await admin.from('product_rating_signals').insert({
+        const ratingSignalRow = hasProductRatingSignalsTable
+          ? {
               product_id: productId,
               cj_product_id: qp.cj_product_id || null,
               context: 'import',
               signals: ratingOut.signals,
               displayed_rating: fullPayload.displayed_rating,
               rating_confidence: fullPayload.rating_confidence,
-            });
-          }
-        } catch (e) {
-          console.log('[Import] Failed to insert rating signals snapshot:', (e as any)?.message || e);
-        }
+            }
+          : undefined;
 
         if (hasCjProductIdColumn) {
           const normalizedPid = String(qp.cj_product_id ?? '').trim();
@@ -1351,7 +1355,12 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        return { id: qp.id, success: true, shopixoId: String(productId) };
+        return {
+          id: qp.id,
+          success: true,
+          shopixoId: String(productId),
+          ratingSignalRow,
+        };
       } catch (e: any) {
         console.error(`Failed to import product ${qp.id}:`, e);
         return { id: qp.id, success: false, error: e?.message || "Import failed" };
@@ -1360,13 +1369,30 @@ export async function POST(req: NextRequest) {
 
     const importParallelism = Math.max(
       1,
-      Math.min(12, Number(readEnv('IMPORT_EXECUTE_PARALLELISM') || '4'))
+      Math.min(12, Number(readEnv('IMPORT_EXECUTE_PARALLELISM') || '6'))
     );
 
     for (let index = 0; index < queueProducts.length; index += importParallelism) {
       const chunk = queueProducts.slice(index, index + importParallelism);
       const chunkResults = await Promise.all(chunk.map((qp: any) => processQueueProduct(qp)));
-      results.push(...chunkResults);
+
+      const ratingSignals = chunkResults
+        .map((result: ImportProcessResult) => result.ratingSignalRow)
+        .filter((row: Record<string, any> | undefined): row is Record<string, any> => Boolean(row));
+
+      if (hasProductRatingSignalsTable && ratingSignals.length > 0) {
+        try {
+          await admin.from('product_rating_signals').insert(ratingSignals);
+        } catch (e) {
+          console.log('[Import] Failed to insert rating signals snapshot chunk:', (e as any)?.message || e);
+        }
+      }
+
+      const publicChunkResults = chunkResults.map((chunkResult: ImportProcessResult) => {
+        const { ratingSignalRow: _ratingSignalRow, ...rest } = chunkResult;
+        return rest;
+      });
+      results.push(...publicChunkResults);
     }
 
     const successCount = results.filter(r => r.success).length;
