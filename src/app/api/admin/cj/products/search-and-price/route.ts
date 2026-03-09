@@ -384,11 +384,16 @@ const discoverExistingPidCache = new Map<string, CacheEntry<DiscoverExistingPidS
 
 
 
-function buildDiscoverProductCacheKey(pid: string, profitMargin: number, shippingMethod: string): string {
+function buildDiscoverProductCacheKey(
+  pid: string,
+  profitMargin: number,
+  shippingMethod: string,
+  discoverProfile: 'full' | 'fast'
+): string {
 
   const normalized = normalizeCjProductId(pid) || String(pid || '').trim();
 
-  return `${normalized}|margin:${profitMargin}|ship:${shippingMethod}`;
+  return `${normalized}|margin:${profitMargin}|ship:${shippingMethod}|profile:${discoverProfile}`;
 
 }
 
@@ -590,6 +595,8 @@ async function resolveExistingPidExclusions(
 
 type DiscoverMediaMode = 'any' | 'withVideo' | 'imagesOnly' | 'both';
 
+type DiscoverProfile = 'full' | 'fast';
+
 type DiscoverExistingProductPolicy = 'excludeQueueAndStore' | 'excludeQueueOnly' | 'excludeNone';
 
 
@@ -619,6 +626,16 @@ function parseDiscoverExistingProductPolicy(value: string | null): DiscoverExist
   }
 
   return 'excludeQueueAndStore';
+
+}
+
+function parseDiscoverProfile(value: string | null): DiscoverProfile {
+
+  const normalized = String(value || '').trim().toLowerCase();
+
+  if (normalized === 'fast') return 'fast';
+
+  return 'full';
 
 }
 
@@ -1598,6 +1615,14 @@ async function handleSearch(req: Request, isPost: boolean) {
 
     const existingProductPolicy = parseDiscoverExistingProductPolicy(searchParams.get('existingProductPolicy'));
 
+    const discoverProfile = parseDiscoverProfile(
+
+      searchParams.get('discoverProfile') || process.env.DISCOVER_PROFILE_DEFAULT || process.env.NEXT_PUBLIC_DISCOVER_PROFILE_DEFAULT
+
+    );
+
+    const isFastDiscoverMode = discoverProfile === 'fast';
+
     const excludeQueueExisting = existingProductPolicy === 'excludeQueueAndStore' || existingProductPolicy === 'excludeQueueOnly';
 
     const excludeStoreExisting = existingProductPolicy === 'excludeQueueAndStore';
@@ -1677,6 +1702,8 @@ async function handleSearch(req: Request, isPost: boolean) {
         quantityFulfilled: true,
 
         mediaMode,
+
+        discoverProfile,
 
         shippingCountryCode,
 
@@ -1791,6 +1818,8 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   sizes filter: ${requestedSizes.length > 0 ? requestedSizes.join(',') : 'none'}`);
 
     console.log(`[Search&Price]   mediaMode: ${mediaMode}`);
+
+    console.log(`[Search&Price]   discoverProfile: ${discoverProfile} (fastMode=${isFastDiscoverMode})`);
 
     console.log(`[Search&Price]   existingProductPolicy: ${existingProductPolicy} (queue=${excludeQueueExisting}, store=${excludeStoreExisting})`);
 
@@ -2300,6 +2329,8 @@ async function handleSearch(req: Request, isPost: boolean) {
 
         mediaMode,
 
+        discoverProfile,
+
         shippingCountryCode,
 
         duration: Date.now() - startTime,
@@ -2329,6 +2360,10 @@ async function handleSearch(req: Request, isPost: boolean) {
         debug: {
 
           categoriesSearched: categoryIds,
+
+          discoverProfile,
+
+          fastMode: isFastDiscoverMode,
 
           totalSeen: seenPids.size,
 
@@ -2492,7 +2527,7 @@ async function handleSearch(req: Request, isPost: boolean) {
 
       const name = String(item.productNameEn || item.name || item.productName || '');
 
-      const productCacheKey = buildDiscoverProductCacheKey(pid, profitMargin, shippingMethod);
+      const productCacheKey = buildDiscoverProductCacheKey(pid, profitMargin, shippingMethod, discoverProfile);
 
       const cachedPricedProduct = readFreshCache(discoverProductCache, productCacheKey);
 
@@ -2868,7 +2903,13 @@ async function handleSearch(req: Request, isPost: boolean) {
 
       
 
-      try {
+      if (isFastDiscoverMode) {
+
+        inventoryStatus = 'partial';
+
+        inventoryErrorMessage = 'Fast profile: inventory breakdown skipped for speed.';
+
+      } else try {
 
         // Fetch product-level inventory from dedicated API
 
@@ -5010,7 +5051,125 @@ async function handleSearch(req: Request, isPost: boolean) {
 
       
 
-      if (variants.length === 0) {
+      if (isFastDiscoverMode) {
+
+        const variantsForFastPricing = variants.length > 0 ? variants : [item];
+
+        for (const variant of variantsForFastPricing) {
+
+          const variantId = String(variant?.vid || variant?.variantId || variant?.id || pid);
+
+          const variantSku = String(variant?.variantSku || variant?.sku || item?.productSku || variantId);
+
+          const rawVariantPriceUSD = Number(variant?.variantSellPrice || variant?.sellPrice || variant?.price || item?.sellPrice || item?.price || 0);
+
+          if (!Number.isFinite(rawVariantPriceUSD) || rawVariantPriceUSD <= 0) {
+
+            continue;
+
+          }
+
+          const costSAR = usdToSar(rawVariantPriceUSD);
+
+          const variantName = String(variant?.variantNameEn || variant?.variantName || '').replace(/[\u4e00-\u9fff]/g, '').trim() || undefined;
+
+          const { size, color } = extractVariantColorSize(variant, variantName);
+
+          const variantImage = resolveColorImageFromMap(
+
+            color,
+
+            colorImageMap,
+
+            variant?.variantImage || variant?.whiteImage || variant?.image || undefined
+
+          );
+
+          const totalCostSAR = costSAR;
+
+          const sellPriceSAR = calculateSellPriceWithMargin(totalCostSAR, profitMargin);
+
+          const profitSAR = sellPriceSAR - totalCostSAR;
+
+          const totalCostUSD = Number(rawVariantPriceUSD.toFixed(2));
+
+          const sellPriceUSD = sarToUsd(sellPriceSAR);
+
+          const profitUSD = Number((sellPriceUSD - totalCostUSD).toFixed(2));
+
+          const marginPercent = sellPriceUSD > 0
+
+            ? Number(((profitUSD / sellPriceUSD) * 100).toFixed(2))
+
+            : 0;
+
+          const variantKey = String(variant?.variantKey || '');
+
+          const variantStock = getVariantStock({
+
+            vid: variantId,
+
+            variantId,
+
+            sku: variantSku,
+
+            variantKey,
+
+            variantName,
+
+          });
+
+          pricedVariants.push({
+
+            variantId,
+
+            variantSku,
+
+            variantPriceUSD: rawVariantPriceUSD,
+
+            shippingAvailable: true,
+
+            shippingPriceUSD: 0,
+
+            shippingPriceSAR: 0,
+
+            deliveryDays: 'N/A (fast mode)',
+
+            logisticName: 'fast-mode',
+
+            sellPriceSAR,
+
+            sellPriceUSD,
+
+            totalCostSAR,
+
+            totalCostUSD,
+
+            profitSAR,
+
+            profitUSD,
+
+            marginPercent,
+
+            variantName,
+
+            variantImage,
+
+            size,
+
+            color,
+
+            stock: variantStock?.totalStock,
+
+            cjStock: variantStock?.cjStock,
+
+            factoryStock: variantStock?.factoryStock,
+
+          });
+
+        }
+
+      } else if (variants.length === 0) {
 
         // Single variant product - try to get exact shipping using product-level vid
 
@@ -6170,7 +6329,11 @@ async function handleSearch(req: Request, isPost: boolean) {
 
       } else {
 
-        shortfallReason = `Shipping calculation failed for some products. Got ${filteredProducts.length}/${quantityTargetForThisRequest} products.`;
+        shortfallReason = isFastDiscoverMode
+
+          ? `Not enough fast-profile products after lightweight filtering. Got ${filteredProducts.length}/${quantityTargetForThisRequest} products.`
+
+          : `Shipping calculation failed for some products. Got ${filteredProducts.length}/${quantityTargetForThisRequest} products.`;
 
       }
 
@@ -6204,6 +6367,8 @@ async function handleSearch(req: Request, isPost: boolean) {
 
         mediaMode,
 
+        discoverProfile,
+
         shippingCountryCode,
 
         duration,
@@ -6221,6 +6386,10 @@ async function handleSearch(req: Request, isPost: boolean) {
           shippingErrors,
 
           consecutiveRateLimitErrors,
+
+          discoverProfile,
+
+          fastMode: isFastDiscoverMode,
 
           mediaFilter: mediaFilterStats,
 
@@ -6308,6 +6477,8 @@ async function handleSearch(req: Request, isPost: boolean) {
 
       mediaMode,
 
+      discoverProfile,
+
       shippingCountryCode,
 
       quantityFulfilled,
@@ -6383,6 +6554,10 @@ async function handleSearch(req: Request, isPost: boolean) {
         hitTimeLimit,
 
         hitRateLimit,
+
+        discoverProfile,
+
+        fastMode: isFastDiscoverMode,
 
         exhaustedCandidates,
 

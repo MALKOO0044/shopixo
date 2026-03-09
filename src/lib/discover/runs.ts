@@ -3,6 +3,8 @@ import { normalizeCjProductId } from '@/lib/import/normalization'
 
 export type DiscoverMediaMode = 'any' | 'withVideo' | 'imagesOnly' | 'both'
 
+export type DiscoverProfile = 'full' | 'fast'
+
 export type DiscoverExistingProductPolicy = 'excludeQueueAndStore' | 'excludeQueueOnly' | 'excludeNone'
 
 export type DiscoverRunFilters = {
@@ -18,6 +20,7 @@ export type DiscoverRunFilters = {
   shippingCountry: string
   freeShippingOnly: boolean
   mediaMode: DiscoverMediaMode
+  discoverProfile: DiscoverProfile
   existingProductPolicy: DiscoverExistingProductPolicy
   sizes: string[]
   batchSize: number
@@ -118,6 +121,13 @@ function normalizeMediaMode(value: unknown): DiscoverMediaMode {
   return 'both'
 }
 
+function normalizeDiscoverProfile(value: unknown): DiscoverProfile {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  if (normalized === 'fast') return 'fast'
+  if (normalized === 'full') return 'full'
+  return 'full'
+}
+
 function normalizeExistingProductPolicy(value: unknown): DiscoverExistingProductPolicy {
   const normalized = String(value ?? '').trim()
   if (normalized === 'excludeQueueOnly' || normalized === 'excludeNone' || normalized === 'excludeQueueAndStore') {
@@ -155,6 +165,7 @@ export function normalizeDiscoverRunFilters(value: any): DiscoverRunFilters | nu
     shippingCountry: normalizeShippingCountryCode(source.shippingCountry),
     freeShippingOnly: normalizeBoolean(source.freeShippingOnly),
     mediaMode: normalizeMediaMode(source.mediaMode),
+    discoverProfile: normalizeDiscoverProfile(source.discoverProfile),
     existingProductPolicy: normalizeExistingProductPolicy(source.existingProductPolicy),
     sizes: rawSizes,
     batchSize: clamp(Number(source.batchSize ?? 3), 1, 24),
@@ -199,6 +210,7 @@ export function normalizeDiscoverRunParams(raw: any): DiscoverRunParams {
     shippingCountry: normalizeShippingCountryCode(source.shippingCountry),
     freeShippingOnly: normalizeBoolean(source.freeShippingOnly),
     mediaMode: normalizeMediaMode(source.mediaMode),
+    discoverProfile: normalizeDiscoverProfile(source.discoverProfile),
     existingProductPolicy: normalizeExistingProductPolicy(source.existingProductPolicy),
     sizes: normalizeStringArray(source.sizes),
     batchSize: clamp(Number(source.batchSize ?? 3), 1, 24),
@@ -280,6 +292,7 @@ export function buildDiscoverSearchParams(
     shippingCountry: filters.shippingCountry,
     freeShippingOnly: filters.freeShippingOnly ? '1' : '0',
     mediaMode: filters.mediaMode,
+    discoverProfile: filters.discoverProfile,
     existingProductPolicy: filters.existingProductPolicy,
     batchMode: '1',
     batchSize: String(filters.batchSize),

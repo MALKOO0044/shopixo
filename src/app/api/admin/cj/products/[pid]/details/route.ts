@@ -42,6 +42,16 @@ function getSupabaseAdmin() {
 
 
 
+function normalizeShippingCountryCode(value: unknown): string {
+
+  const normalized = String(value ?? '').trim().toUpperCase();
+
+  return /^[A-Z]{2}$/.test(normalized) ? normalized : 'US';
+
+}
+
+
+
 function scoreMergedImageCandidate(url: string, index: number): number {
 
   const lower = String(url || '').toLowerCase();
@@ -523,6 +533,20 @@ export async function GET(
     const { searchParams } = new URL(req.url);
 
     const profitMargin = Math.max(1, Number(searchParams.get('profitMargin') || 8));
+
+    const shippingCountryCode = normalizeShippingCountryCode(
+
+      searchParams.get('shippingCountry')
+
+      || searchParams.get('shippingCountryCode')
+
+      || process.env.DISCOVER_SHIPPING_COUNTRY
+
+      || process.env.NEXT_PUBLIC_DEFAULT_SHIPPING_COUNTRY
+
+      || 'US'
+
+    );
 
 
 
@@ -1628,7 +1652,7 @@ export async function GET(
 
           const freight = await freightCalculate({
 
-            countryCode: 'US',
+            countryCode: shippingCountryCode,
 
             vid: variantId,
 

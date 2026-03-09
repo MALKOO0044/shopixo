@@ -47,6 +47,7 @@ type Category = {
 };
 
 type DiscoverExistingProductPolicy = "excludeQueueAndStore" | "excludeQueueOnly" | "excludeNone";
+type DiscoverProfile = "full" | "fast";
 
 type DiscoverPageSelectionParseResult = {
 
@@ -248,6 +249,8 @@ const DISCOVER_RESULTS_PER_PAGE = 40;
 
 const DISCOVER_DELETED_PIDS_STORAGE_KEY = "discover_deleted_pids_v1";
 
+const DEFAULT_DISCOVER_PROFILE: DiscoverProfile = "full";
+
 
 
 function normalizeDiscoverPid(value: unknown): string {
@@ -348,7 +351,9 @@ function computeDiscoverAdaptiveBatchSize(
 
   targetQuantity: number,
 
-  mediaMode: "withVideo" | "imagesOnly" | "both"
+  mediaMode: "withVideo" | "imagesOnly" | "both",
+
+  discoverProfile: DiscoverProfile
 
 ): number {
 
@@ -372,7 +377,9 @@ function computeDiscoverAdaptiveBatchSize(
 
   const mediaPenalty = mediaMode === "both" ? 3 : mediaMode === "withVideo" ? 2 : 0;
 
-  return clampNumber(quantityBoost - mediaPenalty, 3, 24);
+  const profileBoost = discoverProfile === "fast" ? 2 : 0;
+
+  return clampNumber(quantityBoost - mediaPenalty + profileBoost, 3, 24);
 
 }
 
@@ -710,6 +717,8 @@ export default function ProductDiscoveryPage() {
 
   const [media, setMedia] = useState<"withVideo" | "imagesOnly" | "both">("both");
 
+  const [discoverProfile, setDiscoverProfile] = useState<DiscoverProfile>(DEFAULT_DISCOVER_PROFILE);
+
   const [existingProductPolicy, setExistingProductPolicy] = useState<DiscoverExistingProductPolicy>("excludeQueueAndStore");
 
   
@@ -770,13 +779,25 @@ export default function ProductDiscoveryPage() {
 
   const [previewPage, setPreviewPage] = useState(1);
 
-  const TOTAL_PREVIEW_PAGES = 7;
+  const isFastDiscoverProfile = discoverProfile === "fast";
+
+  const TOTAL_PREVIEW_PAGES = isFastDiscoverProfile ? 2 : 7;
 
 
 
   const quantityPresets = [2000, 1500, 1000, 500, 250, 100, 50, 25, 10];
 
   const profitPresets = [100, 50, 25, 15, 8];
+
+  useEffect(() => {
+
+    if (isFastDiscoverProfile && previewPage > 2) {
+
+      setPreviewPage(2);
+
+    }
+
+  }, [isFastDiscoverProfile, previewPage]);
 
   
 
@@ -1196,7 +1217,7 @@ export default function ProductDiscoveryPage() {
 
     const seenPids = Array.from(initialDeletedPidSet);
 
-    const adaptiveBatchSize = computeDiscoverAdaptiveBatchSize(quantity, media);
+    const adaptiveBatchSize = computeDiscoverAdaptiveBatchSize(quantity, media, discoverProfile);
 
 
 
@@ -1241,6 +1262,8 @@ export default function ProductDiscoveryPage() {
           freeShippingOnly,
 
           mediaMode: media,
+
+          discoverProfile,
 
           existingProductPolicy,
 
@@ -1316,7 +1339,19 @@ export default function ProductDiscoveryPage() {
 
         3;
 
+      if (discoverProfile === "fast") {
+
+        adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 2, 1, 24);
+
+      }
+
       let adaptiveMaxDurationMs = quantity >= 200 ? 9000 : quantity >= 100 ? 8500 : 7600;
+
+      if (discoverProfile === "fast") {
+
+        adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs + 300, 7000, 9000);
+
+      }
 
       let previousFound = 0;
 
@@ -1546,7 +1581,15 @@ export default function ProductDiscoveryPage() {
 
       if (!stopRequestedRef.current && allProducts.length === 0) {
 
-        setError("No products found with configured shipping methods. Try a different category.");
+        setError(
+
+          discoverProfile === "fast"
+
+            ? "No products found in fast profile. Try full profile, a different category, or broader filters."
+
+            : "No products found with configured shipping methods. Try a different category."
+
+        );
 
       }
 
@@ -1928,6 +1971,12 @@ export default function ProductDiscoveryPage() {
 
   const getPageTitle = (page: number) => {
 
+    if (isFastDiscoverProfile) {
+
+      return page === 1 ? "Overview" : "Product Gallery";
+
+    }
+
     switch (page) {
 
       case 1: return "Overview";
@@ -1953,6 +2002,12 @@ export default function ProductDiscoveryPage() {
 
 
   const getPageIcon = (page: number) => {
+
+    if (isFastDiscoverProfile) {
+
+      return page === 1 ? <Package className="h-4 w-4" /> : <Grid3X3 className="h-4 w-4" />;
+
+    }
 
     switch (page) {
 
@@ -2014,7 +2069,89 @@ export default function ProductDiscoveryPage() {
 
     try {
 
-      const selectedProducts = products.filter((p: PricedProduct) => selected.has(p.pid));
+      let selectedProducts = products.filter((p: PricedProduct) => selected.has(p.pid));
+
+
+      if (discoverProfile === "fast" && selectedProducts.length > 0) {
+
+        const hydrationQueue = [...selectedProducts];
+
+        const hydratedByPid = new Map<string, PricedProduct>();
+
+        const hydrationErrors: string[] = [];
+
+        const totalToHydrate = hydrationQueue.length;
+
+        const workerCount = Math.min(
+          totalToHydrate,
+          totalToHydrate >= 60 ? 6 : totalToHydrate >= 30 ? 4 : 3
+        );
+
+
+        const hydrateProduct = async (product: PricedProduct): Promise<void> => {
+
+          const response = await fetch(
+            `/api/admin/cj/products/${encodeURIComponent(product.pid)}/details?profitMargin=${encodeURIComponent(String(profitMargin))}`,
+            { cache: "no-store" }
+          );
+
+          const payload = await response.json().catch(() => ({}));
+
+
+          if (!response.ok || !payload?.ok || !payload?.product) {
+
+            const serverError = typeof payload?.error === "string" ? payload.error : `HTTP ${response.status}`;
+
+            throw new Error(serverError);
+
+          }
+
+
+          hydratedByPid.set(product.pid, payload.product as PricedProduct);
+
+        };
+
+
+        await Promise.all(
+          Array.from({ length: workerCount }, async () => {
+
+            while (hydrationQueue.length > 0) {
+
+              const nextProduct = hydrationQueue.shift();
+
+              if (!nextProduct) break;
+
+
+              try {
+
+                await hydrateProduct(nextProduct);
+
+              } catch (e: any) {
+
+                hydrationErrors.push(`${nextProduct.pid}: ${e?.message || "hydration failed"}`);
+
+              }
+
+            }
+
+          })
+        );
+
+
+        if (hydrationErrors.length > 0) {
+
+          const sampleFailures = hydrationErrors.slice(0, 3).join(" | ");
+
+          throw new Error(
+            `Failed to hydrate ${hydrationErrors.length}/${totalToHydrate} fast-profile products before queue import. ${sampleFailures}`
+          );
+
+        }
+
+
+        selectedProducts = selectedProducts.map((product: PricedProduct) => hydratedByPid.get(product.pid) || product);
+
+      }
 
       const res = await fetch("/api/admin/import/batch", {
 
@@ -2027,6 +2164,8 @@ export default function ProductDiscoveryPage() {
           name: batchName || `Discovery ${new Date().toLocaleDateString()}`,
 
           mediaMode: media,
+
+          discoverProfile,
 
           category: category !== 'all' ? categories.find((c: Category) => c.categoryId === category)?.categoryName : undefined,
 
@@ -2870,6 +3009,36 @@ export default function ProductDiscoveryPage() {
 
           </div>
 
+
+
+          <div>
+
+            <label className="block text-sm text-gray-600 mb-2">Discover Profile</label>
+
+            <select
+
+              value={discoverProfile}
+
+              onChange={(e: ReactChangeEvent<HTMLSelectElement>) => setDiscoverProfile(e.target.value as DiscoverProfile)}
+
+              className="w-full px-3 py-2 border border-gray-300 rounded"
+
+            >
+
+              <option value="full">Full (complete enrichment)</option>
+
+              <option value="fast">Fast (speed-first experiment)</option>
+
+            </select>
+
+            <p className="text-xs text-gray-500 mt-1">
+
+              Fast profile keeps discovery lightweight and preview limited to 2 pages.
+
+            </p>
+
+          </div>
+
           
 
           <div>
@@ -3404,7 +3573,11 @@ export default function ProductDiscoveryPage() {
 
           <p className="text-xs text-amber-600 mt-2 text-right">
 
-            Set your desired profit margin. Products display final USD sell prices from priced variants using this applied margin.
+            {discoverProfile === "fast"
+
+              ? "Fast profile uses lightweight pricing for speed. Use Full profile when you need complete enrichment before final decisions."
+
+              : "Set your desired profit margin. Products display final USD sell prices from priced variants using this applied margin."}
 
           </p>
 
@@ -3488,7 +3661,11 @@ export default function ProductDiscoveryPage() {
 
           <p className="text-xs text-amber-600 mt-2">
 
-            Searching products, calculating shipping costs, and applying {profitMargin}% profit margin. Final USD sell prices (with applied margin) will be added to the checklist exactly as shown.
+            {discoverProfile === "fast"
+
+              ? `Searching products in fast profile and applying ${profitMargin}% profit margin with lightweight enrichment.`
+
+              : `Searching products, calculating shipping costs, and applying ${profitMargin}% profit margin. Final USD sell prices (with applied margin) will be added to the checklist exactly as shown.`}
 
           </p>
 
@@ -4276,7 +4453,7 @@ export default function ProductDiscoveryPage() {
 
                     <h4 className="font-medium text-gray-900">
 
-                      Product Gallery ({previewGalleryImages.length} images{previewVideoUrl ? " + video" : ""})
+                      Product Gallery ({previewGalleryImages.length} images{!isFastDiscoverProfile && previewVideoUrl ? " + video" : ""})
 
                     </h4>
 
@@ -4284,7 +4461,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-                  {previewVideoUrl && (
+                  {!isFastDiscoverProfile && previewVideoUrl && (
 
                     <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
 
@@ -4338,11 +4515,25 @@ export default function ProductDiscoveryPage() {
 
                   {previewGalleryImages.length > 0 ? (
 
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    <div
+
+                      className={isFastDiscoverProfile
+
+                        ? "mx-auto grid max-w-sm grid-cols-1 gap-4"
+
+                        : "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"}
+
+                    >
 
                       {previewGalleryImages.map((img: string, index: number) => (
 
-                        <div key={index} className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden group">
+                        <div
+
+                          key={index}
+
+                          className={`relative overflow-hidden rounded-lg bg-gray-100 group ${isFastDiscoverProfile ? "aspect-[3/4]" : "aspect-square"}`}
+
+                        >
 
                           <SmartImage 
 
@@ -4394,7 +4585,7 @@ export default function ProductDiscoveryPage() {
 
               {/* Page 3: Product Specifications */}
 
-              {previewPage === 3 && (
+              {!isFastDiscoverProfile && previewPage === 3 && (
 
                 <PreviewPageThree product={previewProduct} />
 
@@ -4404,7 +4595,7 @@ export default function ProductDiscoveryPage() {
 
               {/* Page 4: Stock & Popularity */}
 
-              {previewPage === 4 && (
+              {!isFastDiscoverProfile && previewPage === 4 && (
 
                 <PreviewPageFour product={previewProduct} />
 
@@ -4414,7 +4605,7 @@ export default function ProductDiscoveryPage() {
 
               {/* Page 5: Shipping & Delivery */}
 
-              {previewPage === 5 && (
+              {!isFastDiscoverProfile && previewPage === 5 && (
 
                 <PreviewPageFive product={previewProduct} />
 
@@ -4424,7 +4615,7 @@ export default function ProductDiscoveryPage() {
 
               {/* Page 6: Variant Pricing */}
 
-              {previewPage === 6 && (
+              {!isFastDiscoverProfile && previewPage === 6 && (
 
                 <PreviewPageSix product={previewProduct} />
 
@@ -4434,7 +4625,7 @@ export default function ProductDiscoveryPage() {
 
               {/* Page 7: AI Media */}
 
-              {previewPage === 7 && (
+              {!isFastDiscoverProfile && previewPage === 7 && (
 
                 <PreviewPageSeven
 

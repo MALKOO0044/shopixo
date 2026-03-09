@@ -7,6 +7,35 @@ import {
 } from '@/lib/discover/runs'
 
 describe('discover runs filters/params', () => {
+  test('normalizes discoverProfile and forwards it to search params', () => {
+    const filters = normalizeDiscoverRunFilters({
+      categoryIds: ['cat-1'],
+      discoverProfile: 'fast',
+      batchSize: 6,
+    })
+
+    expect(filters).toBeTruthy()
+    expect(filters?.discoverProfile).toBe('fast')
+
+    const params = buildDiscoverSearchParams(
+      filters!,
+      {
+        cursor: '0.1.0',
+        hasMore: true,
+        batchNumber: 0,
+        seenPids: [],
+        resultPids: [],
+        consecutiveEmptyBatches: 0,
+        lastShortfallReason: null,
+        lastError: null,
+        quotaExhausted: false,
+      },
+      20
+    )
+
+    expect(params.get('discoverProfile')).toBe('fast')
+  })
+
   test('normalizes existing product policy and clamps batch size', () => {
     const filters = normalizeDiscoverRunFilters({
       categoryIds: ['cat-1'],
@@ -33,11 +62,13 @@ describe('discover runs filters/params', () => {
     const params = normalizeDiscoverRunParams({
       categoryIds: ['cat-1'],
       quantity: 120,
+      discoverProfile: 'fast',
       existingProductPolicy: 'excludeNone',
       state: { cursor: '2.4.1', hasMore: true },
     })
 
     expect(params.filters.existingProductPolicy).toBe('excludeNone')
+    expect(params.filters.discoverProfile).toBe('fast')
     expect(params.filters.quantity).toBe(120)
     expect(params.state.cursor).toBe('2.4.1')
   })
