@@ -12,6 +12,7 @@ coverage/
 .env
 .env.local
 .env.*.local
+.env.vercel-import
 
 # Logs and reports
 npm-debug.log*

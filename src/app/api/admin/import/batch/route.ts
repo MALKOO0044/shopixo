@@ -188,7 +188,13 @@ export async function POST(req: NextRequest) {
 
     
 
-    for (const p of products) {
+    const processProduct = async (p: any): Promise<{
+      success: boolean;
+      productId: string;
+      error?: string;
+      skippedMissingVideo?: boolean;
+      skippedVideoQualityGate?: boolean;
+    }> => {
 
       let avgPrice = p.avgPriceSAR || 0;
 
@@ -210,7 +216,7 @@ export async function POST(req: NextRequest) {
 
 
 
-      const productId = p.cjProductId || p.pid || p.productId;
+      const productId = String(p.cjProductId || p.pid || p.productId || 'unknown-product');
 
       
 
@@ -244,19 +250,17 @@ export async function POST(req: NextRequest) {
 
       if (requiresVideo && !videoDelivery.deliveryUrl) {
 
-        skippedMissingVideoCount++;
+        return {
 
-        failedCount++;
+          success: false,
 
-        failedProducts.push(productId);
+          productId,
 
-        if (errorMessages.length < 3) {
+          skippedMissingVideo: true,
 
-          errorMessages.push(`Skipped product ${productId}: missing video for mediaMode=${String(mediaMode || 'unknown')}`);
+          error: `Skipped product ${productId}: missing video for mediaMode=${String(mediaMode || 'unknown')}`,
 
-        }
-
-        continue;
+        };
 
       }
 
@@ -264,23 +268,17 @@ export async function POST(req: NextRequest) {
 
       if (requiresVideo && !videoDelivery.qualityGatePassed) {
 
-        skippedVideoQualityGateCount++;
+        return {
 
-        failedCount++;
+          success: false,
 
-        failedProducts.push(productId);
+          productId,
 
-        if (errorMessages.length < 3) {
+          skippedVideoQualityGate: true,
 
-          errorMessages.push(
+          error: `Skipped product ${productId}: video quality gate failed (mode=${videoDelivery.mode}, sourceHint=${videoDelivery.sourceQualityHint}).`,
 
-            `Skipped product ${productId}: video quality gate failed (mode=${videoDelivery.mode}, sourceHint=${videoDelivery.sourceQualityHint}).`
-
-          );
-
-        }
-
-        continue;
+        };
 
       }
 
@@ -434,17 +432,85 @@ export async function POST(req: NextRequest) {
 
       if (result.success) {
 
-        addedCount++;
+        return {
+
+          success: true,
+
+          productId,
+
+        };
 
       } else {
 
+        return {
+
+          success: false,
+
+          productId,
+
+          error: result.error,
+
+        };
+
+      }
+
+    };
+
+
+
+    const parallelInsertWorkers = Math.max(
+
+      1,
+
+      Math.min(12, Number(process.env.IMPORT_BATCH_PARALLELISM || 8))
+
+    );
+
+
+
+    for (let index = 0; index < products.length; index += parallelInsertWorkers) {
+
+      const chunk = products.slice(index, index + parallelInsertWorkers);
+
+      const outcomes = await Promise.all(chunk.map((product) => processProduct(product)));
+
+
+
+      for (const outcome of outcomes) {
+
+        if (outcome.success) {
+
+          addedCount++;
+
+          continue;
+
+        }
+
+
+
         failedCount++;
 
-        failedProducts.push(productId);
+        failedProducts.push(outcome.productId);
 
-        if (result.error && errorMessages.length < 3) {
 
-          errorMessages.push(result.error);
+
+        if (outcome.skippedMissingVideo) {
+
+          skippedMissingVideoCount++;
+
+        }
+
+        if (outcome.skippedVideoQualityGate) {
+
+          skippedVideoQualityGateCount++;
+
+        }
+
+
+
+        if (outcome.error && errorMessages.length < 3) {
+
+          errorMessages.push(outcome.error);
 
         }
 

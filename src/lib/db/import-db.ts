@@ -1006,37 +1006,15 @@ export async function addProductToQueue(batchId: number, product: {
 
   const writeProductQueue = async (payload: Record<string, any>) => {
 
-    const { data: existing } = await supabase
-
-      .from('product_queue')
-
-      .select('id')
-
-      .eq('cj_product_id', product.productId)
-
-      .maybeSingle();
-
-
-
-    if (existing) {
-
-      return await supabase
-
-        .from('product_queue')
-
-        .update(payload)
-
-        .eq('cj_product_id', product.productId);
-
-    }
-
-
-
     return await supabase
 
       .from('product_queue')
 
-      .insert(payload);
+      .upsert(payload, {
+
+        onConflict: 'cj_product_id',
+
+      });
 
   };
 

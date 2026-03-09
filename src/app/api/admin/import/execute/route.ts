@@ -10,11 +10,25 @@ import { normalizeSingleSize, normalizeSizeList } from "@/lib/cj/size-normalizat
 import { requiresVideoForMediaMode } from "@/lib/video/delivery";
 import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 
+type LinkCategoryContext = {
+  hasProductCategories: boolean;
+  hasCategories: boolean;
+  hasCjLinks: boolean;
+  categoryByIdCache?: Map<number, any | null>;
+};
+
 // Helper to find category by name/slug/CJ-link and link product to category hierarchy
-async function linkProductToCategory(admin: any, productId: number, categoryName: string, cjCategoryId?: string, supabaseCategoryId?: number): Promise<boolean> {
+async function linkProductToCategory(
+  admin: any,
+  productId: number,
+  categoryName: string,
+  cjCategoryId?: string,
+  supabaseCategoryId?: number,
+  context?: LinkCategoryContext
+): Promise<boolean> {
   try {
-    const hasProductCategories = await hasTable('product_categories').catch(() => false);
-    const hasCategories = await hasTable('categories').catch(() => false);
+    const hasProductCategories = context?.hasProductCategories ?? await hasTable('product_categories').catch(() => false);
+    const hasCategories = context?.hasCategories ?? await hasTable('categories').catch(() => false);
     
     if (!hasProductCategories || !hasCategories) {
       return false;
@@ -24,21 +38,29 @@ async function linkProductToCategory(admin: any, productId: number, categoryName
     
     // 0. BEST: Direct Supabase category ID (passed from discovery with Features selection)
     if (supabaseCategoryId && supabaseCategoryId > 0) {
-      const { data: directMatch } = await admin
-        .from('categories')
-        .select('id, name, parent_id, slug')
-        .eq('id', supabaseCategoryId)
-        .maybeSingle();
-      
-      if (directMatch) {
-        category = directMatch;
-        console.log(`[Import] ✓ Direct Supabase category match: ${directMatch.name} (id: ${directMatch.id})`);
+      if (context?.categoryByIdCache?.has(supabaseCategoryId)) {
+        category = context.categoryByIdCache.get(supabaseCategoryId) ?? null;
+      } else {
+        const { data: directMatch } = await admin
+          .from('categories')
+          .select('id, name, parent_id, slug')
+          .eq('id', supabaseCategoryId)
+          .maybeSingle();
+
+        if (context?.categoryByIdCache) {
+          context.categoryByIdCache.set(supabaseCategoryId, directMatch ?? null);
+        }
+
+        if (directMatch) {
+          category = directMatch;
+          console.log(`[Import] ✓ Direct Supabase category match: ${directMatch.name} (id: ${directMatch.id})`);
+        }
       }
     }
     
     // 1. Try CJ category ID lookup via cj_category_links table
     if (!category && cjCategoryId) {
-      const hasCjLinks = await hasTable('cj_category_links').catch(() => false);
+      const hasCjLinks = context?.hasCjLinks ?? await hasTable('cj_category_links').catch(() => false);
       if (hasCjLinks) {
         const { data: cjLink } = await admin
           .from('cj_category_links')
@@ -281,11 +303,18 @@ async function ensureUniqueSlug(admin: any, base: string): Promise<string> {
   return `${s}-${Date.now()}`;
 }
 
-async function omitMissingColumns(payload: Record<string, any>, cols: string[]) {
+type ColumnExistsResolver = (tableName: string, columnName: string) => Promise<boolean>;
+
+async function omitMissingColumns(
+  payload: Record<string, any>,
+  tableName: string,
+  cols: string[],
+  hasColumnResolver: ColumnExistsResolver
+) {
   for (const c of cols) {
     if (!(c in payload)) continue;
     try {
-      const exists = await hasColumn('products', c);
+      const exists = await hasColumnResolver(tableName, c);
       if (!exists) delete payload[c];
     } catch {
       delete payload[c];
@@ -597,6 +626,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Supabase not configured" }, { status: 500 });
     }
 
+    const columnExistsCache = new Map<string, boolean>();
+    const tableExistsCache = new Map<string, boolean>();
+
+    const hasColumnCached: ColumnExistsResolver = async (tableName: string, columnName: string) => {
+      const cacheKey = `${tableName}:${columnName}`;
+      const cached = columnExistsCache.get(cacheKey);
+      if (cached !== undefined) {
+        return cached;
+      }
+
+      const exists = await hasColumn(tableName, columnName).catch(() => false);
+      columnExistsCache.set(cacheKey, exists);
+      return exists;
+    };
+
+    const hasTableCached = async (tableName: string): Promise<boolean> => {
+      const cached = tableExistsCache.get(tableName);
+      if (cached !== undefined) {
+        return cached;
+      }
+
+      const exists = await hasTable(tableName).catch(() => false);
+      tableExistsCache.set(tableName, exists);
+      return exists;
+    };
+
     const { data: queueProducts, error: queueError } = await admin
       .from('product_queue')
       .select('*')
@@ -612,8 +667,48 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "No approved products found in queue" }, { status: 400 });
     }
 
-    const hasCjProductIdColumn = await hasColumn('products', 'cj_product_id');
-    const hasVariantsTable = await hasTable('product_variants');
+    const hasCjProductIdColumn = await hasColumnCached('products', 'cj_product_id');
+    const hasVariantsTable = await hasTableCached('product_variants');
+    const hasProductRatingSignalsTable = await hasTableCached('product_rating_signals');
+    const categoryContext: LinkCategoryContext = {
+      hasProductCategories: await hasTableCached('product_categories'),
+      hasCategories: await hasTableCached('categories'),
+      hasCjLinks: await hasTableCached('cj_category_links'),
+      categoryByIdCache: new Map<number, any | null>(),
+    };
+
+    const existingProductByCjProductId = new Map<string, { id: string | number }>();
+    if (hasCjProductIdColumn) {
+      const normalizedPids = Array.from(
+        new Set(
+          queueProducts
+            .map((qp: any) => String(qp?.cj_product_id ?? '').trim())
+            .filter((pid: string) => pid.length > 0)
+        )
+      );
+
+      const chunkSize = 200;
+      for (let index = 0; index < normalizedPids.length; index += chunkSize) {
+        const chunk = normalizedPids.slice(index, index + chunkSize);
+        if (chunk.length === 0) continue;
+
+        const { data: existingRows, error: existingError } = await admin
+          .from('products')
+          .select('id,cj_product_id')
+          .in('cj_product_id', chunk);
+
+        if (existingError) {
+          console.error('[Import Execute] Existing product preload query error:', existingError);
+          return NextResponse.json({ ok: false, error: existingError.message }, { status: 500 });
+        }
+
+        for (const row of existingRows || []) {
+          const pid = String((row as any)?.cj_product_id ?? '').trim();
+          if (!pid) continue;
+          existingProductByCjProductId.set(pid, { id: (row as any).id });
+        }
+      }
+    }
 
     // Accuracy guardrail: prevent silent field dropping for critical import fidelity fields.
     const productFidelityRequiredColumns = [
@@ -639,7 +734,7 @@ export async function POST(req: NextRequest) {
     ];
     const missingProductFidelityColumns: string[] = [];
     for (const col of productFidelityRequiredColumns) {
-      const exists = await hasColumn('products', col).catch(() => false);
+      const exists = await hasColumnCached('products', col);
       if (!exists) missingProductFidelityColumns.push(col);
     }
 
@@ -700,7 +795,7 @@ export async function POST(req: NextRequest) {
     ];
     const missingQueueFidelityColumns: string[] = [];
     for (const col of queueFidelityRequiredColumns) {
-      const exists = await hasColumn('product_queue', col).catch(() => false);
+      const exists = await hasColumnCached('product_queue', col);
       if (!exists) missingQueueFidelityColumns.push(col);
     }
 
@@ -742,7 +837,7 @@ export async function POST(req: NextRequest) {
 
     const results: { id: number; success: boolean; shopixoId?: string; error?: string }[] = [];
 
-    for (const qp of queueProducts) {
+    const processQueueProduct = async (qp: any): Promise<{ id: number; success: boolean; shopixoId?: string; error?: string }> => {
       try {
         requireField(qp.cj_product_id, 'pid');
         const queueStoreSku = qp.store_sku || qp.product_code || null;
@@ -776,18 +871,15 @@ export async function POST(req: NextRequest) {
               updated_at: new Date().toISOString(),
             })
             .eq('id', qp.id);
-          results.push({ id: qp.id, success: false, error: reason });
-          continue;
+          return { id: qp.id, success: false, error: reason };
         }
 
-        let existing: any = null;
+        let existing: { id: string | number } | null = null;
         if (hasCjProductIdColumn) {
-          const { data } = await admin
-            .from("products")
-            .select("id")
-            .eq("cj_product_id", qp.cj_product_id)
-            .maybeSingle();
-          existing = data;
+          const normalizedPid = String(qp.cj_product_id ?? '').trim();
+          if (normalizedPid) {
+            existing = existingProductByCjProductId.get(normalizedPid) ?? null;
+          }
         }
 
         if (existing) {
@@ -815,7 +907,12 @@ export async function POST(req: NextRequest) {
               existingProductUpdate.color_image_map = existingColorImageMap;
             }
 
-            await omitMissingColumns(existingProductUpdate, ['supplier_rating', 'review_count', 'displayed_rating', 'rating_confidence', 'images', 'color_image_map']);
+            await omitMissingColumns(
+              existingProductUpdate,
+              'products',
+              ['supplier_rating', 'review_count', 'displayed_rating', 'rating_confidence', 'images', 'color_image_map'],
+              hasColumnCached
+            );
 
             const sanitizedExistingUpdate = Object.fromEntries(
               Object.entries(existingProductUpdate).filter(([, value]) => value !== undefined)
@@ -838,8 +935,7 @@ export async function POST(req: NextRequest) {
             })
             .eq('id', qp.id);
 
-          results.push({ id: qp.id, success: true, shopixoId: existing.id, error: "Already imported" });
-          continue;
+          return { id: qp.id, success: true, shopixoId: String(existing.id), error: "Already imported" };
         }
 
         const rawVariantPricing = parseArrayOrEmpty(qp.variant_pricing);
@@ -849,11 +945,11 @@ export async function POST(req: NextRequest) {
         const availableColors = parseStringArrayOrNull(qp.available_colors);
         const storeCurrency = String(readEnv('NEXT_PUBLIC_CURRENCY') || 'USD').toUpperCase();
         const storePricesInUsd = storeCurrency === 'USD';
-        
+
         // Parse colorImageMap from queue payload - maps color names to their specific images
         const colorImageMap = parseColorImageMap(qp.color_image_map);
         const alignedColorImageMap = alignColorImageMapToColors(availableColors, colorImageMap);
-        
+
         const variants = rawVariants
           .map((v: any) => {
             const matchingPricing = rawVariantPricing.find((vp: any) => isVariantPricingMatch(v, vp));
@@ -908,7 +1004,7 @@ export async function POST(req: NextRequest) {
         if (hasCanonicalVariantPricing && variants.length === 0) {
           throw new Error('Unable to resolve positive SAR prices from queue variant_pricing');
         }
-        
+
         if (Object.keys(alignedColorImageMap).length > 0) {
           console.log(`[Import] Product ${qp.cj_product_id}: Using colorImageMap for ${Object.keys(alignedColorImageMap).length} colors`);
         }
@@ -1053,18 +1149,23 @@ export async function POST(req: NextRequest) {
           available_models: qp.available_models ?? null,
         };
 
-        await omitMissingColumns(optionalFields, [
-          'description', 'images', 'video_url', 'has_video', 'product_code', 'is_active', 'cj_product_id',
-          'video_source_url', 'video_4k_url', 'video_delivery_mode', 'video_quality_gate_passed', 'video_source_quality_hint', 'media_mode',
-          'free_shipping', 'processing_time_hours', 'delivery_time_hours',
-          'supplier_sku', 'variants', 'weight_g', 'weight_grams', 'pack_length', 'pack_width', 
-          'pack_height', 'material', 'product_type', 'origin_country', 'origin_country_code', 'hs_code',
-          'size_chart_images', 'available_sizes', 'available_colors', 'has_variants',
-          'min_price', 'max_price', 'specifications', 'selling_points',
-          'cj_category_id', 'supplier_rating', 'review_count', 'displayed_rating', 'rating_confidence', 'overview', 'product_info', 'size_info',
-          'product_note', 'packing_list', 'store_sku', 'inventory_status', 'inventory_error_message',
-          'available_models', 'product_type', 'color_image_map'
-        ]);
+        await omitMissingColumns(
+          optionalFields,
+          'products',
+          [
+            'description', 'images', 'video_url', 'has_video', 'product_code', 'is_active', 'cj_product_id',
+            'video_source_url', 'video_4k_url', 'video_delivery_mode', 'video_quality_gate_passed', 'video_source_quality_hint', 'media_mode',
+            'free_shipping', 'processing_time_hours', 'delivery_time_hours',
+            'supplier_sku', 'variants', 'weight_g', 'weight_grams', 'pack_length', 'pack_width',
+            'pack_height', 'material', 'product_type', 'origin_country', 'origin_country_code', 'hs_code',
+            'size_chart_images', 'available_sizes', 'available_colors', 'has_variants',
+            'min_price', 'max_price', 'specifications', 'selling_points',
+            'cj_category_id', 'supplier_rating', 'review_count', 'displayed_rating', 'rating_confidence', 'overview', 'product_info', 'size_info',
+            'product_note', 'packing_list', 'store_sku', 'inventory_status', 'inventory_error_message',
+            'available_models', 'product_type', 'color_image_map'
+          ],
+          hasColumnCached
+        );
 
         const fullPayload = { ...productPayload, ...optionalFields };
 
@@ -1145,10 +1246,10 @@ export async function POST(req: NextRequest) {
             const normalizedSize = normalizeImportVariantSize(v.size) || '';
             const hasColor = normalizedColor.length > 0;
             const hasSize = normalizedSize.length > 0;
-            
+
             let optionName = 'Default';
             let optionValue = 'Default';
-            
+
             if (hasColor && hasSize) {
               optionName = 'Color / Size';
               optionValue = `${normalizedColor} / ${normalizedSize}`;
@@ -1159,7 +1260,7 @@ export async function POST(req: NextRequest) {
               optionName = 'Size';
               optionValue = normalizedSize;
             }
-            
+
             return {
               product_id: productId,
               option_name: optionName,
@@ -1186,11 +1287,18 @@ export async function POST(req: NextRequest) {
         const productTitle = qp.name_en || "";
         const productDescription = qp.description_en || "";
         const supabaseCategoryId = qp.supabase_category_id;
-        
+
         let categoryResult;
         if (supabaseCategoryId && supabaseCategoryId > 0) {
           // Use direct category linking when Supabase ID is provided (100% accurate)
-          const linked = await linkProductToCategory(admin, productId, categoryToLink, qp.cj_category_id, supabaseCategoryId);
+          const linked = await linkProductToCategory(
+            admin,
+            productId,
+            categoryToLink,
+            qp.cj_category_id,
+            supabaseCategoryId,
+            categoryContext
+          );
           categoryResult = { success: linked, categoriesLinked: linked ? 1 : 0 };
           if (linked) {
             console.log(`[Import] ✓ Product ${productId} linked via direct Supabase category ID: ${supabaseCategoryId}`);
@@ -1205,7 +1313,7 @@ export async function POST(req: NextRequest) {
             categoryToLink
           );
         }
-        
+
         if (categoryResult.success) {
           console.log(`[Import] Product ${productId} linked to ${categoryResult.categoriesLinked} categories`);
         }
@@ -1222,8 +1330,7 @@ export async function POST(req: NextRequest) {
           .eq('id', qp.id);
 
         try {
-          const signalsTableExists = await hasTable('product_rating_signals').catch(() => false);
-          if (signalsTableExists) {
+          if (hasProductRatingSignalsTable) {
             await admin.from('product_rating_signals').insert({
               product_id: productId,
               cj_product_id: qp.cj_product_id || null,
@@ -1237,12 +1344,29 @@ export async function POST(req: NextRequest) {
           console.log('[Import] Failed to insert rating signals snapshot:', (e as any)?.message || e);
         }
 
-        results.push({ id: qp.id, success: true, shopixoId: String(productId) });
+        if (hasCjProductIdColumn) {
+          const normalizedPid = String(qp.cj_product_id ?? '').trim();
+          if (normalizedPid) {
+            existingProductByCjProductId.set(normalizedPid, { id: productId });
+          }
+        }
 
+        return { id: qp.id, success: true, shopixoId: String(productId) };
       } catch (e: any) {
         console.error(`Failed to import product ${qp.id}:`, e);
-        results.push({ id: qp.id, success: false, error: e?.message || "Import failed" });
+        return { id: qp.id, success: false, error: e?.message || "Import failed" };
       }
+    };
+
+    const importParallelism = Math.max(
+      1,
+      Math.min(12, Number(readEnv('IMPORT_EXECUTE_PARALLELISM') || '4'))
+    );
+
+    for (let index = 0; index < queueProducts.length; index += importParallelism) {
+      const chunk = queueProducts.slice(index, index + importParallelism);
+      const chunkResults = await Promise.all(chunk.map((qp: any) => processQueueProduct(qp)));
+      results.push(...chunkResults);
     }
 
     const successCount = results.filter(r => r.success).length;

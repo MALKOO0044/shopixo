@@ -2071,8 +2071,13 @@ export default function ProductDiscoveryPage() {
 
       let selectedProducts = products.filter((p: PricedProduct) => selected.has(p.pid));
 
+      const allSelectedFromOfflineCatalog = selectedProducts.length > 0
+        && selectedProducts.every((product: PricedProduct) =>
+          String((product as any)?.discoverSource || '').toLowerCase() === 'offline-catalog'
+        );
 
-      if (discoverProfile === "fast" && selectedProducts.length > 0) {
+
+      if (discoverProfile === "fast" && selectedProducts.length > 0 && !allSelectedFromOfflineCatalog) {
 
         const hydrationQueue = [...selectedProducts];
 

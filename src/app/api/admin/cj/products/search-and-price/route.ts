@@ -28,6 +28,8 @@ import { build4kVideoDelivery } from '@/lib/video/delivery';
 
 import { getSetting } from '@/lib/settings';
 
+import { runOfflineDiscoverSearch } from '@/lib/discover/offline-catalog';
+
 
 
 export const dynamic = 'force-dynamic';
@@ -599,6 +601,8 @@ type DiscoverProfile = 'full' | 'fast';
 
 type DiscoverExistingProductPolicy = 'excludeQueueAndStore' | 'excludeQueueOnly' | 'excludeNone';
 
+type DiscoverEngine = 'cj' | 'offline';
+
 
 
 function parseDiscoverMediaMode(value: string | null): DiscoverMediaMode {
@@ -636,6 +640,18 @@ function parseDiscoverProfile(value: string | null): DiscoverProfile {
   if (normalized === 'fast') return 'fast';
 
   return 'full';
+
+}
+
+
+
+function parseDiscoverEngine(value: string | null): DiscoverEngine {
+
+  const normalized = String(value || '').trim().toLowerCase();
+
+  if (normalized === 'offline') return 'offline';
+
+  return 'cj';
 
 }
 
@@ -1621,6 +1637,14 @@ async function handleSearch(req: Request, isPost: boolean) {
 
     );
 
+    const discoverEngine = parseDiscoverEngine(
+
+      searchParams.get('discoverEngine') || process.env.DISCOVER_ENGINE || process.env.NEXT_PUBLIC_DISCOVER_ENGINE || null
+
+    );
+
+    const useOfflineDiscoverEngine = discoverEngine === 'offline';
+
     const isFastDiscoverMode = discoverProfile === 'fast';
 
     const excludeQueueExisting = existingProductPolicy === 'excludeQueueAndStore' || existingProductPolicy === 'excludeQueueOnly';
@@ -1821,6 +1845,8 @@ async function handleSearch(req: Request, isPost: boolean) {
 
     console.log(`[Search&Price]   discoverProfile: ${discoverProfile} (fastMode=${isFastDiscoverMode})`);
 
+    console.log(`[Search&Price]   discoverEngine: ${discoverEngine}`);
+
     console.log(`[Search&Price]   existingProductPolicy: ${existingProductPolicy} (queue=${excludeQueueExisting}, store=${excludeStoreExisting})`);
 
     console.log(`[Search&Price]   batchMode: ${isBatchMode}, batchSize: ${batchSize}`);
@@ -1832,6 +1858,182 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   excluded queue/store/deleted/total: ${queueExcludedPids.size}/${storeExcludedPids.size}/${deletedExcludedPids.size}/${excludedPids.size}`);
 
     console.log(`[Search&Price] ========================================`);
+
+
+
+    if (useOfflineDiscoverEngine) {
+
+      const offlineStartedAt = Date.now();
+
+      const offlineResult = await runOfflineDiscoverSearch({
+
+        categoryIds,
+
+        quantity,
+
+        minPrice,
+
+        maxPrice,
+
+        minStock,
+
+        minRating,
+
+        popularity,
+
+        profitMargin,
+
+        shippingMethod,
+
+        shippingCountryCode,
+
+        freeShippingOnly,
+
+        mediaMode,
+
+        discoverProfile,
+
+        existingProductPolicy,
+
+        requestedSizes,
+
+        isBatchMode,
+
+        batchSize,
+
+        remainingNeeded,
+
+        cursorParam,
+
+        seenPidsFromClient,
+
+        deletedExcludedPids,
+
+      });
+
+
+
+      if (!offlineResult.ok) {
+
+        const r = NextResponse.json({
+
+          ok: false,
+
+          error: offlineResult.error || 'Offline discover failed',
+
+          discoverEngine,
+
+          products: [],
+
+          count: 0,
+
+          requestedQuantity: quantity,
+
+          quantityFulfilled: false,
+
+          mediaMode,
+
+          discoverProfile,
+
+          shippingCountryCode,
+
+          duration: Date.now() - offlineStartedAt,
+
+        }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+
+        r.headers.set('x-request-id', log.requestId);
+
+        return r;
+
+      }
+
+
+
+      const duration = Date.now() - offlineStartedAt;
+
+      const quantityTargetForThisRequest = isBatchMode ? remainingNeeded : quantity;
+
+      const quantityFulfilled = offlineResult.products.length >= quantityTargetForThisRequest;
+
+
+
+      const r = NextResponse.json({
+
+        ok: true,
+
+        products: offlineResult.products,
+
+        count: offlineResult.products.length,
+
+        requestedQuantity: quantity,
+
+        quantityFulfilled,
+
+        ...(offlineResult.shortfallReason ? { shortfallReason: offlineResult.shortfallReason } : {}),
+
+        mediaMode,
+
+        discoverProfile,
+
+        discoverEngine,
+
+        shippingCountryCode,
+
+        duration,
+
+        ...(isBatchMode && {
+
+          batch: {
+
+            hasMore: offlineResult.hasMore,
+
+            cursor: offlineResult.nextCursor,
+
+            attemptedPids: offlineResult.attemptedPids,
+
+            processedPids: offlineResult.processedPids,
+
+            totalCandidates: offlineResult.totalCandidates,
+
+            productsThisBatch: offlineResult.products.length,
+
+            batchSize,
+
+          }
+
+        }),
+
+        debug: {
+
+          discoverProfile,
+
+          discoverEngine,
+
+          fastMode: isFastDiscoverMode,
+
+          shippingCountryCode,
+
+          requestedSizes,
+
+          existingPolicyExclusion: {
+
+            excludesQueueExisting: excludeQueueExisting,
+
+            excludesStoreExisting: excludeStoreExisting,
+
+          },
+
+          offline: offlineResult.debug,
+
+        }
+
+      }, { headers: { 'Cache-Control': 'no-store' } });
+
+      r.headers.set('x-request-id', log.requestId);
+
+      return r;
+
+    }
 
 
 
