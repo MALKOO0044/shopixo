@@ -2,7 +2,7 @@
 
 
 
-import { useState, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
+import { useState, useEffect, useMemo, useRef, type ChangeEvent as ReactChangeEvent, type MouseEvent as ReactMouseEvent } from "react";
 
 import Link from "next/link";
 
@@ -45,6 +45,108 @@ type Category = {
   children?: Category[];
 
 };
+
+type DiscoverExistingProductPolicy = "excludeQueueAndStore" | "excludeQueueOnly" | "excludeNone";
+
+type DiscoverPageSelectionParseResult = {
+
+  pages: number[];
+
+  invalidTokens: string[];
+
+};
+
+
+
+function parseDiscoverPageSelectionInput(rawValue: string, maxPage: number): DiscoverPageSelectionParseResult {
+
+  const pages = new Set<number>();
+
+  const invalidTokens: string[] = [];
+
+
+
+  const tokens = String(rawValue || "")
+
+    .split(",")
+
+    .map((token) => token.trim())
+
+    .filter(Boolean);
+
+
+
+  for (const token of tokens) {
+
+    const normalized = token.replace(/\s+/g, "");
+
+
+
+    if (/^\d+$/.test(normalized)) {
+
+      const pageNum = Number(normalized);
+
+      if (Number.isInteger(pageNum) && pageNum >= 1 && pageNum <= maxPage) {
+
+        pages.add(pageNum);
+
+      } else {
+
+        invalidTokens.push(token);
+
+      }
+
+      continue;
+
+    }
+
+
+
+    const rangeMatch = normalized.match(/^(\d+)-(\d+)$/);
+
+    if (!rangeMatch) {
+
+      invalidTokens.push(token);
+
+      continue;
+
+    }
+
+
+
+    const start = Number(rangeMatch[1]);
+
+    const end = Number(rangeMatch[2]);
+
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > maxPage) {
+
+      invalidTokens.push(token);
+
+      continue;
+
+    }
+
+
+
+    for (let pageNum = start; pageNum <= end; pageNum++) {
+
+      pages.add(pageNum);
+
+    }
+
+  }
+
+
+
+  return {
+
+    pages: Array.from(pages).sort((a, b) => a - b),
+
+    invalidTokens,
+
+  };
+
+}
 
 
 
@@ -250,11 +352,27 @@ function computeDiscoverAdaptiveBatchSize(
 
 ): number {
 
-  const quantityBoost = targetQuantity >= 500 ? 12 : targetQuantity >= 200 ? 10 : targetQuantity >= 100 ? 9 : 7;
+  const quantityBoost =
 
-  const mediaPenalty = mediaMode === "both" ? 2 : mediaMode === "withVideo" ? 1 : 0;
+    targetQuantity >= 10000 ? 22 :
 
-  return clampNumber(quantityBoost - mediaPenalty, 3, 12);
+    targetQuantity >= 5000 ? 20 :
+
+    targetQuantity >= 2000 ? 18 :
+
+    targetQuantity >= 1000 ? 16 :
+
+    targetQuantity >= 500 ? 14 :
+
+    targetQuantity >= 200 ? 12 :
+
+    targetQuantity >= 100 ? 10 :
+
+    8;
+
+  const mediaPenalty = mediaMode === "both" ? 3 : mediaMode === "withVideo" ? 2 : 0;
+
+  return clampNumber(quantityBoost - mediaPenalty, 3, 24);
 
 }
 
@@ -592,6 +710,8 @@ export default function ProductDiscoveryPage() {
 
   const [media, setMedia] = useState<"withVideo" | "imagesOnly" | "both">("both");
 
+  const [existingProductPolicy, setExistingProductPolicy] = useState<DiscoverExistingProductPolicy>("excludeQueueAndStore");
+
   
 
   const [loading, setLoading] = useState(false);
@@ -606,9 +726,17 @@ export default function ProductDiscoveryPage() {
 
   const [resultsPage, setResultsPage] = useState(1);
 
+  const [pageSelectionInput, setPageSelectionInput] = useState("");
+
   const [persistedDeletedPids, setPersistedDeletedPids] = useState<string[]>([]);
 
   const deletedPidRuntimeRef = useRef<Set<string>>(new Set());
+
+  const activeRunIdRef = useRef<number | null>(null);
+
+  const stopRequestedRef = useRef(false);
+
+  const activeSearchAbortRef = useRef<AbortController | null>(null);
 
   
 
@@ -968,6 +1096,46 @@ export default function ProductDiscoveryPage() {
 
 
 
+  const cancelDiscoverRunJob = async (runId: number): Promise<boolean> => {
+
+    if (!Number.isFinite(runId) || runId <= 0) return false;
+
+
+
+    try {
+
+      const cancelRes = await fetch(`/api/admin/jobs/${runId}`, {
+
+        method: "POST",
+
+        headers: { "Content-Type": "application/json" },
+
+        body: JSON.stringify({ action: "cancel" }),
+
+      });
+
+      if (!cancelRes.ok) {
+
+        console.warn(`[Discovery] Cancel request failed for run ${runId}: HTTP ${cancelRes.status}`);
+
+        return false;
+
+      }
+
+      return true;
+
+    } catch (cancelError) {
+
+      console.warn("[Discovery] Failed to cancel active search:", cancelError);
+
+      return false;
+
+    }
+
+  };
+
+
+
   const searchProducts = async () => {
 
     if (category === "all" && selectedFeatures.length === 0) {
@@ -988,9 +1156,15 @@ export default function ProductDiscoveryPage() {
 
     setSelected(new Set());
 
+    setPageSelectionInput("");
+
     setSavedBatchId(null);
 
     setResultsPage(1);
+
+    stopRequestedRef.current = false;
+
+    activeSearchAbortRef.current = null;
 
 
 
@@ -1036,6 +1210,8 @@ export default function ProductDiscoveryPage() {
 
     try {
 
+      activeSearchAbortRef.current = null;
+
       const createRunRes = await fetch("/api/admin/cj/discover-runs", {
 
         method: "POST",
@@ -1066,6 +1242,8 @@ export default function ProductDiscoveryPage() {
 
           mediaMode: media,
 
+          existingProductPolicy,
+
           batchSize: adaptiveBatchSize,
 
           seenPids,
@@ -1073,6 +1251,8 @@ export default function ProductDiscoveryPage() {
         }),
 
       });
+
+      activeSearchAbortRef.current = null;
 
 
 
@@ -1106,13 +1286,35 @@ export default function ProductDiscoveryPage() {
 
       }
 
+      activeRunIdRef.current = runId;
 
 
-      let done = false;
+
+      if (stopRequestedRef.current) {
+
+        await cancelDiscoverRunJob(runId);
+
+      }
+
+
+
+      let done = stopRequestedRef.current;
 
       let safetyTicks = 0;
 
-      let adaptiveMaxBatches = quantity >= 200 ? 4 : quantity >= 100 ? 3 : 2;
+      let adaptiveMaxBatches =
+
+        quantity >= 5000 ? 12 :
+
+        quantity >= 2000 ? 10 :
+
+        quantity >= 1000 ? 8 :
+
+        quantity >= 200 ? 5 :
+
+        quantity >= 100 ? 4 :
+
+        3;
 
       let adaptiveMaxDurationMs = quantity >= 200 ? 9000 : quantity >= 100 ? 8500 : 7600;
 
@@ -1124,9 +1326,27 @@ export default function ProductDiscoveryPage() {
 
       while (!done) {
 
+        if (stopRequestedRef.current) {
+
+          if (runId) {
+
+            await cancelDiscoverRunJob(runId);
+
+          }
+
+          done = true;
+
+          break;
+
+        }
+
         safetyTicks++;
 
         const stepStartedAt = Date.now();
+
+        const stepAbortController = new AbortController();
+
+        activeSearchAbortRef.current = stepAbortController;
 
 
 
@@ -1135,6 +1355,8 @@ export default function ProductDiscoveryPage() {
           method: "POST",
 
           headers: { "Content-Type": "application/json" },
+
+          signal: stepAbortController.signal,
 
           body: JSON.stringify({
 
@@ -1147,6 +1369,8 @@ export default function ProductDiscoveryPage() {
           }),
 
         });
+
+        activeSearchAbortRef.current = null;
 
         const stepDurationMs = Date.now() - stepStartedAt;
 
@@ -1224,6 +1448,14 @@ export default function ProductDiscoveryPage() {
 
         done = Boolean(stepData.done);
 
+        if (stepData.run?.status === "canceled") {
+
+          stopRequestedRef.current = true;
+
+          done = true;
+
+        }
+
         if (!done) {
 
           const foundDelta = Math.max(0, found - previousFound);
@@ -1238,19 +1470,19 @@ export default function ProductDiscoveryPage() {
 
           if (foundPerBatch >= 1.8 && !durationPressure) {
 
-            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 1, 10);
+            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 1, 24);
 
             adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs + 400, 7000, 9000);
 
           } else if (foundPerBatch < 0.8 || durationPressure) {
 
-            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches - 1, 1, 10);
+            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches - 1, 1, 24);
 
             adaptiveMaxDurationMs = clampNumber(adaptiveMaxDurationMs - 500, 7000, 9000);
 
           } else if (foundDelta === 0 && stepDurationMs < adaptiveMaxDurationMs * 0.7) {
 
-            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 1, 10);
+            adaptiveMaxBatches = clampNumber(adaptiveMaxBatches + 1, 1, 24);
 
           }
 
@@ -1282,9 +1514,23 @@ export default function ProductDiscoveryPage() {
 
       setProducts(filterDiscoverProductsByDeletedSet(allProducts, deletedPidRuntimeRef.current));
 
+      if (stopRequestedRef.current) {
+
+        setError(
+
+          allProducts.length > 0
+
+            ? "Notice: Search stopped by your request. Showing products found so far."
+
+            : "Search stopped by your request."
+
+        );
+
+      }
 
 
-      if (allProducts.length < quantity) {
+
+      if (!stopRequestedRef.current && allProducts.length < quantity) {
 
         const reason =
 
@@ -1298,7 +1544,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-      if (allProducts.length === 0) {
+      if (!stopRequestedRef.current && allProducts.length === 0) {
 
         setError("No products found with configured shipping methods. Try a different category.");
 
@@ -1308,7 +1554,31 @@ export default function ProductDiscoveryPage() {
 
     } catch (e: any) {
 
-      setError(e?.message || "Search failed");
+      const isAbortLikeError =
+
+        String(e?.name || "").toLowerCase() === "aborterror" || /abort/i.test(String(e?.message || ""));
+
+
+
+      const userStopped =
+
+        stopRequestedRef.current &&
+
+        (isAbortLikeError || !runId);
+
+      if (!userStopped) {
+
+        setError(e?.message || "Search failed");
+
+      }
+
+
+
+      if (userStopped && runId) {
+
+        await cancelDiscoverRunJob(runId);
+
+      }
 
       if (runId) {
 
@@ -1352,11 +1622,69 @@ export default function ProductDiscoveryPage() {
 
       }
 
+      if (userStopped) {
+
+        setError(
+
+          allProducts.length > 0
+
+            ? "Notice: Search stopped by your request. Showing products found so far."
+
+            : "Search stopped by your request."
+
+        );
+
+      }
+
     } finally {
+
+      activeSearchAbortRef.current = null;
+
+      activeRunIdRef.current = null;
+
+      stopRequestedRef.current = false;
 
       setLoading(false);
 
       setSearchProgress("");
+
+    }
+
+  };
+
+
+
+  const stopSearch = async (): Promise<void> => {
+
+    if (!loading) return;
+
+    stopRequestedRef.current = true;
+
+    setSearchProgress("Stopping search...");
+
+
+
+    if (activeSearchAbortRef.current) {
+
+      activeSearchAbortRef.current.abort();
+
+    }
+
+
+
+    const activeRunId = activeRunIdRef.current;
+
+    if (!activeRunId) return;
+
+
+
+    try {
+
+      await cancelDiscoverRunJob(activeRunId);
+
+    } catch {
+
+      // cancelDiscoverRunJob already logs failures; keep stop flow resilient
 
     }
 
@@ -2304,6 +2632,114 @@ export default function ProductDiscoveryPage() {
 
   }, [totalResultsPages]);
 
+
+
+  const selectCurrentPage = (): void => {
+
+    if (pagedProducts.length === 0) return;
+
+    setSelected((prev: Set<string>) => {
+
+      const next = new Set<string>(prev);
+
+      for (const product of pagedProducts) {
+
+        next.add(product.pid);
+
+      }
+
+      return next;
+
+    });
+
+  };
+
+
+
+  const deselectCurrentPage = (): void => {
+
+    if (pagedProducts.length === 0) return;
+
+    setSelected((prev: Set<string>) => {
+
+      if (prev.size === 0) return prev;
+
+      const next = new Set<string>(prev);
+
+      for (const product of pagedProducts) {
+
+        next.delete(product.pid);
+
+      }
+
+      return next;
+
+    });
+
+  };
+
+
+
+  const selectPagesFromInput = (): void => {
+
+    const parsed = parseDiscoverPageSelectionInput(pageSelectionInput, totalResultsPages);
+
+    if (parsed.invalidTokens.length > 0) {
+
+      setError(`Invalid page input: ${parsed.invalidTokens.join(", ")}. Use formats like 1,3,5-8.`);
+
+      return;
+
+    }
+
+
+
+    if (parsed.pages.length === 0) {
+
+      setError("Enter one or more pages (example: 1,3,5-8).");
+
+      return;
+
+    }
+
+
+
+    const pidsToSelect = new Set<string>();
+
+    for (const pageNum of parsed.pages) {
+
+      const start = (pageNum - 1) * DISCOVER_RESULTS_PER_PAGE;
+
+      const pageProducts = displayedProducts.slice(start, start + DISCOVER_RESULTS_PER_PAGE);
+
+      for (const product of pageProducts) {
+
+        pidsToSelect.add(product.pid);
+
+      }
+
+    }
+
+
+
+    setSelected((prev: Set<string>) => {
+
+      const next = new Set<string>(prev);
+
+      for (const pid of pidsToSelect) {
+
+        next.add(pid);
+
+      }
+
+      return next;
+
+    });
+
+    setError(null);
+
+  };
+
   
 
   // Find matching Supabase main category based on CJ category name
@@ -2848,6 +3284,38 @@ export default function ProductDiscoveryPage() {
 
           </div>
 
+
+
+          <div>
+
+            <label className="block text-sm text-gray-600 mb-2">Existing Product Policy</label>
+
+            <select
+
+              value={existingProductPolicy}
+
+              onChange={(e: ReactChangeEvent<HTMLSelectElement>) => setExistingProductPolicy(e.target.value as DiscoverExistingProductPolicy)}
+
+              className="w-full px-3 py-2 border border-gray-300 rounded"
+
+            >
+
+              <option value="excludeQueueAndStore">Exclude queue + store (safe default)</option>
+
+              <option value="excludeQueueOnly">Exclude queue only (allow rediscover store products)</option>
+
+              <option value="excludeNone">Exclude none (allow full rediscovery)</option>
+
+            </select>
+
+            <p className="text-xs text-gray-500 mt-1">
+
+              Deleted products stay excluded in all modes.
+
+            </p>
+
+          </div>
+
           
 
         </div>
@@ -2902,7 +3370,7 @@ export default function ProductDiscoveryPage() {
 
                 value={profitMargin}
 
-                onChange={(e) => setProfitMargin(Number(e.target.value))}
+                onChange={(e: ReactChangeEvent<HTMLInputElement>) => setProfitMargin(Number(e.target.value))}
 
                 className="w-16 px-2 py-1.5 border border-gray-300 rounded text-center"
 
@@ -2922,7 +3390,7 @@ export default function ProductDiscoveryPage() {
 
                 checked={freeShippingOnly}
 
-                onChange={(e) => setFreeShippingOnly(e.target.checked)}
+                onChange={(e: ReactChangeEvent<HTMLInputElement>) => setFreeShippingOnly(e.target.checked)}
 
                 className="w-4 h-4 border-gray-300 rounded"
 
@@ -2958,21 +3426,37 @@ export default function ProductDiscoveryPage() {
 
           </Link>
 
-          <button
+          {loading ? (
 
-            onClick={searchProducts}
+            <button
 
-            disabled={loading}
+              onClick={stopSearch}
 
-            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+              className="flex items-center gap-2 px-6 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 text-sm font-medium"
 
-          >
+            >
 
-            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              <X className="h-4 w-4" />
 
-            Search Products
+              Stop Search
 
-          </button>
+            </button>
+
+          ) : (
+
+            <button
+
+              onClick={searchProducts}
+
+              className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+
+            >
+
+              Search Products
+
+            </button>
+
+          )}
 
         </div>
 
@@ -3064,11 +3548,47 @@ export default function ProductDiscoveryPage() {
 
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-end gap-2">
 
               <button onClick={selectAll} className="text-sm text-blue-600 hover:underline">Select All</button>
 
-              <button onClick={deselectAll} className="text-sm text-gray-500 hover:underline">Clear</button>
+              <button onClick={deselectAll} className="text-sm text-gray-500 hover:underline">Clear All</button>
+
+              <span className="text-gray-300">|</span>
+
+              <button onClick={selectCurrentPage} className="text-sm text-blue-600 hover:underline">Select This Page</button>
+
+              <button onClick={deselectCurrentPage} className="text-sm text-gray-500 hover:underline">Clear This Page</button>
+
+              <span className="text-gray-300">|</span>
+
+              <input
+
+                type="text"
+
+                value={pageSelectionInput}
+
+                onChange={(e: ReactChangeEvent<HTMLInputElement>) => setPageSelectionInput(e.target.value)}
+
+                placeholder="1,3,5-8"
+
+                className="w-28 px-2 py-1 text-xs border border-gray-300 rounded"
+
+                dir="ltr"
+
+              />
+
+              <button
+
+                onClick={selectPagesFromInput}
+
+                className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-50"
+
+              >
+
+                Select Pages
+
+              </button>
 
             </div>
 
@@ -3078,7 +3598,7 @@ export default function ProductDiscoveryPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
 
-            {pagedProducts.map((product) => {
+            {pagedProducts.map((product: PricedProduct) => {
 
               const isSelected = selected.has(product.pid);
 
@@ -3148,7 +3668,7 @@ export default function ProductDiscoveryPage() {
 
                       <button
 
-                        onClick={(e) => toggleSelect(product.pid, e)}
+                        onClick={(e: ReactMouseEvent<HTMLButtonElement>) => toggleSelect(product.pid, e)}
 
                         className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${
 
@@ -3170,7 +3690,7 @@ export default function ProductDiscoveryPage() {
 
                       <button
 
-                        onClick={(e) => openPreview(product, e)}
+                        onClick={(e: ReactMouseEvent<HTMLButtonElement>) => openPreview(product, e)}
 
                         className="w-7 h-7 bg-white/90 rounded-full flex items-center justify-center hover:bg-white"
 
@@ -3184,7 +3704,7 @@ export default function ProductDiscoveryPage() {
 
                       <button
 
-                        onClick={(e) => removeProduct(product.pid, e)}
+                        onClick={(e: ReactMouseEvent<HTMLButtonElement>) => removeProduct(product.pid, e)}
 
                         className="w-7 h-7 bg-white/90 rounded-full flex items-center justify-center hover:bg-red-50"
 
@@ -3388,7 +3908,7 @@ export default function ProductDiscoveryPage() {
 
               <button
 
-                onClick={() => setResultsPage((prev) => Math.max(1, prev - 1))}
+                onClick={() => setResultsPage((prev: number) => Math.max(1, prev - 1))}
 
                 disabled={resultsPage === 1}
 
@@ -3428,7 +3948,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-                {visiblePageNumbers.map((pageNum) => (
+                {visiblePageNumbers.map((pageNum: number) => (
 
                   <button
 
@@ -3484,7 +4004,7 @@ export default function ProductDiscoveryPage() {
 
               <button
 
-                onClick={() => setResultsPage((prev) => Math.min(totalResultsPages, prev + 1))}
+                onClick={() => setResultsPage((prev: number) => Math.min(totalResultsPages, prev + 1))}
 
                 disabled={resultsPage === totalResultsPages}
 
@@ -3534,7 +4054,7 @@ export default function ProductDiscoveryPage() {
 
                   value={batchName}
 
-                  onChange={(e) => setBatchName(e.target.value)}
+                  onChange={(e: ReactChangeEvent<HTMLInputElement>) => setBatchName(e.target.value)}
 
                   placeholder="Batch name (optional)"
 
@@ -3610,7 +4130,7 @@ export default function ProductDiscoveryPage() {
 
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setPreviewProduct(null)}>
 
-          <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e: ReactMouseEvent<HTMLDivElement>) => e.stopPropagation()}>
 
             {/* Header with page navigation */}
 
@@ -3820,7 +4340,7 @@ export default function ProductDiscoveryPage() {
 
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
 
-                      {previewGalleryImages.map((img, index) => (
+                      {previewGalleryImages.map((img: string, index: number) => (
 
                         <div key={index} className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden group">
 

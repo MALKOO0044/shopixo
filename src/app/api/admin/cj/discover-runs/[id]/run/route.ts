@@ -104,7 +104,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     }
 
     const maxDurationMs = clamp(Number(body?.maxDurationMs ?? 7000), 1500, 9000)
-    const maxBatches = clamp(Number(body?.maxBatches ?? 2), 1, 12)
+    const maxBatches = clamp(Number(body?.maxBatches ?? 2), 1, 24)
 
     if (jobMeta.status === 'pending') {
       await startJob(id)
@@ -146,10 +146,18 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     let batchesRunNow = 0
     let addedNow = 0
     let fatalError: string | null = null
+    let canceledByAdmin = false
 
     const startedAt = Date.now()
 
     while (params.state.hasMore && resultPids.size < params.filters.quantity) {
+      const latestJobMeta = await getJobMeta(id)
+      if (latestJobMeta?.status === 'canceled') {
+        canceledByAdmin = true
+        params.state.hasMore = false
+        break
+      }
+
       if (batchesRunNow >= maxBatches) break
       if (Date.now() - startedAt >= maxDurationMs) break
 
@@ -184,6 +192,13 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
           break
         }
         fatalError = data?.error || `search-and-price failed (${searchRes.status})`
+        break
+      }
+
+      const postFetchJobMeta = await getJobMeta(id)
+      if (postFetchJobMeta?.status === 'canceled') {
+        canceledByAdmin = true
+        params.state.hasMore = false
         break
       }
 
@@ -273,6 +288,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       resultPids.size >= params.filters.quantity ||
       !params.state.hasMore ||
       params.state.quotaExhausted ||
+      canceledByAdmin ||
       Boolean(fatalError)
 
     let responseStatus = 'running'
@@ -280,6 +296,8 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     if (fatalError) {
       await finishJob(id, 'error', totals, fatalError)
       responseStatus = 'error'
+    } else if (canceledByAdmin) {
+      responseStatus = 'canceled'
     } else if (isDone) {
       await finishJob(id, 'success', totals)
       responseStatus = 'success'
@@ -287,7 +305,9 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
 
     const shortfallReason =
       isDone && resultPids.size < params.filters.quantity
-        ? params.state.lastError ||
+        ? (canceledByAdmin
+            ? 'Search stopped by admin request. Showing products found so far.'
+            : params.state.lastError) ||
           params.state.lastShortfallReason ||
           `Found ${resultPids.size}/${params.filters.quantity} products. Not enough matching products in this category.`
         : null

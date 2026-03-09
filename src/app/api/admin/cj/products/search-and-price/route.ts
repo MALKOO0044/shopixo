@@ -590,6 +590,8 @@ async function resolveExistingPidExclusions(
 
 type DiscoverMediaMode = 'any' | 'withVideo' | 'imagesOnly' | 'both';
 
+type DiscoverExistingProductPolicy = 'excludeQueueAndStore' | 'excludeQueueOnly' | 'excludeNone';
+
 
 
 function parseDiscoverMediaMode(value: string | null): DiscoverMediaMode {
@@ -603,6 +605,20 @@ function parseDiscoverMediaMode(value: string | null): DiscoverMediaMode {
   }
 
   return 'any';
+
+}
+
+function parseDiscoverExistingProductPolicy(value: string | null): DiscoverExistingProductPolicy {
+
+  const normalized = String(value || '').trim();
+
+  if (normalized === 'excludeQueueOnly' || normalized === 'excludeNone' || normalized === 'excludeQueueAndStore') {
+
+    return normalized;
+
+  }
+
+  return 'excludeQueueAndStore';
 
 }
 
@@ -1580,6 +1596,12 @@ async function handleSearch(req: Request, isPost: boolean) {
 
     const mediaMode = parseDiscoverMediaMode(searchParams.get('mediaMode'));
 
+    const existingProductPolicy = parseDiscoverExistingProductPolicy(searchParams.get('existingProductPolicy'));
+
+    const excludeQueueExisting = existingProductPolicy === 'excludeQueueAndStore' || existingProductPolicy === 'excludeQueueOnly';
+
+    const excludeStoreExisting = existingProductPolicy === 'excludeQueueAndStore';
+
     
 
     // Batching parameters for Vercel timeout handling
@@ -1588,7 +1610,7 @@ async function handleSearch(req: Request, isPost: boolean) {
 
     // Cursor-based pagination: {categoryIndex, pageNum, itemOffset}
 
-    const batchSize = Math.max(1, Math.min(12, Number(searchParams.get('batchSize') || 3)));
+    const batchSize = Math.max(1, Math.min(24, Number(searchParams.get('batchSize') || 3)));
 
     const isBatchMode = searchParams.get('batchMode') === '1';
 
@@ -1769,6 +1791,8 @@ async function handleSearch(req: Request, isPost: boolean) {
     console.log(`[Search&Price]   sizes filter: ${requestedSizes.length > 0 ? requestedSizes.join(',') : 'none'}`);
 
     console.log(`[Search&Price]   mediaMode: ${mediaMode}`);
+
+    console.log(`[Search&Price]   existingProductPolicy: ${existingProductPolicy} (queue=${excludeQueueExisting}, store=${excludeStoreExisting})`);
 
     console.log(`[Search&Price]   batchMode: ${isBatchMode}, batchSize: ${batchSize}`);
 
@@ -2076,27 +2100,39 @@ async function handleSearch(req: Request, isPost: boolean) {
 
           if (cachedExistingSource && cachedExistingSource !== 'none') {
 
-            if (cachedExistingSource === 'queue' || cachedExistingSource === 'both') {
+            const cachedInQueue = cachedExistingSource === 'queue' || cachedExistingSource === 'both';
+
+            const cachedInStore = cachedExistingSource === 'store' || cachedExistingSource === 'both';
+
+            const blockedByQueuePolicy = excludeQueueExisting && cachedInQueue;
+
+            const blockedByStorePolicy = excludeStoreExisting && cachedInStore;
+
+            if (cachedInQueue) {
 
               queueExcludedPids.add(normalizedPid);
 
-              skippedByQueueExclusion++;
-
             }
 
-            if (cachedExistingSource === 'store' || cachedExistingSource === 'both') {
+            if (cachedInStore) {
 
               storeExcludedPids.add(normalizedPid);
 
-              skippedByStoreExclusion++;
-
             }
 
-            excludedPids.add(normalizedPid);
+            if (blockedByQueuePolicy || blockedByStorePolicy) {
 
-            totalFiltered.existing++;
+              if (blockedByQueuePolicy) skippedByQueueExclusion++;
 
-            continue;
+              if (blockedByStorePolicy) skippedByStoreExclusion++;
+
+              excludedPids.add(normalizedPid);
+
+              totalFiltered.existing++;
+
+              continue;
+
+            }
 
           }
 
@@ -2146,7 +2182,7 @@ async function handleSearch(req: Request, isPost: boolean) {
 
     
 
-    if (candidateProducts.length > 0) {
+    if (candidateProducts.length > 0 && (excludeQueueExisting || excludeStoreExisting)) {
 
       const resolvedExclusionSets = await resolveExistingPidExclusions(
 
@@ -2162,7 +2198,11 @@ async function handleSearch(req: Request, isPost: boolean) {
 
         queueExcludedPids.add(pid);
 
-        excludedPids.add(pid);
+        if (excludeQueueExisting) {
+
+          excludedPids.add(pid);
+
+        }
 
       }
 
@@ -2170,7 +2210,11 @@ async function handleSearch(req: Request, isPost: boolean) {
 
         storeExcludedPids.add(pid);
 
-        excludedPids.add(pid);
+        if (excludeStoreExisting) {
+
+          excludedPids.add(pid);
+
+        }
 
       }
 
@@ -2180,9 +2224,9 @@ async function handleSearch(req: Request, isPost: boolean) {
 
         const pid = candidate.normalizedPid;
 
-        const inQueue = queueExcludedPids.has(pid);
+        const inQueue = excludeQueueExisting && queueExcludedPids.has(pid);
 
-        const inStore = storeExcludedPids.has(pid);
+        const inStore = excludeStoreExisting && storeExcludedPids.has(pid);
 
         if (!inQueue && !inStore) {
 
@@ -2301,6 +2345,12 @@ async function handleSearch(req: Request, isPost: boolean) {
           filtered: totalFiltered,
 
           exclusion: {
+
+            existingProductPolicy,
+
+            excludesQueueExisting: excludeQueueExisting,
+
+            excludesStoreExisting: excludeStoreExisting,
 
             excludedByQueue: queueExcludedPids.size,
 
@@ -6276,6 +6326,8 @@ async function handleSearch(req: Request, isPost: boolean) {
 
       excludedTotal: excludedPids.size,
 
+      existingProductPolicy,
+
       // Batch mode pagination info
 
       batch: isBatchMode ? {
@@ -6333,6 +6385,16 @@ async function handleSearch(req: Request, isPost: boolean) {
         hitRateLimit,
 
         exhaustedCandidates,
+
+        existingProductPolicy,
+
+        existingPolicyExclusion: {
+
+          excludesQueueExisting: excludeQueueExisting,
+
+          excludesStoreExisting: excludeStoreExisting,
+
+        },
 
         exclusion: {
 
