@@ -5,31 +5,17 @@ import Link from 'next/link'
 import {
   ArrowLeft,
   AlertTriangle,
-  RefreshCw,
-  Plus,
   Loader2,
   Image as ImageIcon,
-  CheckCircle,
-  XCircle,
   ChevronLeft,
   ChevronRight,
   Eye,
-  Layers,
-  FileText,
-  Box,
-  Truck,
-  Package,
-  Sparkles,
 } from 'lucide-react'
 import type { PricedProduct, PricedVariant } from '@/components/admin/import/preview/types'
 import PreviewPageOne from '@/components/admin/import/preview/PreviewPageOne'
-import PreviewPageThree from '@/components/admin/import/preview/PreviewPageThree'
-import PreviewPageFour from '@/components/admin/import/preview/PreviewPageFour'
-import PreviewPageFive from '@/components/admin/import/preview/PreviewPageFive'
-import PreviewPageSix from '@/components/admin/import/preview/PreviewPageSix'
-import PreviewPageSeven from '@/components/admin/import/preview/PreviewPageSeven'
 import { normalizeDisplayedRating } from '@/lib/rating/engine'
 import { sarToUsd } from '@/lib/pricing'
+import { enhanceProductImageUrl } from '@/lib/media/image-quality'
 
 function ImageWithFallback({ src, alt, className }: { src: string; alt: string; className?: string }) {
   const [error, setError] = useState(false)
@@ -61,182 +47,249 @@ function ImageWithFallback({ src, alt, className }: { src: string; alt: string; 
   )
 }
 
-type TabType = 'overview' | 'images' | 'specs' | 'inventory' | 'shipping' | 'variants' | 'aiMedia'
+type QueuePreviewRow = {
+  cj_product_id: string
+  cj_sku?: string | null
+  store_sku?: string | null
+  product_code?: string | null
+  name_en?: string | null
+  description_en?: string | null
+  overview?: string | null
+  product_info?: string | null
+  size_info?: string | null
+  product_note?: string | null
+  packing_list?: string | null
+  category?: string | null
+  category_name?: string | null
+  images?: unknown
+  size_chart_images?: unknown
+  variants?: unknown
+  variant_pricing?: unknown
+  stock_total?: number | null
+  total_sales?: number | null
+  calculated_retail_sar?: number | null
+  profit_margin?: number | null
+  displayed_rating?: number | null
+  supplier_rating?: number | null
+  rating_confidence?: number | null
+  review_count?: number | null
+  available_colors?: unknown
+  available_sizes?: unknown
+  available_models?: unknown
+  video_url?: string | null
+  video_source_url?: string | null
+  video_4k_url?: string | null
+  video_delivery_mode?: 'native' | 'enhanced' | 'passthrough' | null
+  video_quality_gate_passed?: boolean | null
+  video_source_quality_hint?: '4k' | 'hd' | 'sd' | 'unknown' | null
+}
+
+type TabType = 'overview' | 'images'
+
+function parseArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function parseStringArray(value: unknown): string[] {
+  return parseArray(value)
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function toOptionalNumber(value: unknown): number | null {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return null
+  return numeric
+}
+
+function toPositiveNumber(value: unknown): number | null {
+  const numeric = toOptionalNumber(value)
+  if (numeric === null || numeric <= 0) return null
+  return numeric
+}
+
+function toText(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function dedupeStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
+}
+
+function mapQueueRowToPreviewProduct(row: QueuePreviewRow): PricedProduct {
+  const queueImages = parseStringArray(row.images)
+    .map((url) => enhanceProductImageUrl(url, 'gallery'))
+    .filter((url) => /^https?:\/\//i.test(url))
+
+  const sizeChartImages = parseStringArray(row.size_chart_images)
+    .map((url) => enhanceProductImageUrl(url, 'gallery'))
+    .filter((url) => /^https?:\/\//i.test(url))
+
+  const variants = parseArray(row.variants) as PricedVariant[]
+  const variantPricing = parseArray(row.variant_pricing) as Array<Record<string, unknown>>
+  const variantSellPriceFromVariants = variants
+    .map((variant) => toPositiveNumber(variant.sellPriceSAR))
+    .filter((value): value is number => typeof value === 'number' && value > 0)
+
+  const variantSellPriceSar = variantPricing
+    .map((entry) => {
+      const direct = toPositiveNumber(entry?.price)
+      const altUpper = toPositiveNumber(entry?.sellPriceSAR)
+      const altLower = toPositiveNumber(entry?.sellPriceSar)
+      return direct ?? altUpper ?? altLower
+    })
+    .filter((value): value is number => typeof value === 'number' && value > 0)
+
+  const queueRetailSar = toPositiveNumber(row.calculated_retail_sar)
+  const pricedSarValues = variantSellPriceSar.length > 0
+    ? variantSellPriceSar
+    : variantSellPriceFromVariants.length > 0
+      ? variantSellPriceFromVariants
+      : queueRetailSar
+        ? [queueRetailSar]
+        : []
+
+  const stockFromVariants = variants.reduce((sum, variant) => {
+    const directStock = toOptionalNumber(variant.stock)
+    if (directStock !== null && directStock >= 0) {
+      return sum + Math.floor(directStock)
+    }
+
+    const cjStock = Math.max(0, Math.floor(toOptionalNumber(variant.cjStock) ?? 0))
+    const factoryStock = Math.max(0, Math.floor(toOptionalNumber(variant.factoryStock) ?? 0))
+    return sum + cjStock + factoryStock
+  }, 0)
+
+  const availableSizesRaw = parseStringArray(row.available_sizes)
+  const availableColorsRaw = parseStringArray(row.available_colors)
+  const availableModelsRaw = parseStringArray(row.available_models)
+  const derivedSizes = dedupeStrings(variants.map((variant) => toText(variant.size)))
+  const derivedColors = dedupeStrings(variants.map((variant) => toText(variant.color)))
+
+  const availableSizes = availableSizesRaw.length > 0 ? availableSizesRaw : derivedSizes
+  const availableColors = availableColorsRaw.length > 0 ? availableColorsRaw : derivedColors
+  const availableModels = availableModelsRaw.length > 0 ? availableModelsRaw : []
+
+  const queueStockTotal = Math.max(0, Math.floor(toOptionalNumber(row.stock_total) ?? 0))
+  const totalStock = queueStockTotal > 0 ? queueStockTotal : stockFromVariants
+
+  const totalSales = Math.max(0, Math.floor(toOptionalNumber(row.total_sales) ?? 0))
+  const listedNum = totalSales > 0 ? totalSales : variants.length
+
+  const totalVariants = variants.length > 0
+    ? variants.length
+    : Math.max(availableColors.length, availableSizes.length, 0)
+
+  const reviewCount = Math.max(0, Math.floor(toOptionalNumber(row.review_count) ?? 0))
+  const displayedRating = toPositiveNumber(row.displayed_rating) ?? toPositiveNumber(row.supplier_rating) ?? undefined
+  const ratingConfidence = toPositiveNumber(row.rating_confidence) ?? undefined
+
+  const minPriceSAR = pricedSarValues.length > 0 ? Math.min(...pricedSarValues) : 0
+  const maxPriceSAR = pricedSarValues.length > 0 ? Math.max(...pricedSarValues) : minPriceSAR
+  const avgPriceSAR = pricedSarValues.length > 0
+    ? pricedSarValues.reduce((sum, value) => sum + value, 0) / pricedSarValues.length
+    : minPriceSAR
+
+  const profitMarginApplied = toPositiveNumber(row.profit_margin) ?? undefined
+
+  return {
+    pid: toText(row.cj_product_id),
+    cjSku: toText(row.cj_sku) || toText(row.cj_product_id),
+    storeSku: toText(row.store_sku) || toText(row.product_code) || undefined,
+    name: toText(row.name_en) || 'Unknown Product',
+    images: queueImages,
+    minPriceSAR,
+    maxPriceSAR,
+    avgPriceSAR,
+    minPriceUSD: minPriceSAR > 0 ? sarToUsd(minPriceSAR) : undefined,
+    maxPriceUSD: maxPriceSAR > 0 ? sarToUsd(maxPriceSAR) : undefined,
+    avgPriceUSD: avgPriceSAR > 0 ? sarToUsd(avgPriceSAR) : undefined,
+    profitMarginApplied,
+    stock: totalStock,
+    listedNum,
+    variants,
+    successfulVariants: variants.length,
+    totalVariants,
+    description: toText(row.description_en) || undefined,
+    overview: toText(row.overview) || undefined,
+    productInfo: toText(row.product_info) || undefined,
+    sizeInfo: toText(row.size_info) || undefined,
+    productNote: toText(row.product_note) || undefined,
+    packingList: toText(row.packing_list) || undefined,
+    displayedRating,
+    ratingConfidence,
+    reviewCount,
+    categoryName: toText(row.category_name) || toText(row.category) || undefined,
+    sizeChartImages,
+    videoUrl: toText(row.video_url) || undefined,
+    videoSourceUrl: toText(row.video_source_url) || undefined,
+    video4kUrl: toText(row.video_4k_url) || undefined,
+    videoDeliveryMode: row.video_delivery_mode ?? undefined,
+    videoQualityGatePassed: typeof row.video_quality_gate_passed === 'boolean' ? row.video_quality_gate_passed : undefined,
+    videoSourceQualityHint: row.video_source_quality_hint ?? undefined,
+    availableSizes,
+    availableColors,
+    availableModels,
+  }
+}
 
 export default function CjProductAdminPage({ params }: { params: { pid: string } }) {
   const pid = decodeURIComponent(params.pid)
   const [loading, setLoading] = useState(true)
   const [product, setProduct] = useState<PricedProduct | null>(null)
   const [err, setErr] = useState<string | null>(null)
-  const [syncing, setSyncing] = useState(false)
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
-  const [addingToQueue, setAddingToQueue] = useState(false)
-  const [queueMessage, setQueueMessage] = useState<string | null>(null)
 
   useEffect(() => {
     let mounted = true
+
     async function load() {
       setLoading(true)
       setErr(null)
+
       try {
-        const res = await fetch(`/api/admin/cj/products/${encodeURIComponent(pid)}/details?profitMargin=40`, { cache: 'no-store' })
-        const j = await res.json()
+        const res = await fetch(`/api/admin/import/queue?pid=${encodeURIComponent(pid)}`, { cache: 'no-store' })
+        const payload = await res.json().catch(() => ({}))
         if (!mounted) return
-        if (!res.ok || !j.ok) {
-          setErr(j?.error || 'Failed to load product details')
-        } else {
-          setProduct(j.product)
+
+        if (!res.ok || !payload?.ok || !payload?.product) {
+          setProduct(null)
+          setErr(payload?.error || 'Failed to load queue product')
+          return
         }
+
+        setProduct(mapQueueRowToPreviewProduct(payload.product as QueuePreviewRow))
       } catch (e: any) {
         if (!mounted) return
+        setProduct(null)
         setErr(e?.message || String(e))
       } finally {
         if (mounted) setLoading(false)
       }
     }
+
     load()
     return () => { mounted = false }
   }, [pid])
 
-  async function forceResync() {
-    setSyncing(true)
-    try {
-      const res = await fetch(`/api/cj/sync/product/${encodeURIComponent(pid)}?updateImages=true&updateVideo=true&updatePrice=true`, { cache: 'no-store' })
-      const j = await res.json()
-      alert(res.ok ? 'Re-sync complete' : `Re-sync failed: ${j?.error || res.status}`)
-      if (res.ok) window.location.reload()
-    } catch (e: any) {
-      alert(`Re-sync error: ${e?.message || String(e)}`)
-    } finally {
-      setSyncing(false)
-    }
-  }
-
-  async function addToQueue() {
-    if (!product) return
-    setAddingToQueue(true)
-    setQueueMessage(null)
-    try {
-      const htmlToPlain = (value: unknown): string => {
-        return String(value ?? '')
-          .replace(/<br\s*\/?>/gi, '\n')
-          .replace(/<\/p>/gi, '\n')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/&nbsp;/gi, ' ')
-          .replace(/&amp;/gi, '&')
-          .replace(/\r/g, '')
-          .replace(/[ \t]+/g, ' ')
-          .replace(/\n{3,}/g, '\n\n')
-          .trim()
-      }
-
-      // Build variant_pricing array with all variant data for accurate import
-      const variantPricing = (product.variants || [])
-        .map((v: PricedVariant) => {
-          const sellPriceSar = Number(v.sellPriceSAR || 0)
-          const directSellUsd = Number(v.sellPriceUSD)
-          const sellPriceUsd = Number.isFinite(directSellUsd) && directSellUsd > 0
-            ? directSellUsd
-            : (sellPriceSar > 0 ? sarToUsd(sellPriceSar) : 0)
-          const variantMarginPercent = Number(v.marginPercent)
-
-          return {
-            variantId: v.variantId,
-            sku: v.variantSku,
-            color: v.color,
-            size: v.size,
-            colorImage: v.variantImage,
-            price: sellPriceSar,
-            priceUsd: sellPriceUsd,
-            marginPercent: Number.isFinite(variantMarginPercent) ? variantMarginPercent : null,
-            costPrice: v.variantPriceUSD || 0,
-            shippingCost: v.shippingPriceUSD || 0,
-            stock: (v.cjStock || 0) + (v.factoryStock || 0),
-            cjStock: v.cjStock || 0,
-            factoryStock: v.factoryStock || 0,
-          }
-        })
-        .filter((v: { price: number }) => Number(v.price) > 0)
-
-      const specifications: Record<string, string> = {}
-      if (product.material) specifications.Material = htmlToPlain(product.material)
-      if (product.productType) specifications['Product Type'] = htmlToPlain(product.productType)
-      if (product.originCountry) specifications['Origin Country'] = htmlToPlain(product.originCountry)
-      if (product.productWeight) specifications.Weight = `${product.productWeight} g`
-
-      const sellingPoints = htmlToPlain(product.overview || '')
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .slice(0, 8)
-
-      const res = await fetch('/api/admin/import/batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: `Single Import: ${product.name}`,
-          category: product.categoryName || 'General',
-          products: [{
-            pid,
-            cjProductId: pid,
-            cjSku: product.cjSku,
-            name: product.name || 'Unknown Product',
-            description: product.description || product.overview || '',
-            categoryName: product.categoryName || 'Uncategorized',
-            images: product.images.slice(0, 15),
-            videoUrl: product.videoUrl,
-            variants: product.variants,
-            variantPricing,
-            stock: product.stock,
-            supplierRating:
-              typeof product.rating === 'number' && Number.isFinite(product.rating)
-                ? product.rating
-                : undefined,
-            reviewCount:
-              Number.isFinite(Number(product.reviewCount))
-                ? Math.max(0, Math.floor(Number(product.reviewCount)))
-                : 0,
-            displayedRating: typeof product.displayedRating === 'number' ? product.displayedRating : undefined,
-            ratingConfidence: typeof product.ratingConfidence === 'number' ? product.ratingConfidence : undefined,
-            availableColors: product.availableColors || [],
-            availableSizes: product.availableSizes || [],
-            specifications,
-            sellingPoints,
-            productWeight: product.productWeight,
-            packLength: product.packLength,
-            packWidth: product.packWidth,
-            packHeight: product.packHeight,
-            processingDays: product.processingTimeHours ? Math.ceil(product.processingTimeHours / 24) : undefined,
-            deliveryDaysMax: product.deliveryTimeHours ? Math.ceil(product.deliveryTimeHours / 24) : undefined,
-            originCountry: product.originCountry,
-            hsCode: product.hsCode,
-            sizeChartImages: product.sizeChartImages,
-            profitMargin: Number((product as any).profitMarginApplied) || undefined,
-          }]
-        })
-      })
-      const j = await res.json()
-      if (res.ok && j.ok) {
-        setQueueMessage('Product added to import queue with full data!')
-      } else {
-        setQueueMessage(`Failed: ${j.error || 'Unknown error'}`)
-      }
-    } catch (e: any) {
-      setQueueMessage(`Error: ${e?.message || String(e)}`)
-    } finally {
-      setAddingToQueue(false)
-    }
-  }
+  useEffect(() => {
+    setSelectedImageIndex(0)
+  }, [product?.pid])
 
   const tabs: Array<{ id: TabType; label: string; icon: typeof Eye }> = [
     { id: 'overview', label: 'Overview', icon: Eye },
-    { id: 'images', label: 'Images', icon: ImageIcon },
-    { id: 'specs', label: 'Specifications', icon: FileText },
-    { id: 'inventory', label: 'Stock & Popularity', icon: Box },
-    { id: 'shipping', label: 'Shipping & Delivery', icon: Truck },
-    { id: 'variants', label: 'Variants', icon: Layers },
-    { id: 'aiMedia', label: 'AI Media', icon: Sparkles },
+    { id: 'images', label: 'Gallery', icon: ImageIcon },
   ]
 
   if (loading) {
@@ -244,8 +297,8 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600">Loading product details from CJ API...</p>
-          <p className="text-sm text-gray-400 mt-2">This may take a moment as we fetch inventory and shipping data</p>
+          <p className="text-gray-600">Loading queue preview...</p>
+          <p className="text-sm text-gray-400 mt-2">Fetching product data from your review list</p>
         </div>
       </div>
     )
@@ -258,8 +311,8 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
           <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-gray-900 mb-2">Failed to Load Product</h2>
           <p className="text-gray-600 mb-4">{err || 'Product not found'}</p>
-          <Link href="/admin/cj" className="text-blue-600 hover:underline">
-            Back to CJ Products
+          <Link href="/admin/import/queue" className="text-blue-600 hover:underline">
+            Back to Review List
           </Link>
         </div>
       </div>
@@ -267,6 +320,9 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
   }
 
   const images = product.images || []
+  const activeImageIndex = images.length > 0
+    ? Math.min(selectedImageIndex, images.length - 1)
+    : 0
   const totalStock = product.stock || 0
   const displayedRating = typeof product.displayedRating === 'number'
     ? normalizeDisplayedRating(product.displayedRating)
@@ -302,44 +358,9 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
                 </h1>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={forceResync}
-                disabled={syncing}
-                className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-              >
-                <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-                {syncing ? 'Syncing...' : 'Re-sync'}
-              </button>
-              <button
-                onClick={addToQueue}
-                disabled={addingToQueue}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                <Plus className="h-4 w-4" />
-                {addingToQueue ? 'Adding...' : 'Add to Queue'}
-              </button>
-            </div>
           </div>
         </div>
       </div>
-
-      {queueMessage && (
-        <div className={`max-w-7xl mx-auto px-4 mt-4`}>
-          <div className={`p-4 rounded-lg flex items-center gap-3 ${
-            queueMessage.includes('added') ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
-          }`}>
-            {queueMessage.includes('added') ? (
-              <CheckCircle className="h-5 w-5 text-green-600" />
-            ) : (
-              <XCircle className="h-5 w-5 text-red-600" />
-            )}
-            <span className={queueMessage.includes('added') ? 'text-green-800' : 'text-red-800'}>
-              {queueMessage}
-            </span>
-          </div>
-        </div>
-      )}
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -348,7 +369,7 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
               <div className="aspect-video relative bg-gray-100">
                 {images.length > 0 ? (
                   <ImageWithFallback
-                    src={images[selectedImageIndex]}
+                    src={images[activeImageIndex]}
                     alt={product.name || 'Product'}
                     className="w-full h-full"
                   />
@@ -373,25 +394,29 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
                     </button>
                   </>
                 )}
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/60 px-3 py-1 rounded-full text-white text-xs">
-                  {selectedImageIndex + 1} / {images.length}
-                </div>
+                {images.length > 0 && (
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/60 px-3 py-1 rounded-full text-white text-xs">
+                    {activeImageIndex + 1} / {images.length}
+                  </div>
+                )}
               </div>
-              <div className="p-4 border-t">
-                <div className="flex gap-2 overflow-x-auto pb-2">
-                  {images.slice(0, 12).map((img, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setSelectedImageIndex(idx)}
-                      className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-colors ${
-                        selectedImageIndex === idx ? 'border-blue-500' : 'border-transparent hover:border-gray-300'
-                      }`}
-                    >
-                      <ImageWithFallback src={img} alt={`Thumbnail ${idx + 1}`} className="w-full h-full" />
-                    </button>
-                  ))}
+              {images.length > 0 && (
+                <div className="p-4 border-t">
+                  <div className="flex gap-2 overflow-x-auto pb-2">
+                    {images.slice(0, 12).map((img, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setSelectedImageIndex(idx)}
+                        className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-colors ${
+                          activeImageIndex === idx ? 'border-blue-500' : 'border-transparent hover:border-gray-300'
+                        }`}
+                      >
+                        <ImageWithFallback src={img} alt={`Thumbnail ${idx + 1}`} className="w-full h-full" />
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             <div className="bg-white rounded-xl border shadow-sm">
@@ -423,19 +448,25 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
                 {activeTab === 'images' && (
                   <div className="space-y-6">
                     <h3 className="text-lg font-semibold text-gray-900">Product Images ({images.length})</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                      {images.map((img, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => setSelectedImageIndex(idx)}
-                          className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
-                            selectedImageIndex === idx ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200 hover:border-gray-400'
-                          }`}
-                        >
-                          <ImageWithFallback src={img} alt={`Image ${idx + 1}`} className="w-full h-full" />
-                        </button>
-                      ))}
-                    </div>
+                    {images.length > 0 ? (
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {images.map((img, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => setSelectedImageIndex(idx)}
+                            className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
+                              activeImageIndex === idx ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200 hover:border-gray-400'
+                            }`}
+                          >
+                            <ImageWithFallback src={img} alt={`Image ${idx + 1}`} className="w-full h-full" />
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">
+                        No gallery images available for this queue item.
+                      </div>
+                    )}
                     {product.sizeChartImages && product.sizeChartImages.length > 0 && (
                       <div className="mt-8">
                         <h4 className="text-md font-semibold text-gray-900 mb-4">Size Charts</h4>
@@ -449,21 +480,6 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
                       </div>
                     )}
                   </div>
-                )}
-                {activeTab === 'specs' && (
-                  <PreviewPageThree product={product} />
-                )}
-                {activeTab === 'inventory' && (
-                  <PreviewPageFour product={product} />
-                )}
-                {activeTab === 'shipping' && (
-                  <PreviewPageFive product={product} />
-                )}
-                {activeTab === 'variants' && (
-                  <PreviewPageSix product={product} />
-                )}
-                {activeTab === 'aiMedia' && (
-                  <PreviewPageSeven product={product} sourceContext="cj_detail" />
                 )}
               </div>
             </div>
@@ -493,18 +509,6 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
                     {totalStock.toLocaleString()}
                   </span>
                 </div>
-                {product.totalVerifiedInventory !== undefined && (
-                  <div className="flex justify-between items-center py-2 border-b">
-                    <span className="text-gray-600">CJ Warehouse</span>
-                    <span className="font-semibold text-green-600">{product.totalVerifiedInventory.toLocaleString()}</span>
-                  </div>
-                )}
-                {product.totalUnVerifiedInventory !== undefined && (
-                  <div className="flex justify-between items-center py-2 border-b">
-                    <span className="text-gray-600">Factory</span>
-                    <span className="font-semibold text-amber-600">{product.totalUnVerifiedInventory.toLocaleString()}</span>
-                  </div>
-                )}
                 <div className="flex justify-between items-center py-2 border-b">
                   <span className="text-gray-600">Variants</span>
                   <span className="font-semibold">{product.totalVariants}</span>
@@ -524,15 +528,15 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
 
             {product.minPriceSAR > 0 && (
               <div className="bg-white rounded-xl border shadow-sm p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Pricing (USD)</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Pricing</h3>
                 <div className="space-y-4">
                   <div className="flex justify-between items-center py-2 border-b">
-                    <span className="text-gray-600">Cost Price</span>
-                    <span className="font-semibold">${(product.variants[0]?.variantPriceUSD || 0).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b">
-                    <span className="text-gray-600">Shipping (Est.)</span>
-                    <span className="font-semibold">${(product.variants[0]?.shippingPriceUSD || 0).toFixed(2)}</span>
+                    <span className="text-gray-600">Suggested Retail (SAR)</span>
+                    <span className="font-semibold text-emerald-700">
+                      {Number(product.maxPriceSAR) > Number(product.minPriceSAR)
+                        ? `${Number(product.minPriceSAR).toFixed(2)} - ${Number(product.maxPriceSAR).toFixed(2)}`
+                        : `${Number(product.minPriceSAR).toFixed(2)}`}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b">
                     <span className="text-gray-600">Suggested Retail</span>
@@ -555,20 +559,6 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
                       <span className="text-gray-600">Applied Margin</span>
                       <span className="font-semibold text-emerald-700">
                         {Number((product as any).profitMarginApplied).toFixed(0)}%
-                      </span>
-                    </div>
-                  )}
-                  {product.variants[0]?.profitSAR > 0 && (
-                    <div className="flex justify-between items-center py-2">
-                      <span className="text-gray-600">Est. Profit</span>
-                      <span className="font-bold text-emerald-600">
-                        {(() => {
-                          const directProfitUsd = Number((product.variants[0] as any)?.profitUSD)
-                          const profitUsd = Number.isFinite(directProfitUsd)
-                            ? directProfitUsd
-                            : sarToUsd(Number(product.variants[0].profitSAR))
-                          return `$${profitUsd.toFixed(2)}`
-                        })()}
                       </span>
                     </div>
                   )}

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { calculateRetailSar, usdToSar } from "@/lib/pricing";
 import { enhanceProductImageUrl } from "@/lib/media/image-quality";
 
 export const runtime = 'nodejs';
@@ -38,6 +37,10 @@ function normalizeQueueImages(value: unknown): string[] {
     .filter((url) => /^https?:\/\//i.test(url));
 }
 
+function normalizeQueuePid(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
 export async function GET(req: NextRequest) {
   try {
     if (!isDbConfigured()) {
@@ -50,6 +53,37 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
+    const pid = normalizeQueuePid(searchParams.get("pid"));
+
+    if (pid) {
+      const { data: singleRows, error: singleQueryError } = await supabase
+        .from('product_queue')
+        .select('*')
+        .eq('cj_product_id', pid)
+        .order('updated_at', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (singleQueryError) {
+        console.error("[Queue GET pid] Query error:", singleQueryError);
+        return NextResponse.json({ ok: false, error: singleQueryError.message }, { status: 500 });
+      }
+
+      const singleProduct = Array.isArray(singleRows) && singleRows.length > 0 ? singleRows[0] : null;
+
+      if (!singleProduct) {
+        return NextResponse.json({ ok: false, error: "Queue product not found" }, { status: 404 });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        product: {
+          ...singleProduct,
+          images: normalizeQueueImages(singleProduct?.images),
+        },
+      });
+    }
+
     const status = searchParams.get("status") || "pending";
     const batchId = searchParams.get("batch_id");
     const category = searchParams.get("category");
