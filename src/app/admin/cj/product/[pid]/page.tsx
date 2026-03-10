@@ -80,7 +80,7 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
       setLoading(true)
       setErr(null)
       try {
-        const res = await fetch(`/api/admin/cj/products/${encodeURIComponent(pid)}/details`, { cache: 'no-store' })
+        const res = await fetch(`/api/admin/cj/products/${encodeURIComponent(pid)}/details?profitMargin=40`, { cache: 'no-store' })
         const j = await res.json()
         if (!mounted) return
         if (!res.ok || !j.ok) {
