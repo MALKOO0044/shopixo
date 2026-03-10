@@ -2071,6 +2071,8 @@ export default function ProductDiscoveryPage() {
 
       let selectedProducts = products.filter((p: PricedProduct) => selected.has(p.pid));
 
+      let hydrationFallbackNotice: string | null = null;
+
       const allSelectedFromOfflineCatalog = selectedProducts.length > 0
         && selectedProducts.every((product: PricedProduct) =>
           String((product as any)?.discoverSource || '').toLowerCase() === 'offline-catalog'
@@ -2095,24 +2097,78 @@ export default function ProductDiscoveryPage() {
 
         const hydrateProduct = async (product: PricedProduct): Promise<void> => {
 
-          const response = await fetch(
-            `/api/admin/cj/products/${encodeURIComponent(product.pid)}/details?profitMargin=${encodeURIComponent(String(profitMargin))}`,
-            { cache: "no-store" }
-          );
+          const maxHydrationAttempts = 2;
 
-          const payload = await response.json().catch(() => ({}));
+          let lastHydrationError: Error | null = null;
+
+          for (let attempt = 1; attempt <= maxHydrationAttempts; attempt++) {
+
+            try {
+
+              const response = await fetch(
+                `/api/admin/cj/products/${encodeURIComponent(product.pid)}/details?profitMargin=${encodeURIComponent(String(profitMargin))}`,
+                { cache: "no-store" }
+              );
+
+              const payload = await response.json().catch(() => ({}));
 
 
-          if (!response.ok || !payload?.ok || !payload?.product) {
+              if (response.ok && payload?.ok && payload?.product) {
 
-            const serverError = typeof payload?.error === "string" ? payload.error : `HTTP ${response.status}`;
+                hydratedByPid.set(product.pid, payload.product as PricedProduct);
 
-            throw new Error(serverError);
+                return;
+
+              }
+
+
+              const serverError = typeof payload?.error === "string" ? payload.error : `HTTP ${response.status}`;
+
+              const isNotFound = response.status === 404 || /not found/i.test(serverError);
+
+              lastHydrationError = new Error(serverError);
+
+
+              if (!isNotFound && attempt < maxHydrationAttempts) {
+
+                await delay(120 + Math.floor(Math.random() * 120));
+
+                continue;
+
+              }
+
+
+              throw lastHydrationError;
+
+            } catch (e: any) {
+
+              const message = String(e?.message || "hydration failed");
+
+              const isAbortLikeError =
+                String(e?.name || "").toLowerCase() === "aborterror" || /abort/i.test(message);
+
+              const isNotFound = /not found/i.test(message);
+
+              lastHydrationError = new Error(message);
+
+
+              if (!isAbortLikeError && !isNotFound && attempt < maxHydrationAttempts) {
+
+                await delay(120 + Math.floor(Math.random() * 120));
+
+                continue;
+
+              }
+
+
+              throw lastHydrationError;
+
+            }
 
           }
 
 
-          hydratedByPid.set(product.pid, payload.product as PricedProduct);
+          throw lastHydrationError || new Error("hydration failed");
 
         };
 
@@ -2147,8 +2203,10 @@ export default function ProductDiscoveryPage() {
 
           const sampleFailures = hydrationErrors.slice(0, 3).join(" | ");
 
-          throw new Error(
-            `Failed to hydrate ${hydrationErrors.length}/${totalToHydrate} fast-profile products before queue import. ${sampleFailures}`
+          hydrationFallbackNotice = `Hydration failed for ${hydrationErrors.length}/${totalToHydrate} selected products. Fallback data was used for queue add. ${sampleFailures}`;
+
+          console.warn(
+            `[Discovery] Hydration fallback applied for ${hydrationErrors.length}/${totalToHydrate} products: ${sampleFailures}`
           );
 
         }
@@ -2545,6 +2603,12 @@ export default function ProductDiscoveryPage() {
             `${data.productsSkippedVideoQualityGate} selected products were skipped because strict 4K quality gate failed.`
 
           );
+
+        }
+
+        if (hydrationFallbackNotice) {
+
+          skippedNotices.push(hydrationFallbackNotice);
 
         }
 
