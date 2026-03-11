@@ -10,13 +10,11 @@ import {
   normalizeDiscoverRunParams,
 } from '@/lib/discover/runs'
 import { normalizeCjProductId } from '@/lib/import/normalization'
-import { getSetting } from '@/lib/settings'
+import { loadDiscoverDeletedPids } from '@/lib/discover/deleted-pids'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
-
-const DISCOVER_DELETED_PIDS_KEY = 'discover_deleted_pids'
 
 type SearchBatchResponse = {
   ok?: boolean
@@ -37,23 +35,12 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 async function loadDeletedPidSet(extraDeletedPids?: unknown): Promise<Set<string>> {
-  const out = new Set<string>()
+  const merged = await loadDiscoverDeletedPids({
+    extraPids: extraDeletedPids,
+    includeLegacyPids: true,
+  })
 
-  const pushPid = (rawPid: unknown) => {
-    const normalized = normalizeCjProductId(rawPid)
-    if (normalized) out.add(normalized)
-  }
-
-  const persisted = await getSetting<unknown>(DISCOVER_DELETED_PIDS_KEY, [])
-  if (Array.isArray(persisted)) {
-    for (const rawPid of persisted) pushPid(rawPid)
-  }
-
-  if (Array.isArray(extraDeletedPids)) {
-    for (const rawPid of extraDeletedPids) pushPid(rawPid)
-  }
-
-  return out
+  return new Set(merged)
 }
 
 export async function POST(req: Request, ctx: { params: { id: string } }) {

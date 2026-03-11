@@ -26,9 +26,9 @@ import { extractCjProductVideoCandidates, inferCjVideoQualityHint } from '@/lib/
 
 import { build4kVideoDelivery } from '@/lib/video/delivery';
 
-import { getSetting } from '@/lib/settings';
-
 import { runOfflineDiscoverSearch } from '@/lib/discover/offline-catalog';
+
+import { loadDiscoverDeletedPids } from '@/lib/discover/deleted-pids';
 
 
 
@@ -369,8 +369,6 @@ const discoverProductCache = new Map<string, CacheEntry<PricedProduct>>();
 const CJ_PRODUCT_PAGE_CACHE_TTL_MS = parseCacheTtlMs('CJ_PRODUCT_PAGE_CACHE_TTL_MS', 10 * 60 * 1000);
 
 const cjProductPageCache = new Map<string, CacheEntry<{ list: any[]; total: number }>>();
-
-const DISCOVER_DELETED_PIDS_KEY = 'discover_deleted_pids';
 
 const DISCOVER_EXISTING_PID_CACHE_TTL_MS = parseCacheTtlMs('DISCOVER_EXISTING_PID_CACHE_TTL_MS', 60 * 1000);
 
@@ -1793,17 +1791,11 @@ async function handleSearch(req: Request, isPost: boolean) {
 
     try {
 
-      const deletedFromSettings = await getSetting<unknown>(DISCOVER_DELETED_PIDS_KEY, []);
+      const deletedPids = await loadDiscoverDeletedPids({ includeLegacyPids: true });
 
-      if (Array.isArray(deletedFromSettings)) {
+      for (const deletedPid of deletedPids) {
 
-        for (const rawPid of deletedFromSettings) {
-
-          const normalizedPid = normalizeCjProductId(rawPid);
-
-          if (normalizedPid) deletedExcludedPids.add(normalizedPid);
-
-        }
+        deletedExcludedPids.add(deletedPid);
 
       }
 

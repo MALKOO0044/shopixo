@@ -294,6 +294,7 @@ export function buildDiscoverSearchParams(
     mediaMode: filters.mediaMode,
     discoverProfile: filters.discoverProfile,
     existingProductPolicy: filters.existingProductPolicy,
+    discoverEngine: 'offline',
     batchMode: '1',
     batchSize: String(filters.batchSize),
     cursor: state.cursor || DEFAULT_CURSOR,

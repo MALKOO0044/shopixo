@@ -1,42 +1,16 @@
 import { NextResponse } from 'next/server'
 import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
-import { getSetting, hasSettingsTable, setSetting } from '@/lib/settings'
-import { normalizeCjProductId } from '@/lib/import/normalization'
+import {
+  addDiscoverDeletedPids,
+  backfillDiscoverDeletedPidsTableFromLegacy,
+  loadDiscoverDeletedPids,
+  removeDiscoverDeletedPids,
+} from '@/lib/discover/deleted-pids'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
-
-const KEY = 'discover_deleted_pids'
-
-function normalizePid(value: unknown): string {
-  return normalizeCjProductId(value)
-}
-
-function normalizePidList(value: unknown): string[] {
-  const out = new Set<string>()
-
-  const push = (raw: unknown) => {
-    const pid = normalizePid(raw)
-    if (pid) out.add(pid)
-  }
-
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      push(entry)
-    }
-  } else if (value !== undefined && value !== null) {
-    push(value)
-  }
-
-  return Array.from(out)
-}
-
-async function readDeletedPids(): Promise<string[]> {
-  const current = await getSetting<unknown>(KEY, [])
-  return normalizePidList(current)
-}
 
 export async function GET(req: Request) {
   const log = loggerForRequest(req)
@@ -48,14 +22,8 @@ export async function GET(req: Request) {
       return r
     }
 
-    const tableExists = await hasSettingsTable()
-    if (!tableExists) {
-      const r = NextResponse.json({ ok: true, deletedPids: [], tablesMissing: true }, { headers: { 'Cache-Control': 'no-store' } })
-      r.headers.set('x-request-id', log.requestId)
-      return r
-    }
-
-    const deletedPids = await readDeletedPids()
+    await backfillDiscoverDeletedPidsTableFromLegacy()
+    const deletedPids = await loadDiscoverDeletedPids({ includeLegacyPids: true })
     const r = NextResponse.json({ ok: true, deletedPids, count: deletedPids.length }, { headers: { 'Cache-Control': 'no-store' } })
     r.headers.set('x-request-id', log.requestId)
     return r
@@ -76,40 +44,31 @@ export async function POST(req: Request) {
       return r
     }
 
-    const tableExists = await hasSettingsTable()
-    if (!tableExists) {
-      const r = NextResponse.json({ ok: false, error: 'kv_settings table missing' }, { status: 503 })
-      r.headers.set('x-request-id', log.requestId)
-      return r
-    }
-
     let body: any = {}
     try {
       body = await req.json()
     } catch {}
 
-    const incoming = normalizePidList(Array.isArray(body?.pids) ? body.pids : [body?.pid])
-    if (incoming.length === 0) {
-      const r = NextResponse.json({ ok: false, error: 'No valid pid provided' }, { status: 400 })
-      r.headers.set('x-request-id', log.requestId)
-      return r
-    }
-
-    const current = await readDeletedPids()
-    const merged = Array.from(new Set([...current, ...incoming]))
-
-    const saved = await setSetting(KEY, merged)
+    await backfillDiscoverDeletedPidsTableFromLegacy()
+    const saved = await addDiscoverDeletedPids(
+      Array.isArray(body?.pids) ? body.pids : [body?.pid],
+      {
+        deletedBy: String((guard as any)?.user?.email || '').trim() || null,
+        reason: typeof body?.reason === 'string' ? body.reason.trim() || null : null,
+      }
+    )
     if (!saved.ok) {
-      const r = NextResponse.json({ ok: false, error: 'Failed to persist deleted products' }, { status: 500 })
+      const status = saved.error === 'No valid pid provided' ? 400 : 500
+      const r = NextResponse.json({ ok: false, error: saved.error || 'Failed to persist deleted products' }, { status })
       r.headers.set('x-request-id', log.requestId)
       return r
     }
 
     const r = NextResponse.json({
       ok: true,
-      deletedPids: merged,
-      added: merged.length - current.length,
-      count: merged.length,
+      deletedPids: saved.deletedPids,
+      added: saved.added,
+      count: saved.count,
     })
     r.headers.set('x-request-id', log.requestId)
     return r
@@ -130,41 +89,25 @@ export async function DELETE(req: Request) {
       return r
     }
 
-    const tableExists = await hasSettingsTable()
-    if (!tableExists) {
-      const r = NextResponse.json({ ok: false, error: 'kv_settings table missing' }, { status: 503 })
-      r.headers.set('x-request-id', log.requestId)
-      return r
-    }
-
     let body: any = {}
     try {
       body = await req.json()
     } catch {}
 
-    const toRemove = normalizePidList(Array.isArray(body?.pids) ? body.pids : [body?.pid])
-    if (toRemove.length === 0) {
-      const r = NextResponse.json({ ok: false, error: 'No valid pid provided' }, { status: 400 })
-      r.headers.set('x-request-id', log.requestId)
-      return r
-    }
-
-    const removeSet = new Set<string>(toRemove)
-    const current = await readDeletedPids()
-    const next = current.filter((pid) => !removeSet.has(pid))
-
-    const saved = await setSetting(KEY, next)
+    await backfillDiscoverDeletedPidsTableFromLegacy()
+    const saved = await removeDiscoverDeletedPids(Array.isArray(body?.pids) ? body.pids : [body?.pid])
     if (!saved.ok) {
-      const r = NextResponse.json({ ok: false, error: 'Failed to update deleted products' }, { status: 500 })
+      const status = saved.error === 'No valid pid provided' ? 400 : 500
+      const r = NextResponse.json({ ok: false, error: saved.error || 'Failed to update deleted products' }, { status })
       r.headers.set('x-request-id', log.requestId)
       return r
     }
 
     const r = NextResponse.json({
       ok: true,
-      deletedPids: next,
-      removed: current.length - next.length,
-      count: next.length,
+      deletedPids: saved.deletedPids,
+      removed: saved.removed,
+      count: saved.count,
     })
     r.headers.set('x-request-id', log.requestId)
     return r

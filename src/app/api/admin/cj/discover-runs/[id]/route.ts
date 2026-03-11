@@ -3,26 +3,15 @@ import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
 import { getJob } from '@/lib/jobs'
 import { buildDiscoverRunPayload, isDiscoverRunJob } from '@/lib/discover/runs'
-import { getSetting } from '@/lib/settings'
-import { normalizeCjProductId } from '@/lib/import/normalization'
+import { loadDiscoverDeletedPids } from '@/lib/discover/deleted-pids'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-const DISCOVER_DELETED_PIDS_KEY = 'discover_deleted_pids'
-
 async function loadDeletedPidSet(): Promise<Set<string>> {
-  const out = new Set<string>()
-  const raw = await getSetting<unknown>(DISCOVER_DELETED_PIDS_KEY, [])
-  if (!Array.isArray(raw)) return out
-
-  for (const pid of raw) {
-    const normalized = normalizeCjProductId(pid)
-    if (normalized) out.add(normalized)
-  }
-
-  return out
+  const merged = await loadDiscoverDeletedPids({ includeLegacyPids: true })
+  return new Set(merged)
 }
 
 export async function GET(req: Request, ctx: { params: { id: string } }) {

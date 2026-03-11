@@ -239,6 +239,24 @@ type DiscoverRunResponse = {
 
 };
 
+type DiscoverSearchResponse = {
+
+  ok: boolean;
+
+  error?: string;
+
+  products?: PricedProduct[];
+
+  count?: number;
+
+  requestedQuantity?: number;
+
+  quantityFulfilled?: boolean;
+
+  shortfallReason?: string | null;
+
+};
+
 
 
 const DISCOVER_NON_PRODUCT_IMAGE_RE = /(sprite|icon|favicon|logo|placeholder|blank|loading|badge|flag|promo|banner|sale|discount|qr|sizechart|size\s*chart|chart|table|guide|thumb|thumbnail|small|tiny|mini)/i;
@@ -1157,7 +1175,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-  const searchProducts = async () => {
+  const searchProductsViaRuns = async () => {
 
     if (category === "all" && selectedFeatures.length === 0) {
 
@@ -1680,6 +1698,264 @@ export default function ProductDiscoveryPage() {
       }
 
     } finally {
+
+      activeSearchAbortRef.current = null;
+
+      activeRunIdRef.current = null;
+
+      stopRequestedRef.current = false;
+
+      setLoading(false);
+
+      setSearchProgress("");
+
+    }
+
+  };
+
+
+
+  const searchProducts = async () => {
+
+    if (category === "all" && selectedFeatures.length === 0) {
+
+      setError("Please select a category or feature to search");
+
+      return;
+
+    }
+
+
+
+    setLoading(true);
+
+    setError(null);
+
+    setProducts([]);
+
+    setSelected(new Set());
+
+    setPageSelectionInput("");
+
+    setSavedBatchId(null);
+
+    setResultsPage(1);
+
+    stopRequestedRef.current = false;
+
+    activeRunIdRef.current = null;
+
+    activeSearchAbortRef.current = null;
+
+
+
+    const deletedSeed = Array.from(new Set([
+
+      ...persistedDeletedPids,
+
+      ...readDiscoverDeletedPidsFromStorage(),
+
+      ...Array.from(deletedPidRuntimeRef.current),
+
+    ]));
+
+    const initialDeletedPidSet = new Set(
+
+      deletedSeed
+
+        .map((value) => normalizeDiscoverPid(value))
+
+        .filter(Boolean)
+
+    );
+
+    deletedPidRuntimeRef.current = initialDeletedPidSet;
+
+
+
+    const categoryIds = selectedFeatures.length > 0 ? selectedFeatures : [category];
+
+    const adaptiveBatchSize = computeDiscoverAdaptiveBatchSize(quantity, media, discoverProfile);
+
+    let delegatedToFallback = false;
+
+    let allProducts: PricedProduct[] = [];
+
+
+
+    try {
+
+      setSearchProgress("Finding products...");
+
+
+
+      const searchAbortController = new AbortController();
+
+      activeSearchAbortRef.current = searchAbortController;
+
+
+
+      const searchRes = await fetch("/api/admin/cj/discover/search", {
+
+        method: "POST",
+
+        headers: { "Content-Type": "application/json" },
+
+        signal: searchAbortController.signal,
+
+        body: JSON.stringify({
+
+          categoryIds,
+
+          quantity,
+
+          minPrice,
+
+          maxPrice,
+
+          minStock,
+
+          profitMargin,
+
+          popularity,
+
+          minRating,
+
+          shippingMethod,
+
+          freeShippingOnly,
+
+          mediaMode: media,
+
+          discoverProfile,
+
+          existingProductPolicy,
+
+          batchSize: adaptiveBatchSize,
+
+          deletedPids: Array.from(deletedPidRuntimeRef.current),
+
+        }),
+
+      });
+
+
+
+      activeSearchAbortRef.current = null;
+
+
+
+      const contentType = searchRes.headers.get("content-type") || "";
+
+      if (!contentType.includes("application/json")) {
+
+        const text = await searchRes.text();
+
+        throw new Error(`Server error: ${text.slice(0, 100)}...`);
+
+      }
+
+
+
+      const data: DiscoverSearchResponse = await searchRes.json();
+
+      if (!searchRes.ok || !data?.ok) {
+
+        throw new Error(data?.error || `Discover search failed: ${searchRes.status}`);
+
+      }
+
+
+
+      const incomingProducts = Array.isArray(data.products) ? data.products : [];
+
+      allProducts = filterDiscoverProductsByDeletedSet(incomingProducts, deletedPidRuntimeRef.current);
+
+      setProducts([...allProducts]);
+
+
+
+      if (stopRequestedRef.current) {
+
+        setError(
+
+          allProducts.length > 0
+
+            ? "Notice: Search stopped by your request. Showing products found so far."
+
+            : "Search stopped by your request."
+
+        );
+
+      }
+
+
+
+      const shortfallReason = typeof data.shortfallReason === "string" ? data.shortfallReason.trim() : "";
+
+      if (!stopRequestedRef.current && allProducts.length < quantity) {
+
+        setError(
+
+          `Notice: ${shortfallReason || `Found ${allProducts.length}/${quantity} products. Not enough matching products in this category.`}`
+
+        );
+
+      }
+
+
+
+      if (!stopRequestedRef.current && allProducts.length === 0) {
+
+        setError(
+
+          discoverProfile === "fast"
+
+            ? "No products found in fast profile. Try full profile, a different category, or broader filters."
+
+            : "No products found with configured shipping methods. Try a different category."
+
+        );
+
+      }
+
+
+
+    } catch (e: any) {
+
+      const isAbortLikeError =
+
+        String(e?.name || "").toLowerCase() === "aborterror" || /abort/i.test(String(e?.message || ""));
+
+
+
+      const userStopped = stopRequestedRef.current && isAbortLikeError;
+
+      if (userStopped) {
+
+        setError(
+
+          allProducts.length > 0
+
+            ? "Notice: Search stopped by your request. Showing products found so far."
+
+            : "Search stopped by your request."
+
+        );
+
+      } else {
+
+        delegatedToFallback = true;
+
+        console.warn("[Discovery] Single-call discover search failed. Falling back to discover runs:", e);
+
+        await searchProductsViaRuns();
+
+      }
+
+    } finally {
+
+      if (delegatedToFallback) return;
 
       activeSearchAbortRef.current = null;
 
