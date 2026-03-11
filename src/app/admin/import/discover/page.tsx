@@ -2073,6 +2073,108 @@ export default function ProductDiscoveryPage() {
 
       let hydrationFallbackNotice: string | null = null;
 
+      const selectedCategoryName = category !== 'all' ? categories.find((c: Category) => c.categoryId === category)?.categoryName : undefined;
+
+      const turboQueueAddEnabled = true;
+
+
+
+      if (turboQueueAddEnabled) {
+
+        const turboProducts = selectedProducts.map((p: PricedProduct) => {
+
+          const images = Array.isArray(p.images)
+
+            ? p.images
+
+                .filter((img) => typeof img === "string" && img.trim().length > 0)
+
+                .slice(0, 3)
+
+            : [];
+
+          const stockCandidate = Number(p.stock);
+
+
+
+          return {
+
+            pid: p.pid,
+
+            cjProductId: p.pid,
+
+            cjSku: p.cjSku,
+
+            name: p.name,
+
+            categoryName: p.categoryName || selectedCategoryName || "General",
+
+            images,
+
+            stock: Number.isFinite(stockCandidate) && stockCandidate > 0 ? Math.floor(stockCandidate) : 0,
+
+          };
+
+        });
+
+
+
+        const res = await fetch("/api/admin/import/batch", {
+
+          method: "POST",
+
+          headers: { "Content-Type": "application/json" },
+
+          body: JSON.stringify({
+
+            name: batchName || `Discovery ${new Date().toLocaleDateString()}`,
+
+            mediaMode: media,
+
+            discoverProfile,
+
+            mode: "turbo",
+
+            category: selectedCategoryName,
+
+            products: turboProducts,
+
+          }),
+
+        });
+
+
+
+        const data = await res.json().catch(() => ({}));
+
+        if (data.ok && data.batchId) {
+
+          setSavedBatchId(data.batchId);
+
+          const failedCount = Number(data.productsFailed || 0);
+
+          if (Number.isFinite(failedCount) && failedCount > 0) {
+
+            setError(`Notice: ${failedCount} products failed during turbo queue add.`);
+
+          } else {
+
+            setError(null);
+
+          }
+
+          return;
+
+        }
+
+
+
+        const turboError = typeof data?.error === "string" ? data.error : `HTTP ${res.status}`;
+
+        console.warn(`[Discovery] Turbo queue add failed, falling back to legacy path: ${turboError}`);
+
+      }
+
       const allSelectedFromOfflineCatalog = selectedProducts.length > 0
         && selectedProducts.every((product: PricedProduct) =>
           String((product as any)?.discoverSource || '').toLowerCase() === 'offline-catalog'
@@ -2230,7 +2332,7 @@ export default function ProductDiscoveryPage() {
 
           discoverProfile,
 
-          category: category !== 'all' ? categories.find((c: Category) => c.categoryId === category)?.categoryName : undefined,
+          category: selectedCategoryName,
 
           products: selectedProducts.map((p: PricedProduct) => {
 
@@ -3848,6 +3950,52 @@ export default function ProductDiscoveryPage() {
 
               const isSelected = selected.has(product.pid);
 
+              const imageCount = (() => {
+
+                const directCount = Array.isArray(product.images)
+
+                  ? product.images.filter((img) => typeof img === "string" && img.trim().length > 0).length
+
+                  : 0;
+
+                if (directCount > 0) return directCount;
+
+                return buildDiscoverPreviewGallery(product).length;
+
+              })();
+
+              const colorCount = (() => {
+
+                const directColors = Array.isArray(product.availableColors)
+
+                  ? product.availableColors
+
+                      .map((color) => String(color ?? "").trim().toLowerCase())
+
+                      .filter(Boolean)
+
+                  : [];
+
+                if (directColors.length > 0) {
+
+                  return new Set(directColors).size;
+
+                }
+
+                const variantColors = Array.isArray(product.variants)
+
+                  ? product.variants
+
+                      .map((variant: PricedVariant) => String(variant.color ?? "").trim().toLowerCase())
+
+                      .filter(Boolean)
+
+                  : [];
+
+                return new Set(variantColors).size;
+
+              })();
+
               
 
               return (
@@ -4074,11 +4222,11 @@ export default function ProductDiscoveryPage() {
 
                       <div className="flex flex-col">
 
-                        <span className="text-gray-500">Stock</span>
+                        <span className="text-gray-500">Types</span>
 
-                        <span className={`font-semibold ${(product.stock ?? 0) > 0 ? "text-gray-900" : "text-red-500"}`}>
+                        <span className="font-semibold text-gray-900">
 
-                          {product.stock ?? "-"}
+                          {colorCount}
 
                         </span>
 
@@ -4086,11 +4234,11 @@ export default function ProductDiscoveryPage() {
 
                       <div className="flex flex-col">
 
-                        <span className="text-gray-500">Variants</span>
+                        <span className="text-gray-500">Inventory</span>
 
                         <span className="font-semibold text-gray-900">
 
-                          {product.successfulVariants}/{product.totalVariants}
+                          {imageCount}
 
                         </span>
 
