@@ -47,6 +47,24 @@ export type DiscoverRunParams = {
 const DISCOVER_RUN_VERSION = 1
 const DEFAULT_CURSOR = '0.1.0'
 
+function readEnv(name: string): string | undefined {
+  const env = (globalThis as any)?.process?.env
+  const value = env?.[name]
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function resolveDiscoverRunEngine(): 'cj' | 'offline' {
+  const normalized = String(
+    readEnv('DISCOVER_RUN_ENGINE') ||
+      readEnv('DISCOVER_SEARCH_PRIMARY_ENGINE') ||
+      readEnv('DISCOVER_ENGINE') ||
+      'cj'
+  )
+    .trim()
+    .toLowerCase()
+  return normalized === 'offline' ? 'offline' : 'cj'
+}
+
 function toObject(value: unknown): Record<string, any> {
   if (!value) return {}
   if (typeof value === 'object') return value as Record<string, any>
@@ -279,6 +297,7 @@ export function buildDiscoverSearchParams(
   state: DiscoverRunState,
   remainingNeeded: number
 ): URLSearchParams {
+  const discoverEngine = resolveDiscoverRunEngine()
   const params = new URLSearchParams({
     categoryIds: filters.categoryIds.join(','),
     quantity: String(filters.quantity),
@@ -294,7 +313,7 @@ export function buildDiscoverSearchParams(
     mediaMode: filters.mediaMode,
     discoverProfile: filters.discoverProfile,
     existingProductPolicy: filters.existingProductPolicy,
-    discoverEngine: 'offline',
+    discoverEngine,
     batchMode: '1',
     batchSize: String(filters.batchSize),
     cursor: state.cursor || DEFAULT_CURSOR,

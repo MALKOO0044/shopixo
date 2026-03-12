@@ -1703,6 +1703,16 @@ async function handleSearch(req: Request, isPost: boolean) {
 
     );
 
+    const requestDeletedPidsArray: string[] =
+      isPost && Array.isArray(bodyData?.deletedPids)
+        ? bodyData.deletedPids
+        : (searchParams.get('deletedPids') || '').split(',').filter(Boolean);
+    const requestDeletedPids = new Set(
+      requestDeletedPidsArray
+        .map((value) => normalizeCjProductId(value))
+        .filter(Boolean)
+    );
+
     
 
     // Short-circuit when client already has enough products
@@ -1791,7 +1801,10 @@ async function handleSearch(req: Request, isPost: boolean) {
 
     try {
 
-      const deletedPids = await loadDiscoverDeletedPids({ includeLegacyPids: true });
+      const deletedPids = await loadDiscoverDeletedPids({
+        extraPids: Array.from(requestDeletedPids),
+        includeLegacyPids: true,
+      });
 
       for (const deletedPid of deletedPids) {
 
@@ -1803,6 +1816,10 @@ async function handleSearch(req: Request, isPost: boolean) {
 
       console.error('[Search&Price] Failed to load discover deleted exclusions:', e?.message || e);
 
+    }
+
+    for (const deletedPid of requestDeletedPids) {
+      deletedExcludedPids.add(deletedPid);
     }
 
     const excludedPids = new Set<string>(deletedExcludedPids);

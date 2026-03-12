@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { enhanceProductImageUrl } from "@/lib/media/image-quality";
+import { loadDiscoverDeletedPids } from "@/lib/discover/deleted-pids";
+import { normalizeCjProductId } from "@/lib/import/normalization";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -38,7 +40,8 @@ function normalizeQueueImages(value: unknown): string[] {
 }
 
 function normalizeQueuePid(value: unknown): string {
-  return String(value ?? "").trim();
+  const normalized = normalizeCjProductId(value);
+  return normalized || String(value ?? "").trim();
 }
 
 export async function GET(req: NextRequest) {
@@ -54,8 +57,23 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const pid = normalizeQueuePid(searchParams.get("pid"));
+    const blockedPidSet = new Set<string>();
+
+    try {
+      const deletedPids = await loadDiscoverDeletedPids({ includeLegacyPids: true });
+      for (const deletedPid of deletedPids) {
+        const normalized = normalizeQueuePid(deletedPid);
+        if (normalized) blockedPidSet.add(normalized);
+      }
+    } catch (e) {
+      console.error("[Queue GET] Failed loading deleted PID set:", e);
+    }
 
     if (pid) {
+      if (blockedPidSet.has(pid)) {
+        return NextResponse.json({ ok: false, error: "Queue product not found" }, { status: 404 });
+      }
+
       const { data: singleRows, error: singleQueryError } = await supabase
         .from('product_queue')
         .select('*')
@@ -72,6 +90,11 @@ export async function GET(req: NextRequest) {
       const singleProduct = Array.isArray(singleRows) && singleRows.length > 0 ? singleRows[0] : null;
 
       if (!singleProduct) {
+        return NextResponse.json({ ok: false, error: "Queue product not found" }, { status: 404 });
+      }
+
+      const singlePid = normalizeQueuePid(singleProduct?.cj_product_id);
+      if (singlePid && blockedPidSet.has(singlePid)) {
         return NextResponse.json({ ok: false, error: "Queue product not found" }, { status: 404 });
       }
 
@@ -138,7 +161,12 @@ export async function GET(req: NextRequest) {
       imported: importedRes.count || 0,
     };
 
-    const normalizedProducts = (products || []).map((product: any) => ({
+    const visibleProducts = (products || []).filter((product: any) => {
+      const productPid = normalizeQueuePid(product?.cj_product_id);
+      return !productPid || !blockedPidSet.has(productPid);
+    });
+
+    const normalizedProducts = visibleProducts.map((product: any) => ({
       ...product,
       images: normalizeQueueImages(product?.images),
     }));
@@ -171,6 +199,61 @@ export async function PATCH(req: NextRequest) {
 
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json({ ok: false, error: "No product IDs provided" }, { status: 400 });
+    }
+
+    const blockedPidSet = new Set<string>();
+    try {
+      const deletedPids = await loadDiscoverDeletedPids({ includeLegacyPids: true });
+      for (const deletedPid of deletedPids) {
+        const normalized = normalizeQueuePid(deletedPid);
+        if (normalized) blockedPidSet.add(normalized);
+      }
+    } catch (e) {
+      console.error("[Queue PATCH] Failed loading deleted PID set:", e);
+    }
+
+    let blockedRowIds: number[] = [];
+    let targetIds: number[] = ids;
+    if (blockedPidSet.size > 0 && action !== "reject") {
+      const { data: idRows, error: idRowsError } = await supabase
+        .from('product_queue')
+        .select('id,cj_product_id')
+        .in('id', ids);
+
+      if (idRowsError) {
+        console.error("[Queue PATCH] Query rows by IDs error:", idRowsError);
+        return NextResponse.json({ ok: false, error: idRowsError.message }, { status: 500 });
+      }
+
+      blockedRowIds = (idRows || [])
+        .filter((row: any) => {
+          const pid = normalizeQueuePid(row?.cj_product_id);
+          return pid && blockedPidSet.has(pid);
+        })
+        .map((row: any) => Number(row.id))
+        .filter((id: number) => Number.isFinite(id));
+
+      if (blockedRowIds.length > 0) {
+        const nowIso = new Date().toISOString();
+        const { error: blockRejectError } = await supabase
+          .from('product_queue')
+          .update({
+            status: 'rejected',
+            admin_notes: 'Blocked by discover deleted PID policy',
+            reviewed_at: nowIso,
+            updated_at: nowIso,
+          })
+          .in('id', blockedRowIds);
+        if (blockRejectError) {
+          console.error("[Queue PATCH] Failed rejecting blocked rows:", blockRejectError);
+        }
+      }
+
+      const blockedIdSet = new Set(blockedRowIds);
+      targetIds = ids.filter((id: number) => !blockedIdSet.has(id));
+      if (targetIds.length === 0) {
+        return NextResponse.json({ ok: true, updated: 0, blocked: blockedRowIds.length });
+      }
     }
 
     let updateData: Record<string, any> = { updated_at: new Date().toISOString() };
@@ -207,7 +290,7 @@ export async function PATCH(req: NextRequest) {
     const { error: updateError } = await supabase
       .from('product_queue')
       .update(updateData)
-      .in('id', ids);
+      .in('id', targetIds);
 
     if (updateError) {
       console.error("[Queue PATCH] Update error:", updateError);
@@ -224,7 +307,7 @@ export async function PATCH(req: NextRequest) {
       console.error("[Queue PATCH] Log error:", logErr);
     }
 
-    return NextResponse.json({ ok: true, updated: ids.length });
+    return NextResponse.json({ ok: true, updated: targetIds.length, blocked: blockedRowIds.length });
   } catch (e: any) {
     console.error("[Queue PATCH] Error:", e);
     return NextResponse.json({ ok: false, error: e?.message || "Server error" }, { status: 500 });

@@ -9,6 +9,8 @@ import { normalizeCjImageKey } from "@/lib/cj/image-gallery";
 import { normalizeSingleSize, normalizeSizeList } from "@/lib/cj/size-normalization";
 import { requiresVideoForMediaMode } from "@/lib/video/delivery";
 import { enhanceProductImageUrl } from "@/lib/media/image-quality";
+import { loadDiscoverDeletedPids } from "@/lib/discover/deleted-pids";
+import { normalizeCjProductId } from "@/lib/import/normalization";
 
 type LinkCategoryContext = {
   hasProductCategories: boolean;
@@ -208,6 +210,11 @@ function readEnv(name: string): string | undefined {
   const env = (globalThis as any)?.process?.env;
   const value = env?.[name];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function normalizeImportPid(value: unknown): string {
+  const normalized = normalizeCjProductId(value);
+  return normalized || String(value ?? "").trim();
 }
 
 const DEFAULT_SHIPPING_USD = 5;
@@ -652,7 +659,7 @@ export async function POST(req: NextRequest) {
       return exists;
     };
 
-    const { data: queueProducts, error: queueError } = await admin
+    const { data: approvedQueueProducts, error: queueError } = await admin
       .from('product_queue')
       .select('*')
       .in('id', productIds)
@@ -663,8 +670,59 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: queueError.message }, { status: 500 });
     }
 
-    if (!queueProducts || queueProducts.length === 0) {
+    if (!approvedQueueProducts || approvedQueueProducts.length === 0) {
       return NextResponse.json({ ok: false, error: "No approved products found in queue" }, { status: 400 });
+    }
+
+    const blockedDeletedPidSet = new Set<string>();
+    try {
+      const deletedPids = await loadDiscoverDeletedPids({ includeLegacyPids: true });
+      for (const deletedPid of deletedPids) {
+        const normalized = normalizeImportPid(deletedPid);
+        if (normalized) blockedDeletedPidSet.add(normalized);
+      }
+    } catch (error) {
+      console.error("[Import Execute] Failed loading deleted PID set:", error);
+    }
+
+    let queueProducts = approvedQueueProducts;
+    if (blockedDeletedPidSet.size > 0) {
+      const visibleQueueProducts = approvedQueueProducts.filter((queueProduct: any) => {
+        const queuePid = normalizeImportPid(queueProduct?.cj_product_id);
+        return !queuePid || !blockedDeletedPidSet.has(queuePid);
+      });
+
+      if (visibleQueueProducts.length !== approvedQueueProducts.length) {
+        const blockedRows = approvedQueueProducts.filter((queueProduct: any) => {
+          const queuePid = normalizeImportPid(queueProduct?.cj_product_id);
+          return queuePid && blockedDeletedPidSet.has(queuePid);
+        });
+        const blockedIds = blockedRows.map((entry: any) => Number(entry?.id)).filter((id: number) => Number.isFinite(id));
+        if (blockedIds.length > 0) {
+          try {
+            await admin
+              .from('product_queue')
+              .update({
+                status: 'rejected',
+                admin_notes: 'Blocked by discover deleted PID policy',
+                reviewed_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              })
+              .in('id', blockedIds);
+          } catch (rejectError) {
+            console.error("[Import Execute] Failed to mark blocked queue rows as rejected:", rejectError);
+          }
+        }
+      }
+
+      queueProducts = visibleQueueProducts;
+    }
+
+    if (queueProducts.length === 0) {
+      return NextResponse.json({
+        ok: false,
+        error: "All selected approved products are blocked by deleted PID policy",
+      }, { status: 400 });
     }
 
     const hasCjProductIdColumn = await hasColumnCached('products', 'cj_product_id');
@@ -682,7 +740,7 @@ export async function POST(req: NextRequest) {
       const normalizedPids = Array.from(
         new Set(
           queueProducts
-            .map((qp: any) => String(qp?.cj_product_id ?? '').trim())
+            .map((qp: any) => normalizeImportPid(qp?.cj_product_id))
             .filter((pid: string) => pid.length > 0)
         )
       );
@@ -703,7 +761,7 @@ export async function POST(req: NextRequest) {
         }
 
         for (const row of existingRows || []) {
-          const pid = String((row as any)?.cj_product_id ?? '').trim();
+          const pid = normalizeImportPid((row as any)?.cj_product_id);
           if (!pid) continue;
           existingProductByCjProductId.set(pid, { id: (row as any).id });
         }
@@ -847,6 +905,15 @@ export async function POST(req: NextRequest) {
 
     const processQueueProduct = async (qp: any): Promise<ImportProcessResult> => {
       try {
+        const normalizedQueuePid = normalizeImportPid(qp?.cj_product_id);
+        if (normalizedQueuePid && blockedDeletedPidSet.has(normalizedQueuePid)) {
+          return {
+            id: qp.id,
+            success: false,
+            error: 'Blocked by deleted PID policy',
+          };
+        }
+
         requireField(qp.cj_product_id, 'pid');
         const queueStoreSku = qp.store_sku || qp.product_code || null;
         requireField(queueStoreSku, 'storeSku');
@@ -884,7 +951,7 @@ export async function POST(req: NextRequest) {
 
         let existing: { id: string | number } | null = null;
         if (hasCjProductIdColumn) {
-          const normalizedPid = String(qp.cj_product_id ?? '').trim();
+          const normalizedPid = normalizeImportPid(qp.cj_product_id);
           if (normalizedPid) {
             existing = existingProductByCjProductId.get(normalizedPid) ?? null;
           }
@@ -1349,7 +1416,7 @@ export async function POST(req: NextRequest) {
           : undefined;
 
         if (hasCjProductIdColumn) {
-          const normalizedPid = String(qp.cj_product_id ?? '').trim();
+          const normalizedPid = normalizeImportPid(qp.cj_product_id);
           if (normalizedPid) {
             existingProductByCjProductId.set(normalizedPid, { id: productId });
           }
@@ -1458,10 +1525,26 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
+    const blockedPidSet = new Set<string>();
+    try {
+      const deletedPids = await loadDiscoverDeletedPids({ includeLegacyPids: true });
+      for (const deletedPid of deletedPids) {
+        const normalized = normalizeImportPid(deletedPid);
+        if (normalized) blockedPidSet.add(normalized);
+      }
+    } catch (e) {
+      console.error("[Import Execute GET] Failed loading deleted PID set:", e);
+    }
+
+    const visibleProducts = (products || []).filter((product: any) => {
+      const pid = normalizeImportPid(product?.cj_product_id);
+      return !pid || !blockedPidSet.has(pid);
+    });
+
     return NextResponse.json({
       ok: true,
-      products: products || [],
-      total: products?.length || 0,
+      products: visibleProducts,
+      total: visibleProducts.length,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "Server error" }, { status: 500 });

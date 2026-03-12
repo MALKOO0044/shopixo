@@ -255,29 +255,7 @@ type DiscoverSearchResponse = {
 
   shortfallReason?: string | null;
 
-  debug?: {
-
-    offline?: {
-
-      terminationReason?: string;
-
-    };
-
-    recovery?: {
-
-      attempted?: boolean;
-
-      retryOk?: boolean;
-
-      retryCount?: number;
-
-      triggerTermination?: string;
-
-      retryTermination?: string;
-
-    };
-
-  };
+  debug?: Record<string, unknown>;
 
 };
 
@@ -292,6 +270,8 @@ const DISCOVER_RESULTS_PER_PAGE = 40;
 const DISCOVER_DELETED_PIDS_STORAGE_KEY = "discover_deleted_pids_v1";
 
 const DEFAULT_DISCOVER_PROFILE: DiscoverProfile = "full";
+const ALLOW_DISCOVER_RUNS_FALLBACK =
+  String((globalThis as any)?.process?.env?.NEXT_PUBLIC_DISCOVER_ALLOW_RUNS_FALLBACK || "").trim() === "1";
 
 
 
@@ -1737,8 +1717,6 @@ export default function ProductDiscoveryPage() {
 
   };
 
-
-
   const searchProducts = async () => {
 
     if (category === "all" && selectedFeatures.length === 0) {
@@ -1889,36 +1867,6 @@ export default function ProductDiscoveryPage() {
 
       }
 
-      const offlineTerminationReason = String(data?.debug?.offline?.terminationReason || "").trim();
-
-      const shouldFallbackForBudgetLimitedZero =
-
-        !stopRequestedRef.current &&
-
-        (Array.isArray(data?.products) ? data.products.length : 0) === 0 &&
-
-        (offlineTerminationReason === "scan_budget_reached" || offlineTerminationReason === "time_budget_reached");
-
-      if (shouldFallbackForBudgetLimitedZero) {
-
-        delegatedToFallback = true;
-
-        console.warn(
-
-          "[Discovery] Single-call discover returned budget-limited zero result. Falling back to discover runs.",
-
-          data?.debug
-
-        );
-
-        await searchProductsViaRuns();
-
-        return;
-
-      }
-
-
-
       const incomingProducts = Array.isArray(data.products) ? data.products : [];
 
       allProducts = filterDiscoverProductsByDeletedSet(incomingProducts, deletedPidRuntimeRef.current);
@@ -1996,17 +1944,21 @@ export default function ProductDiscoveryPage() {
         );
 
       } else {
+        if (ALLOW_DISCOVER_RUNS_FALLBACK && !stopRequestedRef.current) {
+          delegatedToFallback = true;
+          console.warn("[Discovery] Single-call discover search failed. Delegating to discover runs fallback:", e);
+          await searchProductsViaRuns();
+          return;
+        }
 
-        delegatedToFallback = true;
-
-        console.warn("[Discovery] Single-call discover search failed. Falling back to discover runs:", e);
-
-        await searchProductsViaRuns();
+        const message = typeof e?.message === "string" && e.message.trim().length > 0
+          ? e.message
+          : "Discover search failed";
+        setError(message);
 
       }
 
     } finally {
-
       if (delegatedToFallback) return;
 
       activeSearchAbortRef.current = null;
