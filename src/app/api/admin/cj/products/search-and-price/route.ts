@@ -38,6 +38,8 @@ export const revalidate = 0;
 
 export const runtime = 'nodejs';
 
+export const maxDuration = 60;
+
 
 
 function getSupabaseAdmin() {

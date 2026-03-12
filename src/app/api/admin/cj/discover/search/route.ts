@@ -67,7 +67,7 @@ const DISCOVER_SINGLE_CALL_MAX_RUNTIME_MS = Math.max(
 )
 const DISCOVER_SINGLE_CALL_UPSTREAM_TIMEOUT_MS = Math.max(
   3_000,
-  parsePositiveInt(readEnv('DISCOVER_SINGLE_CALL_UPSTREAM_TIMEOUT_MS'), 9_500)
+  parsePositiveInt(readEnv('DISCOVER_SINGLE_CALL_UPSTREAM_TIMEOUT_MS'), 14_000)
 )
 const DISCOVER_SINGLE_CALL_MAX_BATCH_REQUESTS = Math.max(
   1,
@@ -75,7 +75,11 @@ const DISCOVER_SINGLE_CALL_MAX_BATCH_REQUESTS = Math.max(
 )
 const DISCOVER_SINGLE_CALL_BATCH_SIZE_FLOOR = Math.max(
   1,
-  parsePositiveInt(readEnv('DISCOVER_SINGLE_CALL_BATCH_SIZE_FLOOR'), 12)
+  parsePositiveInt(readEnv('DISCOVER_SINGLE_CALL_BATCH_SIZE_FLOOR'), 8)
+)
+const DISCOVER_SINGLE_CALL_TIMEOUT_RETRY_LIMIT = Math.max(
+  0,
+  parsePositiveInt(readEnv('DISCOVER_SINGLE_CALL_TIMEOUT_RETRY_LIMIT'), 2)
 )
 
 function parseDiscoverSearchEngine(value: unknown): DiscoverSearchEngine {
@@ -313,7 +317,12 @@ export async function POST(req: Request) {
     }
 
     const forwardedCookie = req.headers.get('cookie') || ''
-    const batchSize = Math.min(24, Math.max(filters.batchSize, DISCOVER_SINGLE_CALL_BATCH_SIZE_FLOOR))
+    const initialBatchSize = Math.min(
+      24,
+      Math.max(filters.batchSize, DISCOVER_SINGLE_CALL_BATCH_SIZE_FLOOR)
+    )
+    let currentBatchSize = initialBatchSize
+    let timeoutRetries = 0
     const seenPidsForUpstream = new Set(seenPidsFromClient)
     const products: any[] = []
     const responseProductPids = new Set<string>()
@@ -362,7 +371,7 @@ export async function POST(req: Request) {
         mediaMode: filters.mediaMode,
         discoverProfile: filters.discoverProfile,
         existingProductPolicy: filters.existingProductPolicy,
-        batchSize,
+        batchSize: currentBatchSize,
         sizes: filters.sizes,
         discoverEngine,
         batchMode: true,
@@ -393,9 +402,19 @@ export async function POST(req: Request) {
           signal: upstreamAbortController.signal,
         })
       } catch (error: any) {
-        stopReason = String(error?.name || '').toLowerCase() === 'aborterror'
-          ? 'upstream_timeout'
-          : 'upstream_error'
+        const isAbortError = String(error?.name || '').toLowerCase() === 'aborterror'
+        if (
+          isAbortError &&
+          timeoutRetries < DISCOVER_SINGLE_CALL_TIMEOUT_RETRY_LIMIT &&
+          currentBatchSize > 3 &&
+          Date.now() - startedAt < DISCOVER_SINGLE_CALL_MAX_RUNTIME_MS
+        ) {
+          timeoutRetries += 1
+          currentBatchSize = Math.max(3, Math.floor(currentBatchSize / 2))
+          continue
+        }
+
+        stopReason = isAbortError ? 'upstream_timeout' : 'upstream_error'
         upstreamErrorMessage =
           stopReason === 'upstream_timeout'
             ? `Discover upstream timed out after ${DISCOVER_SINGLE_CALL_UPSTREAM_TIMEOUT_MS}ms`
@@ -519,7 +538,11 @@ export async function POST(req: Request) {
               maxRuntimeMs: DISCOVER_SINGLE_CALL_MAX_RUNTIME_MS,
               upstreamTimeoutMs: DISCOVER_SINGLE_CALL_UPSTREAM_TIMEOUT_MS,
               maxBatchRequests: DISCOVER_SINGLE_CALL_MAX_BATCH_REQUESTS,
+              timeoutRetryLimit: DISCOVER_SINGLE_CALL_TIMEOUT_RETRY_LIMIT,
             },
+            timeoutRetries,
+            initialBatchSize,
+            currentBatchSize,
           },
         },
         { status, headers: { 'Cache-Control': 'no-store' } }
@@ -572,10 +595,14 @@ export async function POST(req: Request) {
           deletedSetSize: deletedExcludedPids.size,
           finalCursor: cursor,
           hasMore,
+          initialBatchSize,
+          currentBatchSize,
+          timeoutRetries,
           budgets: {
             maxRuntimeMs: DISCOVER_SINGLE_CALL_MAX_RUNTIME_MS,
             upstreamTimeoutMs: DISCOVER_SINGLE_CALL_UPSTREAM_TIMEOUT_MS,
             maxBatchRequests: DISCOVER_SINGLE_CALL_MAX_BATCH_REQUESTS,
+            timeoutRetryLimit: DISCOVER_SINGLE_CALL_TIMEOUT_RETRY_LIMIT,
           },
         },
         cache: {
