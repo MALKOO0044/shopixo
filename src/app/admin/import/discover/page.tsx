@@ -255,6 +255,30 @@ type DiscoverSearchResponse = {
 
   shortfallReason?: string | null;
 
+  debug?: {
+
+    offline?: {
+
+      terminationReason?: string;
+
+    };
+
+    recovery?: {
+
+      attempted?: boolean;
+
+      retryOk?: boolean;
+
+      retryCount?: number;
+
+      triggerTermination?: string;
+
+      retryTermination?: string;
+
+    };
+
+  };
+
 };
 
 
@@ -1862,6 +1886,34 @@ export default function ProductDiscoveryPage() {
       if (!searchRes.ok || !data?.ok) {
 
         throw new Error(data?.error || `Discover search failed: ${searchRes.status}`);
+
+      }
+
+      const offlineTerminationReason = String(data?.debug?.offline?.terminationReason || "").trim();
+
+      const shouldFallbackForBudgetLimitedZero =
+
+        !stopRequestedRef.current &&
+
+        (Array.isArray(data?.products) ? data.products.length : 0) === 0 &&
+
+        (offlineTerminationReason === "scan_budget_reached" || offlineTerminationReason === "time_budget_reached");
+
+      if (shouldFallbackForBudgetLimitedZero) {
+
+        delegatedToFallback = true;
+
+        console.warn(
+
+          "[Discovery] Single-call discover returned budget-limited zero result. Falling back to discover runs.",
+
+          data?.debug
+
+        );
+
+        await searchProductsViaRuns();
+
+        return;
 
       }
 

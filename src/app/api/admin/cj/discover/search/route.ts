@@ -27,6 +27,15 @@ function normalizePidSet(value: unknown): Set<string> {
   return out
 }
 
+function isBudgetLimitedZeroResult(result: any): boolean {
+  const products = Array.isArray(result?.products) ? result.products : []
+  const terminationReason = String(result?.debug?.terminationReason || '').trim()
+  return (
+    products.length === 0 &&
+    (terminationReason === 'scan_budget_reached' || terminationReason === 'time_budget_reached')
+  )
+}
+
 export async function POST(req: Request) {
   const log = loggerForRequest(req)
   const startedAt = Date.now()
@@ -127,11 +136,72 @@ export async function POST(req: Request) {
       return r
     }
 
-    const products = Array.isArray(offlineResult.products) ? offlineResult.products : []
+    let effectiveOfflineResult = offlineResult
+    let recovery: Record<string, unknown> | null = null
+
+    if (isBudgetLimitedZeroResult(offlineResult)) {
+      const retryCursor =
+        typeof offlineResult.nextCursor === 'string' && offlineResult.nextCursor.trim()
+          ? offlineResult.nextCursor.trim()
+          : 'offline.0'
+
+      if (retryCursor !== 'offline.0') {
+        const retrySeenPids = new Set<string>(seenPidsFromClient)
+        for (const attemptedPid of offlineResult.attemptedPids || []) {
+          const normalized = normalizeCjProductId(attemptedPid)
+          if (normalized) retrySeenPids.add(normalized)
+        }
+
+        const retryResult = await runOfflineDiscoverSearch({
+          categoryIds: filters.categoryIds,
+          quantity: filters.quantity,
+          minPrice: filters.minPrice,
+          maxPrice: filters.maxPrice,
+          minStock: filters.minStock,
+          minRating: filters.minRating,
+          popularity: filters.popularity,
+          profitMargin: filters.profitMargin,
+          shippingMethod: filters.shippingMethod,
+          shippingCountryCode,
+          freeShippingOnly: filters.freeShippingOnly,
+          mediaMode: filters.mediaMode,
+          discoverProfile: filters.discoverProfile,
+          existingProductPolicy: filters.existingProductPolicy,
+          requestedSizes: filters.sizes,
+          isBatchMode: false,
+          batchSize: filters.batchSize,
+          remainingNeeded: filters.quantity,
+          cursorParam: retryCursor,
+          seenPidsFromClient: retrySeenPids,
+          deletedExcludedPids,
+        })
+
+        recovery = {
+          attempted: true,
+          triggerTermination: String(offlineResult?.debug?.terminationReason || ''),
+          retryCursor,
+          retryOk: retryResult.ok,
+          retryTermination: String(retryResult?.debug?.terminationReason || ''),
+          retryCount: Array.isArray(retryResult?.products) ? retryResult.products.length : 0,
+        }
+
+        if (retryResult.ok && Array.isArray(retryResult.products) && retryResult.products.length > 0) {
+          effectiveOfflineResult = retryResult
+        }
+      } else {
+        recovery = {
+          attempted: false,
+          reason: 'retry_cursor_not_advanced',
+          triggerTermination: String(offlineResult?.debug?.terminationReason || ''),
+        }
+      }
+    }
+
+    const products = Array.isArray(effectiveOfflineResult.products) ? effectiveOfflineResult.products : []
     const quantityFulfilled = products.length >= filters.quantity
     const shortfallReason =
       !quantityFulfilled
-        ? offlineResult.shortfallReason ||
+        ? effectiveOfflineResult.shortfallReason ||
           `Found ${products.length}/${filters.quantity} products. Not enough matching products in this category.`
         : null
 
@@ -149,7 +219,8 @@ export async function POST(req: Request) {
         shippingCountryCode,
         duration: Date.now() - startedAt,
         debug: {
-          offline: offlineResult.debug,
+          offline: effectiveOfflineResult.debug,
+          ...(recovery ? { recovery } : {}),
         },
       },
       { headers: { 'Cache-Control': 'no-store' } }

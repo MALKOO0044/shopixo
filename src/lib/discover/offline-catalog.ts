@@ -7,6 +7,16 @@ import { computeRetailFromLanded, sarToUsd, usdToSar } from '@/lib/pricing'
 
 type CatalogMediaMode = 'any' | 'withVideo' | 'imagesOnly' | 'both'
 type ExistingPolicy = 'excludeQueueAndStore' | 'excludeQueueOnly' | 'excludeNone'
+type OfflineTerminationReason =
+  | 'not_started'
+  | 'missing_supabase'
+  | 'invalid_output_target'
+  | 'empty_catalog'
+  | 'source_exhausted'
+  | 'scan_budget_reached'
+  | 'time_budget_reached'
+  | 'quantity_fulfilled'
+  | 'error'
 
 export type OfflineDiscoverSearchInput = {
   categoryIds: string[]
@@ -46,6 +56,10 @@ export type OfflineDiscoverSearchResult = {
     scannedRows: number
     rowsAfterDeletedAndSeenFilter: number
     filteredByExisting: number
+    filteredDeleted: number
+    filteredSeen: number
+    filteredQueueExisting: number
+    filteredStoreExisting: number
     filteredByMedia: number
     filteredBySize: number
     filteredByRating: number
@@ -54,6 +68,13 @@ export type OfflineDiscoverSearchResult = {
     filteredByPrice: number
     queueExcluded: number
     storeExcluded: number
+    countryFallbackHits: number
+    countryFallbackMisses: number
+    loops: number
+    maxLoops: number
+    maxScanRows: number
+    durationMs: number
+    terminationReason: OfflineTerminationReason
   }
 }
 
@@ -217,6 +238,36 @@ function parseCursorOffset(cursorParam: string): number {
   }
 
   return 0
+}
+
+function createOfflineDebug(
+  overrides?: Partial<OfflineDiscoverSearchResult['debug']>
+): OfflineDiscoverSearchResult['debug'] {
+  return {
+    scannedRows: 0,
+    rowsAfterDeletedAndSeenFilter: 0,
+    filteredByExisting: 0,
+    filteredDeleted: 0,
+    filteredSeen: 0,
+    filteredQueueExisting: 0,
+    filteredStoreExisting: 0,
+    filteredByMedia: 0,
+    filteredBySize: 0,
+    filteredByRating: 0,
+    filteredByStock: 0,
+    filteredByShipping: 0,
+    filteredByPrice: 0,
+    queueExcluded: 0,
+    storeExcluded: 0,
+    countryFallbackHits: 0,
+    countryFallbackMisses: 0,
+    loops: 0,
+    maxLoops: 0,
+    maxScanRows: 0,
+    durationMs: 0,
+    terminationReason: 'not_started',
+    ...overrides,
+  }
 }
 
 function shouldIncludeByMediaMode(mode: CatalogMediaMode, hasImages: boolean, hasVideo: boolean): boolean {
@@ -581,6 +632,7 @@ function buildOfflineProduct(
 export async function runOfflineDiscoverSearch(
   input: OfflineDiscoverSearchInput
 ): Promise<OfflineDiscoverSearchResult> {
+  const startedAt = Date.now()
   const supabaseAdmin = getSupabaseAdmin()
   if (!supabaseAdmin) {
     return {
@@ -592,19 +644,10 @@ export async function runOfflineDiscoverSearch(
       attemptedPids: [],
       processedPids: [],
       totalCandidates: 0,
-      debug: {
-        scannedRows: 0,
-        rowsAfterDeletedAndSeenFilter: 0,
-        filteredByExisting: 0,
-        filteredByMedia: 0,
-        filteredBySize: 0,
-        filteredByRating: 0,
-        filteredByStock: 0,
-        filteredByShipping: 0,
-        filteredByPrice: 0,
-        queueExcluded: 0,
-        storeExcluded: 0,
-      },
+      debug: createOfflineDebug({
+        durationMs: Date.now() - startedAt,
+        terminationReason: 'missing_supabase',
+      }),
     }
   }
 
@@ -621,34 +664,11 @@ export async function runOfflineDiscoverSearch(
       attemptedPids: [],
       processedPids: [],
       totalCandidates: 0,
-      debug: {
-        scannedRows: 0,
-        rowsAfterDeletedAndSeenFilter: 0,
-        filteredByExisting: 0,
-        filteredByMedia: 0,
-        filteredBySize: 0,
-        filteredByRating: 0,
-        filteredByStock: 0,
-        filteredByShipping: 0,
-        filteredByPrice: 0,
-        queueExcluded: 0,
-        storeExcluded: 0,
-      },
+      debug: createOfflineDebug({
+        durationMs: Date.now() - startedAt,
+        terminationReason: 'invalid_output_target',
+      }),
     }
-  }
-
-  const debug: OfflineDiscoverSearchResult['debug'] = {
-    scannedRows: 0,
-    rowsAfterDeletedAndSeenFilter: 0,
-    filteredByExisting: 0,
-    filteredByMedia: 0,
-    filteredBySize: 0,
-    filteredByRating: 0,
-    filteredByStock: 0,
-    filteredByShipping: 0,
-    filteredByPrice: 0,
-    queueExcluded: 0,
-    storeExcluded: 0,
   }
 
   const attemptedPids: string[] = []
@@ -673,13 +693,31 @@ export async function runOfflineDiscoverSearch(
     .filter((entry) => entry && entry !== 'all')
 
   const windowSize = Math.min(2500, Math.max(maxOutput * 12, input.batchSize * 20, 240))
+  const maxScanRows = Math.min(80000, Math.max(windowSize * 18, maxOutput * 150, 3000))
+  const maxLoops = Math.max(8, Math.min(120, Math.ceil(maxScanRows / Math.max(windowSize, 1))))
+  const maxDurationMs = input.isBatchMode ? 3500 : 9500
+  const debug = createOfflineDebug({
+    maxLoops,
+    maxScanRows,
+  })
 
   let cursorOffset = parseCursorOffset(input.cursorParam)
   let hasMoreFromSource = true
   let loops = 0
+  let terminationReason: OfflineTerminationReason = 'not_started'
 
-  while (acceptedProducts.length < maxOutput && hasMoreFromSource && loops < 20) {
+  while (acceptedProducts.length < maxOutput && hasMoreFromSource) {
+    if (loops >= maxLoops || debug.scannedRows >= maxScanRows) {
+      terminationReason = 'scan_budget_reached'
+      break
+    }
+    if (Date.now() - startedAt >= maxDurationMs) {
+      terminationReason = 'time_budget_reached'
+      break
+    }
+
     loops++
+    debug.loops = loops
 
     let query = supabaseAdmin
       .from('discover_catalog_products')
@@ -711,6 +749,8 @@ export async function runOfflineDiscoverSearch(
 
     const { data: sourceRows, error: sourceError } = await query
     if (sourceError) {
+      debug.durationMs = Date.now() - startedAt
+      debug.terminationReason = 'error'
       return {
         ok: false,
         error: `Offline catalog query failed: ${sourceError.message}`,
@@ -729,6 +769,7 @@ export async function runOfflineDiscoverSearch(
       : []
     if (rows.length === 0) {
       hasMoreFromSource = false
+      terminationReason = debug.scannedRows === 0 ? 'empty_catalog' : 'source_exhausted'
       break
     }
 
@@ -743,8 +784,15 @@ export async function runOfflineDiscoverSearch(
 
       attemptedPids.push(pid)
 
-      if (input.deletedExcludedPids.has(pid) || input.seenPidsFromClient.has(pid)) {
+      if (input.deletedExcludedPids.has(pid)) {
         debug.filteredByExisting++
+        debug.filteredDeleted++
+        continue
+      }
+
+      if (input.seenPidsFromClient.has(pid)) {
+        debug.filteredByExisting++
+        debug.filteredSeen++
         continue
       }
 
@@ -775,6 +823,8 @@ export async function runOfflineDiscoverSearch(
       const blockedByQueue = excludeQueueExisting && existingSources.queue.has(pid)
       const blockedByStore = excludeStoreExisting && existingSources.store.has(pid)
       if (blockedByQueue || blockedByStore) {
+        if (blockedByQueue) debug.filteredQueueExisting++
+        if (blockedByStore) debug.filteredStoreExisting++
         debug.filteredByExisting++
         return false
       }
@@ -829,6 +879,8 @@ export async function runOfflineDiscoverSearch(
       ])
 
       if (fullProductsRes.error) {
+        debug.durationMs = Date.now() - startedAt
+        debug.terminationReason = 'error'
         return {
           ok: false,
           error: `Offline catalog product details query failed: ${fullProductsRes.error.message}`,
@@ -849,6 +901,8 @@ export async function runOfflineDiscoverSearch(
       }
 
       if (variantRes.error) {
+        debug.durationMs = Date.now() - startedAt
+        debug.terminationReason = 'error'
         return {
           ok: false,
           error: `Offline catalog variants query failed: ${variantRes.error.message}`,
@@ -864,15 +918,40 @@ export async function runOfflineDiscoverSearch(
 
       variantRows = Array.isArray(variantRes.data) ? (variantRes.data as CatalogVariantRow[]) : []
 
-      if (variantRows.length === 0 && input.shippingCountryCode && input.shippingCountryCode !== 'US') {
-        const fallbackVariantRes = await supabaseAdmin
-          .from('discover_catalog_variants')
-          .select(OFFLINE_VARIANT_SELECT)
-          .in('pid', fetchPidWindow)
-          .eq('shipping_country_code', 'US')
+      if (input.shippingCountryCode && input.shippingCountryCode !== 'US') {
+        const pidsWithRequestedCountryVariants = new Set<string>()
+        for (const variantRow of variantRows) {
+          const pid = normalizeCjProductId(variantRow.pid)
+          if (pid) pidsWithRequestedCountryVariants.add(pid)
+        }
 
-        if (!fallbackVariantRes.error && Array.isArray(fallbackVariantRes.data)) {
-          variantRows = fallbackVariantRes.data as CatalogVariantRow[]
+        const fallbackPids = fetchPidWindow.filter((pid) => !pidsWithRequestedCountryVariants.has(pid))
+        if (fallbackPids.length > 0) {
+          let fallbackVariantQuery = supabaseAdmin
+            .from('discover_catalog_variants')
+            .select(OFFLINE_VARIANT_SELECT)
+            .in('pid', fallbackPids)
+            .eq('shipping_country_code', 'US')
+
+          if (input.shippingMethod !== 'any' && input.shippingMethod !== 'configured-cheapest') {
+            fallbackVariantQuery = fallbackVariantQuery.eq('shipping_method', input.shippingMethod)
+          }
+
+          const fallbackVariantRes = await fallbackVariantQuery
+          if (!fallbackVariantRes.error && Array.isArray(fallbackVariantRes.data)) {
+            const fallbackRows = fallbackVariantRes.data as CatalogVariantRow[]
+            variantRows = [...variantRows, ...fallbackRows]
+
+            const matchedFallbackPids = new Set<string>()
+            for (const variantRow of fallbackRows) {
+              const pid = normalizeCjProductId(variantRow.pid)
+              if (pid) matchedFallbackPids.add(pid)
+            }
+            debug.countryFallbackHits += matchedFallbackPids.size
+            debug.countryFallbackMisses += Math.max(0, fallbackPids.length - matchedFallbackPids.size)
+          } else {
+            debug.countryFallbackMisses += fallbackPids.length
+          }
         }
       }
     }
@@ -908,6 +987,19 @@ export async function runOfflineDiscoverSearch(
     }
   }
 
+  if (terminationReason === 'not_started') {
+    if (acceptedProducts.length >= maxOutput) {
+      terminationReason = 'quantity_fulfilled'
+    } else if (!hasMoreFromSource) {
+      terminationReason = debug.scannedRows === 0 ? 'empty_catalog' : 'source_exhausted'
+    } else if (debug.scannedRows >= maxScanRows || loops >= maxLoops) {
+      terminationReason = 'scan_budget_reached'
+    }
+  }
+
+  debug.durationMs = Date.now() - startedAt
+  debug.terminationReason = terminationReason
+
   const hasMore = hasMoreFromSource || acceptedProducts.length >= maxOutput
   const quantityTargetForRequest = input.isBatchMode ? maxOutput : input.quantity
 
@@ -915,7 +1007,9 @@ export async function runOfflineDiscoverSearch(
     acceptedProducts.length < quantityTargetForRequest
       ? debug.scannedRows === 0
         ? 'Offline catalog is empty. Import catalog snapshot data before discover.'
-        : `Offline catalog exhausted. Got ${acceptedProducts.length}/${quantityTargetForRequest} products.`
+        : debug.terminationReason === 'scan_budget_reached' || debug.terminationReason === 'time_budget_reached'
+          ? `Offline search budget reached. Got ${acceptedProducts.length}/${quantityTargetForRequest} products; broaden filters or switch profile to full.`
+          : `Offline catalog exhausted. Got ${acceptedProducts.length}/${quantityTargetForRequest} products.`
       : undefined
 
   return {
