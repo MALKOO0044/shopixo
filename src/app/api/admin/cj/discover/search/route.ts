@@ -567,7 +567,7 @@ export async function POST(req: Request) {
           upstreamCalls,
           stopReason,
           rawCount: rawUpstreamProducts,
-          filteredDeleted,
+          filteredDeleted: filteredByDeleted,
           filteredDuplicate: filteredByDuplicate,
           deletedSetSize: deletedExcludedPids.size,
           finalCursor: cursor,
