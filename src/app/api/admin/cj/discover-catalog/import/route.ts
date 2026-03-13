@@ -4,7 +4,6 @@ import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { normalizeSizeList } from '@/lib/cj/size-normalization'
 import { normalizeCjProductId } from '@/lib/import/normalization'
 import { computeRetailFromLanded, sarToUsd, usdToSar } from '@/lib/pricing'
-import { loadDiscoverDeletedPids } from '@/lib/discover/deleted-pids'
 
 type InputProduct = Record<string, any>
 type InputVariant = Record<string, any>
@@ -226,16 +225,6 @@ export async function POST(req: Request) {
     const shippingMethod = toSafeText(payload?.shippingMethod, 'configured-cheapest')
     const profitMargin = Math.max(1, toFiniteNumber(payload?.profitMargin, 8))
 
-    let deletedPidSet = new Set<string>()
-    try {
-      const deletedPids = await loadDiscoverDeletedPids({ includeLegacyPids: true })
-      deletedPidSet = new Set(deletedPids)
-    } catch (error) {
-      console.warn('[DiscoverCatalogImport] Failed to load deleted discover PID set:', error)
-    }
-
-    const skippedDeletedPids = new Set<string>()
-
     if (replaceAll) {
       const [{ error: deleteVariantsError }, { error: deleteProductsError }] = await Promise.all([
         supabaseAdmin.from('discover_catalog_variants').delete().gt('id', 0),
@@ -259,10 +248,6 @@ export async function POST(req: Request) {
       const product = productInputRaw as InputProduct
       const pid = normalizeCjProductId(product.cjProductId || product.pid || product.productId)
       if (!pid) continue
-      if (deletedPidSet.has(pid)) {
-        skippedDeletedPids.add(pid)
-        continue
-      }
 
       const variants = Array.isArray(product.variants)
         ? (product.variants as InputVariant[])
@@ -388,46 +373,7 @@ export async function POST(req: Request) {
     }
 
     if (productRows.length === 0) {
-      if (skippedDeletedPids.size > 0) {
-        if (!replaceAll) {
-          for (const pidChunk of chunkArray(Array.from(skippedDeletedPids), 400)) {
-            const { error } = await supabaseAdmin
-              .from('discover_catalog_products')
-              .delete()
-              .in('pid', pidChunk)
-
-            if (error) {
-              return NextResponse.json({ ok: false, error: `Failed removing deleted products from catalog: ${error.message}` }, { status: 500 })
-            }
-          }
-        }
-
-        return NextResponse.json({
-          ok: true,
-          snapshotVersion,
-          replace: replaceAll,
-          shippingCountryCode,
-          shippingMethod,
-          productsUpserted: 0,
-          variantsUpserted: 0,
-          skippedDeletedProducts: skippedDeletedPids.size,
-        })
-      }
-
       return NextResponse.json({ ok: false, error: 'No valid products with PID were provided' }, { status: 400 })
-    }
-
-    if (!replaceAll && skippedDeletedPids.size > 0) {
-      for (const pidChunk of chunkArray(Array.from(skippedDeletedPids), 400)) {
-        const { error } = await supabaseAdmin
-          .from('discover_catalog_products')
-          .delete()
-          .in('pid', pidChunk)
-
-        if (error) {
-          return NextResponse.json({ ok: false, error: `Failed removing deleted products from catalog: ${error.message}` }, { status: 500 })
-        }
-      }
     }
 
     const productChunks = chunkArray(productRows, 200)
@@ -486,7 +432,6 @@ export async function POST(req: Request) {
       shippingMethod,
       productsUpserted: productRows.length,
       variantsUpserted: variantRowsFinal.length,
-      skippedDeletedProducts: skippedDeletedPids.size,
     })
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error?.message || 'Import failed' }, { status: 500 })

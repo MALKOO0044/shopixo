@@ -9,8 +9,8 @@ import {
   isDiscoverRunJob,
   normalizeDiscoverRunParams,
 } from '@/lib/discover/runs'
+import { loadDiscoverDeletedPidSet } from '@/lib/discover/deleted-pids'
 import { normalizeCjProductId } from '@/lib/import/normalization'
-import { loadDiscoverDeletedPids } from '@/lib/discover/deleted-pids'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -20,6 +20,7 @@ type SearchBatchResponse = {
   ok?: boolean
   error?: string
   quotaExhausted?: boolean
+  stopReason?: string
   products?: PricedProduct[]
   shortfallReason?: string
   batch?: {
@@ -32,15 +33,6 @@ type SearchBatchResponse = {
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
   return Math.max(min, Math.min(max, value))
-}
-
-async function loadDeletedPidSet(extraDeletedPids?: unknown): Promise<Set<string>> {
-  const merged = await loadDiscoverDeletedPids({
-    extraPids: extraDeletedPids,
-    includeLegacyPids: true,
-  })
-
-  return new Set(merged)
 }
 
 export async function POST(req: Request, ctx: { params: { id: string } }) {
@@ -74,7 +66,10 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       body = {}
     }
 
-    const deletedPidSet = await loadDeletedPidSet(body?.deletedPids)
+    const deletedPidSet = await loadDiscoverDeletedPidSet({
+      extraPids: body?.deletedPids,
+      includeLegacyPids: true,
+    })
 
     if (jobMeta.status === 'success' || jobMeta.status === 'error' || jobMeta.status === 'canceled') {
       const terminalState = await getJob(id)
@@ -134,6 +129,8 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     let addedNow = 0
     let fatalError: string | null = null
     let canceledByAdmin = false
+    let latestBatchStopReason: string | null = null
+    let stepStopReason: string | null = null
 
     const startedAt = Date.now()
 
@@ -141,15 +138,25 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       const latestJobMeta = await getJobMeta(id)
       if (latestJobMeta?.status === 'canceled') {
         canceledByAdmin = true
+        stepStopReason = 'admin_canceled'
         params.state.hasMore = false
         break
       }
 
-      if (batchesRunNow >= maxBatches) break
-      if (Date.now() - startedAt >= maxDurationMs) break
+      if (batchesRunNow >= maxBatches) {
+        stepStopReason = 'step_batch_budget_reached'
+        break
+      }
+      if (Date.now() - startedAt >= maxDurationMs) {
+        stepStopReason = 'step_runtime_budget_reached'
+        break
+      }
 
       const remainingNeeded = Math.max(0, params.filters.quantity - resultPids.size)
-      if (remainingNeeded <= 0) break
+      if (remainingNeeded <= 0) {
+        stepStopReason = 'fulfilled'
+        break
+      }
 
       const query = buildDiscoverSearchParams(params.filters, params.state, remainingNeeded)
       const searchRes = await fetch(`${searchBaseUrl}?${query.toString()}`, {
@@ -174,17 +181,24 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       if (!searchRes.ok || !data?.ok) {
         if (data?.quotaExhausted || searchRes.status === 429) {
           params.state.quotaExhausted = true
+          stepStopReason = 'upstream_quota_exhausted'
           params.state.lastError = 'CJ Dropshipping API limit reached. Showing products found so far.'
           params.state.hasMore = false
           break
         }
+        stepStopReason = 'upstream_error'
         fatalError = data?.error || `search-and-price failed (${searchRes.status})`
         break
+      }
+
+      if (typeof data.stopReason === 'string' && data.stopReason.trim()) {
+        latestBatchStopReason = data.stopReason.trim()
       }
 
       const postFetchJobMeta = await getJobMeta(id)
       if (postFetchJobMeta?.status === 'canceled') {
         canceledByAdmin = true
+        stepStopReason = 'admin_canceled'
         params.state.hasMore = false
         break
       }
@@ -222,19 +236,15 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
           { chunkSize: 120 }
         )
 
-        const succeededSet = new Set(saveResult.succeededPids)
-        for (const [normalizedPid, product] of upsertEntries) {
-          if (!succeededSet.has(normalizedPid)) continue
-
-          resultPids.add(normalizedPid)
-          addedThisBatch++
-          addedNow++
-          newProductsThisStep.push(product)
-        }
-
         if (!saveResult.ok) {
-          const failedPreview = saveResult.failedPids.slice(0, 3).join(',')
-          fatalError = `Failed to persist discover products (${saveResult.failedPids.length} failed${failedPreview ? `: ${failedPreview}` : ''})`
+          fatalError = `Failed to persist discover products (${saveResult.failedPids.length} failed)`
+        } else {
+          for (const [normalizedPid, product] of upsertEntries) {
+            resultPids.add(normalizedPid)
+            addedThisBatch++
+            addedNow++
+            newProductsThisStep.push(product)
+          }
         }
       }
 
@@ -264,6 +274,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
 
       const attemptedCount = Array.isArray(data.batch?.attemptedPids) ? data.batch.attemptedPids.length : 0
       if (addedThisBatch === 0 && attemptedCount === 0 && !params.state.hasMore) {
+        stepStopReason = latestBatchStopReason || 'source_exhausted'
         break
       }
     }
@@ -297,6 +308,25 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       canceledByAdmin ||
       Boolean(fatalError)
 
+    const elapsedMs = Date.now() - startedAt
+    const resolvedStopReason =
+      stepStopReason ||
+      (resultPids.size >= params.filters.quantity
+        ? 'fulfilled'
+        : params.state.quotaExhausted
+          ? 'upstream_quota_exhausted'
+          : canceledByAdmin
+            ? 'admin_canceled'
+            : fatalError
+              ? 'fatal_error'
+              : !params.state.hasMore
+                ? latestBatchStopReason || 'source_exhausted'
+                : elapsedMs >= maxDurationMs
+                  ? 'step_runtime_budget_reached'
+                  : batchesRunNow >= maxBatches
+                    ? 'step_batch_budget_reached'
+                    : latestBatchStopReason || 'running')
+
     let responseStatus = 'running'
 
     if (fatalError) {
@@ -321,6 +351,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     const responsePayload = {
       ok: true,
       done: isDone,
+      stopReason: resolvedStopReason,
       shortfallReason,
       quotaExhausted: params.state.quotaExhausted,
       run: {
@@ -335,6 +366,16 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
           cursor: params.state.cursor,
           hasMore: params.state.hasMore,
         },
+      },
+      debug: {
+        budgets: {
+          maxDurationMs,
+          maxBatches,
+        },
+        elapsedMs,
+        batchesRunNow,
+        addedNow,
+        latestBatchStopReason,
       },
       // Keep products for compatibility with existing clients, but return only incremental deltas.
       products: newProductsThisStep,

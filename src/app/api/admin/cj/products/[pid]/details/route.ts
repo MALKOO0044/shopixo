@@ -1692,7 +1692,7 @@ export async function GET(
 
           } else if (freight.ok) {
 
-            shippingError = 'No shipping options to USA';
+            shippingError = `No shipping options to ${shippingCountryCode}`;
 
           } else if (!freight.ok) {
 

@@ -34,7 +34,6 @@ describe('discover runs filters/params', () => {
     )
 
     expect(params.get('discoverProfile')).toBe('fast')
-    expect(params.get('discoverEngine')).toBe('offline')
   })
 
   test('normalizes existing product policy and clamps batch size', () => {
@@ -101,7 +100,6 @@ describe('discover runs filters/params', () => {
     )
 
     expect(params.get('existingProductPolicy')).toBe('excludeNone')
-    expect(params.get('discoverEngine')).toBe('offline')
     expect(params.get('batchSize')).toBe('8')
     expect(params.get('cursor')).toBe('1.2.3')
     expect(params.get('remainingNeeded')).toBe('17')

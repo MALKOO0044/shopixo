@@ -3,16 +3,11 @@ import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
 import { getJob } from '@/lib/jobs'
 import { buildDiscoverRunPayload, isDiscoverRunJob } from '@/lib/discover/runs'
-import { loadDiscoverDeletedPids } from '@/lib/discover/deleted-pids'
+import { loadDiscoverDeletedPidSet } from '@/lib/discover/deleted-pids'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
-
-async function loadDeletedPidSet(): Promise<Set<string>> {
-  const merged = await loadDiscoverDeletedPids({ includeLegacyPids: true })
-  return new Set(merged)
-}
 
 export async function GET(req: Request, ctx: { params: { id: string } }) {
   const log = loggerForRequest(req)
@@ -40,7 +35,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
 
     const { searchParams } = new URL(req.url)
     const limitParam = Number(searchParams.get('limit') || NaN)
-    const deletedPidSet = await loadDeletedPidSet()
+    const deletedPidSet = await loadDiscoverDeletedPidSet({ includeLegacyPids: true })
     const payload = buildDiscoverRunPayload(
       jobState,
       Number.isFinite(limitParam) ? limitParam : undefined,
