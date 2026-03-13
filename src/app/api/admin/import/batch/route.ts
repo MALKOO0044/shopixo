@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 
 
+import { createClient } from "@supabase/supabase-js";
+
+
+
 import { ensureAdmin } from "@/lib/auth/admin-guard";
 
 
@@ -63,6 +67,32 @@ export const runtime = 'nodejs';
 
 
 export const dynamic = 'force-dynamic';
+
+const TURBO_QUEUE_IMAGE_LIMIT = 3;
+
+function getSupabaseAdminForTurbo() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+
+function normalizeTurboText(value: unknown, maxLength: number): string {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return "";
+  return normalized.slice(0, maxLength);
+}
+
+function normalizeTurboImages(images: unknown, fallbackImage?: unknown): string[] {
+  const source = Array.isArray(images)
+    ? images
+    : (typeof fallbackImage === "string" && fallbackImage.trim().length > 0 ? [fallbackImage] : []);
+
+  return source
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .map((item) => item.trim())
+    .slice(0, TURBO_QUEUE_IMAGE_LIMIT);
+}
 
 
 
@@ -198,7 +228,11 @@ export async function POST(req: NextRequest) {
 
 
 
-    const { name, keywords, category, filters, products, mediaMode } = body;
+    const { name, keywords, category, filters, products, mediaMode, mode } = body;
+
+    const modeNormalized = String(mode || '').trim().toLowerCase();
+
+    const turboMode = modeNormalized === 'turbo';
 
 
 
@@ -218,6 +252,148 @@ export async function POST(req: NextRequest) {
 
 
 
+    }
+
+    if (turboMode) {
+      const supabase = getSupabaseAdminForTurbo();
+      if (!supabase) {
+        return NextResponse.json({ ok: false, error: "Database connection failed" }, { status: 500 });
+      }
+
+      const batch = await createImportBatch({
+        name: name || `Import ${new Date().toISOString()}`,
+        keywords: keywords || "",
+        category: category || "General",
+        filters: filters || {},
+        productsFound: products.length,
+      });
+
+      if (!batch) {
+        return NextResponse.json({ ok: false, error: "Failed to create batch" }, { status: 500 });
+      }
+
+      const nowIso = new Date().toISOString();
+      const turboRows: Record<string, any>[] = [];
+      const failedProducts: string[] = [];
+      const errorMessages: string[] = [];
+
+      for (const product of products) {
+        const productId = normalizeTurboText(product?.cjProductId || product?.pid || product?.productId, 255);
+        const productNameRaw = normalizeTurboText(product?.name || product?.name_en, 500);
+        const productName = productNameRaw || (productId ? `Untitled ${productId}`.slice(0, 500) : "");
+
+        if (!productId) {
+          failedProducts.push("(missing-pid)");
+          continue;
+        }
+
+        const categoryName =
+          normalizeTurboText(product?.categoryName || product?.category || category || "General", 255) || "General";
+        const stockRaw = Number(product?.stockTotal ?? product?.stock ?? 0);
+        const stockTotal = Number.isFinite(stockRaw) && stockRaw > 0 ? Math.floor(stockRaw) : 0;
+
+        turboRows.push({
+          batch_id: batch.id,
+          cj_product_id: productId,
+          cj_sku: normalizeTurboText(product?.cjSku, 255) || null,
+          name_en: productName,
+          category: categoryName,
+          images: normalizeTurboImages(product?.images, product?.image),
+          stock_total: stockTotal,
+          status: "pending",
+          updated_at: nowIso,
+        });
+      }
+
+      if (turboRows.length === 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "No valid products provided for turbo queue add",
+            failedProducts: failedProducts.slice(0, 10),
+          },
+          { status: 400 }
+        );
+      }
+
+      const turboChunkSize = Math.max(50, Math.min(500, Number(process.env.IMPORT_BATCH_TURBO_CHUNK_SIZE || 300)));
+      const turboRowParallelism = Math.max(1, Math.min(24, Number(process.env.IMPORT_BATCH_TURBO_ROW_PARALLELISM || 16)));
+
+      let addedCount = 0;
+      let failedCount = failedProducts.length;
+
+      for (let index = 0; index < turboRows.length; index += turboChunkSize) {
+        const chunk = turboRows.slice(index, index + turboChunkSize);
+        const { error: chunkError } = await supabase
+          .from("product_queue")
+          .upsert(chunk, { onConflict: "cj_product_id" });
+
+        if (!chunkError) {
+          addedCount += chunk.length;
+          continue;
+        }
+
+        console.warn("[Import Batch] Turbo chunk upsert failed, retrying per-row for failed chunk:", chunkError.message);
+
+        for (let rowIndex = 0; rowIndex < chunk.length; rowIndex += turboRowParallelism) {
+          const rowSlice = chunk.slice(rowIndex, rowIndex + turboRowParallelism);
+          const rowOutcomes = await Promise.all(
+            rowSlice.map(async (row) => {
+              const { error: rowError } = await supabase
+                .from("product_queue")
+                .upsert(row, { onConflict: "cj_product_id" });
+
+              return { row, rowError };
+            })
+          );
+
+          for (const outcome of rowOutcomes) {
+            if (outcome.rowError) {
+              failedCount++;
+              failedProducts.push(String(outcome.row?.cj_product_id || "unknown-product"));
+              if (errorMessages.length < 3) errorMessages.push(outcome.rowError.message);
+            } else {
+              addedCount++;
+            }
+          }
+        }
+      }
+
+      if (addedCount === 0) {
+        const firstError = errorMessages.length > 0 ? ` First error: ${errorMessages[0]}` : "";
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Failed to add any products to queue in turbo mode. ${failedCount} products failed.${firstError}`,
+            failedProducts: failedProducts.slice(0, 10),
+            errorDetails: errorMessages,
+            mode: "turbo",
+          },
+          { status: 500 }
+        );
+      }
+
+      try {
+        await logImportAction(batch.id, "batch_created_turbo", "success", {
+          products_count: products.length,
+          products_added: addedCount,
+          products_failed: failedCount,
+          mode: "turbo",
+          media_mode: mediaMode || "any",
+          category,
+        });
+      } catch (logError) {
+        console.warn("[Import Batch] Turbo log write failed (non-fatal):", logError);
+      }
+
+      return NextResponse.json({
+        ok: true,
+        batchId: batch.id,
+        mode: "turbo",
+        productsAdded: addedCount,
+        productsFailed: failedCount,
+        ...(failedCount > 0 && { warning: `${failedCount} products failed to add` }),
+      });
     }
 
 

@@ -4272,7 +4272,99 @@ export default function ProductDiscoveryPage() {
 
       let hydrationFallbackNotice: string | null = null;
 
-      let skippedInvalidSelectionNotice: string | null = null;
+      const selectedCategoryName = category !== 'all'
+        ? categories.find((c: Category) => c.categoryId === category)?.categoryName
+        : undefined;
+
+      const turboQueueAddEnabled = discoverProfile === "fast";
+
+      if (turboQueueAddEnabled && selectedProducts.length > 0) {
+
+        const turboProducts = selectedProducts.map((p: PricedProduct) => {
+
+          const images = Array.isArray(p.images)
+
+            ? p.images
+
+                .filter((img) => typeof img === "string" && img.trim().length > 0)
+
+                .slice(0, 3)
+
+            : [];
+
+          const stockCandidate = Number(p.stock);
+
+          return {
+
+            pid: p.pid,
+
+            cjProductId: p.pid,
+
+            cjSku: p.cjSku,
+
+            name: p.name,
+
+            categoryName: p.categoryName || selectedCategoryName || "General",
+
+            images,
+
+            stock: Number.isFinite(stockCandidate) && stockCandidate > 0 ? Math.floor(stockCandidate) : 0,
+
+          };
+
+        });
+
+        const turboRes = await fetch("/api/admin/import/batch", {
+
+          method: "POST",
+
+          headers: { "Content-Type": "application/json" },
+
+          body: JSON.stringify({
+
+            name: batchName || `Discovery ${new Date().toLocaleDateString()}`,
+
+            mediaMode: media,
+
+            discoverProfile,
+
+            mode: "turbo",
+
+            category: selectedCategoryName,
+
+            products: turboProducts,
+
+          }),
+
+        });
+
+        const turboData = await turboRes.json().catch(() => ({}));
+
+        if (turboData?.ok && turboData?.batchId) {
+
+          setSavedBatchId(turboData.batchId);
+
+          const failedCount = Number(turboData.productsFailed || 0);
+
+          if (Number.isFinite(failedCount) && failedCount > 0) {
+
+            setError(`Notice: ${failedCount} products failed during fast queue add.`);
+
+          } else {
+
+            setError(null);
+
+          }
+
+          return;
+
+        }
+
+        const turboError = typeof turboData?.error === "string" ? turboData.error : `HTTP ${turboRes.status}`;
+
+        console.warn(`[Discovery] Fast queue add failed, falling back to legacy path: ${turboError}`);
+
+      }
 
 
 
@@ -4488,78 +4580,6 @@ export default function ProductDiscoveryPage() {
 
 
 
-      const queueReadyProducts = selectedProducts
-
-        .map((product: PricedProduct) => {
-
-          const normalizedVariants = Array.isArray(product?.variants)
-
-            ? product.variants.filter((variant: PricedVariant) => {
-
-                const sku = String((variant as any)?.variantSku || '').trim();
-
-                const sell = Number((variant as any)?.sellPriceSAR);
-
-                return sku.length > 0 && Number.isFinite(sell) && sell > 0;
-
-              })
-
-            : [];
-
-
-
-          const hasPid = String((product as any)?.pid || '').trim().length > 0;
-
-          const hasName = String((product as any)?.name || '').trim().length > 0;
-
-
-
-          return {
-
-            product,
-
-            normalizedVariants,
-
-            valid: hasPid && hasName && normalizedVariants.length > 0,
-
-          };
-
-        })
-
-        .filter((entry) => entry.valid);
-
-
-
-      if (queueReadyProducts.length !== selectedProducts.length) {
-
-        skippedInvalidSelectionNotice = `${selectedProducts.length - queueReadyProducts.length} selected products were skipped because required ID/name/variant pricing data was missing.`;
-
-      }
-
-
-
-      if (queueReadyProducts.length === 0) {
-
-        throw new Error(
-
-          "No selected products are queue-ready. Please re-run search and try again."
-
-        );
-
-      }
-
-
-
-      selectedProducts = queueReadyProducts.map((entry) => ({
-
-        ...entry.product,
-
-        variants: entry.normalizedVariants,
-
-      } as PricedProduct));
-
-
-
       const res = await fetch("/api/admin/import/batch", {
 
 
@@ -4588,7 +4608,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-          category: category !== 'all' ? categories.find((c: Category) => c.categoryId === category)?.categoryName : undefined,
+          category: selectedCategoryName,
 
 
 
@@ -5343,12 +5363,6 @@ export default function ProductDiscoveryPage() {
         if (hydrationFallbackNotice) {
 
           skippedNotices.push(hydrationFallbackNotice);
-
-        }
-
-        if (skippedInvalidSelectionNotice) {
-
-          skippedNotices.push(skippedInvalidSelectionNotice);
 
         }
 
