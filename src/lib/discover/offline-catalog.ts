@@ -719,7 +719,7 @@ export async function runOfflineDiscoverSearch(
       }
     }
 
-    const rows = Array.isArray(sourceRows) ? sourceRows : []
+    const rows: CatalogProductRow[] = Array.isArray(sourceRows) ? (sourceRows as CatalogProductRow[]) : []
     if (rows.length === 0) {
       hasMoreFromSource = false
       break
