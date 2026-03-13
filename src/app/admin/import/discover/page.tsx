@@ -2725,7 +2725,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-      let safetyTicks = 0;
+      let executionSafetyTicks = 0;
 
 
 
@@ -2829,7 +2829,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-        safetyTicks++;
+        executionSafetyTicks++;
 
 
 
@@ -2988,6 +2988,7 @@ export default function ProductDiscoveryPage() {
             await delay(1500);
           }
 
+          executionSafetyTicks = Math.max(0, executionSafetyTicks - 1);
           continue;
         }
 
@@ -3061,7 +3062,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-        const batches = Number(progress?.batches || safetyTicks);
+        const batches = Number(progress?.batches || executionSafetyTicks);
 
 
 
@@ -3201,7 +3202,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-        if (safetyTicks >= 180) {
+        if (executionSafetyTicks >= 180) {
 
 
 
