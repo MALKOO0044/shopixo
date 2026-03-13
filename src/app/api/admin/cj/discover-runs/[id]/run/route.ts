@@ -138,6 +138,43 @@ async function cancelInactiveDiscoverQueueJobs(activeJobs: any[], nowMs: number)
   return canceledIds
 }
 
+function resolveRunFoundCount(row: any): number {
+  const totalsFound = Number((row?.totals as any)?.found)
+  if (Number.isFinite(totalsFound) && totalsFound >= 0) {
+    return Math.floor(totalsFound)
+  }
+
+  const params = normalizeDiscoverRunParams(row?.params || {})
+  return params.state.resultPids.length
+}
+
+async function shouldRequireQueueCountdownForHeadRun(currentJobId: number, enqueuedAtMs: number | null): Promise<boolean> {
+  if (enqueuedAtMs === null) return false
+
+  const terminalRows = await listJobsByKindsAndStatuses(['discover', 'finder'], ['success', 'error', 'canceled'], {
+    ascending: false,
+    limit: 500,
+  })
+
+  for (const row of terminalRows) {
+    if (!isDiscoverRunJob(row)) continue
+
+    const rowId = Number(row?.id)
+    if (!Number.isFinite(rowId) || rowId <= 0 || rowId === currentJobId) continue
+
+    const finishedMs =
+      toTimestampMs(row?.finished_at) ??
+      toTimestampMs(row?.started_at) ??
+      toTimestampMs(row?.created_at)
+
+    if (finishedMs === null || finishedMs <= enqueuedAtMs) continue
+
+    return resolveRunFoundCount(row) > 0
+  }
+
+  return false
+}
+
 export async function POST(req: Request, ctx: { params: { id: string } }) {
   const log = loggerForRequest(req)
   try {
@@ -335,60 +372,78 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       return r
     }
 
+    const enqueuedAtMs = toTimestampMs(params.queue.enqueuedAt)
+    const countdownRequired = await shouldRequireQueueCountdownForHeadRun(id, enqueuedAtMs)
+
     if (params.queue.queueState !== 'running') {
-      let countdownEndsMs = toTimestampMs(params.queue.countdownEndsAt)
-      if (!countdownEndsMs) {
-        params.queue.queueState = 'countdown'
-        params.queue.countdownStartedAt = nowIso
-        params.queue.countdownEndsAt = new Date(nowMs + DISCOVER_QUEUE_COUNTDOWN_MS).toISOString()
-        params.queue.lastQueueTransitionAt = nowIso
-        await patchJob(id, { params, ...(jobMeta.status === 'running' ? { status: 'pending' as const } : {}) })
-        countdownEndsMs = toTimestampMs(params.queue.countdownEndsAt)
-      }
+      if (!countdownRequired) {
+        const shouldPatchQueueMeta =
+          params.queue.queueState !== 'running' || Boolean(params.queue.countdownStartedAt || params.queue.countdownEndsAt)
 
-      const countdownRemainingMs = Math.max(0, Number(countdownEndsMs || 0) - nowMs)
-      if (countdownRemainingMs > 0) {
-        const waitingProgress = buildRunProgressFromParams(params)
-        const responsePayload = {
-          ok: true,
-          done: false,
-          stopReason: 'queued_countdown',
-          shortfallReason: null,
-          quotaExhausted: params.state.quotaExhausted,
-          run: {
-            id,
-            status: 'pending',
-            progress: waitingProgress,
-          },
-          queue: buildQueuePayload({
-            state: 'countdown',
-            position: 1,
-            total: queueTotal,
-            isHead: true,
-            countdownEndsAt: params.queue.countdownEndsAt,
-            countdownRemainingMs,
-          }),
-          debug: {
-            queueGate: {
-              queueIndex,
-              queueTotal,
-              staleCanceledIds: Array.from(staleCanceledIds),
-            },
-          },
-          products: [],
-          newProducts: [],
-          totalProducts: waitingProgress.found,
+        params.queue.queueState = 'running'
+        params.queue.countdownStartedAt = null
+        params.queue.countdownEndsAt = null
+
+        if (shouldPatchQueueMeta) {
+          params.queue.lastQueueTransitionAt = nowIso
+          await patchJob(id, { params })
         }
-        const r = NextResponse.json(responsePayload, { headers: { 'Cache-Control': 'no-store' } })
-        r.headers.set('x-request-id', log.requestId)
-        return r
-      }
+      } else {
+        let countdownEndsMs = toTimestampMs(params.queue.countdownEndsAt)
+        if (!countdownEndsMs) {
+          params.queue.queueState = 'countdown'
+          params.queue.countdownStartedAt = nowIso
+          params.queue.countdownEndsAt = new Date(nowMs + DISCOVER_QUEUE_COUNTDOWN_MS).toISOString()
+          params.queue.lastQueueTransitionAt = nowIso
+          await patchJob(id, { params, ...(jobMeta.status === 'running' ? { status: 'pending' as const } : {}) })
+          countdownEndsMs = toTimestampMs(params.queue.countdownEndsAt)
+        }
 
-      params.queue.queueState = 'running'
-      params.queue.countdownStartedAt = null
-      params.queue.countdownEndsAt = null
-      params.queue.lastQueueTransitionAt = nowIso
-      await patchJob(id, { params })
+        const countdownRemainingMs = Math.max(0, Number(countdownEndsMs || 0) - nowMs)
+        if (countdownRemainingMs > 0) {
+          const waitingProgress = buildRunProgressFromParams(params)
+          const responsePayload = {
+            ok: true,
+            done: false,
+            stopReason: 'queued_countdown',
+            shortfallReason: null,
+            quotaExhausted: params.state.quotaExhausted,
+            run: {
+              id,
+              status: 'pending',
+              progress: waitingProgress,
+            },
+            queue: buildQueuePayload({
+              state: 'countdown',
+              position: 1,
+              total: queueTotal,
+              isHead: true,
+              countdownEndsAt: params.queue.countdownEndsAt,
+              countdownRemainingMs,
+            }),
+            debug: {
+              queueGate: {
+                queueIndex,
+                queueTotal,
+                staleCanceledIds: Array.from(staleCanceledIds),
+                countdownRequired,
+              },
+            },
+            products: [],
+            newProducts: [],
+            totalProducts: waitingProgress.found,
+          }
+          const r = NextResponse.json(responsePayload, { headers: { 'Cache-Control': 'no-store' } })
+          r.headers.set('x-request-id', log.requestId)
+          return r
+        }
+
+        params.queue.queueState = 'running'
+        params.queue.countdownStartedAt = null
+        params.queue.countdownEndsAt = null
+        params.queue.lastQueueTransitionAt = nowIso
+        await patchJob(id, { params })
+      }
     }
 
     if (jobMeta.status === 'pending') {
