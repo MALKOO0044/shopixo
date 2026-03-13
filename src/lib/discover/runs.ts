@@ -42,10 +42,26 @@ export type DiscoverRunParams = {
   version: number
   filters: DiscoverRunFilters
   state: DiscoverRunState
+  queue: DiscoverRunQueueMeta
+}
+
+export type DiscoverQueueState = 'waiting_turn' | 'countdown' | 'running' | 'canceled_inactive'
+
+export type DiscoverRunQueueMeta = {
+  clientSessionId: string | null
+  enqueuedAt: string
+  lastHeartbeatAt: string | null
+  countdownStartedAt: string | null
+  countdownEndsAt: string | null
+  queueState: DiscoverQueueState
+  lastQueueTransitionAt: string | null
 }
 
 const DISCOVER_RUN_VERSION = 1
 const DEFAULT_CURSOR = '0.1.0'
+export const DISCOVER_QUEUE_COUNTDOWN_MS = 30 * 60 * 1000
+export const DISCOVER_QUEUE_HEARTBEAT_TIMEOUT_MS = 90 * 1000
+export const DISCOVER_QUEUE_NOTIFICATION_LEAD_MS = 60 * 1000
 
 function toObject(value: unknown): Record<string, any> {
   if (!value) return {}
@@ -141,6 +157,46 @@ function normalizeShippingCountryCode(value: unknown): string {
   return /^[A-Z]{2}$/.test(normalized) ? normalized : ''
 }
 
+function normalizeTimestamp(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const time = Date.parse(trimmed)
+  if (!Number.isFinite(time)) return null
+  return new Date(time).toISOString()
+}
+
+function normalizeClientSessionId(value: unknown): string | null {
+  const normalized = String(value ?? '').trim()
+  return normalized ? normalized.slice(0, 200) : null
+}
+
+function normalizeQueueState(value: unknown): DiscoverQueueState {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  if (
+    normalized === 'waiting_turn' ||
+    normalized === 'countdown' ||
+    normalized === 'running' ||
+    normalized === 'canceled_inactive'
+  ) {
+    return normalized
+  }
+  return 'waiting_turn'
+}
+
+export function createInitialDiscoverRunQueueMeta(options?: { clientSessionId?: unknown }): DiscoverRunQueueMeta {
+  const nowIso = new Date().toISOString()
+  return {
+    clientSessionId: normalizeClientSessionId(options?.clientSessionId),
+    enqueuedAt: nowIso,
+    lastHeartbeatAt: nowIso,
+    countdownStartedAt: null,
+    countdownEndsAt: null,
+    queueState: 'waiting_turn',
+    lastQueueTransitionAt: nowIso,
+  }
+}
+
 export function normalizeDiscoverRunFilters(value: any): DiscoverRunFilters | null {
   const source = toObject(value)
   const categoryIds = normalizeStringArray(source.categoryIds).filter((id) => id !== 'all')
@@ -186,11 +242,16 @@ export function createInitialDiscoverRunState(seedSeenPids?: unknown): DiscoverR
   }
 }
 
-export function createDiscoverRunParams(filters: DiscoverRunFilters, seedSeenPids?: unknown): DiscoverRunParams {
+export function createDiscoverRunParams(
+  filters: DiscoverRunFilters,
+  seedSeenPids?: unknown,
+  options?: { clientSessionId?: unknown }
+): DiscoverRunParams {
   return {
     version: DISCOVER_RUN_VERSION,
     filters,
     state: createInitialDiscoverRunState(seedSeenPids),
+    queue: createInitialDiscoverRunQueueMeta({ clientSessionId: options?.clientSessionId }),
   }
 }
 
@@ -219,6 +280,10 @@ export function normalizeDiscoverRunParams(raw: any): DiscoverRunParams {
   const normalizedFilters = normalizeDiscoverRunFilters(toObject(source.filters)) || normalizeDiscoverRunFilters(source) || fallbackFilters
 
   const rawState = toObject(source.state)
+  const rawQueue = toObject(source.queue)
+  const fallbackQueue = createInitialDiscoverRunQueueMeta({
+    clientSessionId: source.clientSessionId ?? rawQueue.clientSessionId,
+  })
 
   return {
     version: Number(source.version || DISCOVER_RUN_VERSION) || DISCOVER_RUN_VERSION,
@@ -236,6 +301,15 @@ export function normalizeDiscoverRunParams(raw: any): DiscoverRunParams {
           : null,
       lastError: typeof rawState?.lastError === 'string' && rawState.lastError.trim() ? rawState.lastError.trim() : null,
       quotaExhausted: normalizeBoolean(rawState?.quotaExhausted),
+    },
+    queue: {
+      clientSessionId: normalizeClientSessionId(rawQueue.clientSessionId ?? source.clientSessionId),
+      enqueuedAt: normalizeTimestamp(rawQueue.enqueuedAt) || fallbackQueue.enqueuedAt,
+      lastHeartbeatAt: normalizeTimestamp(rawQueue.lastHeartbeatAt),
+      countdownStartedAt: normalizeTimestamp(rawQueue.countdownStartedAt),
+      countdownEndsAt: normalizeTimestamp(rawQueue.countdownEndsAt),
+      queueState: normalizeQueueState(rawQueue.queueState),
+      lastQueueTransitionAt: normalizeTimestamp(rawQueue.lastQueueTransitionAt),
     },
   }
 }
@@ -359,6 +433,14 @@ export function buildDiscoverRunPayload(
         cursor: params.state.cursor,
         hasMore,
       },
+    },
+    queue: {
+      state: params.queue.queueState,
+      enqueuedAt: params.queue.enqueuedAt,
+      countdownStartedAt: params.queue.countdownStartedAt,
+      countdownEndsAt: params.queue.countdownEndsAt,
+      lastHeartbeatAt: params.queue.lastHeartbeatAt,
+      lastQueueTransitionAt: params.queue.lastQueueTransitionAt,
     },
     done,
     shortfallReason,

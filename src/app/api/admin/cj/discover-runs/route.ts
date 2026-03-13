@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
-import { createJob } from '@/lib/jobs'
-import { createDiscoverRunParams, normalizeDiscoverRunFilters } from '@/lib/discover/runs'
+import { createJob, listJobsByKindsAndStatuses } from '@/lib/jobs'
+import { createDiscoverRunParams, isDiscoverRunJob, normalizeDiscoverRunFilters } from '@/lib/discover/runs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -35,7 +35,20 @@ export async function POST(req: Request) {
       return r
     }
 
-    const params = createDiscoverRunParams(filters, body?.seenPids)
+    const params = createDiscoverRunParams(filters, body?.seenPids, {
+      clientSessionId: body?.clientSessionId,
+    })
+
+    const activeQueueRows = await listJobsByKindsAndStatuses(['discover', 'finder'], ['pending', 'running'], {
+      ascending: true,
+      limit: 2000,
+    })
+    const hasActiveQueue = activeQueueRows.some((row) => isDiscoverRunJob(row))
+    if (!hasActiveQueue) {
+      params.queue.queueState = 'running'
+      params.queue.lastQueueTransitionAt = new Date().toISOString()
+    }
+
     let created = await createJob('discover', params)
     let compatibilityMode = false
 

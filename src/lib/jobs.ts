@@ -628,3 +628,71 @@ export async function upsertJobItemsByPidBulk(
 
 }
 
+
+
+export async function listJobsByKindsAndStatuses(
+
+  kinds: string[],
+
+  statuses: JobStatus[],
+
+  options?: { ascending?: boolean; limit?: number }
+
+): Promise<any[]> {
+
+  const db = getAdmin();
+
+  if (!db) return [];
+
+
+
+  const safeKinds = Array.from(new Set((kinds || []).map((entry) => String(entry || '').trim()).filter(Boolean)));
+
+  const safeStatuses = Array.from(
+
+    new Set(
+
+      (statuses || []).map((entry) => String(entry || '').trim().toLowerCase()).filter((entry) =>
+
+        entry === 'pending' || entry === 'running' || entry === 'success' || entry === 'error' || entry === 'canceled'
+
+      )
+
+    )
+
+  ) as JobStatus[];
+
+
+
+  if (safeKinds.length === 0 || safeStatuses.length === 0) return [];
+
+
+
+  const ascending = options?.ascending !== false;
+
+  const limit = Math.max(1, Math.min(2000, Number(options?.limit || 500)));
+
+  const { data, error } = await db
+
+    .from('admin_jobs')
+
+    .select('*')
+
+    .in('kind', safeKinds as any)
+
+    .in('status', safeStatuses as any)
+
+    .order('created_at', { ascending })
+
+    .order('id', { ascending })
+
+    .limit(limit);
+
+
+
+  if (error || !Array.isArray(data)) return [];
+
+  return data;
+
+}
+

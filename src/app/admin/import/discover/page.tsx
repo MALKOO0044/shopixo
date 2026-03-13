@@ -425,58 +425,29 @@ type DiscoverRunProgress = {
 
 
 type DiscoverRunResponse = {
-
-
-
   ok: boolean;
-
-
-
   runId?: number;
-
-
-
   done?: boolean;
-
-
-
   shortfallReason?: string | null;
-
-
-
   stopReason?: string | null;
-
-
-
   error?: string;
   products?: PricedProduct[];
-
-
-
   newProducts?: PricedProduct[];
-
-
-
-  run?: {
-
-
-
-    id: number;
-
-
-
-    status: string;
-
-
-
-    progress?: DiscoverRunProgress;
-
-
-
+  queue?: {
+    state?: string;
+    position?: number | null;
+    total?: number;
+    isHead?: boolean;
+    countdownEndsAt?: string | null;
+    countdownRemainingMs?: number;
+    heartbeatTimeoutMs?: number;
+    notificationLeadMs?: number;
   };
-
-
-
+  run?: {
+    id: number;
+    status: string;
+    progress?: DiscoverRunProgress;
+  };
 };
 
 
@@ -502,6 +473,17 @@ const DISCOVER_DELETED_PIDS_STORAGE_KEY = "discover_deleted_pids_v1";
 
 
 const DEFAULT_DISCOVER_PROFILE: DiscoverProfile = "full";
+
+const DISCOVER_CLIENT_SESSION_STORAGE_KEY = "discover_client_session_id_v1";
+
+const DISCOVER_QUEUE_NOTIFICATION_LEAD_FALLBACK_MS = 60_000;
+
+function formatDiscoverQueueCountdown(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return String(minutes) + ":" + String(seconds).padStart(2, "0");
+}
 
 
 
@@ -1495,6 +1477,10 @@ export default function ProductDiscoveryPage() {
 
   const activeSearchAbortRef = useRef<AbortController | null>(null);
 
+  const discoverClientSessionIdRef = useRef<string>("");
+
+  const queueLastMinuteNotifiedRef = useRef(false);
+
 
 
   
@@ -1579,6 +1565,52 @@ export default function ProductDiscoveryPage() {
 
   const profitPresets = [100, 50, 25, 15, 8];
 
+  const ensureDiscoverClientSessionId = (): string => {
+    if (discoverClientSessionIdRef.current) return discoverClientSessionIdRef.current;
+
+    let next = "";
+
+    if (typeof window !== "undefined") {
+      try {
+        const stored = sessionStorage.getItem(DISCOVER_CLIENT_SESSION_STORAGE_KEY);
+        if (stored && stored.trim()) next = stored.trim();
+      } catch {
+      }
+    }
+
+    if (!next) {
+      next =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `discover-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+      if (typeof window !== "undefined") {
+        try {
+          sessionStorage.setItem(DISCOVER_CLIENT_SESSION_STORAGE_KEY, next);
+        } catch {
+        }
+      }
+    }
+
+    discoverClientSessionIdRef.current = next;
+    return next;
+  };
+
+  const notifyQueueLastMinute = () => {
+    if (queueLastMinuteNotifiedRef.current) return;
+
+    queueLastMinuteNotifiedRef.current = true;
+
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification("Discover Search", {
+          body: "Your queued discover search will start in about one minute.",
+        });
+      } catch {
+      }
+    }
+  };
+
 
 
   useEffect(() => {
@@ -1598,6 +1630,42 @@ export default function ProductDiscoveryPage() {
 
 
   }, [isFastDiscoverProfile, previewPage]);
+
+  useEffect(() => {
+    const handlePageExit = () => {
+      const activeRunId = activeRunIdRef.current;
+      if (!Number.isFinite(activeRunId) || !activeRunId) return;
+
+      const body = JSON.stringify({ action: "cancel" });
+
+      try {
+        if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+          const payload = new Blob([body], { type: "application/json" });
+          navigator.sendBeacon(`/api/admin/jobs/${activeRunId}`, payload);
+          return;
+        }
+      } catch {
+      }
+
+      try {
+        void fetch(`/api/admin/jobs/${activeRunId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: true,
+        });
+      } catch {
+      }
+    };
+
+    window.addEventListener("pagehide", handlePageExit);
+    window.addEventListener("beforeunload", handlePageExit);
+
+    return () => {
+      window.removeEventListener("pagehide", handlePageExit);
+      window.removeEventListener("beforeunload", handlePageExit);
+    };
+  }, []);
 
 
 
@@ -2363,6 +2431,12 @@ export default function ProductDiscoveryPage() {
 
     setSavedBatchId(null);
 
+    queueLastMinuteNotifiedRef.current = false;
+
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+
 
 
     setResultsPage(1);
@@ -2469,6 +2543,8 @@ export default function ProductDiscoveryPage() {
 
 
 
+      const clientSessionId = ensureDiscoverClientSessionId();
+
       const createRunRes = await fetch("/api/admin/cj/discover-runs", {
 
 
@@ -2539,9 +2615,9 @@ export default function ProductDiscoveryPage() {
 
           batchSize: adaptiveBatchSize,
 
-
-
           seenPids,
+
+          clientSessionId,
 
 
 
@@ -2803,6 +2879,8 @@ export default function ProductDiscoveryPage() {
 
             deletedPids: Array.from(deletedPidRuntimeRef.current),
 
+            clientSessionId,
+
 
 
           }),
@@ -2868,6 +2946,52 @@ export default function ProductDiscoveryPage() {
 
 
 
+
+        const queueState = String(stepData.queue?.state || "").trim();
+
+        const queuePosition = Number(stepData.queue?.position || NaN);
+
+        const queueTotal = Number(stepData.queue?.total || NaN);
+
+        const queueCountdownRemainingMs = Math.max(0, Number(stepData.queue?.countdownRemainingMs || 0));
+
+        const queueNotificationLeadMs = Math.max(
+          0,
+          Number(stepData.queue?.notificationLeadMs || DISCOVER_QUEUE_NOTIFICATION_LEAD_FALLBACK_MS)
+        );
+
+        const queuedWaitingTurn = queueState === "waiting_turn" || stepData.stopReason === "queued_waiting_turn";
+
+        const queuedCountdown = queueState === "countdown" || stepData.stopReason === "queued_countdown";
+
+        if (queuedWaitingTurn || queuedCountdown) {
+          if (queuedCountdown) {
+            setSearchProgress(`Queued: your turn starts in ${formatDiscoverQueueCountdown(queueCountdownRemainingMs)}.`);
+
+            if (queueCountdownRemainingMs > 0 && queueCountdownRemainingMs <= queueNotificationLeadMs) {
+              notifyQueueLastMinute();
+            } else if (queueCountdownRemainingMs > queueNotificationLeadMs) {
+              queueLastMinuteNotifiedRef.current = false;
+            }
+
+            await delay(1000);
+          } else {
+            queueLastMinuteNotifiedRef.current = false;
+
+            const positionLabel =
+              Number.isFinite(queuePosition) && queuePosition > 0 && Number.isFinite(queueTotal) && queueTotal > 0
+                ? ` (${Math.floor(queuePosition)}/${Math.floor(queueTotal)})`
+                : "";
+
+            setSearchProgress(`Queued and waiting for your turn${positionLabel}.`);
+
+            await delay(1500);
+          }
+
+          continue;
+        }
+
+        queueLastMinuteNotifiedRef.current = false;
 
         const hasIncrementalPayload = Array.isArray(stepData.newProducts);
 
@@ -3382,6 +3506,8 @@ export default function ProductDiscoveryPage() {
 
 
       setSearchProgress("");
+
+      queueLastMinuteNotifiedRef.current = false;
 
 
 

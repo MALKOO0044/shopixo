@@ -2,10 +2,14 @@ import { NextResponse } from 'next/server'
 import type { PricedProduct } from '@/components/admin/import/preview/types'
 import { ensureAdmin } from '@/lib/auth/admin-guard'
 import { loggerForRequest } from '@/lib/log'
-import { finishJob, getJob, getJobMeta, patchJob, startJob, upsertJobItemsByPidBulk } from '@/lib/jobs'
+import { cancelJob, finishJob, getJob, getJobMeta, listJobsByKindsAndStatuses, patchJob, startJob, upsertJobItemsByPidBulk } from '@/lib/jobs'
 import {
   buildDiscoverRunPayload,
   buildDiscoverSearchParams,
+  DISCOVER_QUEUE_COUNTDOWN_MS,
+  DISCOVER_QUEUE_HEARTBEAT_TIMEOUT_MS,
+  DISCOVER_QUEUE_NOTIFICATION_LEAD_MS,
+  type DiscoverRunParams,
   isDiscoverRunJob,
   normalizeDiscoverRunParams,
 } from '@/lib/discover/runs'
@@ -30,9 +34,108 @@ type SearchBatchResponse = {
   }
 }
 
+type QueueResponsePayload = {
+  state: string
+  position: number | null
+  total: number
+  isHead: boolean
+  countdownEndsAt: string | null
+  countdownRemainingMs: number
+  heartbeatTimeoutMs: number
+  notificationLeadMs: number
+}
+
+const QUEUE_HEARTBEAT_WRITE_INTERVAL_MS = 15_000
+const QUEUE_INACTIVE_CANCEL_MESSAGE = 'Search canceled because the browser tab was closed or became inactive.'
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
   return Math.max(min, Math.min(max, value))
+}
+
+function toTimestampMs(value: unknown): number | null {
+  if (typeof value !== 'string') return null
+  const time = Date.parse(value)
+  return Number.isFinite(time) ? time : null
+}
+
+function normalizeClientSessionId(value: unknown): string | null {
+  const normalized = String(value ?? '').trim()
+  return normalized ? normalized.slice(0, 200) : null
+}
+
+function buildRunProgressFromParams(params: DiscoverRunParams) {
+  const found = params.state.resultPids.length
+  const target = params.filters.quantity
+  return {
+    found,
+    target,
+    remaining: Math.max(0, target - found),
+    seenPids: params.state.seenPids.length,
+    batches: params.state.batchNumber,
+    cursor: params.state.cursor,
+    hasMore: params.state.hasMore,
+  }
+}
+
+function buildQueuePayload(input: {
+  state: string
+  position: number | null
+  total: number
+  isHead: boolean
+  countdownEndsAt: string | null
+  countdownRemainingMs: number
+}): QueueResponsePayload {
+  return {
+    state: input.state,
+    position: Number.isFinite(Number(input.position)) ? Number(input.position) : null,
+    total: Math.max(0, Math.floor(Number(input.total) || 0)),
+    isHead: Boolean(input.isHead),
+    countdownEndsAt: input.countdownEndsAt || null,
+    countdownRemainingMs: Math.max(0, Math.floor(Number(input.countdownRemainingMs) || 0)),
+    heartbeatTimeoutMs: DISCOVER_QUEUE_HEARTBEAT_TIMEOUT_MS,
+    notificationLeadMs: DISCOVER_QUEUE_NOTIFICATION_LEAD_MS,
+  }
+}
+
+async function listActiveDiscoverQueueJobs(): Promise<any[]> {
+  const rows = await listJobsByKindsAndStatuses(['discover', 'finder'], ['pending', 'running'], {
+    ascending: true,
+    limit: 2000,
+  })
+  return rows.filter((row) => isDiscoverRunJob(row))
+}
+
+async function cancelInactiveDiscoverQueueJobs(activeJobs: any[], nowMs: number): Promise<Set<number>> {
+  const canceledIds = new Set<number>()
+  for (const row of activeJobs) {
+    const jobId = Number(row?.id)
+    if (!Number.isFinite(jobId) || jobId <= 0) continue
+
+    const params = normalizeDiscoverRunParams(row?.params || {})
+    const queue = params.queue
+    const referenceMs =
+      toTimestampMs(queue.lastHeartbeatAt) ??
+      toTimestampMs(row?.started_at) ??
+      toTimestampMs(row?.created_at) ??
+      toTimestampMs(queue.enqueuedAt)
+
+    if (referenceMs !== null && nowMs - referenceMs <= DISCOVER_QUEUE_HEARTBEAT_TIMEOUT_MS) {
+      continue
+    }
+
+    const canceled = await cancelJob(jobId)
+    if (!canceled) continue
+
+    params.queue.queueState = 'canceled_inactive'
+    params.queue.lastQueueTransitionAt = new Date(nowMs).toISOString()
+    params.state.lastError = params.state.lastError || QUEUE_INACTIVE_CANCEL_MESSAGE
+    await patchJob(jobId, {
+      params,
+      error_text: QUEUE_INACTIVE_CANCEL_MESSAGE,
+    })
+    canceledIds.add(jobId)
+  }
+  return canceledIds
 }
 
 export async function POST(req: Request, ctx: { params: { id: string } }) {
@@ -52,7 +155,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       return r
     }
 
-    const jobMeta = await getJobMeta(id)
+    let jobMeta = await getJobMeta(id)
     if (!jobMeta || !isDiscoverRunJob(jobMeta)) {
       const r = NextResponse.json({ ok: false, error: 'Discover run not found' }, { status: 404 })
       r.headers.set('x-request-id', log.requestId)
@@ -66,11 +169,6 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       body = {}
     }
 
-    const deletedPidSet = await loadDiscoverDeletedPidSet({
-      extraPids: body?.deletedPids,
-      includeLegacyPids: true,
-    })
-
     if (jobMeta.status === 'success' || jobMeta.status === 'error' || jobMeta.status === 'canceled') {
       const terminalState = await getJob(id)
       if (!terminalState?.job) {
@@ -79,20 +177,225 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
         return r
       }
 
-      const payload = buildDiscoverRunPayload(terminalState, undefined, { excludedPids: deletedPidSet })
-      const r = NextResponse.json({ ok: true, ...payload }, { headers: { 'Cache-Control': 'no-store' } })
+      const payload = buildDiscoverRunPayload(terminalState, undefined, { excludedPids: await loadDiscoverDeletedPidSet({ includeLegacyPids: true }) })
+      const payloadQueue = (payload as any)?.queue || {}
+      const r = NextResponse.json(
+        {
+          ok: true,
+          ...payload,
+          queue: {
+            ...payloadQueue,
+            ...buildQueuePayload({
+              state: String(payloadQueue.state || 'waiting_turn'),
+              position: null,
+              total: 0,
+              isHead: false,
+              countdownEndsAt: payloadQueue.countdownEndsAt || null,
+              countdownRemainingMs: 0,
+            }),
+          },
+        },
+        { headers: { 'Cache-Control': 'no-store' } }
+      )
       r.headers.set('x-request-id', log.requestId)
       return r
     }
 
+    const deletedPidSet = await loadDiscoverDeletedPidSet({
+      extraPids: body?.deletedPids,
+      includeLegacyPids: true,
+    })
+
     const maxDurationMs = clamp(Number(body?.maxDurationMs ?? 7000), 1500, 9000)
     const maxBatches = clamp(Number(body?.maxBatches ?? 2), 1, 24)
 
-    if (jobMeta.status === 'pending') {
-      await startJob(id)
+    const params = normalizeDiscoverRunParams(jobMeta.params || {})
+    const nowMs = Date.now()
+    const nowIso = new Date(nowMs).toISOString()
+    const incomingClientSessionId = normalizeClientSessionId(body?.clientSessionId)
+    let queueMetaChanged = false
+
+    if (!params.queue.enqueuedAt) {
+      params.queue.enqueuedAt = nowIso
+      queueMetaChanged = true
+    }
+    if (!params.queue.lastQueueTransitionAt) {
+      params.queue.lastQueueTransitionAt = nowIso
+      queueMetaChanged = true
+    }
+    if (incomingClientSessionId && incomingClientSessionId !== params.queue.clientSessionId) {
+      params.queue.clientSessionId = incomingClientSessionId
+      queueMetaChanged = true
+    }
+    const lastHeartbeatMs = toTimestampMs(params.queue.lastHeartbeatAt)
+    if (!lastHeartbeatMs || nowMs - lastHeartbeatMs >= QUEUE_HEARTBEAT_WRITE_INTERVAL_MS || queueMetaChanged) {
+      params.queue.lastHeartbeatAt = nowIso
+      queueMetaChanged = true
+    }
+    if (queueMetaChanged) {
+      await patchJob(id, { params })
+      jobMeta = (await getJobMeta(id)) || jobMeta
     }
 
-    const params = normalizeDiscoverRunParams(jobMeta.params || {})
+    let activeQueue = await listActiveDiscoverQueueJobs()
+    const staleCanceledIds = await cancelInactiveDiscoverQueueJobs(activeQueue, nowMs)
+    if (staleCanceledIds.size > 0) {
+      activeQueue = await listActiveDiscoverQueueJobs()
+    }
+
+    const queueIndex = activeQueue.findIndex((entry) => Number(entry?.id) === id)
+    if (queueIndex < 0) {
+      const latestState = await getJob(id)
+      if (!latestState?.job || !isDiscoverRunJob(latestState.job)) {
+        const r = NextResponse.json({ ok: false, error: 'Discover run not found' }, { status: 404 })
+        r.headers.set('x-request-id', log.requestId)
+        return r
+      }
+      const payload = buildDiscoverRunPayload(latestState, undefined, { excludedPids: deletedPidSet })
+      const payloadQueue = (payload as any)?.queue || {}
+      const r = NextResponse.json(
+        {
+          ok: true,
+          ...payload,
+          queue: {
+            ...payloadQueue,
+            ...buildQueuePayload({
+              state: String(payloadQueue.state || 'waiting_turn'),
+              position: null,
+              total: 0,
+              isHead: false,
+              countdownEndsAt: payloadQueue.countdownEndsAt || null,
+              countdownRemainingMs: 0,
+            }),
+          },
+        },
+        { headers: { 'Cache-Control': 'no-store' } }
+      )
+      r.headers.set('x-request-id', log.requestId)
+      return r
+    }
+
+    const queueTotal = activeQueue.length
+    const isQueueHead = queueIndex === 0
+
+    if (!isQueueHead) {
+      let waitingPatchNeeded = false
+      if (params.queue.queueState !== 'waiting_turn') {
+        params.queue.queueState = 'waiting_turn'
+        params.queue.lastQueueTransitionAt = nowIso
+        waitingPatchNeeded = true
+      }
+      if (params.queue.countdownStartedAt || params.queue.countdownEndsAt) {
+        params.queue.countdownStartedAt = null
+        params.queue.countdownEndsAt = null
+        waitingPatchNeeded = true
+      }
+
+      const statusPatch = jobMeta.status === 'running' ? 'pending' : undefined
+      if (waitingPatchNeeded || statusPatch) {
+        await patchJob(id, {
+          params,
+          ...(statusPatch ? { status: statusPatch } : {}),
+        })
+      }
+
+      const waitingProgress = buildRunProgressFromParams(params)
+      const responsePayload = {
+        ok: true,
+        done: false,
+        stopReason: 'queued_waiting_turn',
+        shortfallReason: null,
+        quotaExhausted: params.state.quotaExhausted,
+        run: {
+          id,
+          status: statusPatch || String(jobMeta.status || 'pending'),
+          progress: waitingProgress,
+        },
+        queue: buildQueuePayload({
+          state: 'waiting_turn',
+          position: queueIndex + 1,
+          total: queueTotal,
+          isHead: false,
+          countdownEndsAt: null,
+          countdownRemainingMs: 0,
+        }),
+        debug: {
+          queueGate: {
+            queueIndex,
+            queueTotal,
+            staleCanceledIds: Array.from(staleCanceledIds),
+          },
+        },
+        products: [],
+        newProducts: [],
+        totalProducts: waitingProgress.found,
+      }
+      const r = NextResponse.json(responsePayload, { headers: { 'Cache-Control': 'no-store' } })
+      r.headers.set('x-request-id', log.requestId)
+      return r
+    }
+
+    if (params.queue.queueState !== 'running') {
+      let countdownEndsMs = toTimestampMs(params.queue.countdownEndsAt)
+      if (!countdownEndsMs) {
+        params.queue.queueState = 'countdown'
+        params.queue.countdownStartedAt = nowIso
+        params.queue.countdownEndsAt = new Date(nowMs + DISCOVER_QUEUE_COUNTDOWN_MS).toISOString()
+        params.queue.lastQueueTransitionAt = nowIso
+        await patchJob(id, { params, ...(jobMeta.status === 'running' ? { status: 'pending' as const } : {}) })
+        countdownEndsMs = toTimestampMs(params.queue.countdownEndsAt)
+      }
+
+      const countdownRemainingMs = Math.max(0, Number(countdownEndsMs || 0) - nowMs)
+      if (countdownRemainingMs > 0) {
+        const waitingProgress = buildRunProgressFromParams(params)
+        const responsePayload = {
+          ok: true,
+          done: false,
+          stopReason: 'queued_countdown',
+          shortfallReason: null,
+          quotaExhausted: params.state.quotaExhausted,
+          run: {
+            id,
+            status: 'pending',
+            progress: waitingProgress,
+          },
+          queue: buildQueuePayload({
+            state: 'countdown',
+            position: 1,
+            total: queueTotal,
+            isHead: true,
+            countdownEndsAt: params.queue.countdownEndsAt,
+            countdownRemainingMs,
+          }),
+          debug: {
+            queueGate: {
+              queueIndex,
+              queueTotal,
+              staleCanceledIds: Array.from(staleCanceledIds),
+            },
+          },
+          products: [],
+          newProducts: [],
+          totalProducts: waitingProgress.found,
+        }
+        const r = NextResponse.json(responsePayload, { headers: { 'Cache-Control': 'no-store' } })
+        r.headers.set('x-request-id', log.requestId)
+        return r
+      }
+
+      params.queue.queueState = 'running'
+      params.queue.countdownStartedAt = null
+      params.queue.countdownEndsAt = null
+      params.queue.lastQueueTransitionAt = nowIso
+      await patchJob(id, { params })
+    }
+
+    if (jobMeta.status === 'pending') {
+      await startJob(id)
+      jobMeta = { ...jobMeta, status: 'running' }
+    }
+
     let existingProducts: PricedProduct[] = []
     if (params.state.resultPids.length === 0 && Number(jobMeta?.totals?.found || 0) > 0) {
       const hydratedState = await getJob(id)
@@ -367,6 +670,14 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
           hasMore: params.state.hasMore,
         },
       },
+      queue: buildQueuePayload({
+        state: responseStatus === 'running' ? 'running' : params.queue.queueState,
+        position: responseStatus === 'running' ? 1 : null,
+        total: responseStatus === 'running' ? queueTotal : Math.max(0, queueTotal - 1),
+        isHead: responseStatus === 'running',
+        countdownEndsAt: null,
+        countdownRemainingMs: 0,
+      }),
       debug: {
         budgets: {
           maxDurationMs,
@@ -376,6 +687,11 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
         batchesRunNow,
         addedNow,
         latestBatchStopReason,
+        queueGate: {
+          queueIndex,
+          queueTotal,
+          staleCanceledIds: Array.from(staleCanceledIds),
+        },
       },
       // Keep products for compatibility with existing clients, but return only incremental deltas.
       products: newProductsThisStep,
@@ -392,3 +708,4 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     return r
   }
 }
+
