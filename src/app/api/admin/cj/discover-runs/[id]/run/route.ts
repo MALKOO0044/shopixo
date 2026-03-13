@@ -377,17 +377,12 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
 
     if (params.queue.queueState !== 'running') {
       if (!countdownRequired) {
-        const shouldPatchQueueMeta =
-          params.queue.queueState !== 'running' || Boolean(params.queue.countdownStartedAt || params.queue.countdownEndsAt)
-
         params.queue.queueState = 'running'
         params.queue.countdownStartedAt = null
         params.queue.countdownEndsAt = null
 
-        if (shouldPatchQueueMeta) {
-          params.queue.lastQueueTransitionAt = nowIso
-          await patchJob(id, { params })
-        }
+        params.queue.lastQueueTransitionAt = nowIso
+        await patchJob(id, { params })
       } else {
         let countdownEndsMs = toTimestampMs(params.queue.countdownEndsAt)
         if (!countdownEndsMs) {
