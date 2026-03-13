@@ -4270,6 +4270,10 @@ export default function ProductDiscoveryPage() {
 
       let selectedProducts = products.filter((p: PricedProduct) => selected.has(p.pid));
 
+      let hydrationFallbackNotice: string | null = null;
+
+      let skippedInvalidSelectionNotice: string | null = null;
+
 
 
       const allSelectedFromOfflineCatalog = selectedProducts.length > 0
@@ -4288,7 +4292,11 @@ export default function ProductDiscoveryPage() {
 
 
 
-        const hydrationQueue = [...selectedProducts];
+        const hydrationQueue = selectedProducts.filter((product: PricedProduct) =>
+
+          String((product as any)?.discoverSource || '').toLowerCase() !== 'offline-catalog'
+
+        );
 
 
 
@@ -4320,43 +4328,77 @@ export default function ProductDiscoveryPage() {
 
 
 
-          const response = await fetch(
+          const maxHydrationAttempts = 2;
 
-            `/api/admin/cj/products/${encodeURIComponent(product.pid)}/details?profitMargin=${encodeURIComponent(String(profitMargin))}`,
-
-            { cache: "no-store" }
-
-          );
+          let lastHydrationError: Error | null = null;
 
 
 
-          const payload = await response.json().catch(() => ({}));
+          for (let attempt = 1; attempt <= maxHydrationAttempts; attempt++) {
+
+            try {
+
+              const response = await fetch(
+
+                `/api/admin/cj/products/${encodeURIComponent(product.pid)}/details?profitMargin=${encodeURIComponent(String(profitMargin))}`,
+
+                { cache: "no-store" }
+
+              );
 
 
 
+              const payload = await response.json().catch(() => ({}));
+
+              if (response.ok && payload?.ok && payload?.product) {
+
+                hydratedByPid.set(product.pid, payload.product as PricedProduct);
+
+                return;
+
+              }
 
 
-          if (!response.ok || !payload?.ok || !payload?.product) {
+
+              const serverError = typeof payload?.error === "string" ? payload.error : `HTTP ${response.status}`;
+
+              lastHydrationError = new Error(serverError);
+
+              if (attempt < maxHydrationAttempts) {
+
+                await delay(120 + Math.floor(Math.random() * 120));
+
+                continue;
+
+              }
 
 
 
-            const serverError = typeof payload?.error === "string" ? payload.error : `HTTP ${response.status}`;
+              throw lastHydrationError;
+
+            } catch (e: any) {
+
+              lastHydrationError = new Error(String(e?.message || "hydration failed"));
+
+              if (attempt < maxHydrationAttempts) {
+
+                await delay(120 + Math.floor(Math.random() * 120));
+
+                continue;
+
+              }
 
 
 
-            throw new Error(serverError);
+              throw lastHydrationError;
 
-
+            }
 
           }
 
 
 
-
-
-          hydratedByPid.set(product.pid, payload.product as PricedProduct);
-
-
+          throw lastHydrationError || new Error("hydration failed");
 
         };
 
@@ -4422,11 +4464,11 @@ export default function ProductDiscoveryPage() {
 
           const sampleFailures = hydrationErrors.slice(0, 3).join(" | ");
 
+          hydrationFallbackNotice = `Hydration failed for ${hydrationErrors.length}/${totalToHydrate} selected products. Fallback data was used for queue add. ${sampleFailures}`;
 
+          console.warn(
 
-          throw new Error(
-
-            `Failed to hydrate ${hydrationErrors.length}/${totalToHydrate} fast-profile products before queue import. ${sampleFailures}`
+            `[Discovery] Hydration fallback applied for ${hydrationErrors.length}/${totalToHydrate} products: ${sampleFailures}`
 
           );
 
@@ -4443,6 +4485,78 @@ export default function ProductDiscoveryPage() {
 
 
       }
+
+
+
+      const queueReadyProducts = selectedProducts
+
+        .map((product: PricedProduct) => {
+
+          const normalizedVariants = Array.isArray(product?.variants)
+
+            ? product.variants.filter((variant: PricedVariant) => {
+
+                const sku = String((variant as any)?.variantSku || '').trim();
+
+                const sell = Number((variant as any)?.sellPriceSAR);
+
+                return sku.length > 0 && Number.isFinite(sell) && sell > 0;
+
+              })
+
+            : [];
+
+
+
+          const hasPid = String((product as any)?.pid || '').trim().length > 0;
+
+          const hasName = String((product as any)?.name || '').trim().length > 0;
+
+
+
+          return {
+
+            product,
+
+            normalizedVariants,
+
+            valid: hasPid && hasName && normalizedVariants.length > 0,
+
+          };
+
+        })
+
+        .filter((entry) => entry.valid);
+
+
+
+      if (queueReadyProducts.length !== selectedProducts.length) {
+
+        skippedInvalidSelectionNotice = `${selectedProducts.length - queueReadyProducts.length} selected products were skipped because required ID/name/variant pricing data was missing.`;
+
+      }
+
+
+
+      if (queueReadyProducts.length === 0) {
+
+        throw new Error(
+
+          "No selected products are queue-ready. Please re-run search and try again."
+
+        );
+
+      }
+
+
+
+      selectedProducts = queueReadyProducts.map((entry) => ({
+
+        ...entry.product,
+
+        variants: entry.normalizedVariants,
+
+      } as PricedProduct));
 
 
 
@@ -5225,6 +5339,18 @@ export default function ProductDiscoveryPage() {
         }
 
 
+
+        if (hydrationFallbackNotice) {
+
+          skippedNotices.push(hydrationFallbackNotice);
+
+        }
+
+        if (skippedInvalidSelectionNotice) {
+
+          skippedNotices.push(skippedInvalidSelectionNotice);
+
+        }
 
         if (skippedNotices.length > 0) {
 
