@@ -4253,8 +4253,29 @@ export default function ProductDiscoveryPage() {
 
     setSaving(true);
     try {
-      const selectedProducts = products.filter((p: PricedProduct) => selected.has(p.pid));
-      if (selectedProducts.length === 0) {
+      const selectedProductsWithPage = displayedProducts
+        .map((product: PricedProduct, index: number) => ({
+          product,
+          discoverResultPage: Math.floor(index / DISCOVER_RESULTS_PER_PAGE) + 1,
+        }))
+        .filter((entry) => selected.has(entry.product.pid));
+
+      if (selectedProductsWithPage.length === 0) {
+        throw new Error("No selected products found in current discover results.");
+      }
+
+      const queueEligibleProductsWithPage = isFastDiscoverProfile
+        ? selectedProductsWithPage.filter(
+            (entry) => entry.discoverResultPage >= 1 && entry.discoverResultPage <= 2
+          )
+        : selectedProductsWithPage;
+      const skippedOutsideFastPagesByClient =
+        selectedProductsWithPage.length - queueEligibleProductsWithPage.length;
+
+      if (queueEligibleProductsWithPage.length === 0) {
+        if (isFastDiscoverProfile) {
+          throw new Error("Fast profile can only queue products from search result pages 1 and 2.");
+        }
         throw new Error("No selected products found in current discover results.");
       }
 
@@ -4277,7 +4298,7 @@ export default function ProductDiscoveryPage() {
         return null;
       };
 
-      const turboProducts = selectedProducts.map((p: PricedProduct) => {
+      const turboProducts = queueEligibleProductsWithPage.map(({ product: p, discoverResultPage }) => {
         const toFiniteNumber = (value: unknown): number | null => {
           const parsed = Number(value);
           return Number.isFinite(parsed) ? parsed : null;
@@ -4420,6 +4441,7 @@ export default function ProductDiscoveryPage() {
           colorImageMap,
           variants,
           variantPricing,
+          discoverResultPage,
         };
       });
 
@@ -4441,9 +4463,20 @@ export default function ProductDiscoveryPage() {
         setSavedBatchId(turboData.batchId);
 
         const failedCount = Number(turboData.productsFailed || 0);
+        const skippedOutsideFastPagesByServer = Number(turboData.productsSkippedOutsideFastPages || 0);
         const notices: string[] = [];
         if (Number.isFinite(failedCount) && failedCount > 0) {
           notices.push(`${failedCount} products failed during fast queue add.`);
+        }
+        if (Number.isFinite(skippedOutsideFastPagesByClient) && skippedOutsideFastPagesByClient > 0) {
+          notices.push(
+            `${skippedOutsideFastPagesByClient} selected products were skipped because fast profile only allows pages 1 and 2.`
+          );
+        }
+        if (Number.isFinite(skippedOutsideFastPagesByServer) && skippedOutsideFastPagesByServer > 0) {
+          notices.push(
+            `${skippedOutsideFastPagesByServer} products were rejected server-side because fast profile only allows pages 1 and 2.`
+          );
         }
         setError(notices.length > 0 ? `Notice: ${notices.join(" ")}` : null);
         return;

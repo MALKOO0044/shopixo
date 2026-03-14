@@ -8,8 +8,6 @@ import type { PricedProduct, PricedVariant, InventoryVariant, ProductInventory }
 
 import { computeRating, normalizeDisplayedRating } from '@/lib/rating/engine';
 
-import { buildSyntheticReviewProfile } from '@/lib/reviews/synthetic-feedback';
-
 import { createClient } from '@supabase/supabase-js';
 
 import { hasTable } from '@/lib/db-features';
@@ -595,7 +593,7 @@ export async function GET(
 
     let reviewCount = 0;
 
-    let reviewMetricsSource: 'supplier' | 'synthetic' | 'none' = 'none';
+    let reviewMetricsSource: 'supplier' | 'none' = 'none';
 
     let displayedRating: number | undefined;
 
@@ -1932,18 +1930,6 @@ export async function GET(
     reviewCount = supplierMetrics.reviewCount;
 
     reviewMetricsSource = supplierMetrics.source === 'none' ? 'none' : 'supplier';
-
-
-
-    if (!(Number.isFinite(reviewCount) && reviewCount > 0)) {
-
-      const syntheticReviewProfile = buildSyntheticReviewProfile(pid);
-
-      reviewCount = syntheticReviewProfile.reviewCount;
-
-      reviewMetricsSource = 'synthetic';
-
-    }
 
 
 

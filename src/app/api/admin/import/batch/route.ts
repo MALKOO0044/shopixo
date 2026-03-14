@@ -236,6 +236,13 @@ function normalizeTurboSku(product: any): string | null {
   return null;
 }
 
+function normalizeDiscoverResultPage(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  const page = Math.floor(parsed);
+  return page > 0 ? page : null;
+}
+
 async function getTurboQueueColumns(): Promise<Set<string>> {
   if (!turboQueueColumnsPromise) {
     turboQueueColumnsPromise = hasColumns("product_queue", [...TURBO_QUEUE_WRITE_COLUMNS])
@@ -354,6 +361,7 @@ export async function POST(req: NextRequest) {
       }
 
       const turboProducts = Array.isArray(products) ? products : [];
+      const enforceFastProfilePageLimit = discoverProfileNormalized === "fast";
       const availableTurboColumns = await getTurboQueueColumns();
 
       const batch = await createImportBatch({
@@ -372,6 +380,7 @@ export async function POST(req: NextRequest) {
       const turboRows: Record<string, any>[] = [];
       const failedProducts: string[] = [];
       const errorMessages: string[] = [];
+      let skippedOutsideFastPages = 0;
 
       for (const product of turboProducts) {
         const productId = normalizeTurboText(product?.cjProductId || product?.pid || product?.productId, 255);
@@ -380,6 +389,15 @@ export async function POST(req: NextRequest) {
 
         if (!productId) {
           failedProducts.push("(missing-pid)");
+          continue;
+        }
+
+        const discoverResultPage = normalizeDiscoverResultPage(
+          product?.discoverResultPage ?? product?.discoverPage ?? product?.page
+        );
+        if (enforceFastProfilePageLimit && (!discoverResultPage || discoverResultPage < 1 || discoverResultPage > 2)) {
+          skippedOutsideFastPages++;
+          failedProducts.push(productId);
           continue;
         }
 
@@ -462,6 +480,17 @@ export async function POST(req: NextRequest) {
       }
 
       if (turboRows.length === 0) {
+        if (enforceFastProfilePageLimit && skippedOutsideFastPages > 0) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: "Fast profile can only queue products from search result pages 1 and 2.",
+              productsSkippedOutsideFastPages: skippedOutsideFastPages,
+              failedProducts: failedProducts.slice(0, 10),
+            },
+            { status: 400 }
+          );
+        }
         return NextResponse.json(
           {
             ok: false,
@@ -534,6 +563,7 @@ export async function POST(req: NextRequest) {
           products_count: turboProducts.length,
           products_added: addedCount,
           products_failed: failedCount,
+          products_skipped_outside_fast_pages: skippedOutsideFastPages,
           mode: "turbo",
           media_mode: mediaMode || "any",
           category,
@@ -549,6 +579,7 @@ export async function POST(req: NextRequest) {
         mode: "turbo",
         productsAdded: addedCount,
         productsFailed: failedCount,
+        productsSkippedOutsideFastPages: skippedOutsideFastPages,
         ...(failedCount > 0 && { warning: `${failedCount} products failed to add` }),
       });
     }
