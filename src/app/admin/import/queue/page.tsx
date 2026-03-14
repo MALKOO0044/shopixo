@@ -197,6 +197,9 @@ type QueueRepairSummary = {
   unrecoverable: number;
   failed: number;
   stoppedEarly: boolean;
+  cursorId: number | null;
+  nextCursorId: number | null;
+  hasMore: boolean;
   nextOffset: number;
   passes: number;
 };
@@ -506,6 +509,7 @@ export default function QueuePage() {
       const maxPasses = dryRun ? 1 : 18;
 
       let offset = 0;
+      let cursorId: number | null = null;
       let passes = 0;
       let totalScanned = 0;
       let totalCandidates = 0;
@@ -524,8 +528,9 @@ export default function QueuePage() {
             dryRun,
             limit: batchLimit,
             offset,
+            cursorId,
             runtimeBudgetMs: 50000,
-            statuses: ["pending", "approved", "rejected"],
+            statuses: ["pending"],
           }),
         });
 
@@ -542,6 +547,11 @@ export default function QueuePage() {
         const passFailed = Number(data?.failed || 0);
         const passStoppedEarly = Boolean(data?.stoppedEarly);
         const passNextOffset = Number(data?.nextOffset || 0);
+        const passCursorIdRaw = Number(data?.cursorId || 0);
+        const passNextCursorIdRaw = Number(data?.nextCursorId || 0);
+        const passCursorId = Number.isFinite(passCursorIdRaw) && passCursorIdRaw > 0 ? Math.floor(passCursorIdRaw) : null;
+        const passNextCursorId = Number.isFinite(passNextCursorIdRaw) && passNextCursorIdRaw > 0 ? Math.floor(passNextCursorIdRaw) : null;
+        const passHasMore = Boolean(data?.hasMore);
 
         totalScanned += passScanned;
         totalCandidates += passCandidates;
@@ -553,6 +563,7 @@ export default function QueuePage() {
         passes += 1;
 
         if (dryRun) {
+          cursorId = passNextCursorId;
           offset = passNextOffset;
           break;
         }
@@ -565,11 +576,18 @@ export default function QueuePage() {
 
         if (passStoppedEarly) {
           if (noProgressPasses >= 2) break;
+          cursorId = passCursorId;
           offset = passNextOffset;
           continue;
         }
 
-        const reachedDatasetEnd = passScanned < batchLimit || passNextOffset <= offset;
+        const reachedDatasetEnd =
+          passScanned < batchLimit ||
+          passNextOffset <= offset ||
+          !passHasMore ||
+          !passNextCursorId ||
+          (cursorId !== null && passNextCursorId >= cursorId);
+        cursorId = passNextCursorId;
         offset = passNextOffset;
         if (reachedDatasetEnd) break;
       }
@@ -582,6 +600,9 @@ export default function QueuePage() {
         unrecoverable: totalUnrecoverable,
         failed: totalFailed,
         stoppedEarly,
+        cursorId,
+        nextCursorId: cursorId,
+        hasMore: !dryRun && !stoppedEarly,
         nextOffset: offset,
         passes,
       };
@@ -1259,7 +1280,7 @@ export default function QueuePage() {
                           <Edit className="h-4 w-4" />
                         </button>
                         <Link
-                          href={`/admin/cj/product/${product.cj_product_id}`}
+                          href={`/admin/cj/product/${product.cj_product_id}?source=queue`}
                           className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
                           title="View Details"
                         >

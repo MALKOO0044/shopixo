@@ -4249,56 +4249,19 @@ export default function ProductDiscoveryPage() {
 
 
   const saveBatch = async () => {
-
-
-
     if (selected.size === 0) return;
 
-
-
-    
-
-
-
     setSaving(true);
-
-
-
     try {
-
-
-
-      const productPageByPid = new Map<string, number>();
-      for (let index = 0; index < displayedProducts.length; index++) {
-        const pid = String((displayedProducts[index] as any)?.pid || "").trim();
-        if (!pid || productPageByPid.has(pid)) continue;
-        productPageByPid.set(pid, Math.floor(index / DISCOVER_RESULTS_PER_PAGE) + 1);
-      }
-
-      let selectedProducts = products.filter((p: PricedProduct) => selected.has(p.pid));
-
+      const selectedProducts = products.filter((p: PricedProduct) => selected.has(p.pid));
       if (selectedProducts.length === 0) {
         throw new Error("No selected products found in current discover results.");
       }
 
-      let skippedOutsideFastPages = 0;
-      if (discoverProfile === "fast") {
-        const fastPageProducts = selectedProducts.filter((product: PricedProduct) => {
-          const pageNum = Number(productPageByPid.get(product.pid) || 0);
-          return Number.isFinite(pageNum) && pageNum >= 1 && pageNum <= 2;
-        });
-
-        skippedOutsideFastPages = selectedProducts.length - fastPageProducts.length;
-        selectedProducts = fastPageProducts;
-
-        if (selectedProducts.length === 0) {
-          throw new Error("Fast queue add accepts only products from preview pages 1 and 2.");
-        }
-      }
-
-      const selectedCategoryName = category !== 'all'
-        ? categories.find((c: Category) => c.categoryId === category)?.categoryName
-        : undefined;
+      const selectedCategoryName =
+        category !== "all"
+          ? categories.find((c: Category) => c.categoryId === category)?.categoryName
+          : undefined;
 
       const resolveTurboSku = (product: PricedProduct): string | null => {
         const directSku = String((product as any)?.cjSku || "").trim();
@@ -4315,13 +4278,100 @@ export default function ProductDiscoveryPage() {
       };
 
       const turboProducts = selectedProducts.map((p: PricedProduct) => {
+        const toFiniteNumber = (value: unknown): number | null => {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? parsed : null;
+        };
+
+        const text = (value: unknown, maxLength = 120000): string | null => {
+          const normalized = String(value ?? "").trim();
+          if (!normalized) return null;
+          return normalized.slice(0, maxLength);
+        };
+
         const images = Array.isArray(p.images)
           ? p.images
               .filter((img) => typeof img === "string" && img.trim().length > 0)
-              .slice(0, 3)
+              .slice(0, 20)
           : [];
 
         const stockCandidate = Number(p.stock);
+        const availableSizes = Array.isArray(p.availableSizes)
+          ? p.availableSizes
+              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+              .slice(0, 100)
+          : [];
+        const availableColors = Array.isArray(p.availableColors)
+          ? p.availableColors
+              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+              .slice(0, 100)
+          : [];
+        const availableModels = Array.isArray(p.availableModels)
+          ? p.availableModels
+              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+              .slice(0, 100)
+          : [];
+        const sizeChartImages = Array.isArray(p.sizeChartImages)
+          ? p.sizeChartImages
+              .filter((img): img is string => typeof img === "string" && img.trim().length > 0)
+              .slice(0, 40)
+          : [];
+
+        const variants = Array.isArray(p.variants)
+          ? p.variants
+              .map((variant) => {
+                const variantSku = String((variant as any)?.variantSku || (variant as any)?.sku || "").trim();
+                const sellPriceSAR = toFiniteNumber((variant as any)?.sellPriceSAR);
+                if (!variantSku || !sellPriceSAR || sellPriceSAR <= 0) return null;
+
+                return {
+                  variantId: text((variant as any)?.variantId, 255),
+                  variantSku,
+                  variantPriceUSD: toFiniteNumber((variant as any)?.variantPriceUSD) ?? 0,
+                  shippingAvailable: Boolean((variant as any)?.shippingAvailable),
+                  shippingPriceUSD: toFiniteNumber((variant as any)?.shippingPriceUSD) ?? 0,
+                  shippingPriceSAR: toFiniteNumber((variant as any)?.shippingPriceSAR) ?? 0,
+                  deliveryDays: text((variant as any)?.deliveryDays, 120) || "",
+                  logisticName: text((variant as any)?.logisticName, 255),
+                  sellPriceSAR,
+                  sellPriceUSD: toFiniteNumber((variant as any)?.sellPriceUSD) ?? undefined,
+                  totalCostSAR: toFiniteNumber((variant as any)?.totalCostSAR) ?? 0,
+                  totalCostUSD: toFiniteNumber((variant as any)?.totalCostUSD) ?? undefined,
+                  profitSAR: toFiniteNumber((variant as any)?.profitSAR) ?? 0,
+                  profitUSD: toFiniteNumber((variant as any)?.profitUSD) ?? undefined,
+                  marginPercent: toFiniteNumber((variant as any)?.marginPercent) ?? undefined,
+                  stock: toFiniteNumber((variant as any)?.stock) ?? undefined,
+                  cjStock: toFiniteNumber((variant as any)?.cjStock) ?? undefined,
+                  factoryStock: toFiniteNumber((variant as any)?.factoryStock) ?? undefined,
+                  variantName: text((variant as any)?.variantName, 255),
+                  variantImage: text((variant as any)?.variantImage, 2000),
+                  size: text((variant as any)?.size, 120),
+                  color: text((variant as any)?.color, 120),
+                };
+              })
+              .filter((variant): variant is Record<string, any> => Boolean(variant))
+          : [];
+
+        const variantPricing = variants.map((variant) => ({
+          variantId: text((variant as any)?.variantId, 255),
+          sku: text((variant as any)?.variantSku, 255),
+          color: text((variant as any)?.color, 120),
+          size: text((variant as any)?.size, 120),
+          colorImage: text((variant as any)?.variantImage, 2000),
+          price: toFiniteNumber((variant as any)?.sellPriceSAR) ?? 0,
+          priceUsd: toFiniteNumber((variant as any)?.sellPriceUSD) ?? null,
+          marginPercent: toFiniteNumber((variant as any)?.marginPercent) ?? null,
+          costPrice: toFiniteNumber((variant as any)?.variantPriceUSD) ?? null,
+          shippingCost: toFiniteNumber((variant as any)?.shippingPriceUSD) ?? null,
+          stock: toFiniteNumber((variant as any)?.stock) ?? 0,
+          cjStock: toFiniteNumber((variant as any)?.cjStock) ?? 0,
+          factoryStock: toFiniteNumber((variant as any)?.factoryStock) ?? 0,
+        }));
+
+        const colorImageMap =
+          p.colorImageMap && typeof p.colorImageMap === "object" && !Array.isArray(p.colorImageMap)
+            ? p.colorImageMap
+            : undefined;
 
         return {
           pid: p.pid,
@@ -4329,9 +4379,47 @@ export default function ProductDiscoveryPage() {
           cjSku: resolveTurboSku(p),
           name: p.name,
           categoryName: p.categoryName || selectedCategoryName || "General",
-          discoverResultPage: Number(productPageByPid.get(p.pid) || 0) || null,
           images,
           stock: Number.isFinite(stockCandidate) && stockCandidate > 0 ? Math.floor(stockCandidate) : 0,
+          minPriceSAR: toFiniteNumber(p.minPriceSAR) ?? undefined,
+          maxPriceSAR: toFiniteNumber(p.maxPriceSAR) ?? undefined,
+          avgPriceSAR: toFiniteNumber(p.avgPriceSAR) ?? undefined,
+          minPriceUSD: toFiniteNumber((p as any).minPriceUSD) ?? undefined,
+          maxPriceUSD: toFiniteNumber((p as any).maxPriceUSD) ?? undefined,
+          avgPriceUSD: toFiniteNumber((p as any).avgPriceUSD) ?? undefined,
+          profitMarginApplied: toFiniteNumber((p as any).profitMarginApplied) ?? undefined,
+          listedNum: toFiniteNumber((p as any).listedNum) ?? undefined,
+          displayedRating: toFiniteNumber((p as any).displayedRating) ?? undefined,
+          ratingConfidence: toFiniteNumber((p as any).ratingConfidence) ?? undefined,
+          reviewCount: toFiniteNumber((p as any).reviewCount) ?? undefined,
+          inventoryStatus: text((p as any).inventoryStatus, 50),
+          inventoryErrorMessage: text((p as any).inventoryErrorMessage, 4000),
+          description: text((p as any).description, 120000),
+          overview: text((p as any).overview, 120000),
+          productInfo: text((p as any).productInfo, 120000),
+          sizeInfo: text((p as any).sizeInfo, 120000),
+          productNote: text((p as any).productNote, 120000),
+          packingList: text((p as any).packingList, 120000),
+          material: text((p as any).material, 1000),
+          productType: text((p as any).productType, 500),
+          originCountry: text((p as any).originCountry, 255),
+          hsCode: text((p as any).hsCode, 255),
+          videoUrl: text((p as any).videoUrl, 2000),
+          videoSourceUrl: text((p as any).videoSourceUrl, 2000),
+          video4kUrl: text((p as any).video4kUrl, 2000),
+          videoDeliveryMode: text((p as any).videoDeliveryMode, 50),
+          videoQualityGatePassed:
+            typeof (p as any).videoQualityGatePassed === "boolean"
+              ? Boolean((p as any).videoQualityGatePassed)
+              : undefined,
+          videoSourceQualityHint: text((p as any).videoSourceQualityHint, 50),
+          availableSizes,
+          availableColors,
+          availableModels,
+          sizeChartImages,
+          colorImageMap,
+          variants,
+          variantPricing,
         };
       });
 
@@ -4349,23 +4437,11 @@ export default function ProductDiscoveryPage() {
       });
 
       const turboData = await turboRes.json().catch(() => ({}));
-
       if (turboData?.ok && turboData?.batchId) {
         setSavedBatchId(turboData.batchId);
 
         const failedCount = Number(turboData.productsFailed || 0);
-        const backendSkippedOutsideFastPages = Number(turboData.productsSkippedOutsideFastPages || 0);
-        const skippedOutsideFastPageWindow = Math.max(
-          Number.isFinite(skippedOutsideFastPages) ? skippedOutsideFastPages : 0,
-          Number.isFinite(backendSkippedOutsideFastPages) ? backendSkippedOutsideFastPages : 0
-        );
-
         const notices: string[] = [];
-        if (skippedOutsideFastPageWindow > 0) {
-          notices.push(
-            `${skippedOutsideFastPageWindow} selected products were skipped because fast profile only accepts preview pages 1-2.`
-          );
-        }
         if (Number.isFinite(failedCount) && failedCount > 0) {
           notices.push(`${failedCount} products failed during fast queue add.`);
         }
@@ -4375,29 +4451,11 @@ export default function ProductDiscoveryPage() {
 
       const turboError = typeof turboData?.error === "string" ? turboData.error : `HTTP ${turboRes.status}`;
       throw new Error(`Fast queue add failed: ${turboError}`);
-
-
-
     } catch (e: any) {
-
-
-
       setError(e?.message || "Failed to save batch");
-
-
-
     } finally {
-
-
-
       setSaving(false);
-
-
-
     }
-
-
-
   };
 
 

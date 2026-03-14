@@ -43,6 +43,7 @@ import {
 
 
 } from "@/lib/db/import-db";
+import { hasColumns } from "@/lib/db-features";
 
 
 
@@ -68,7 +69,55 @@ export const runtime = 'nodejs';
 
 export const dynamic = 'force-dynamic';
 
-const TURBO_QUEUE_IMAGE_LIMIT = 3;
+const TURBO_QUEUE_IMAGE_LIMIT = 20;
+const TURBO_QUEUE_WRITE_COLUMNS = [
+  "batch_id",
+  "cj_product_id",
+  "cj_sku",
+  "name_en",
+  "category",
+  "category_name",
+  "description_en",
+  "overview",
+  "product_info",
+  "size_info",
+  "product_note",
+  "packing_list",
+  "images",
+  "variants",
+  "variant_pricing",
+  "cj_price_usd",
+  "calculated_retail_sar",
+  "margin_applied",
+  "stock_total",
+  "total_sales",
+  "supplier_rating",
+  "displayed_rating",
+  "rating_confidence",
+  "review_count",
+  "available_sizes",
+  "available_colors",
+  "available_models",
+  "size_chart_images",
+  "material",
+  "product_type",
+  "origin_country",
+  "hs_code",
+  "color_image_map",
+  "video_url",
+  "video_source_url",
+  "video_4k_url",
+  "video_delivery_mode",
+  "video_quality_gate_passed",
+  "video_source_quality_hint",
+  "has_video",
+  "inventory_status",
+  "inventory_error_message",
+  "status",
+  "updated_at",
+] as const;
+
+let turboQueueColumnsPromise: Promise<Set<string>> | null = null;
 
 function getSupabaseAdminForTurbo() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -81,6 +130,83 @@ function normalizeTurboText(value: unknown, maxLength: number): string {
   const normalized = String(value ?? "").trim();
   if (!normalized) return "";
   return normalized.slice(0, maxLength);
+}
+
+function normalizeTurboNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeTurboInteger(value: unknown): number {
+  const parsed = normalizeTurboNumber(value);
+  if (!parsed || parsed <= 0) return 0;
+  return Math.floor(parsed);
+}
+
+function normalizeTurboArray(value: unknown, maxItems = 200): any[] {
+  if (Array.isArray(value)) return value.slice(0, maxItems);
+  if (typeof value !== "string") return [];
+
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return [];
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed.slice(0, maxItems) : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeTurboStringArray(value: unknown, maxItems = 100, maxLength = 255): string[] {
+  const source = normalizeTurboArray(value, maxItems * 3);
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const item of source) {
+    const normalized = normalizeTurboText(item, maxLength);
+    if (!normalized) continue;
+
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    out.push(normalized);
+    if (out.length >= maxItems) break;
+  }
+
+  return out;
+}
+
+function normalizeTurboObject(value: unknown, maxEntries = 200): Record<string, string> | null {
+  let source: Record<string, unknown> | null = null;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    source = value as Record<string, unknown>;
+  } else if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          source = parsed as Record<string, unknown>;
+        }
+      } catch {
+      }
+    }
+  }
+
+  if (!source) return null;
+
+  const entries: Array<[string, string]> = [];
+  for (const [rawKey, rawValue] of Object.entries(source)) {
+    const key = normalizeTurboText(rawKey, 120);
+    const valueText = normalizeTurboText(rawValue, 2000);
+    if (!key || !valueText) continue;
+    entries.push([key, valueText]);
+    if (entries.length >= maxEntries) break;
+  }
+
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
 }
 
 function normalizeTurboImages(images: unknown, fallbackImage?: unknown): string[] {
@@ -108,6 +234,28 @@ function normalizeTurboSku(product: any): string | null {
   }
 
   return null;
+}
+
+async function getTurboQueueColumns(): Promise<Set<string>> {
+  if (!turboQueueColumnsPromise) {
+    turboQueueColumnsPromise = hasColumns("product_queue", [...TURBO_QUEUE_WRITE_COLUMNS])
+      .then((columns) => {
+        const available = new Set<string>();
+        for (const column of TURBO_QUEUE_WRITE_COLUMNS) {
+          if (columns[column]) available.add(column);
+        }
+        return available;
+      })
+      .catch(() => new Set<string>([...TURBO_QUEUE_WRITE_COLUMNS]));
+  }
+  return turboQueueColumnsPromise;
+}
+
+function pickTurboFields(row: Record<string, any>, availableColumns: Set<string>): Record<string, any> {
+  const filtered = Object.fromEntries(
+    Object.entries(row).filter(([key, value]) => availableColumns.has(key) && value !== undefined)
+  );
+  return filtered;
 }
 
 
@@ -178,7 +326,6 @@ export async function POST(req: NextRequest) {
 
     const turboMode = modeNormalized === 'turbo';
     const discoverProfileNormalized = String(discoverProfile || '').trim().toLowerCase();
-    const fastDiscoverProfile = discoverProfileNormalized === 'fast';
 
 
 
@@ -206,34 +353,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: "Database connection failed" }, { status: 500 });
       }
 
-      const turboInputProducts = Array.isArray(products) ? products : [];
-      let productsSkippedOutsideFastPages = 0;
-      const turboProducts = fastDiscoverProfile
-        ? turboInputProducts.filter((product) => {
-            const pageNumber = Number(
-              product?.discoverResultPage
-              ?? product?.discoverPage
-              ?? product?.resultPage
-              ?? product?.page
-              ?? 0
-            );
-            const allowed = Number.isFinite(pageNumber) && pageNumber >= 1 && pageNumber <= 2;
-            if (!allowed) productsSkippedOutsideFastPages++;
-            return allowed;
-          })
-        : turboInputProducts;
-
-      if (fastDiscoverProfile && turboProducts.length === 0) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "Fast queue add only accepts products from discover preview pages 1 and 2.",
-            productsSkippedOutsideFastPages,
-            mode: "turbo",
-          },
-          { status: 400 }
-        );
-      }
+      const turboProducts = Array.isArray(products) ? products : [];
+      const availableTurboColumns = await getTurboQueueColumns();
 
       const batch = await createImportBatch({
         name: name || `Import ${new Date().toISOString()}`,
@@ -264,20 +385,80 @@ export async function POST(req: NextRequest) {
 
         const categoryName =
           normalizeTurboText(product?.categoryName || product?.category || category || "General", 255) || "General";
-        const stockRaw = Number(product?.stockTotal ?? product?.stock ?? 0);
-        const stockTotal = Number.isFinite(stockRaw) && stockRaw > 0 ? Math.floor(stockRaw) : 0;
+        const stockTotal = normalizeTurboInteger(product?.stockTotal ?? product?.stock ?? 0);
+        const listedNum = normalizeTurboInteger(product?.listedNum ?? product?.totalSales ?? 0);
+        const reviewCount = normalizeTurboInteger(product?.reviewCount ?? 0);
+        const displayedRating = normalizeTurboNumber(product?.displayedRating);
+        const ratingConfidence = normalizeTurboNumber(product?.ratingConfidence);
+        const minPriceSar = normalizeTurboNumber(product?.minPriceSAR ?? product?.calculatedRetailSar ?? product?.calculated_retail_sar);
+        const minPriceUsd = normalizeTurboNumber(product?.minPriceUSD ?? product?.cjPriceUsd ?? product?.cj_price_usd);
+        const marginApplied = normalizeTurboNumber(product?.profitMarginApplied ?? product?.marginApplied ?? product?.margin_applied);
+        const variants = normalizeTurboArray(product?.variants, 300);
+        const variantPricing = normalizeTurboArray(product?.variantPricing ?? product?.variant_pricing, 300);
+        const availableSizes = normalizeSizeList(
+          normalizeTurboStringArray(product?.availableSizes ?? product?.available_sizes, 120, 120)
+        );
+        const availableColors = normalizeTurboStringArray(product?.availableColors ?? product?.available_colors, 120, 120);
+        const availableModels = normalizeTurboStringArray(product?.availableModels ?? product?.available_models, 120, 120);
+        const colorImageMap = normalizeTurboObject(product?.colorImageMap ?? product?.color_image_map, 200);
+        const sizeChartImages = normalizeTurboImages(product?.sizeChartImages ?? product?.size_chart_images).slice(0, 40);
 
-        turboRows.push({
+        const videoUrl = normalizeTurboText(product?.videoUrl, 2000);
+        const videoSourceUrl = normalizeTurboText(product?.videoSourceUrl, 2000);
+        const video4kUrl = normalizeTurboText(product?.video4kUrl, 2000);
+        const hasVideo =
+          typeof product?.hasVideo === "boolean"
+            ? Boolean(product.hasVideo)
+            : [video4kUrl, videoSourceUrl, videoUrl].some((value) => Boolean(value));
+
+        const turboRow = pickTurboFields({
           batch_id: batch.id,
           cj_product_id: productId,
           cj_sku: normalizeTurboSku(product),
           name_en: productName,
           category: categoryName,
+          category_name: categoryName,
+          description_en: normalizeTurboText(product?.description, 120000) || null,
+          overview: normalizeTurboText(product?.overview, 120000) || null,
+          product_info: normalizeTurboText(product?.productInfo, 120000) || null,
+          size_info: normalizeTurboText(product?.sizeInfo, 120000) || null,
+          product_note: normalizeTurboText(product?.productNote, 120000) || null,
+          packing_list: normalizeTurboText(product?.packingList, 120000) || null,
           images: normalizeTurboImages(product?.images, product?.image),
+          variants,
+          variant_pricing: variantPricing,
+          cj_price_usd: minPriceUsd,
+          calculated_retail_sar: minPriceSar,
+          margin_applied: marginApplied,
           stock_total: stockTotal,
+          total_sales: listedNum,
+          supplier_rating: normalizeTurboNumber(product?.rating ?? product?.supplierRating),
+          displayed_rating: displayedRating,
+          rating_confidence: ratingConfidence,
+          review_count: reviewCount,
+          available_sizes: availableSizes,
+          available_colors: availableColors,
+          available_models: availableModels,
+          size_chart_images: sizeChartImages,
+          material: normalizeTurboText(product?.material, 1000) || null,
+          product_type: normalizeTurboText(product?.productType, 500) || null,
+          origin_country: normalizeTurboText(product?.originCountry, 255) || null,
+          hs_code: normalizeTurboText(product?.hsCode, 255) || null,
+          color_image_map: colorImageMap,
+          video_url: videoUrl || null,
+          video_source_url: videoSourceUrl || null,
+          video_4k_url: video4kUrl || null,
+          video_delivery_mode: normalizeTurboText(product?.videoDeliveryMode, 50) || null,
+          video_quality_gate_passed:
+            typeof product?.videoQualityGatePassed === "boolean" ? Boolean(product.videoQualityGatePassed) : null,
+          video_source_quality_hint: normalizeTurboText(product?.videoSourceQualityHint, 50) || null,
+          has_video: hasVideo,
+          inventory_status: normalizeTurboText(product?.inventoryStatus, 50) || null,
+          inventory_error_message: normalizeTurboText(product?.inventoryErrorMessage, 4000) || null,
           status: "pending",
           updated_at: nowIso,
-        });
+        }, availableTurboColumns);
+        turboRows.push(turboRow);
       }
 
       if (turboRows.length === 0) {
@@ -286,7 +467,6 @@ export async function POST(req: NextRequest) {
             ok: false,
             error: "No valid products provided for turbo queue add",
             failedProducts: failedProducts.slice(0, 10),
-            productsSkippedOutsideFastPages,
           },
           { status: 400 }
         );
@@ -344,7 +524,6 @@ export async function POST(req: NextRequest) {
             failedProducts: failedProducts.slice(0, 10),
             errorDetails: errorMessages,
             mode: "turbo",
-            productsSkippedOutsideFastPages,
           },
           { status: 500 }
         );
@@ -355,10 +534,10 @@ export async function POST(req: NextRequest) {
           products_count: turboProducts.length,
           products_added: addedCount,
           products_failed: failedCount,
-          products_skipped_outside_fast_pages: productsSkippedOutsideFastPages,
           mode: "turbo",
           media_mode: mediaMode || "any",
           category,
+          discover_profile: discoverProfileNormalized || "unknown",
         });
       } catch (logError) {
         console.warn("[Import Batch] Turbo log write failed (non-fatal):", logError);
@@ -370,7 +549,6 @@ export async function POST(req: NextRequest) {
         mode: "turbo",
         productsAdded: addedCount,
         productsFailed: failedCount,
-        productsSkippedOutsideFastPages,
         ...(failedCount > 0 && { warning: `${failedCount} products failed to add` }),
       });
     }

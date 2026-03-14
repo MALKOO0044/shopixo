@@ -384,6 +384,7 @@ export async function POST(req: NextRequest) {
     const dryRun = Boolean(body?.dryRun);
     const limitRaw = Number(body?.limit);
     const offsetRaw = Number(body?.offset);
+    const cursorIdRaw = Number(body?.cursorId);
     const runtimeBudgetRaw = Number(body?.runtimeBudgetMs);
 
     const limit = Number.isFinite(limitRaw)
@@ -392,19 +393,29 @@ export async function POST(req: NextRequest) {
     const offset = Number.isFinite(offsetRaw)
       ? Math.max(0, Math.floor(offsetRaw))
       : 0;
+    const cursorId = Number.isFinite(cursorIdRaw) && cursorIdRaw > 0
+      ? Math.floor(cursorIdRaw)
+      : null;
 
     const statuses = Array.isArray(body?.statuses)
       ? body.statuses.map((value: unknown) => text(value, 20).toLowerCase()).filter(Boolean)
-      : ["pending", "approved", "rejected"];
+      : ["pending"];
 
     let query = supabase
       .from("product_queue")
       .select("*")
-      .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1);
+      .order("id", { ascending: false });
 
     if (statuses.length > 0) {
       query = query.in("status", statuses);
+    }
+
+    if (cursorId) {
+      query = query.lt("id", cursorId).limit(limit);
+    } else if (offset > 0) {
+      query = query.range(offset, offset + limit - 1);
+    } else {
+      query = query.limit(limit);
     }
 
     const { data: rows, error: rowsError } = await query;
@@ -581,6 +592,9 @@ export async function POST(req: NextRequest) {
 
     const processedCount = repaired.length + unrecoverable.length + failed.length;
     const stoppedEarly = processedCount < brokenRows.length;
+    const lastScannedId = scannedRows.length > 0 ? Number(scannedRows[scannedRows.length - 1]?.id || 0) : 0;
+    const nextCursorId = Number.isFinite(lastScannedId) && lastScannedId > 0 ? lastScannedId : null;
+    const hasMoreCandidates = scannedRows.length >= limit;
 
     return NextResponse.json({
       ok: true,
@@ -592,6 +606,9 @@ export async function POST(req: NextRequest) {
       unrecoverable: unrecoverable.length,
       failed: failed.length,
       stoppedEarly,
+      cursorId,
+      nextCursorId: stoppedEarly ? cursorId : nextCursorId,
+      hasMore: stoppedEarly ? true : hasMoreCandidates,
       nextOffset: stoppedEarly ? offset : offset + scannedRows.length,
       repairedRows: repaired.slice(0, 50),
       unrecoverableRows: unrecoverable.slice(0, 50),
