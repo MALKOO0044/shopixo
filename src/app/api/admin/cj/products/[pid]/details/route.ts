@@ -50,6 +50,67 @@ function normalizeShippingCountryCode(value: unknown): string {
 
 }
 
+function buildMissingProductFallback(pid: string, profitMargin: number): PricedProduct {
+  const safeMargin = Number.isFinite(profitMargin) && profitMargin > 0 ? profitMargin : 8;
+  const fallbackSku = `CJ-${pid}`;
+  const baseCostUsd = 0.01;
+  const shippingUsd = 0;
+  const totalCostUsd = baseCostUsd + shippingUsd;
+  const sellPriceUsd = Math.max(0.02, totalCostUsd * (1 + safeMargin / 100));
+  const sellPriceSar = usdToSar(sellPriceUsd);
+  const totalCostSar = usdToSar(totalCostUsd);
+  const profitSar = Math.max(0, sellPriceSar - totalCostSar);
+  const profitUsd = Math.max(0, sellPriceUsd - totalCostUsd);
+
+  const fallbackVariant: PricedVariant = {
+    variantId: `${pid}-fallback`,
+    variantSku: fallbackSku,
+    variantPriceUSD: baseCostUsd,
+    shippingAvailable: true,
+    shippingPriceUSD: shippingUsd,
+    shippingPriceSAR: usdToSar(shippingUsd),
+    deliveryDays: 'N/A',
+    logisticName: 'fallback',
+    sellPriceSAR: sellPriceSar,
+    sellPriceUSD: sellPriceUsd,
+    totalCostSAR: totalCostSar,
+    totalCostUSD: totalCostUsd,
+    profitSAR: profitSar,
+    profitUSD: profitUsd,
+    marginPercent: safeMargin,
+    stock: 0,
+    cjStock: 0,
+    factoryStock: 0,
+    variantName: 'Fallback Variant',
+    error: 'cj_product_not_found_fallback',
+  };
+
+  return {
+    pid,
+    cjSku: fallbackSku,
+    name: `Unavailable CJ Product ${pid}`,
+    images: [],
+    minPriceSAR: sellPriceSar,
+    maxPriceSAR: sellPriceSar,
+    avgPriceSAR: sellPriceSar,
+    minPriceUSD: sellPriceUsd,
+    maxPriceUSD: sellPriceUsd,
+    avgPriceUSD: sellPriceUsd,
+    profitMarginApplied: safeMargin,
+    stock: 0,
+    listedNum: 0,
+    inventoryStatus: 'error',
+    inventoryErrorMessage: 'Product details not found in CJ API; fallback payload used to keep queue add non-blocking.',
+    variants: [fallbackVariant],
+    successfulVariants: 1,
+    totalVariants: 1,
+    description: 'Fallback product generated because CJ API did not return details for this PID at queue time.',
+    overview: 'Fallback product generated because CJ API did not return details for this PID at queue time.',
+    categoryName: 'General',
+    reviewCount: 0,
+  };
+}
+
 
 
 function scoreMergedImageCandidate(url: string, index: number): number {
@@ -577,14 +638,28 @@ export async function GET(
     const fullDetails = await fetchProductDetailsByPid(pid);
 
     if (!fullDetails) {
+      const referer = String(req.headers.get('referer') || '').toLowerCase();
+      const allowMissingFallback = referer.includes('/admin/import/discover');
 
-      return NextResponse.json(
+      if (!allowMissingFallback) {
+        return NextResponse.json(
+          { ok: false, error: 'Product not found in CJ API' },
+          { status: 404, headers: { 'Cache-Control': 'no-store' } }
+        );
+      }
 
-        { ok: false, error: 'Product not found in CJ API' },
+      const duration = Date.now() - startTime;
+      const fallbackProduct = buildMissingProductFallback(pid, profitMargin);
 
-        { status: 404, headers: { 'Cache-Control': 'no-store' } }
+      console.warn(`[ProductDetails] Product ${pid} not found in CJ API, returning fallback payload for discover queue continuity.`);
 
-      );
+      return NextResponse.json({
+        ok: true,
+        product: fallbackProduct,
+        duration,
+        fallback: true,
+        warning: 'Product not found in CJ API. Fallback payload returned to keep queue add non-blocking.',
+      }, { headers: { 'Cache-Control': 'no-store' } });
 
     }
 
