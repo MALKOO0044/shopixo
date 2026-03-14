@@ -4349,7 +4349,7 @@ export default function ProductDiscoveryPage() {
                   color: text((variant as any)?.color, 120),
                 };
               })
-              .filter((variant): variant is Record<string, any> => Boolean(variant))
+              .filter((variant): variant is Exclude<typeof variant, null> => variant !== null)
           : [];
 
         const variantPricing = variants.map((variant) => ({

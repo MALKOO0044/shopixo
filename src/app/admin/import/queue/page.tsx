@@ -521,7 +521,7 @@ export default function QueuePage() {
       let noProgressPasses = 0;
 
       while (passes < maxPasses) {
-        const res = await fetch("/api/admin/import/queue/repair", {
+        const res: Response = await fetch("/api/admin/import/queue/repair", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -534,7 +534,7 @@ export default function QueuePage() {
           }),
         });
 
-        const data = await res.json().catch(() => ({}));
+        const data: Record<string, any> = await res.json().catch(() => ({} as Record<string, any>));
         if (!res.ok || !data?.ok) {
           throw new Error(typeof data?.error === "string" ? data.error : "Queue repair failed");
         }
@@ -547,9 +547,9 @@ export default function QueuePage() {
         const passFailed = Number(data?.failed || 0);
         const passStoppedEarly = Boolean(data?.stoppedEarly);
         const passNextOffset = Number(data?.nextOffset || 0);
-        const passCursorIdRaw = Number(data?.cursorId || 0);
+        const passCursorIdRaw: number = Number(data?.cursorId || 0);
         const passNextCursorIdRaw = Number(data?.nextCursorId || 0);
-        const passCursorId = Number.isFinite(passCursorIdRaw) && passCursorIdRaw > 0 ? Math.floor(passCursorIdRaw) : null;
+        const passCursorId: number | null = Number.isFinite(passCursorIdRaw) && passCursorIdRaw > 0 ? Math.floor(passCursorIdRaw) : null;
         const passNextCursorId = Number.isFinite(passNextCursorIdRaw) && passNextCursorIdRaw > 0 ? Math.floor(passNextCursorIdRaw) : null;
         const passHasMore = Boolean(data?.hasMore);
 
