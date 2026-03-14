@@ -94,6 +94,22 @@ function normalizeTurboImages(images: unknown, fallbackImage?: unknown): string[
     .slice(0, TURBO_QUEUE_IMAGE_LIMIT);
 }
 
+function normalizeTurboSku(product: any): string | null {
+  const topLevelSku = normalizeTurboText(
+    product?.cjSku || product?.variantSku || product?.sku || "",
+    255
+  );
+  if (topLevelSku) return topLevelSku;
+
+  const variants = Array.isArray(product?.variants) ? product.variants : [];
+  for (const variant of variants) {
+    const variantSku = normalizeTurboText(variant?.variantSku || variant?.sku || "", 255);
+    if (variantSku) return variantSku;
+  }
+
+  return null;
+}
+
 
 
 
@@ -149,78 +165,6 @@ export async function POST(req: NextRequest) {
 
 
     }
-
-
-
-    
-
-
-
-    console.log('[Import Batch] Database configured, testing connection...');
-
-
-
-    const connTest = await testImportDbConnection();
-
-
-
-    if (!connTest.ok) {
-
-
-
-      console.error('[Import Batch] Database connection test failed:', connTest.error);
-
-
-
-      return NextResponse.json({ ok: false, error: connTest.error || "Database connection failed" }, { status: 500 });
-
-
-
-    }
-
-
-
-    
-
-
-
-    console.log('[Import Batch] Database connection verified, checking schema...');
-
-
-
-    
-
-
-
-    // Check if schema has all required columns
-
-
-
-    const schemaCheck = await checkProductQueueSchema();
-
-
-
-    if (!schemaCheck.ready) {
-
-
-
-      console.warn('[Import Batch] Schema check reported missing columns; continuing with graceful write fallback:', schemaCheck.missingColumns);
-
-
-
-    }
-
-
-
-    
-
-
-
-    console.log('[Import Batch] Schema verified, processing batch...');
-
-
-
-    
 
 
 
@@ -295,7 +239,7 @@ export async function POST(req: NextRequest) {
         turboRows.push({
           batch_id: batch.id,
           cj_product_id: productId,
-          cj_sku: normalizeTurboText(product?.cjSku, 255) || null,
+          cj_sku: normalizeTurboSku(product),
           name_en: productName,
           category: categoryName,
           images: normalizeTurboImages(product?.images, product?.image),
@@ -395,6 +339,26 @@ export async function POST(req: NextRequest) {
         ...(failedCount > 0 && { warning: `${failedCount} products failed to add` }),
       });
     }
+
+    console.log('[Import Batch] Database configured, testing connection...');
+
+    const connTest = await testImportDbConnection();
+
+    if (!connTest.ok) {
+      console.error('[Import Batch] Database connection test failed:', connTest.error);
+      return NextResponse.json({ ok: false, error: connTest.error || "Database connection failed" }, { status: 500 });
+    }
+
+    console.log('[Import Batch] Database connection verified, checking schema...');
+
+    // Check if schema has all required columns
+    const schemaCheck = await checkProductQueueSchema();
+
+    if (!schemaCheck.ready) {
+      console.warn('[Import Batch] Schema check reported missing columns; continuing with graceful write fallback:', schemaCheck.missingColumns);
+    }
+
+    console.log('[Import Batch] Schema verified, processing batch...');
 
 
 
