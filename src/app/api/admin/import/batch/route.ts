@@ -172,11 +172,13 @@ export async function POST(req: NextRequest) {
 
 
 
-    const { name, keywords, category, filters, products, mediaMode, mode } = body;
+    const { name, keywords, category, filters, products, mediaMode, mode, discoverProfile } = body;
 
     const modeNormalized = String(mode || '').trim().toLowerCase();
 
     const turboMode = modeNormalized === 'turbo';
+    const discoverProfileNormalized = String(discoverProfile || '').trim().toLowerCase();
+    const fastDiscoverProfile = discoverProfileNormalized === 'fast';
 
 
 
@@ -204,12 +206,41 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: "Database connection failed" }, { status: 500 });
       }
 
+      const turboInputProducts = Array.isArray(products) ? products : [];
+      let productsSkippedOutsideFastPages = 0;
+      const turboProducts = fastDiscoverProfile
+        ? turboInputProducts.filter((product) => {
+            const pageNumber = Number(
+              product?.discoverResultPage
+              ?? product?.discoverPage
+              ?? product?.resultPage
+              ?? product?.page
+              ?? 0
+            );
+            const allowed = Number.isFinite(pageNumber) && pageNumber >= 1 && pageNumber <= 2;
+            if (!allowed) productsSkippedOutsideFastPages++;
+            return allowed;
+          })
+        : turboInputProducts;
+
+      if (fastDiscoverProfile && turboProducts.length === 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Fast queue add only accepts products from discover preview pages 1 and 2.",
+            productsSkippedOutsideFastPages,
+            mode: "turbo",
+          },
+          { status: 400 }
+        );
+      }
+
       const batch = await createImportBatch({
         name: name || `Import ${new Date().toISOString()}`,
         keywords: keywords || "",
         category: category || "General",
         filters: filters || {},
-        productsFound: products.length,
+        productsFound: turboProducts.length,
       });
 
       if (!batch) {
@@ -221,7 +252,7 @@ export async function POST(req: NextRequest) {
       const failedProducts: string[] = [];
       const errorMessages: string[] = [];
 
-      for (const product of products) {
+      for (const product of turboProducts) {
         const productId = normalizeTurboText(product?.cjProductId || product?.pid || product?.productId, 255);
         const productNameRaw = normalizeTurboText(product?.name || product?.name_en, 500);
         const productName = productNameRaw || (productId ? `Untitled ${productId}`.slice(0, 500) : "");
@@ -255,6 +286,7 @@ export async function POST(req: NextRequest) {
             ok: false,
             error: "No valid products provided for turbo queue add",
             failedProducts: failedProducts.slice(0, 10),
+            productsSkippedOutsideFastPages,
           },
           { status: 400 }
         );
@@ -312,6 +344,7 @@ export async function POST(req: NextRequest) {
             failedProducts: failedProducts.slice(0, 10),
             errorDetails: errorMessages,
             mode: "turbo",
+            productsSkippedOutsideFastPages,
           },
           { status: 500 }
         );
@@ -319,9 +352,10 @@ export async function POST(req: NextRequest) {
 
       try {
         await logImportAction(batch.id, "batch_created_turbo", "success", {
-          products_count: products.length,
+          products_count: turboProducts.length,
           products_added: addedCount,
           products_failed: failedCount,
+          products_skipped_outside_fast_pages: productsSkippedOutsideFastPages,
           mode: "turbo",
           media_mode: mediaMode || "any",
           category,
@@ -336,6 +370,7 @@ export async function POST(req: NextRequest) {
         mode: "turbo",
         productsAdded: addedCount,
         productsFailed: failedCount,
+        productsSkippedOutsideFastPages,
         ...(failedCount > 0 && { warning: `${failedCount} products failed to add` }),
       });
     }

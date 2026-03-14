@@ -189,6 +189,18 @@ type LocalCategory = {
   children?: LocalCategory[];
 };
 
+type QueueRepairSummary = {
+  scanned: number;
+  candidates: number;
+  processed: number;
+  repaired: number;
+  unrecoverable: number;
+  failed: number;
+  stoppedEarly: boolean;
+  nextOffset: number;
+  passes: number;
+};
+
 const statusColors: Record<string, { bg: string; text: string; icon: any }> = {
   pending: { bg: "bg-amber-100", text: "text-amber-800", icon: Clock },
   approved: { bg: "bg-green-100", text: "text-green-800", icon: CheckCircle },
@@ -215,6 +227,9 @@ export default function QueuePage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editData, setEditData] = useState<Partial<QueueProduct>>({});
+  const [repairLoading, setRepairLoading] = useState(false);
+  const [repairSummary, setRepairSummary] = useState<QueueRepairSummary | null>(null);
+  const [repairSummaryMode, setRepairSummaryMode] = useState<"dry-run" | "live" | null>(null);
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
@@ -476,6 +491,115 @@ export default function QueuePage() {
     }
   };
 
+  const runQueueRepair = async (dryRun: boolean) => {
+    if (!dryRun) {
+      const confirmed = confirm(
+        "Run live queue repair now? This will update broken queue rows using live CJ data and mark unrecoverable rows as rejected."
+      );
+      if (!confirmed) return;
+    }
+
+    setRepairLoading(true);
+    setError(null);
+    try {
+      const batchLimit = 600;
+      const maxPasses = dryRun ? 1 : 18;
+
+      let offset = 0;
+      let passes = 0;
+      let totalScanned = 0;
+      let totalCandidates = 0;
+      let totalProcessed = 0;
+      let totalRepaired = 0;
+      let totalUnrecoverable = 0;
+      let totalFailed = 0;
+      let stoppedEarly = false;
+      let noProgressPasses = 0;
+
+      while (passes < maxPasses) {
+        const res = await fetch("/api/admin/import/queue/repair", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dryRun,
+            limit: batchLimit,
+            offset,
+            runtimeBudgetMs: 50000,
+            statuses: ["pending", "approved", "rejected"],
+          }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Queue repair failed");
+        }
+
+        const passScanned = Number(data?.scanned || 0);
+        const passCandidates = Number(data?.candidates || 0);
+        const passProcessed = Number(data?.processed || 0);
+        const passRepaired = Number(data?.repaired || 0);
+        const passUnrecoverable = Number(data?.unrecoverable || 0);
+        const passFailed = Number(data?.failed || 0);
+        const passStoppedEarly = Boolean(data?.stoppedEarly);
+        const passNextOffset = Number(data?.nextOffset || 0);
+
+        totalScanned += passScanned;
+        totalCandidates += passCandidates;
+        totalProcessed += passProcessed;
+        totalRepaired += passRepaired;
+        totalUnrecoverable += passUnrecoverable;
+        totalFailed += passFailed;
+        stoppedEarly = passStoppedEarly;
+        passes += 1;
+
+        if (dryRun) {
+          offset = passNextOffset;
+          break;
+        }
+
+        if (passProcessed <= 0) {
+          noProgressPasses += 1;
+        } else {
+          noProgressPasses = 0;
+        }
+
+        if (passStoppedEarly) {
+          if (noProgressPasses >= 2) break;
+          offset = passNextOffset;
+          continue;
+        }
+
+        const reachedDatasetEnd = passScanned < batchLimit || passNextOffset <= offset;
+        offset = passNextOffset;
+        if (reachedDatasetEnd) break;
+      }
+
+      const summary: QueueRepairSummary = {
+        scanned: totalScanned,
+        candidates: totalCandidates,
+        processed: totalProcessed,
+        repaired: totalRepaired,
+        unrecoverable: totalUnrecoverable,
+        failed: totalFailed,
+        stoppedEarly,
+        nextOffset: offset,
+        passes,
+      };
+
+      setRepairSummary(summary);
+      setRepairSummaryMode(dryRun ? "dry-run" : "live");
+
+      if (!dryRun) {
+        setSelected(new Set());
+        await fetchProducts();
+      }
+    } catch (e: any) {
+      setError(e?.message || "Queue repair failed");
+    } finally {
+      setRepairLoading(false);
+    }
+  };
+
   const startEdit = (product: QueueProduct) => {
     setEditingId(product.id);
     setEditData({
@@ -565,6 +689,22 @@ export default function QueuePage() {
         </div>
         <div className="flex items-center gap-3">
           <button
+            onClick={() => runQueueRepair(true)}
+            disabled={repairLoading || actionLoading}
+            className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
+          >
+            {repairLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            Dry-Run Repair
+          </button>
+          <button
+            onClick={() => runQueueRepair(false)}
+            disabled={repairLoading || actionLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 disabled:opacity-50"
+          >
+            {repairLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            Run Queue Repair
+          </button>
+          <button
             onClick={exportCsv}
             className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm hover:bg-gray-50"
           >
@@ -652,6 +792,26 @@ export default function QueuePage() {
       {error && (
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-800">
           {error}
+        </div>
+      )}
+
+      {repairSummary && (
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900 space-y-1">
+          <p className="font-semibold">
+            Queue Repair {repairSummaryMode === "dry-run" ? "Dry-Run" : "Result"}
+          </p>
+          <p>
+            Scanned: {repairSummary.scanned} | Candidates: {repairSummary.candidates} | Processed: {repairSummary.processed}
+          </p>
+          <p>
+            Repaired: {repairSummary.repaired} | Unrecoverable: {repairSummary.unrecoverable} | Failed: {repairSummary.failed}
+          </p>
+          <p>Passes executed: {repairSummary.passes}</p>
+          {repairSummary.stoppedEarly && (
+            <p>
+              Runtime budget reached. Run repair again to continue. Suggested next offset: {repairSummary.nextOffset}.
+            </p>
+          )}
         </div>
       )}
 

@@ -4268,10 +4268,32 @@ export default function ProductDiscoveryPage() {
 
 
 
-      const selectedProducts = products.filter((p: PricedProduct) => selected.has(p.pid));
+      const productPageByPid = new Map<string, number>();
+      for (let index = 0; index < displayedProducts.length; index++) {
+        const pid = String((displayedProducts[index] as any)?.pid || "").trim();
+        if (!pid || productPageByPid.has(pid)) continue;
+        productPageByPid.set(pid, Math.floor(index / DISCOVER_RESULTS_PER_PAGE) + 1);
+      }
+
+      let selectedProducts = products.filter((p: PricedProduct) => selected.has(p.pid));
 
       if (selectedProducts.length === 0) {
         throw new Error("No selected products found in current discover results.");
+      }
+
+      let skippedOutsideFastPages = 0;
+      if (discoverProfile === "fast") {
+        const fastPageProducts = selectedProducts.filter((product: PricedProduct) => {
+          const pageNum = Number(productPageByPid.get(product.pid) || 0);
+          return Number.isFinite(pageNum) && pageNum >= 1 && pageNum <= 2;
+        });
+
+        skippedOutsideFastPages = selectedProducts.length - fastPageProducts.length;
+        selectedProducts = fastPageProducts;
+
+        if (selectedProducts.length === 0) {
+          throw new Error("Fast queue add accepts only products from preview pages 1 and 2.");
+        }
       }
 
       const selectedCategoryName = category !== 'all'
@@ -4307,6 +4329,7 @@ export default function ProductDiscoveryPage() {
           cjSku: resolveTurboSku(p),
           name: p.name,
           categoryName: p.categoryName || selectedCategoryName || "General",
+          discoverResultPage: Number(productPageByPid.get(p.pid) || 0) || null,
           images,
           stock: Number.isFinite(stockCandidate) && stockCandidate > 0 ? Math.floor(stockCandidate) : 0,
         };
@@ -4331,11 +4354,22 @@ export default function ProductDiscoveryPage() {
         setSavedBatchId(turboData.batchId);
 
         const failedCount = Number(turboData.productsFailed || 0);
-        if (Number.isFinite(failedCount) && failedCount > 0) {
-          setError(`Notice: ${failedCount} products failed during fast queue add.`);
-        } else {
-          setError(null);
+        const backendSkippedOutsideFastPages = Number(turboData.productsSkippedOutsideFastPages || 0);
+        const skippedOutsideFastPageWindow = Math.max(
+          Number.isFinite(skippedOutsideFastPages) ? skippedOutsideFastPages : 0,
+          Number.isFinite(backendSkippedOutsideFastPages) ? backendSkippedOutsideFastPages : 0
+        );
+
+        const notices: string[] = [];
+        if (skippedOutsideFastPageWindow > 0) {
+          notices.push(
+            `${skippedOutsideFastPageWindow} selected products were skipped because fast profile only accepts preview pages 1-2.`
+          );
         }
+        if (Number.isFinite(failedCount) && failedCount > 0) {
+          notices.push(`${failedCount} products failed during fast queue add.`);
+        }
+        setError(notices.length > 0 ? `Notice: ${notices.join(" ")}` : null);
         return;
       }
 
