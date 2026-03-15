@@ -150,6 +150,128 @@ function preferQueuePositiveNumber(primary: unknown, fallback: unknown): number 
 
 
 
+function parseQueueTimestampMs(row: Record<string, any> | null | undefined): number {
+
+  const updatedAt = normalizeQueueText(row?.updated_at);
+
+  const createdAt = normalizeQueueText(row?.created_at);
+
+  const candidate = updatedAt || createdAt;
+
+  if (!candidate) return 0;
+
+  const parsed = Date.parse(candidate);
+
+  return Number.isFinite(parsed) ? parsed : 0;
+
+}
+
+
+
+function computeQueuePreviewScore(row: Record<string, any> | null | undefined): number {
+
+  if (!row || typeof row !== "object") return -1;
+
+  let score = 0;
+
+  const name = normalizeQueueText(row?.name_en);
+
+  if (name && !isQueueFallbackName(name)) {
+
+    score += 40;
+
+  }
+
+  const imagesCount = normalizeQueueImages(row?.images).length;
+
+  if (imagesCount > 0) {
+
+    score += 35;
+
+  }
+
+  const variantsCount = parseQueueArray(row?.variants).length + parseQueueArray(row?.variant_pricing).length;
+
+  if (variantsCount > 0) {
+
+    score += 25;
+
+  }
+
+  if (preferQueuePositiveNumber(row?.calculated_retail_sar, row?.cj_price_usd)) {
+
+    score += 10;
+
+  }
+
+  const category = normalizeQueueText(row?.category_name || row?.category).toLowerCase();
+
+  if (category && category !== "general") {
+
+    score += 6;
+
+  }
+
+  if (preferQueuePositiveNumber(row?.displayed_rating, row?.supplier_rating)) {
+
+    score += 4;
+
+  }
+
+  const inventoryStatus = normalizeQueueText(row?.inventory_status).toLowerCase();
+
+  if (inventoryStatus === "ok" || inventoryStatus === "partial") {
+
+    score += 2;
+
+  }
+
+  return score;
+
+}
+
+
+
+function chooseBestQueuePreviewRow(rows: Record<string, any>[]): Record<string, any> | null {
+
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+
+  let bestRow: Record<string, any> | null = null;
+
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  let bestTimestampMs = Number.NEGATIVE_INFINITY;
+
+  for (const row of rows) {
+
+    const rowScore = computeQueuePreviewScore(row);
+
+    const rowTimestampMs = parseQueueTimestampMs(row);
+
+    if (
+
+      rowScore > bestScore
+
+      || (rowScore === bestScore && rowTimestampMs > bestTimestampMs)
+
+    ) {
+
+      bestRow = row;
+
+      bestScore = rowScore;
+
+      bestTimestampMs = rowTimestampMs;
+
+    }
+
+  }
+
+  return bestRow;
+
+}
+
+
+
 function mergeQueuePreviewFields(baseRow: Record<string, any>, candidateRow: Record<string, any> | null): Record<string, any> {
 
   if (!candidateRow) return baseRow;
@@ -314,7 +436,7 @@ export async function GET(req: NextRequest) {
 
         .order('created_at', { ascending: false })
 
-        .limit(1);
+        .limit(100);
 
       if (singleQueryError) {
 
@@ -324,7 +446,9 @@ export async function GET(req: NextRequest) {
 
       }
 
-      const singleProduct = Array.isArray(singleRows) && singleRows.length > 0 ? singleRows[0] : null;
+      const singleProduct = chooseBestQueuePreviewRow(
+        Array.isArray(singleRows) ? (singleRows as Record<string, any>[]) : []
+      );
 
       if (!singleProduct) {
 
@@ -510,13 +634,31 @@ export async function GET(req: NextRequest) {
 
       if (!candidateRowsError && Array.isArray(candidateRows)) {
 
+        const rowsByPid = new Map<string, Record<string, any>[]>();
+
         for (const row of candidateRows) {
 
           const rowPid = normalizeQueuePid(row?.cj_product_id);
 
-          if (!rowPid || bestRowByPid.has(rowPid)) continue;
+          if (!rowPid) continue;
 
-          bestRowByPid.set(rowPid, row as Record<string, any>);
+          const existingRows = rowsByPid.get(rowPid) || [];
+
+          existingRows.push(row as Record<string, any>);
+
+          rowsByPid.set(rowPid, existingRows);
+
+        }
+
+        for (const [rowPid, rows] of rowsByPid.entries()) {
+
+          const bestRow = chooseBestQueuePreviewRow(rows);
+
+          if (bestRow) {
+
+            bestRowByPid.set(rowPid, bestRow);
+
+          }
 
         }
 

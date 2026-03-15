@@ -70,6 +70,9 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const TURBO_QUEUE_IMAGE_LIMIT = 20;
+const FAST_DISCOVER_MAX_RESULT_PAGE = 2;
+const FAST_DISCOVER_RESULTS_PER_PAGE = 40;
+const FAST_DISCOVER_PRODUCT_LIMIT = FAST_DISCOVER_MAX_RESULT_PAGE * FAST_DISCOVER_RESULTS_PER_PAGE;
 const TURBO_QUEUE_WRITE_COLUMNS = [
   "batch_id",
   "cj_product_id",
@@ -382,7 +385,8 @@ export async function POST(req: NextRequest) {
       const errorMessages: string[] = [];
       let skippedOutsideFastPages = 0;
 
-      for (const product of turboProducts) {
+      for (let productIndex = 0; productIndex < turboProducts.length; productIndex++) {
+        const product = turboProducts[productIndex];
         const productId = normalizeTurboText(product?.cjProductId || product?.pid || product?.productId, 255);
         const productNameRaw = normalizeTurboText(product?.name || product?.name_en, 500);
         const productName = productNameRaw || (productId ? `Untitled ${productId}`.slice(0, 500) : "");
@@ -392,10 +396,22 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        const discoverResultPage = normalizeDiscoverResultPage(
-          product?.discoverResultPage ?? product?.discoverPage ?? product?.page
+        let discoverResultPage = normalizeDiscoverResultPage(
+          product?.discoverResultPage
+            ?? product?.discover_result_page
+            ?? product?.discoverPage
+            ?? product?.discover_page
+            ?? product?.page
         );
-        if (enforceFastProfilePageLimit && (!discoverResultPage || discoverResultPage < 1 || discoverResultPage > 2)) {
+
+        if (enforceFastProfilePageLimit && !discoverResultPage) {
+          const derivedPageByPayloadIndex = Math.floor(productIndex / FAST_DISCOVER_RESULTS_PER_PAGE) + 1;
+          if (productIndex < FAST_DISCOVER_PRODUCT_LIMIT) {
+            discoverResultPage = normalizeDiscoverResultPage(derivedPageByPayloadIndex);
+          }
+        }
+
+        if (enforceFastProfilePageLimit && (!discoverResultPage || discoverResultPage > FAST_DISCOVER_MAX_RESULT_PAGE)) {
           skippedOutsideFastPages++;
           failedProducts.push(productId);
           continue;
