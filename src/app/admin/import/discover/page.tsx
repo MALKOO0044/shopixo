@@ -4256,18 +4256,28 @@ export default function ProductDiscoveryPage() {
       const sourceProductsForQueue = isFastDiscoverProfile ? queueSelectableProducts : displayedProducts;
       const discoverResultPageByPid = new Map<string, { product: PricedProduct; discoverResultPage: number }>();
       sourceProductsForQueue.forEach((product: PricedProduct, index: number) => {
-        const normalizedPid = normalizeDiscoverPid(product?.pid) || String(product?.pid || "").trim();
-        if (!normalizedPid) return;
+        const rawPid = String(product?.pid || "").trim();
+        const normalizedPid = normalizeDiscoverPid(rawPid);
+        if (!rawPid && !normalizedPid) return;
 
         const discoverResultPage = Math.floor(index / DISCOVER_RESULTS_PER_PAGE) + 1;
         if (Number.isInteger(discoverResultPage) && discoverResultPage > 0) {
-          discoverResultPageByPid.set(normalizedPid, { product, discoverResultPage });
+          if (rawPid && !discoverResultPageByPid.has(rawPid)) {
+            discoverResultPageByPid.set(rawPid, { product, discoverResultPage });
+          }
+          if (normalizedPid && !discoverResultPageByPid.has(normalizedPid)) {
+            discoverResultPageByPid.set(normalizedPid, { product, discoverResultPage });
+          }
         }
       });
 
       const selectedProductsWithPage = Array.from(selected).map((pid: string) => {
-        const normalizedPid = normalizeDiscoverPid(pid) || String(pid || "").trim();
-        const matched = normalizedPid ? discoverResultPageByPid.get(normalizedPid) : null;
+        const rawPid = String(pid || "").trim();
+        const normalizedPid = normalizeDiscoverPid(rawPid);
+        const matched =
+          (rawPid ? discoverResultPageByPid.get(rawPid) : null) ||
+          (normalizedPid ? discoverResultPageByPid.get(normalizedPid) : null) ||
+          null;
         if (!matched) {
           return {
             product: null as PricedProduct | null,
@@ -4461,6 +4471,9 @@ export default function ProductDiscoveryPage() {
           reviewCount: toFiniteNumber((p as any).reviewCount) ?? undefined,
           inventoryStatus: text((p as any).inventoryStatus, 50),
           inventoryErrorMessage: text((p as any).inventoryErrorMessage, 4000),
+          discoverResultPage,
+          discoverPage: discoverResultPage,
+          page: discoverResultPage,
           description: text((p as any).description, 120000),
           overview: text((p as any).overview, 120000),
           productInfo: text((p as any).productInfo, 120000),
@@ -4487,7 +4500,6 @@ export default function ProductDiscoveryPage() {
           colorImageMap,
           variants,
           variantPricing,
-          discoverResultPage,
         };
       });
 
