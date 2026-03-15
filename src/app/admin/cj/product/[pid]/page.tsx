@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react'
 
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 
 import {
 
@@ -128,9 +129,445 @@ type TabType = 'overview' | 'images' | 'specs' | 'inventory' | 'shipping' | 'var
 
 
 
+type QueuePreviewRow = Record<string, any>
+
+
+
+function toQueueText(value: unknown): string {
+
+  return String(value ?? '').trim()
+
+}
+
+
+
+function toQueueNumber(value: unknown): number | null {
+
+  const parsed = Number(value)
+
+  return Number.isFinite(parsed) ? parsed : null
+
+}
+
+
+
+function parseQueueArray(value: unknown): any[] {
+
+  if (Array.isArray(value)) return value
+
+  if (typeof value === 'string') {
+
+    const trimmed = value.trim()
+
+    if (!trimmed) return []
+
+    try {
+
+      const parsed = JSON.parse(trimmed)
+
+      return Array.isArray(parsed) ? parsed : []
+
+    } catch {
+
+      return []
+
+    }
+
+  }
+
+  return []
+
+}
+
+
+
+function parseQueueStringArray(value: unknown): string[] {
+
+  return parseQueueArray(value)
+
+    .map((entry) => toQueueText(entry))
+
+    .filter((entry) => entry.length > 0)
+
+}
+
+
+
+function mapQueueRowToPreviewProduct(row: QueuePreviewRow): PricedProduct {
+
+  const productId = toQueueText(row.cj_product_id)
+
+  const variantsRaw = parseQueueArray(row.variants)
+
+  const variantPricingRaw = parseQueueArray(row.variant_pricing)
+
+  const variantsFromRows: PricedVariant[] = variantsRaw
+
+    .map((variantRaw: any, index: number): PricedVariant | null => {
+
+      const variant = variantRaw && typeof variantRaw === 'object' ? variantRaw : {}
+
+      const variantSku = toQueueText(variant.variantSku || variant.sku)
+
+      const sellPriceSAR = toQueueNumber(variant.sellPriceSAR ?? variant.price ?? variant.sellPriceSar)
+
+      if (!variantSku || !sellPriceSAR || sellPriceSAR <= 0) return null
+
+      const cjStock = Math.max(0, Math.floor(toQueueNumber(variant.cjStock) ?? 0))
+
+      const factoryStock = Math.max(0, Math.floor(toQueueNumber(variant.factoryStock) ?? 0))
+
+      const stock = Math.max(
+
+        0,
+
+        Math.floor(toQueueNumber(variant.stock) ?? cjStock + factoryStock)
+
+      )
+
+      const variantPriceUSD = toQueueNumber(variant.variantPriceUSD ?? variant.costPrice) ?? 0
+
+      const shippingPriceUSD = toQueueNumber(variant.shippingPriceUSD ?? variant.shippingCost) ?? 0
+
+      const shippingPriceSAR = toQueueNumber(variant.shippingPriceSAR) ?? 0
+
+      const totalCostSAR = toQueueNumber(variant.totalCostSAR) ?? sellPriceSAR
+
+      const profitSAR = toQueueNumber(variant.profitSAR) ?? 0
+
+      const sellPriceUSD = toQueueNumber(variant.sellPriceUSD ?? variant.priceUsd ?? variant.sellPriceUsd) ?? undefined
+
+      const totalCostUSD = toQueueNumber(variant.totalCostUSD) ?? undefined
+
+      const profitUSD = toQueueNumber(variant.profitUSD) ?? undefined
+
+      const marginPercent = toQueueNumber(variant.marginPercent) ?? undefined
+
+      return {
+
+        variantId: toQueueText(variant.variantId) || `${productId}-${index + 1}`,
+
+        variantSku,
+
+        variantPriceUSD,
+
+        shippingAvailable: Boolean(variant.shippingAvailable ?? true),
+
+        shippingPriceUSD,
+
+        shippingPriceSAR,
+
+        deliveryDays: toQueueText(variant.deliveryDays),
+
+        logisticName: toQueueText(variant.logisticName) || undefined,
+
+        sellPriceSAR,
+
+        sellPriceUSD,
+
+        totalCostSAR,
+
+        totalCostUSD,
+
+        profitSAR,
+
+        profitUSD,
+
+        marginPercent,
+
+        stock,
+
+        cjStock,
+
+        factoryStock,
+
+        variantName: toQueueText(variant.variantName) || undefined,
+
+        variantImage: toQueueText(variant.variantImage || variant.colorImage) || undefined,
+
+        size: toQueueText(variant.size) || undefined,
+
+        color: toQueueText(variant.color) || undefined,
+
+      }
+
+    })
+
+    .filter((variant): variant is PricedVariant => Boolean(variant))
+
+  const fallbackVariants: PricedVariant[] = variantPricingRaw
+
+    .map((variantRaw: any, index: number): PricedVariant | null => {
+
+      const variant = variantRaw && typeof variantRaw === 'object' ? variantRaw : {}
+
+      const variantSku = toQueueText(variant.sku || variant.variantSku)
+
+      const sellPriceSAR = toQueueNumber(variant.price ?? variant.sellPriceSAR ?? variant.sellPriceSar)
+
+      if (!variantSku || !sellPriceSAR || sellPriceSAR <= 0) return null
+
+      const cjStock = Math.max(0, Math.floor(toQueueNumber(variant.cjStock) ?? 0))
+
+      const factoryStock = Math.max(0, Math.floor(toQueueNumber(variant.factoryStock) ?? 0))
+
+      const stock = Math.max(
+
+        0,
+
+        Math.floor(toQueueNumber(variant.stock) ?? cjStock + factoryStock)
+
+      )
+
+      return {
+
+        variantId: toQueueText(variant.variantId) || `${productId}-vp-${index + 1}`,
+
+        variantSku,
+
+        variantPriceUSD: toQueueNumber(variant.costPrice ?? variant.variantPriceUSD) ?? 0,
+
+        shippingAvailable: true,
+
+        shippingPriceUSD: toQueueNumber(variant.shippingCost ?? variant.shippingPriceUSD) ?? 0,
+
+        shippingPriceSAR: toQueueNumber(variant.shippingPriceSAR) ?? 0,
+
+        deliveryDays: '',
+
+        logisticName: undefined,
+
+        sellPriceSAR,
+
+        sellPriceUSD: toQueueNumber(variant.priceUsd ?? variant.sellPriceUSD ?? variant.sellPriceUsd) ?? undefined,
+
+        totalCostSAR: sellPriceSAR,
+
+        totalCostUSD: undefined,
+
+        profitSAR: 0,
+
+        profitUSD: undefined,
+
+        marginPercent: toQueueNumber(variant.marginPercent) ?? undefined,
+
+        stock,
+
+        cjStock,
+
+        factoryStock,
+
+        variantName: undefined,
+
+        variantImage: toQueueText(variant.colorImage) || undefined,
+
+        size: toQueueText(variant.size) || undefined,
+
+        color: toQueueText(variant.color) || undefined,
+
+      }
+
+    })
+
+    .filter((variant): variant is PricedVariant => Boolean(variant))
+
+  const variants = variantsFromRows.length > 0 ? variantsFromRows : fallbackVariants
+
+  const variantSellPriceSar = variants
+
+    .map((variant) => Number(variant.sellPriceSAR))
+
+    .filter((value): value is number => Number.isFinite(value) && value > 0)
+
+  const queueRetailSar = toQueueNumber(row.calculated_retail_sar)
+
+  const pricedSarValues = variantSellPriceSar.length > 0
+
+    ? variantSellPriceSar
+
+    : queueRetailSar && queueRetailSar > 0
+
+      ? [queueRetailSar]
+
+      : []
+
+  const minPriceSAR = pricedSarValues.length > 0 ? Math.min(...pricedSarValues) : 0
+
+  const maxPriceSAR = pricedSarValues.length > 0 ? Math.max(...pricedSarValues) : minPriceSAR
+
+  const avgPriceSAR = pricedSarValues.length > 0
+
+    ? pricedSarValues.reduce((sum, value) => sum + value, 0) / pricedSarValues.length
+
+    : minPriceSAR
+
+  const stockFromVariants = variants.reduce((sum, variant) => {
+
+    const directStock = toQueueNumber(variant.stock)
+
+    if (directStock !== null && directStock >= 0) {
+
+      return sum + Math.floor(directStock)
+
+    }
+
+    const cjStock = Math.max(0, Math.floor(toQueueNumber(variant.cjStock) ?? 0))
+
+    const factoryStock = Math.max(0, Math.floor(toQueueNumber(variant.factoryStock) ?? 0))
+
+    return sum + cjStock + factoryStock
+
+  }, 0)
+
+  const totalStock = Math.max(0, Math.floor(toQueueNumber(row.stock_total) ?? stockFromVariants))
+
+  const listedNum = Math.max(0, Math.floor(toQueueNumber(row.total_sales ?? row.listed_num) ?? 0))
+
+  const displayedRatingRaw = toQueueNumber(row.displayed_rating)
+
+  const displayedRating = displayedRatingRaw !== null ? Math.min(5, Math.max(0, displayedRatingRaw)) : undefined
+
+  const ratingConfidence = toQueueNumber(row.rating_confidence) ?? undefined
+
+  const reviewCount = Math.max(0, Math.floor(toQueueNumber(row.review_count) ?? 0))
+
+  const totalVariants = variants.length > 0
+
+    ? variants.length
+
+    : Math.max(variantsRaw.length, variantPricingRaw.length)
+
+  const inventoryStatusRaw = toQueueText(row.inventory_status)
+
+  const inventoryStatus =
+
+    inventoryStatusRaw === 'ok' || inventoryStatusRaw === 'error' || inventoryStatusRaw === 'partial'
+
+      ? inventoryStatusRaw
+
+      : undefined
+
+  const videoDeliveryModeRaw = toQueueText(row.video_delivery_mode)
+
+  const videoDeliveryMode =
+
+    videoDeliveryModeRaw === 'native' || videoDeliveryModeRaw === 'enhanced' || videoDeliveryModeRaw === 'passthrough'
+
+      ? videoDeliveryModeRaw
+
+      : undefined
+
+  const videoSourceQualityHintRaw = toQueueText(row.video_source_quality_hint)
+
+  const videoSourceQualityHint =
+
+    videoSourceQualityHintRaw === '4k' ||
+
+    videoSourceQualityHintRaw === 'hd' ||
+
+    videoSourceQualityHintRaw === 'sd' ||
+
+    videoSourceQualityHintRaw === 'unknown'
+
+      ? videoSourceQualityHintRaw
+
+      : undefined
+
+  const profitMarginApplied = toQueueNumber(row.margin_applied ?? row.profit_margin) ?? undefined
+
+  return {
+
+    pid: productId,
+
+    cjSku: toQueueText(row.cj_sku) || productId,
+
+    storeSku: toQueueText(row.store_sku || row.product_code) || undefined,
+
+    name: toQueueText(row.name_en) || productId,
+
+    images: parseQueueStringArray(row.images),
+
+    minPriceSAR,
+
+    maxPriceSAR,
+
+    avgPriceSAR,
+
+    minPriceUSD: minPriceSAR > 0 ? sarToUsd(minPriceSAR) : undefined,
+
+    maxPriceUSD: maxPriceSAR > 0 ? sarToUsd(maxPriceSAR) : undefined,
+
+    avgPriceUSD: avgPriceSAR > 0 ? sarToUsd(avgPriceSAR) : undefined,
+
+    profitMarginApplied,
+
+    stock: totalStock,
+
+    listedNum,
+
+    variants,
+
+    successfulVariants: variants.length,
+
+    totalVariants,
+
+    description: toQueueText(row.description_en) || undefined,
+
+    overview: toQueueText(row.overview) || undefined,
+
+    productInfo: toQueueText(row.product_info) || undefined,
+
+    sizeInfo: toQueueText(row.size_info) || undefined,
+
+    productNote: toQueueText(row.product_note) || undefined,
+
+    packingList: toQueueText(row.packing_list) || undefined,
+
+    displayedRating,
+
+    ratingConfidence,
+
+    reviewCount,
+
+    inventoryStatus,
+
+    inventoryErrorMessage: toQueueText(row.inventory_error_message) || undefined,
+
+    categoryName: toQueueText(row.category_name || row.category) || undefined,
+
+    sizeChartImages: parseQueueStringArray(row.size_chart_images),
+
+    videoUrl: toQueueText(row.video_url) || undefined,
+
+    videoSourceUrl: toQueueText(row.video_source_url) || undefined,
+
+    video4kUrl: toQueueText(row.video_4k_url) || undefined,
+
+    videoDeliveryMode,
+
+    videoQualityGatePassed: typeof row.video_quality_gate_passed === 'boolean' ? row.video_quality_gate_passed : undefined,
+
+    videoSourceQualityHint,
+
+    availableSizes: parseQueueStringArray(row.available_sizes),
+
+    availableColors: parseQueueStringArray(row.available_colors),
+
+    availableModels: parseQueueStringArray(row.available_models),
+
+  }
+
+}
+
+
+
 export default function CjProductAdminPage({ params }: { params: { pid: string } }) {
 
   const pid = decodeURIComponent(params.pid)
+
+  const searchParams = useSearchParams()
+
+  const sourceFromQueue = searchParams?.get('source') === 'queue'
 
   const [loading, setLoading] = useState(true)
 
@@ -162,6 +599,30 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
 
       try {
 
+        if (sourceFromQueue) {
+
+          const res = await fetch(`/api/admin/import/queue?pid=${encodeURIComponent(pid)}`, { cache: 'no-store' })
+
+          const payload = await res.json().catch(() => ({}))
+
+          if (!mounted) return
+
+          if (!res.ok || !payload?.ok || !payload?.product) {
+
+            setProduct(null)
+
+            setErr(payload?.error || 'Failed to load queue product')
+
+            return
+
+          }
+
+          setProduct(mapQueueRowToPreviewProduct(payload.product as QueuePreviewRow))
+
+          return
+
+        }
+
         const res = await fetch(`/api/admin/cj/products/${encodeURIComponent(pid)}/details`, { cache: 'no-store' })
 
         const j = await res.json()
@@ -169,6 +630,8 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
         if (!mounted) return
 
         if (!res.ok || !j.ok) {
+
+          setProduct(null)
 
           setErr(j?.error || 'Failed to load product details')
 
@@ -196,7 +659,23 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
 
     return () => { mounted = false }
 
-  }, [pid])
+  }, [pid, sourceFromQueue])
+
+  useEffect(() => {
+
+    setSelectedImageIndex(0)
+
+  }, [product?.pid])
+
+  useEffect(() => {
+
+    if (sourceFromQueue && activeTab !== 'overview' && activeTab !== 'images') {
+
+      setActiveTab('overview')
+
+    }
+
+  }, [activeTab, sourceFromQueue])
 
 
 
@@ -460,23 +939,33 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
 
 
 
-  const tabs: Array<{ id: TabType; label: string; icon: typeof Eye }> = [
+  const tabs: Array<{ id: TabType; label: string; icon: typeof Eye }> = sourceFromQueue
 
-    { id: 'overview', label: 'Overview', icon: Eye },
+    ? [
 
-    { id: 'images', label: 'Images', icon: ImageIcon },
+      { id: 'overview', label: 'Overview', icon: Eye },
 
-    { id: 'specs', label: 'Specifications', icon: FileText },
+      { id: 'images', label: 'Images', icon: ImageIcon },
 
-    { id: 'inventory', label: 'Stock & Popularity', icon: Box },
+    ]
 
-    { id: 'shipping', label: 'Shipping & Delivery', icon: Truck },
+    : [
 
-    { id: 'variants', label: 'Variants', icon: Layers },
+      { id: 'overview', label: 'Overview', icon: Eye },
 
-    { id: 'aiMedia', label: 'AI Media', icon: Sparkles },
+      { id: 'images', label: 'Images', icon: ImageIcon },
 
-  ]
+      { id: 'specs', label: 'Specifications', icon: FileText },
+
+      { id: 'inventory', label: 'Stock & Popularity', icon: Box },
+
+      { id: 'shipping', label: 'Shipping & Delivery', icon: Truck },
+
+      { id: 'variants', label: 'Variants', icon: Layers },
+
+      { id: 'aiMedia', label: 'AI Media', icon: Sparkles },
+
+    ]
 
 
 
@@ -490,9 +979,11 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
 
           <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
 
-          <p className="text-gray-600">Loading product details from CJ API...</p>
+          <p className="text-gray-600">{sourceFromQueue ? 'Loading queue preview...' : 'Loading product details from CJ API...'}</p>
 
-          <p className="text-sm text-gray-400 mt-2">This may take a moment as we fetch inventory and shipping data</p>
+          <p className="text-sm text-gray-400 mt-2">
+            {sourceFromQueue ? 'Fetching real stored queue data for preview pages 1 and 2' : 'This may take a moment as we fetch inventory and shipping data'}
+          </p>
 
         </div>
 
@@ -518,9 +1009,9 @@ export default function CjProductAdminPage({ params }: { params: { pid: string }
 
           <p className="text-gray-600 mb-4">{err || 'Product not found'}</p>
 
-          <Link href="/admin/cj" className="text-blue-600 hover:underline">
+          <Link href={sourceFromQueue ? "/admin/import/queue" : "/admin/cj"} className="text-blue-600 hover:underline">
 
-            Back to CJ Products
+            {sourceFromQueue ? 'Back to Import Queue' : 'Back to CJ Products'}
 
           </Link>
 

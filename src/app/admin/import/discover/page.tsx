@@ -466,6 +466,8 @@ const DISCOVER_IMAGE_KEY_SIZE_TOKEN_RE = /[_-](\d{2,4})x(\d{2,4})(?=\.)/gi;
 
 const DISCOVER_RESULTS_PER_PAGE = 40;
 
+const FAST_DISCOVER_MAX_RESULT_PAGE = 2;
+
 
 
 const DISCOVER_DELETED_PIDS_STORAGE_KEY = "discover_deleted_pids_v1";
@@ -3654,9 +3656,7 @@ export default function ProductDiscoveryPage() {
 
   const selectAll = (): void => {
 
-
-
-    setSelected(new Set<string>(products.map((p: PricedProduct) => p.pid)));
+    setSelected(new Set<string>(queueSelectableProducts.map((p: PricedProduct) => p.pid)));
 
 
 
@@ -4253,28 +4253,72 @@ export default function ProductDiscoveryPage() {
 
     setSaving(true);
     try {
-      const selectedProductsWithPage = displayedProducts
-        .map((product: PricedProduct, index: number) => ({
-          product,
-          discoverResultPage: Math.floor(index / DISCOVER_RESULTS_PER_PAGE) + 1,
-        }))
-        .filter((entry) => selected.has(entry.product.pid));
+      const discoverResultPageByPid = new Map<string, { product: PricedProduct; discoverResultPage: number }>();
+      displayedProducts.forEach((product: PricedProduct, index: number) => {
+        const discoverResultPage = Math.floor(index / DISCOVER_RESULTS_PER_PAGE) + 1;
+        if (Number.isInteger(discoverResultPage) && discoverResultPage > 0) {
+          discoverResultPageByPid.set(product.pid, { product, discoverResultPage });
+        }
+      });
 
-      if (selectedProductsWithPage.length === 0) {
+      const selectedProductsWithPage = Array.from(selected).map((pid: string) => {
+        const matched = discoverResultPageByPid.get(pid);
+        if (!matched) {
+          return {
+            product: null as PricedProduct | null,
+            discoverResultPage: null as number | null,
+          };
+        }
+
+        return {
+          product: matched.product,
+          discoverResultPage: matched.discoverResultPage,
+        };
+      });
+
+      const missingResultPageMetadata = selectedProductsWithPage.filter(
+        (entry) =>
+          !entry.product ||
+          !Number.isInteger(entry.discoverResultPage) ||
+          Number(entry.discoverResultPage) < 1
+      );
+
+      if (missingResultPageMetadata.length > 0) {
+        throw new Error("Unable to determine discover result page metadata for one or more selected products. Refresh and try again.");
+      }
+
+      const selectedProductsWithResolvedPage = selectedProductsWithPage
+        .filter(
+          (
+            entry
+          ): entry is {
+            product: PricedProduct;
+            discoverResultPage: number;
+          } =>
+            Boolean(entry.product) &&
+            Number.isInteger(entry.discoverResultPage) &&
+            Number(entry.discoverResultPage) >= 1
+        )
+        .map((entry) => ({
+          product: entry.product,
+          discoverResultPage: entry.discoverResultPage,
+        }));
+
+      if (selectedProductsWithResolvedPage.length === 0) {
         throw new Error("No selected products found in current discover results.");
       }
 
       const queueEligibleProductsWithPage = isFastDiscoverProfile
-        ? selectedProductsWithPage.filter(
-            (entry) => entry.discoverResultPage >= 1 && entry.discoverResultPage <= 2
+        ? selectedProductsWithResolvedPage.filter(
+            (entry) => entry.discoverResultPage >= 1 && entry.discoverResultPage <= FAST_DISCOVER_MAX_RESULT_PAGE
           )
-        : selectedProductsWithPage;
+        : selectedProductsWithResolvedPage;
       const skippedOutsideFastPagesByClient =
-        selectedProductsWithPage.length - queueEligibleProductsWithPage.length;
+        selectedProductsWithResolvedPage.length - queueEligibleProductsWithPage.length;
 
       if (queueEligibleProductsWithPage.length === 0) {
         if (isFastDiscoverProfile) {
-          throw new Error("Fast profile can only queue products from search result pages 1 and 2.");
+          throw new Error(`Fast profile can only queue products from search result pages 1 and ${FAST_DISCOVER_MAX_RESULT_PAGE}.`);
         }
         throw new Error("No selected products found in current discover results.");
       }
@@ -4811,75 +4855,50 @@ export default function ProductDiscoveryPage() {
 
   const displayedProducts = products;
 
+  const totalResultsPagesRaw = Math.max(1, Math.ceil(displayedProducts.length / DISCOVER_RESULTS_PER_PAGE));
 
+  const totalResultsPages = isFastDiscoverProfile
+    ? Math.min(FAST_DISCOVER_MAX_RESULT_PAGE, totalResultsPagesRaw)
+    : totalResultsPagesRaw;
 
-  const totalResultsPages = Math.max(1, Math.ceil(displayedProducts.length / DISCOVER_RESULTS_PER_PAGE));
+  const queueSelectableProducts = useMemo(() => {
+    if (!isFastDiscoverProfile) return displayedProducts;
+    const maxSelectableProducts = totalResultsPages * DISCOVER_RESULTS_PER_PAGE;
+    return displayedProducts.slice(0, maxSelectableProducts);
+  }, [displayedProducts, isFastDiscoverProfile, totalResultsPages]);
 
-
+  const fastProfileRestrictedPagesCount = Math.max(0, totalResultsPagesRaw - totalResultsPages);
 
   const pagedProducts = useMemo(() => {
 
-
-
     const start = (resultsPage - 1) * DISCOVER_RESULTS_PER_PAGE;
 
+    return queueSelectableProducts.slice(start, start + DISCOVER_RESULTS_PER_PAGE);
 
+  }, [queueSelectableProducts, resultsPage]);
 
-    return displayedProducts.slice(start, start + DISCOVER_RESULTS_PER_PAGE);
-
-
-
-  }, [displayedProducts, resultsPage]);
-
-
-
-  const currentPageStart = displayedProducts.length === 0
-
-
-
+  const currentPageStart = queueSelectableProducts.length === 0
     ? 0
-
-
-
     : (resultsPage - 1) * DISCOVER_RESULTS_PER_PAGE + 1;
 
-
-
-  const currentPageEnd = Math.min(resultsPage * DISCOVER_RESULTS_PER_PAGE, displayedProducts.length);
-
+  const currentPageEnd = Math.min(resultsPage * DISCOVER_RESULTS_PER_PAGE, queueSelectableProducts.length);
 
 
   const visiblePageNumbers = useMemo(() => {
 
-
-
     const out: number[] = [];
-
-
 
     const start = Math.max(1, resultsPage - 2);
 
-
-
     const end = Math.min(totalResultsPages, resultsPage + 2);
-
-
 
     for (let page = start; page <= end; page++) {
 
-
-
       out.push(page);
-
-
 
     }
 
-
-
     return out;
-
-
 
   }, [resultsPage, totalResultsPages]);
 
@@ -4887,19 +4906,33 @@ export default function ProductDiscoveryPage() {
 
 
 
-
-
   useEffect(() => {
-
-
 
     setResultsPage((prev) => Math.min(prev, totalResultsPages));
 
-
-
   }, [totalResultsPages]);
 
+  useEffect(() => {
+    if (!isFastDiscoverProfile) return;
 
+    const selectablePids = new Set(queueSelectableProducts.map((product: PricedProduct) => product.pid));
+
+    setSelected((prev: Set<string>) => {
+      if (prev.size === 0) return prev;
+
+      let hasRemoved = false;
+      const next = new Set<string>();
+      for (const pid of prev) {
+        if (selectablePids.has(pid)) {
+          next.add(pid);
+        } else {
+          hasRemoved = true;
+        }
+      }
+
+      return hasRemoved ? next : prev;
+    });
+  }, [isFastDiscoverProfile, queueSelectableProducts]);
 
 
 
@@ -5001,6 +5034,8 @@ export default function ProductDiscoveryPage() {
 
 
 
+    const pageInputHint = isFastDiscoverProfile ? "1-2" : "1,3,5-8";
+
     const parsed = parseDiscoverPageSelectionInput(pageSelectionInput, totalResultsPages);
 
 
@@ -5009,7 +5044,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-      setError(`Invalid page input: ${parsed.invalidTokens.join(", ")}. Use formats like 1,3,5-8.`);
+      setError(`Invalid page input: ${parsed.invalidTokens.join(", ")}. Use formats like ${pageInputHint}.`);
 
 
 
@@ -5029,7 +5064,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-      setError("Enter one or more pages (example: 1,3,5-8).");
+      setError(`Enter one or more pages (example: ${pageInputHint}).`);
 
 
 
@@ -5057,7 +5092,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-      const pageProducts = displayedProducts.slice(start, start + DISCOVER_RESULTS_PER_PAGE);
+      const pageProducts = queueSelectableProducts.slice(start, start + DISCOVER_RESULTS_PER_PAGE);
 
 
 
@@ -6803,6 +6838,15 @@ export default function ProductDiscoveryPage() {
 
               </span>
 
+              {isFastDiscoverProfile && fastProfileRestrictedPagesCount > 0 && (
+                <>
+                  <span className="text-sm text-gray-400">|</span>
+                  <span className="text-sm text-amber-700">
+                    Fast profile shows only result pages 1-2
+                  </span>
+                </>
+              )}
+
 
 
             </div>
@@ -6853,7 +6897,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-                placeholder="1,3,5-8"
+                placeholder={isFastDiscoverProfile ? "1-2" : "1,3,5-8"}
 
 
 
@@ -7517,7 +7561,7 @@ export default function ProductDiscoveryPage() {
 
 
 
-          {displayedProducts.length > DISCOVER_RESULTS_PER_PAGE && (
+          {queueSelectableProducts.length > DISCOVER_RESULTS_PER_PAGE && (
 
 
 
