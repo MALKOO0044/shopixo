@@ -86,6 +86,194 @@ function normalizeQueuePid(value: unknown): string {
 
 
 
+function parseQueueArray(value: unknown): unknown[] {
+
+  if (Array.isArray(value)) return value;
+
+  if (typeof value === "string") {
+
+    const trimmed = value.trim();
+
+    if (!trimmed) return [];
+
+    try {
+
+      const parsed = JSON.parse(trimmed);
+
+      return Array.isArray(parsed) ? parsed : [];
+
+    } catch {
+
+      return [];
+
+    }
+
+  }
+
+  return [];
+
+}
+
+
+
+function normalizeQueueText(value: unknown): string {
+
+  return String(value ?? "").trim();
+
+}
+
+
+
+function isQueueFallbackName(value: unknown): boolean {
+
+  const lowered = normalizeQueueText(value).toLowerCase();
+
+  return lowered.length === 0 || lowered.startsWith("unavailable cj product") || lowered.startsWith("untitled ");
+
+}
+
+
+
+function preferQueuePositiveNumber(primary: unknown, fallback: unknown): number | null {
+
+  const primaryNum = Number(primary);
+
+  if (Number.isFinite(primaryNum) && primaryNum > 0) return primaryNum;
+
+  const fallbackNum = Number(fallback);
+
+  if (Number.isFinite(fallbackNum) && fallbackNum > 0) return fallbackNum;
+
+  return null;
+
+}
+
+
+
+function mergeQueuePreviewFields(baseRow: Record<string, any>, candidateRow: Record<string, any> | null): Record<string, any> {
+
+  if (!candidateRow) return baseRow;
+
+  const baseImages = normalizeQueueImages(baseRow?.images);
+
+  const candidateImages = normalizeQueueImages(candidateRow?.images);
+
+  const baseVariantsCount =
+
+    parseQueueArray(baseRow?.variants).length + parseQueueArray(baseRow?.variant_pricing).length;
+
+  const baseName = normalizeQueueText(baseRow?.name_en);
+
+  const candidateName = normalizeQueueText(candidateRow?.name_en);
+
+  const baseCategory = normalizeQueueText(baseRow?.category_name || baseRow?.category);
+
+  const candidateCategory = normalizeQueueText(candidateRow?.category_name || candidateRow?.category);
+
+  const shouldUseCandidateName = isQueueFallbackName(baseName) && !isQueueFallbackName(candidateName);
+
+  const shouldUseCandidateCategory =
+
+    (!baseCategory || baseCategory.toLowerCase() === "general") &&
+
+    candidateCategory.length > 0 &&
+
+    candidateCategory.toLowerCase() !== "general";
+
+  return {
+
+    ...baseRow,
+
+    name_en: shouldUseCandidateName ? candidateRow?.name_en : baseRow?.name_en,
+
+    category: shouldUseCandidateCategory ? (candidateRow?.category ?? candidateCategory) : baseRow?.category,
+
+    category_name: shouldUseCandidateCategory ? (candidateRow?.category_name ?? candidateCategory) : baseRow?.category_name,
+
+    store_sku: normalizeQueueText(baseRow?.store_sku) ? baseRow?.store_sku : candidateRow?.store_sku,
+
+    product_code: normalizeQueueText(baseRow?.product_code) ? baseRow?.product_code : candidateRow?.product_code,
+
+    images: baseImages.length > 0 ? baseImages : candidateImages,
+
+    variants: baseVariantsCount > 0 ? baseRow?.variants : candidateRow?.variants,
+
+    variant_pricing: parseQueueArray(baseRow?.variant_pricing).length > 0 ? baseRow?.variant_pricing : candidateRow?.variant_pricing,
+
+    available_sizes: parseQueueArray(baseRow?.available_sizes).length > 0 ? baseRow?.available_sizes : candidateRow?.available_sizes,
+
+    available_colors: parseQueueArray(baseRow?.available_colors).length > 0 ? baseRow?.available_colors : candidateRow?.available_colors,
+
+    calculated_retail_sar:
+
+      preferQueuePositiveNumber(baseRow?.calculated_retail_sar, candidateRow?.calculated_retail_sar) ??
+
+      baseRow?.calculated_retail_sar ??
+
+      candidateRow?.calculated_retail_sar,
+
+    cj_price_usd:
+
+      preferQueuePositiveNumber(baseRow?.cj_price_usd, candidateRow?.cj_price_usd) ??
+
+      baseRow?.cj_price_usd ??
+
+      candidateRow?.cj_price_usd,
+
+    displayed_rating:
+
+      preferQueuePositiveNumber(baseRow?.displayed_rating, candidateRow?.displayed_rating) ??
+
+      baseRow?.displayed_rating ??
+
+      candidateRow?.displayed_rating,
+
+    supplier_rating:
+
+      preferQueuePositiveNumber(baseRow?.supplier_rating, candidateRow?.supplier_rating) ??
+
+      baseRow?.supplier_rating ??
+
+      candidateRow?.supplier_rating,
+
+    rating_confidence:
+
+      preferQueuePositiveNumber(baseRow?.rating_confidence, candidateRow?.rating_confidence) ??
+
+      baseRow?.rating_confidence ??
+
+      candidateRow?.rating_confidence,
+
+    review_count:
+
+      preferQueuePositiveNumber(baseRow?.review_count, candidateRow?.review_count) ??
+
+      baseRow?.review_count ??
+
+      candidateRow?.review_count,
+
+    stock_total:
+
+      preferQueuePositiveNumber(baseRow?.stock_total, candidateRow?.stock_total) ??
+
+      baseRow?.stock_total ??
+
+      candidateRow?.stock_total,
+
+    video_url: normalizeQueueText(baseRow?.video_url) ? baseRow?.video_url : candidateRow?.video_url,
+
+    video_source_url: normalizeQueueText(baseRow?.video_source_url) ? baseRow?.video_source_url : candidateRow?.video_source_url,
+
+    video_4k_url: normalizeQueueText(baseRow?.video_4k_url) ? baseRow?.video_4k_url : candidateRow?.video_4k_url,
+
+    has_video: typeof baseRow?.has_video === "boolean" ? baseRow?.has_video : candidateRow?.has_video,
+
+  };
+
+}
+
+
+
 export async function GET(req: NextRequest) {
 
   try {
@@ -196,7 +384,9 @@ export async function GET(req: NextRequest) {
 
 
 
-    query = query.order('quality_score', { ascending: false })
+    query = query.order('updated_at', { ascending: false })
+
+                 .order('quality_score', { ascending: false })
 
                  .order('created_at', { ascending: false })
 
@@ -230,13 +420,31 @@ export async function GET(req: NextRequest) {
 
 
 
-    const { count: totalCount } = await supabase
+    let totalCountQuery = supabase
 
       .from('product_queue')
 
-      .select('*', { count: 'exact', head: true })
+      .select('*', { count: 'exact', head: true });
 
-      .eq('status', status === "all" ? "pending" : status);
+    if (status !== "all") {
+
+      totalCountQuery = totalCountQuery.eq('status', status);
+
+    }
+
+    if (batchId) {
+
+      totalCountQuery = totalCountQuery.eq('batch_id', Number(batchId));
+
+    }
+
+    if (category && category !== "all") {
+
+      totalCountQuery = totalCountQuery.eq('category', category);
+
+    }
+
+    const { count: totalCount } = await totalCountQuery;
 
 
 
@@ -268,13 +476,71 @@ export async function GET(req: NextRequest) {
 
 
 
-    const normalizedProducts = (products || []).map((product: any) => ({
+    const queueRows = Array.isArray(products) ? products : [];
 
-      ...product,
+    const rowPids = Array.from(
 
-      images: normalizeQueueImages(product?.images),
+      new Set(
 
-    }));
+        queueRows
+
+          .map((row: any) => normalizeQueuePid(row?.cj_product_id))
+
+          .filter((rowPid) => rowPid.length > 0)
+
+      )
+
+    );
+
+    const bestRowByPid = new Map<string, Record<string, any>>();
+
+    if (rowPids.length > 0) {
+
+      const { data: candidateRows, error: candidateRowsError } = await supabase
+
+        .from('product_queue')
+
+        .select('*')
+
+        .in('cj_product_id', rowPids)
+
+        .order('updated_at', { ascending: false })
+
+        .order('created_at', { ascending: false });
+
+      if (!candidateRowsError && Array.isArray(candidateRows)) {
+
+        for (const row of candidateRows) {
+
+          const rowPid = normalizeQueuePid(row?.cj_product_id);
+
+          if (!rowPid || bestRowByPid.has(rowPid)) continue;
+
+          bestRowByPid.set(rowPid, row as Record<string, any>);
+
+        }
+
+      }
+
+    }
+
+    const normalizedProducts = queueRows.map((product: any) => {
+
+      const rowPid = normalizeQueuePid(product?.cj_product_id);
+
+      const candidateRow = rowPid ? bestRowByPid.get(rowPid) || null : null;
+
+      const mergedRow = mergeQueuePreviewFields(product, candidateRow);
+
+      return {
+
+        ...mergedRow,
+
+        images: normalizeQueueImages(mergedRow?.images),
+
+      };
+
+    });
 
 
 

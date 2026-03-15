@@ -4253,16 +4253,21 @@ export default function ProductDiscoveryPage() {
 
     setSaving(true);
     try {
+      const sourceProductsForQueue = isFastDiscoverProfile ? queueSelectableProducts : displayedProducts;
       const discoverResultPageByPid = new Map<string, { product: PricedProduct; discoverResultPage: number }>();
-      displayedProducts.forEach((product: PricedProduct, index: number) => {
+      sourceProductsForQueue.forEach((product: PricedProduct, index: number) => {
+        const normalizedPid = normalizeDiscoverPid(product?.pid) || String(product?.pid || "").trim();
+        if (!normalizedPid) return;
+
         const discoverResultPage = Math.floor(index / DISCOVER_RESULTS_PER_PAGE) + 1;
         if (Number.isInteger(discoverResultPage) && discoverResultPage > 0) {
-          discoverResultPageByPid.set(product.pid, { product, discoverResultPage });
+          discoverResultPageByPid.set(normalizedPid, { product, discoverResultPage });
         }
       });
 
       const selectedProductsWithPage = Array.from(selected).map((pid: string) => {
-        const matched = discoverResultPageByPid.get(pid);
+        const normalizedPid = normalizeDiscoverPid(pid) || String(pid || "").trim();
+        const matched = normalizedPid ? discoverResultPageByPid.get(normalizedPid) : null;
         if (!matched) {
           return {
             product: null as PricedProduct | null,
@@ -4276,16 +4281,12 @@ export default function ProductDiscoveryPage() {
         };
       });
 
-      const missingResultPageMetadata = selectedProductsWithPage.filter(
+      const missingResultPageMetadataCount = selectedProductsWithPage.filter(
         (entry) =>
           !entry.product ||
           !Number.isInteger(entry.discoverResultPage) ||
           Number(entry.discoverResultPage) < 1
-      );
-
-      if (missingResultPageMetadata.length > 0) {
-        throw new Error("Unable to determine discover result page metadata for one or more selected products. Refresh and try again.");
-      }
+      ).length;
 
       const selectedProductsWithResolvedPage = selectedProductsWithPage
         .filter(
@@ -4313,6 +4314,7 @@ export default function ProductDiscoveryPage() {
             (entry) => entry.discoverResultPage >= 1 && entry.discoverResultPage <= FAST_DISCOVER_MAX_RESULT_PAGE
           )
         : selectedProductsWithResolvedPage;
+      const skippedMissingMetadataByClient = missingResultPageMetadataCount;
       const skippedOutsideFastPagesByClient =
         selectedProductsWithResolvedPage.length - queueEligibleProductsWithPage.length;
 
@@ -4511,6 +4513,11 @@ export default function ProductDiscoveryPage() {
         const notices: string[] = [];
         if (Number.isFinite(failedCount) && failedCount > 0) {
           notices.push(`${failedCount} products failed during fast queue add.`);
+        }
+        if (Number.isFinite(skippedMissingMetadataByClient) && skippedMissingMetadataByClient > 0) {
+          notices.push(
+            `${skippedMissingMetadataByClient} selected products were skipped because they are outside the current fast-profile result set.`
+          );
         }
         if (Number.isFinite(skippedOutsideFastPagesByClient) && skippedOutsideFastPagesByClient > 0) {
           notices.push(
